@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "PremioLab",
+    "slug": "premiolab",
+    "version": "4.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "scheme": "premiolab",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#070a11"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.premiolab.app",
+      "backgroundColor": "#070a11"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#070a11"
+      },
+      "package": "com.premiolab.app"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-secure-store",
+      "expo-asset"
+    ]
+  }
+}
