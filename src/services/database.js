@@ -77,9 +77,10 @@ export async function getPositions(userId) {
   var positions = {};
   for (var i = 0; i < ops.length; i++) {
     var op = ops[i];
-    if (!positions[op.ticker]) {
-      positions[op.ticker] = {
-        ticker: op.ticker,
+    var tickerKey = (op.ticker || '').toUpperCase().trim();
+    if (!positions[tickerKey]) {
+      positions[tickerKey] = {
+        ticker: tickerKey,
         categoria: op.categoria,
         quantidade: 0,
         custo_total: 0,
@@ -87,7 +88,7 @@ export async function getPositions(userId) {
         por_corretora: {},
       };
     }
-    var p = positions[op.ticker];
+    var p = positions[tickerKey];
     var corr = op.corretora || 'Sem corretora';
     if (!p.por_corretora[corr]) {
       p.por_corretora[corr] = 0;
