@@ -71,7 +71,7 @@ src/
 |--------|-----------|
 | `profiles` | id, nome, meta_mensal, selic |
 | `operacoes` | ticker, tipo(compra/venda), categoria(acao/fii/etf), quantidade, preco, custos, corretora, data |
-| `opcoes` | ativo_base, ticker_opcao, tipo(call/put), direcao(venda/compra/lancamento), strike, premio, quantidade, vencimento, status, corretora, premio_fechamento |
+| `opcoes` | ativo_base, ticker_opcao, tipo(call/put), direcao(venda/compra/lancamento), strike, premio, quantidade, vencimento, data_abertura, status, corretora, premio_fechamento |
 | `proventos` | ticker, tipo_provento, valor_por_cota, quantidade, valor_total, data_pagamento |
 | `renda_fixa` | tipo(cdb/lci_lca/tesouro_*), emissor, taxa, indexador, valor_aplicado, vencimento |
 | `saldos_corretora` | name, saldo, tipo(corretora/banco) |
@@ -92,7 +92,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 ### database.js - Funcoes exportadas
 - **Profiles**: getProfile, updateProfile
 - **Operacoes**: getOperacoes, addOperacao, deleteOperacao
-- **Positions**: getPositions (agrega operacoes em posicoes com PM)
+- **Positions**: getPositions (agrega operacoes em posicoes com PM, por_corretora, normaliza ticker)
 - **Opcoes**: getOpcoes, addOpcao
 - **Proventos**: getProventos, addProvento, deleteProvento
 - **Renda Fixa**: getRendaFixa, addRendaFixa, deleteRendaFixa
@@ -144,20 +144,26 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - Treemap de exposicao visual
 - Benchmark vs CDI
 - Rebalanceamento com metas editaveis
-- Cards expandiveis com Comprar/Vender/Lancar opcao
+- Cards expandiveis com Comprar/Vender/Lancar opcao/Transacoes
 - Pre-fill de forms via route.params (ticker, tipo, categoria)
+- **Multi-corretora**: posicoes agregadas por ticker, campo `por_corretora` com qty por corretora
+- Cards de RF com botoes Editar/Excluir
+- Corretora removida do header do card (mostrada no expandido com qty por corretora)
 
 ### Opcoes (OpcoesScreen)
 - **Black-Scholes completo**: pricing, gregas (delta, gamma, theta, vega), IV implicita
 - **Moneyness**: badges ITM/ATM/OTM com cor por direcao e texto "Strike R$ X . Y% acima/abaixo"
-- **Cobertura inteligente**:
+- **Cobertura inteligente** (usa `por_corretora` das transacoes, nao do card):
   - CALL vendida: verifica acoes do ativo_base na MESMA corretora (COBERTA/PARCIAL/COBERTA*/DESCOBERTA)
   - PUT vendida (CSP): verifica saldo na MESMA corretora vs strike*qty
 - **Encerramento antecipado**: input de premio recompra + P&L em tempo real + confirmacao
 - **Opcoes vencidas**: detecao automatica, painel no topo com botoes "Expirou PO" / "Foi exercida"
 - **Exercicio automatico**: cria operacao de compra/venda na carteira ao confirmar exercicio
 - **Simulador BS**: inputs editaveis, cenarios what-if (+/-5%, +/-10%)
+- **Payoff Chart**: grafico SVG de P&L no vencimento com breakeven, spot, zonas lucro/prejuizo, touch interativo
+- **Cadeia Sintetica BS**: grade de opcoes com 11 strikes, precos CALL/PUT via Black-Scholes, delta, ITM/ATM/OTM
 - **Historico**: resumo total recebido, expiradas PO, exercidas + lista detalhada
+- **Data abertura**: campo data_abertura nas opcoes, premios calculados com D+1 (liquidacao)
 - DTE badge no header de cada card
 
 ### Home (HomeScreen)
@@ -188,7 +194,26 @@ Ao configurar um novo ambiente, executar `supabase-migration.sql` no SQL Editor 
 - Criacao de todas as tabelas com RLS
 - Trigger para auto-criar profile no signup
 - Migration v4→v5 (comentada, so se upgrading)
-- Migration opcoes: status `expirou_po`, coluna `premio_fechamento`, direcao `venda`
+- Migration opcoes: status `expirou_po`, coluna `premio_fechamento`, direcao `venda`, coluna `data_abertura`
+
+## Padroes Importantes
+
+### Normalizacao de tickers
+Tickers sao normalizados com `toUpperCase().trim()` em:
+- `getPositions()` - agrupamento por ticker
+- `getOperacoes()` - filtro por ticker (em JS, nao no banco)
+- `getProventos()` - filtro por ticker (em JS, nao no banco)
+Isso garante que transacoes salvas com caixa ou espacos diferentes sejam agrupadas corretamente.
+
+### Anti-duplicacao de submit
+Todas as telas Add (Operacao, Opcao, RendaFixa, Provento) usam estado `submitted` para prevenir duplo clique:
+- `if (!canSubmit || submitted) return;` no inicio do handleSubmit
+- `setSubmitted(true)` antes do request
+- Reset em erro e em "Adicionar outro/outra"
+
+### Posicoes multi-corretora
+`getPositions()` retorna campo `por_corretora: { 'Clear': 200, 'XP': 100 }` com quantidade por corretora.
+Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora da opcao.
 
 ## Proximos Passos Possiveis
 
@@ -197,8 +222,6 @@ Ao configurar um novo ambiente, executar `supabase-migration.sql` no SQL Editor 
 - [ ] Notificacoes push para vencimentos proximos
 - [ ] Importacao de operacoes via CSV/Excel
 - [ ] Calculo de IR (darf mensal, swing trade, day trade)
-- [ ] Multi-corretora em positions (positions por corretora, nao agregado)
-- [ ] Grafico de payoff de opcoes
 - [ ] Integracao com CEI/B3 para importacao automatica
 - [ ] Dark/Light mode toggle
 - [ ] Backup/restore de dados
