@@ -3,7 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../config/supabase';
@@ -169,8 +169,7 @@ export default function EditRendaFixaScreen(props) {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={function() { navigation.goBack(); }}>
@@ -347,7 +346,6 @@ export default function EditRendaFixaScreen(props) {
 
         <View style={{ height: 40 }} />
       </ScrollView>
-    </SafeAreaView>
   );
 }
 

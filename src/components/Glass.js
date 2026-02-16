@@ -3,42 +3,41 @@ import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, SIZE, SHADOW } from '../theme';
 
-export default function Glass({
-  children,
-  style,
-  glow,
-  padding = SIZE.padding,
-  onPress,
-}) {
-  const Wrapper = onPress ? TouchableOpacity : View;
-  const wrapperProps = onPress
-    ? { onPress, activeOpacity: 0.7 }
-    : {};
+export default function Glass(props) {
+  var children = props.children;
+  var style = props.style;
+  var glow = props.glow;
+  var padding = props.padding !== undefined ? props.padding : SIZE.padding;
+  var onPress = props.onPress;
 
-  return (
-    <Wrapper
-      {...wrapperProps}
-      style={[
-        styles.card,
-        glow && SHADOW.glow(glow),
-        { padding },
-        style,
-      ]}
-    >
-      {glow && (
-        <LinearGradient
-          colors={['transparent', glow, 'transparent']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.glowLine}
-        />
-      )}
-      {children}
-    </Wrapper>
+  var Wrapper = onPress ? TouchableOpacity : View;
+  var wrapperProps = {};
+  if (onPress) {
+    wrapperProps.onPress = onPress;
+    wrapperProps.activeOpacity = 0.7;
+  }
+
+  wrapperProps.style = [
+    styles.card,
+    glow && SHADOW.glow(glow),
+    { padding: padding },
+    style,
+  ];
+
+  return React.createElement(
+    Wrapper,
+    wrapperProps,
+    glow ? React.createElement(LinearGradient, {
+      colors: ['transparent', glow, 'transparent'],
+      start: { x: 0, y: 0 },
+      end: { x: 1, y: 0 },
+      style: styles.glowLine,
+    }) : null,
+    children
   );
 }
 
-const styles = StyleSheet.create({
+var styles = StyleSheet.create({
   card: {
     backgroundColor: C.cardSolid,
     borderRadius: SIZE.radius,

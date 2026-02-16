@@ -9,28 +9,27 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { getProfile, updateProfile } from '../../../services/database';
 import { Glass, Pill, SectionLabel } from '../../../components';
 
-const QUICK = [3000, 5000, 6000, 8000, 10000, 15000];
+var QUICK = [3000, 5000, 6000, 8000, 10000, 15000];
 
-export default function ConfigMetaScreen({ navigation }) {
-  const { user } = useAuth();
-  const [meta, setMeta] = useState('6000');
-  const [saving, setSaving] = useState(false);
+export default function ConfigMetaScreen(props) {
+  var navigation = props.navigation;
+  var _auth = useAuth(); var user = _auth.user;
+  var _meta = useState('6000'); var meta = _meta[0]; var setMeta = _meta[1];
+  var _saving = useState(false); var saving = _saving[0]; var setSaving = _saving[1];
 
-  useEffect(() => {
-    loadMeta();
-  }, []);
+  useEffect(function() { loadMeta(); }, []);
 
-  const loadMeta = async () => {
+  var loadMeta = async function() {
     if (!user) return;
-    const { data } = await getProfile(user.id);
-    if (data?.meta_mensal) setMeta(String(data.meta_mensal));
+    var result = await getProfile(user.id);
+    if (result.data && result.data.meta_mensal) setMeta(String(result.data.meta_mensal));
   };
 
-  const save = async () => {
+  var save = async function() {
     setSaving(true);
-    const { error } = await updateProfile(user.id, { meta_mensal: parseInt(meta) || 6000 });
+    var result = await updateProfile(user.id, { meta_mensal: parseInt(meta) || 6000 });
     setSaving(false);
-    if (error) {
+    if (result.error) {
       Alert.alert('Erro', 'Falha ao salvar');
     } else {
       Alert.alert('Salvo', 'Meta atualizada com sucesso');
@@ -42,7 +41,7 @@ export default function ConfigMetaScreen({ navigation }) {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={function() { navigation.goBack(); }}>
           <Text style={styles.back}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Meta Mensal</Text>
@@ -65,16 +64,18 @@ export default function ConfigMetaScreen({ navigation }) {
 
       {/* Quick select */}
       <View style={styles.quickGrid}>
-        {QUICK.map((v) => (
-          <Pill
-            key={v}
-            active={parseInt(meta) === v}
-            color={C.etfs}
-            onPress={() => setMeta(String(v))}
-          >
-            R$ {v.toLocaleString('pt-BR')}
-          </Pill>
-        ))}
+        {QUICK.map(function(v) {
+          return (
+            <Pill
+              key={v}
+              active={parseInt(meta) === v}
+              color={C.etfs}
+              onPress={function() { setMeta(String(v)); }}
+            >
+              R$ {v.toLocaleString('pt-BR')}
+            </Pill>
+          );
+        })}
       </View>
 
       {/* Save */}
@@ -92,7 +93,7 @@ export default function ConfigMetaScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+var styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   content: { padding: 16, gap: SIZE.gap },
   header: {

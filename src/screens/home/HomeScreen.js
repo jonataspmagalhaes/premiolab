@@ -8,6 +8,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getDashboard } from '../../services/database';
+import { clearPriceCache } from '../../services/priceService';
 import { Badge } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import InteractiveChart from '../../components/InteractiveChart';
@@ -239,6 +240,7 @@ export default function HomeScreen({ navigation }) {
 
   var onRefresh = async function () {
     setRefreshing(true);
+    clearPriceCache();
     await load();
     setRefreshing(false);
   };
@@ -700,6 +702,7 @@ export default function HomeScreen({ navigation }) {
             {[
               { label: '💰 Operação', color: P.acao.color, screen: 'AddOperacao' },
               { label: '⚡ Opção', color: P.opcao.color, screen: 'AddOpcao' },
+              { label: '◈ Provento', color: P.fii.color, screen: 'AddProvento' },
               { label: '🏦 Renda Fixa', color: P.rf.color, screen: 'AddRendaFixa' },
             ].map(function (item, i) {
               return (

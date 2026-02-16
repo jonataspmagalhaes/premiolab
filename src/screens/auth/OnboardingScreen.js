@@ -8,48 +8,58 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { Pill } from '../../components/Primitives';
 
-const CORRETORAS = [
+var CORRETORAS = [
   'Clear', 'XP', 'Rico', 'Inter', 'BTG Pactual',
   'Nubank', 'Genial', 'Modal', 'Itaú', 'Bradesco',
 ];
 
-const METAS_RAPIDAS = [3000, 5000, 6000, 8000, 10000, 15000];
+var METAS_RAPIDAS = [3000, 5000, 6000, 8000, 10000, 15000];
 
 export default function OnboardingScreen() {
-  const { completeOnboarding } = useAuth();
-  const [step, setStep] = useState(0);
-  const [nome, setNome] = useState('');
-  const [corretoras, setCorretoras] = useState([]);
-  const [meta, setMeta] = useState('6000');
+  var _auth = useAuth(); var completeOnboarding = _auth.completeOnboarding;
+  var _step = useState(0); var step = _step[0]; var setStep = _step[1];
+  var _nome = useState(''); var nome = _nome[0]; var setNome = _nome[1];
+  var _corretoras = useState([]); var corretoras = _corretoras[0]; var setCorretoras = _corretoras[1];
+  var _meta = useState('6000'); var meta = _meta[0]; var setMeta = _meta[1];
 
-  const toggleCorretora = (c) => {
-    setCorretoras((prev) =>
-      prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]
-    );
+  var toggleCorretora = function(c) {
+    var idx = corretoras.indexOf(c);
+    if (idx >= 0) {
+      setCorretoras(corretoras.filter(function(x) { return x !== c; }));
+    } else {
+      setCorretoras(corretoras.concat([c]));
+    }
   };
 
-  const canNext = () => {
+  var canNext = function() {
     if (step === 1 && !nome.trim()) return false;
     if (step === 2 && corretoras.length === 0) return false;
     if (step === 3 && !meta) return false;
     return true;
   };
 
-  const handleNext = async () => {
+  var handleNext = async function() {
     if (step < 3) {
       setStep(step + 1);
     } else {
       try {
         await completeOnboarding({
           nome: nome.trim(),
-          corretoras,
+          corretoras: corretoras,
           meta: parseInt(meta) || 6000,
         });
-      } catch {
+      } catch (e) {
         Alert.alert('Erro', 'Falha ao salvar. Tente novamente.');
       }
     }
   };
+
+  var FEATURES = [
+    { icon: '◫', label: 'Carteira', color: C.acoes },
+    { icon: '⚡', label: 'Opções', color: C.opcoes },
+    { icon: '◈', label: 'Proventos', color: C.fiis },
+    { icon: '⬡', label: 'Renda Fixa', color: C.rf },
+  ];
 
   return (
     <View style={styles.container}>
@@ -59,16 +69,18 @@ export default function OnboardingScreen() {
       >
         {/* Progress dots */}
         <View style={styles.dots}>
-          {[0, 1, 2, 3].map((i) => (
-            <View
-              key={i}
-              style={[
-                styles.dot,
-                i === step && styles.dotActive,
-                i < step && styles.dotDone,
-              ]}
-            />
-          ))}
+          {[0, 1, 2, 3].map(function(i) {
+            return (
+              <View
+                key={i}
+                style={[
+                  styles.dot,
+                  i === step && styles.dotActive,
+                  i < step && styles.dotDone,
+                ]}
+              />
+            );
+          })}
         </View>
 
         {/* Step 0: Welcome */}
@@ -85,21 +97,18 @@ export default function OnboardingScreen() {
               Seu laboratório completo de investimentos com foco em opções, ações, FIIs e renda fixa.
             </Text>
             <View style={styles.features}>
-              {[
-                { icon: '◫', label: 'Carteira', color: C.acoes },
-                { icon: '⚡', label: 'Opções', color: C.opcoes },
-                { icon: '◈', label: 'Proventos', color: C.fiis },
-                { icon: '⬡', label: 'Renda Fixa', color: C.rf },
-              ].map((f, i) => (
-                <View key={i} style={styles.featureItem}>
-                  <View style={[styles.featureIcon, { borderColor: f.color + '30' }]}>
-                    <Text style={[styles.featureIconText, { color: f.color }]}>
-                      {f.icon}
-                    </Text>
+              {FEATURES.map(function(f, i) {
+                return (
+                  <View key={i} style={styles.featureItem}>
+                    <View style={[styles.featureIcon, { borderColor: f.color + '30' }]}>
+                      <Text style={[styles.featureIconText, { color: f.color }]}>
+                        {f.icon}
+                      </Text>
+                    </View>
+                    <Text style={styles.featureLabel}>{f.label}</Text>
                   </View>
-                  <Text style={styles.featureLabel}>{f.label}</Text>
-                </View>
-              ))}
+                );
+              })}
             </View>
           </View>
         )}
@@ -130,16 +139,18 @@ export default function OnboardingScreen() {
               Selecione onde você tem conta ({corretoras.length} selecionadas)
             </Text>
             <View style={styles.pillGrid}>
-              {CORRETORAS.map((c) => (
-                <Pill
-                  key={c}
-                  active={corretoras.includes(c)}
-                  color={C.accent}
-                  onPress={() => toggleCorretora(c)}
-                >
-                  {c}
-                </Pill>
-              ))}
+              {CORRETORAS.map(function(c) {
+                return (
+                  <Pill
+                    key={c}
+                    active={corretoras.indexOf(c) >= 0}
+                    color={C.accent}
+                    onPress={function() { toggleCorretora(c); }}
+                  >
+                    {c}
+                  </Pill>
+                );
+              })}
             </View>
           </View>
         )}
@@ -161,16 +172,18 @@ export default function OnboardingScreen() {
               />
             </View>
             <View style={styles.pillGrid}>
-              {METAS_RAPIDAS.map((m) => (
-                <Pill
-                  key={m}
-                  active={parseInt(meta) === m}
-                  color={C.green}
-                  onPress={() => setMeta(String(m))}
-                >
-                  R$ {m.toLocaleString('pt-BR')}
-                </Pill>
-              ))}
+              {METAS_RAPIDAS.map(function(m) {
+                return (
+                  <Pill
+                    key={m}
+                    active={parseInt(meta) === m}
+                    color={C.green}
+                    onPress={function() { setMeta(String(m)); }}
+                  >
+                    R$ {m.toLocaleString('pt-BR')}
+                  </Pill>
+                );
+              })}
             </View>
           </View>
         )}
@@ -180,7 +193,7 @@ export default function OnboardingScreen() {
       <View style={styles.bottomWrap}>
         {step > 0 && (
           <TouchableOpacity
-            onPress={() => setStep(step - 1)}
+            onPress={function() { setStep(step - 1); }}
             style={styles.backBtn}
           >
             <Text style={styles.backText}>Voltar</Text>
@@ -208,7 +221,7 @@ export default function OnboardingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+var styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   scrollContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 60 },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 40 },

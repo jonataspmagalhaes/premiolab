@@ -2,47 +2,55 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../config/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const AuthContext = createContext({});
+var AuthContext = createContext({});
 
-export const useAuth = () => useContext(AuthContext);
+export function useAuth() {
+  return useContext(AuthContext);
+}
 
-export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [session, setSession] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [onboarded, setOnboarded] = useState(false);
+export function AuthProvider(props) {
+  var children = props.children;
+  var _user = useState(null); var user = _user[0]; var setUser = _user[1];
+  var _session = useState(null); var session = _session[0]; var setSession = _session[1];
+  var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
+  var _onboarded = useState(false); var onboarded = _onboarded[0]; var setOnboarded = _onboarded[1];
 
-  useEffect(() => {
+  useEffect(function() {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) checkOnboarding(session.user.id);
+    supabase.auth.getSession().then(function(result) {
+      var sess = result.data && result.data.session ? result.data.session : null;
+      setSession(sess);
+      setUser(sess && sess.user ? sess.user : null);
+      if (sess && sess.user) checkOnboarding(sess.user.id);
       setLoading(false);
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) checkOnboarding(session.user.id);
+    var authResult = supabase.auth.onAuthStateChange(
+      function(_event, sess) {
+        setSession(sess);
+        setUser(sess && sess.user ? sess.user : null);
+        if (sess && sess.user) checkOnboarding(sess.user.id);
       }
     );
 
-    return () => subscription.unsubscribe();
+    var subscription = authResult.data && authResult.data.subscription ? authResult.data.subscription : null;
+
+    return function() {
+      if (subscription) subscription.unsubscribe();
+    };
   }, []);
 
-  const checkOnboarding = async (userId) => {
-    try {
-      const stored = await AsyncStorage.getItem(`@onboarded_${userId}`);
+  function checkOnboarding(userId) {
+    AsyncStorage.getItem('@onboarded_' + userId).then(function(stored) {
       setOnboarded(stored === 'true');
-    } catch {
+    }).catch(function() {
       setOnboarded(false);
-    }
-  };
+    });
+  }
 
-  const completeOnboarding = async (data = {}) => {
+  async function completeOnboarding(data) {
+    if (!data) data = {};
     if (!user) return;
     try {
       // Save profile data
@@ -54,59 +62,62 @@ export function AuthProvider({ children }) {
       });
 
       // Save selected corretoras
-      if (data.corretoras?.length) {
-        const rows = data.corretoras.map((name) => ({
-          user_id: user.id,
-          name,
-          count: 0,
-        }));
+      if (data.corretoras && data.corretoras.length) {
+        var rows = [];
+        for (var i = 0; i < data.corretoras.length; i++) {
+          rows.push({
+            user_id: user.id,
+            name: data.corretoras[i],
+            count: 0,
+          });
+        }
         await supabase.from('user_corretoras').upsert(rows, {
           onConflict: 'user_id,name',
         });
       }
 
-      await AsyncStorage.setItem(`@onboarded_${user.id}`, 'true');
+      await AsyncStorage.setItem('@onboarded_' + user.id, 'true');
       setOnboarded(true);
     } catch (err) {
       console.error('Onboarding error:', err);
     }
-  };
+  }
 
-  const signUp = async (email, password) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
+  async function signUp(email, password) {
+    var result = await supabase.auth.signUp({
+      email: email,
+      password: password,
     });
-    return { data, error };
-  };
+    return { data: result.data, error: result.error };
+  }
 
-  const signIn = async (email, password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+  async function signIn(email, password) {
+    var result = await supabase.auth.signInWithPassword({
+      email: email,
+      password: password,
     });
-    return { data, error };
-  };
+    return { data: result.data, error: result.error };
+  }
 
-  const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (!error) {
+  async function signOut() {
+    var result = await supabase.auth.signOut();
+    if (!result.error) {
       setUser(null);
       setSession(null);
     }
-    return { error };
+    return { error: result.error };
+  }
+
+  var value = {
+    user: user,
+    session: session,
+    loading: loading,
+    onboarded: onboarded,
+    signUp: signUp,
+    signIn: signIn,
+    signOut: signOut,
+    completeOnboarding: completeOnboarding,
   };
 
-  const value = {
-    user,
-    session,
-    loading,
-    onboarded,
-    signUp,
-    signIn,
-    signOut,
-    completeOnboarding,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return React.createElement(AuthContext.Provider, { value: value }, children);
 }

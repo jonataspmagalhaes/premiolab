@@ -3,16 +3,22 @@ import { View, Text, TouchableOpacity, TextInput, StyleSheet } from 'react-nativ
 import { C, F, SIZE } from '../theme';
 
 // ═══════════ BADGE ═══════════
-export function Badge({ text, color = C.accent }) {
+export function Badge(props) {
+  var text = props.text;
+  var color = props.color || C.accent;
   return (
     <View style={[styles.badge, { backgroundColor: color + '15', borderColor: color + '25' }]}>
-      <Text style={[styles.badgeText, { color }]}>{text}</Text>
+      <Text style={[styles.badgeText, { color: color }]}>{text}</Text>
     </View>
   );
 }
 
 // ═══════════ PILL ═══════════
-export function Pill({ children, active, color = C.accent, onPress }) {
+export function Pill(props) {
+  var children = props.children;
+  var active = props.active;
+  var color = props.color || C.accent;
+  var onPress = props.onPress;
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -32,7 +38,9 @@ export function Pill({ children, active, color = C.accent, onPress }) {
 }
 
 // ═══════════ SECTION LABEL ═══════════
-export function SectionLabel({ children, right }) {
+export function SectionLabel(props) {
+  var children = props.children;
+  var right = props.right;
   return (
     <View style={styles.sectionRow}>
       <Text style={styles.sectionText}>{children}</Text>
@@ -42,19 +50,19 @@ export function SectionLabel({ children, right }) {
 }
 
 // ═══════════ TEXT INPUT FIELD ═══════════
-export function Field({
-  label,
-  placeholder,
-  value,
-  onChangeText,
-  suffix,
-  prefix,
-  icon,
-  required,
-  keyboardType = 'default',
-  half,
-  style,
-}) {
+export function Field(props) {
+  var label = props.label;
+  var placeholder = props.placeholder;
+  var value = props.value;
+  var onChangeText = props.onChangeText;
+  var suffix = props.suffix;
+  var prefix = props.prefix;
+  var icon = props.icon;
+  var required = props.required;
+  var keyboardType = props.keyboardType || 'default';
+  var half = props.half;
+  var style = props.style;
+
   return (
     <View style={[styles.fieldWrap, half && { width: '48%' }, style]}>
       {label && (
@@ -80,16 +88,16 @@ export function Field({
   );
 }
 
-const styles = StyleSheet.create({
+var styles = StyleSheet.create({
   // Badge
   badge: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 5,
     borderWidth: 1,
   },
   badgeText: {
-    fontSize: 7,
+    fontSize: 9,
     fontFamily: F.mono,
     fontWeight: '700',
     letterSpacing: 0.3,

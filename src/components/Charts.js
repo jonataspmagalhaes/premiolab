@@ -4,20 +4,25 @@ import Svg, { Polyline, Circle, Path } from 'react-native-svg';
 import { C, F } from '../theme';
 
 // ═══════════ SPARKLINE ═══════════
-export function Sparkline({ data = [], color = C.accent, height = 24, width = 60 }) {
-  if (!data.length) return null;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-  const padding = 2;
+export function Sparkline(props) {
+  var data = props.data || [];
+  var color = props.color || C.accent;
+  var height = props.height || 24;
+  var width = props.width || 60;
 
-  const points = data
-    .map((v, i) => {
-      const x = padding + (i / (data.length - 1)) * (width - padding * 2);
-      const y = padding + (1 - (v - min) / range) * (height - padding * 2);
-      return `${x},${y}`;
-    })
-    .join(' ');
+  if (!data.length) return null;
+  var min = Math.min.apply(null, data);
+  var max = Math.max.apply(null, data);
+  var range = max - min || 1;
+  var padding = 2;
+
+  var pointsArr = [];
+  for (var i = 0; i < data.length; i++) {
+    var x = padding + (i / (data.length - 1)) * (width - padding * 2);
+    var y = padding + (1 - (data[i] - min) / range) * (height - padding * 2);
+    pointsArr.push(x + ',' + y);
+  }
+  var points = pointsArr.join(' ');
 
   return (
     <Svg width={width} height={height}>
@@ -34,20 +39,24 @@ export function Sparkline({ data = [], color = C.accent, height = 24, width = 60
 }
 
 // ═══════════ GAUGE ═══════════
-export function Gauge({ value, max, label, color, suffix = '%' }) {
-  const pct = Math.min(value / max, 1);
-  const radius = 20;
-  const stroke = 4;
-  const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference * (1 - pct * 0.75); // 270 degrees max
+export function Gauge(props) {
+  var value = props.value;
+  var max = props.max;
+  var label = props.label;
+  var color = props.color;
+  var suffix = props.suffix || '%';
 
-  // SVG arc
-  const size = (radius + stroke) * 2;
-  const center = radius + stroke;
+  var pct = Math.min(value / max, 1);
+  var radius = 20;
+  var stroke = 4;
+  var circumference = 2 * Math.PI * radius;
+
+  var size = (radius + stroke) * 2;
+  var center = radius + stroke;
 
   return (
     <View style={styles.gaugeWrap}>
-      <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <Svg width={size} height={size} viewBox={'0 0 ' + size + ' ' + size}>
         {/* Background arc */}
         <Circle
           cx={center}
@@ -56,10 +65,10 @@ export function Gauge({ value, max, label, color, suffix = '%' }) {
           fill="none"
           stroke={C.border}
           strokeWidth={stroke}
-          strokeDasharray={`${circumference * 0.75} ${circumference * 0.25}`}
+          strokeDasharray={(circumference * 0.75) + ' ' + (circumference * 0.25)}
           strokeDashoffset={0}
           strokeLinecap="round"
-          transform={`rotate(135 ${center} ${center})`}
+          transform={'rotate(135 ' + center + ' ' + center + ')'}
         />
         {/* Value arc */}
         <Circle
@@ -69,15 +78,15 @@ export function Gauge({ value, max, label, color, suffix = '%' }) {
           fill="none"
           stroke={color}
           strokeWidth={stroke}
-          strokeDasharray={`${circumference * 0.75 * pct} ${circumference}`}
+          strokeDasharray={(circumference * 0.75 * pct) + ' ' + circumference}
           strokeDashoffset={0}
           strokeLinecap="round"
-          transform={`rotate(135 ${center} ${center})`}
+          transform={'rotate(135 ' + center + ' ' + center + ')'}
           opacity={0.9}
         />
       </Svg>
       <View style={styles.gaugeCenter}>
-        <Text style={[styles.gaugeValue, { color }]}>
+        <Text style={[styles.gaugeValue, { color: color }]}>
           {typeof value === 'number' ? (value % 1 ? value.toFixed(1) : value) : value}
         </Text>
       </View>
@@ -86,7 +95,7 @@ export function Gauge({ value, max, label, color, suffix = '%' }) {
   );
 }
 
-const styles = StyleSheet.create({
+var styles = StyleSheet.create({
   gaugeWrap: {
     alignItems: 'center',
   },

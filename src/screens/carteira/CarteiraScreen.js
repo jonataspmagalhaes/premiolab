@@ -12,7 +12,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getPositions, getSaldos, getRendaFixa } from '../../services/database';
-import { enrichPositionsWithPrices, fetchPriceHistory } from '../../services/priceService';
+import { enrichPositionsWithPrices, fetchPriceHistory, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { MiniLineChart } from '../../components/InteractiveChart';
 import { LoadingScreen, EmptyState } from '../../components/States';
@@ -629,7 +629,10 @@ export default function CarteiraScreen(props) {
   useFocusEffect(useCallback(function () { load(); }, [user]));
 
   var onRefresh = async function () {
-    setRefreshing(true); await load(); setRefreshing(false);
+    setRefreshing(true);
+    clearPriceCache();
+    await load();
+    setRefreshing(false);
   };
 
   // ── DERIVED DATA ──
@@ -781,8 +784,12 @@ export default function CarteiraScreen(props) {
         {pricesLoading ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
             <ActivityIndicator size="small" color={C.accent} />
-            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>Atualizando cotações...</Text>
+            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>Atualizando cotacoes...</Text>
           </View>
+        ) : getLastPriceUpdate() ? (
+          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginTop: 6, textAlign: 'right' }}>
+            {'Cotacoes de ' + new Date(getLastPriceUpdate()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+          </Text>
         ) : null}
       </Glass>
 
@@ -910,8 +917,8 @@ export default function CarteiraScreen(props) {
           <PositionCard key={key} pos={pos} history={priceHistory[pos.ticker] || null}
             totalCarteira={totalValue} expanded={expanded === key}
             onToggle={function () { toggleExpand(key); }}
-            onBuy={function () { navigation.navigate('AddOperacao', { ticker: pos.ticker, tipo: 'compra' }); }}
-            onSell={function () { navigation.navigate('AddOperacao', { ticker: pos.ticker, tipo: 'venda' }); }}
+            onBuy={function () { navigation.navigate('AddOperacao', { ticker: pos.ticker, tipo: 'compra', categoria: pos.categoria }); }}
+            onSell={function () { navigation.navigate('AddOperacao', { ticker: pos.ticker, tipo: 'venda', categoria: pos.categoria }); }}
             onLancarOpcao={function () { navigation.navigate('AddOpcao', { ativo_base: pos.ticker }); }} />
         );
       })}

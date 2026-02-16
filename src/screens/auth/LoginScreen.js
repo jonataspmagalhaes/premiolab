@@ -8,13 +8,13 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 
 export default function LoginScreen() {
-  const { signIn, signUp } = useAuth();
-  const [mode, setMode] = useState('login'); // login | register
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  var _auth = useAuth(); var signIn = _auth.signIn; var signUp = _auth.signUp;
+  var _mode = useState('login'); var mode = _mode[0]; var setMode = _mode[1];
+  var _email = useState(''); var email = _email[0]; var setEmail = _email[1];
+  var _password = useState(''); var password = _password[0]; var setPassword = _password[1];
+  var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
 
-  const handleSubmit = async () => {
+  var handleSubmit = async function() {
     if (!email || !password) {
       Alert.alert('Erro', 'Preencha email e senha');
       return;
@@ -26,16 +26,17 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      const { error } = mode === 'login'
+      var result = mode === 'login'
         ? await signIn(email.trim(), password)
         : await signUp(email.trim(), password);
 
-      if (error) {
-        const msg = error.message.includes('Invalid login')
-          ? 'Email ou senha incorretos'
-          : error.message.includes('already registered')
-          ? 'Email já cadastrado'
-          : error.message;
+      if (result.error) {
+        var msg = result.error.message;
+        if (msg.indexOf('Invalid login') >= 0) {
+          msg = 'Email ou senha incorretos';
+        } else if (msg.indexOf('already registered') >= 0) {
+          msg = 'Email já cadastrado';
+        }
         Alert.alert('Erro', msg);
       } else if (mode === 'register') {
         Alert.alert('Sucesso', 'Conta criada! Faça login para continuar.');
@@ -43,9 +44,8 @@ export default function LoginScreen() {
       }
     } catch (err) {
       Alert.alert('Erro', 'Falha na conexão. Tente novamente.');
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   };
 
   return (
@@ -119,7 +119,7 @@ export default function LoginScreen() {
 
         {/* Toggle mode */}
         <TouchableOpacity
-          onPress={() => setMode(mode === 'login' ? 'register' : 'login')}
+          onPress={function() { setMode(mode === 'login' ? 'register' : 'login'); }}
           style={styles.toggleWrap}
         >
           <Text style={styles.toggleText}>
@@ -134,7 +134,7 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+var styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: C.bg,

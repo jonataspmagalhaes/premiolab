@@ -3,29 +3,34 @@ import { View, Text, Animated, StyleSheet, TouchableOpacity } from 'react-native
 import { C, F, SIZE } from '../theme';
 
 // ═══════════ SKELETON BAR ═══════════
-export function Skeleton({ width = '100%', height = 14, radius = 6, style }) {
-  const opacity = useRef(new Animated.Value(0.4)).current;
+export function Skeleton(props) {
+  var width = props.width || '100%';
+  var height = props.height || 14;
+  var radius = props.radius || 6;
+  var style = props.style;
 
-  useEffect(() => {
-    const anim = Animated.loop(
+  var opacity = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(function() {
+    var anim = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, { toValue: 0.08, duration: 800, useNativeDriver: true }),
         Animated.timing(opacity, { toValue: 0.4, duration: 800, useNativeDriver: true }),
       ])
     );
     anim.start();
-    return () => anim.stop();
+    return function() { anim.stop(); };
   }, []);
 
   return (
     <Animated.View
       style={[
         {
-          width,
-          height,
+          width: width,
+          height: height,
           borderRadius: radius,
           backgroundColor: 'rgba(255,255,255,0.1)',
-          opacity,
+          opacity: opacity,
         },
         style,
       ]}
@@ -34,9 +39,10 @@ export function Skeleton({ width = '100%', height = 14, radius = 6, style }) {
 }
 
 // ═══════════ SKELETON CARD ═══════════
-export function SkeletonCard({ height = 80 }) {
+export function SkeletonCard(props) {
+  var height = props.height || 80;
   return (
-    <View style={[styles.skelCard, { height }]}>
+    <View style={[styles.skelCard, { height: height }]}>
       <Skeleton width="40%" height={10} />
       <View style={{ height: 8 }} />
       <Skeleton width="70%" height={16} />
@@ -62,38 +68,42 @@ export function SkeletonRow() {
 
 // ═══════════ LOADING SCREEN ═══════════
 export function LoadingScreen() {
+  var miniCards = [1, 2, 3];
+  var skelRows = [1, 2, 3, 4];
   return (
     <View style={styles.loadingWrap}>
       <SkeletonCard height={120} />
       <View style={styles.loadingRow}>
-        {[1, 2, 3].map((i) => (
-          <View key={i} style={styles.loadingMiniCard}>
-            <Skeleton width="60%" height={8} />
-            <View style={{ height: 4 }} />
-            <Skeleton width="80%" height={16} />
-          </View>
-        ))}
+        {miniCards.map(function(i) {
+          return (
+            <View key={i} style={styles.loadingMiniCard}>
+              <Skeleton width="60%" height={8} />
+              <View style={{ height: 4 }} />
+              <Skeleton width="80%" height={16} />
+            </View>
+          );
+        })}
       </View>
-      {[1, 2, 3, 4].map((i) => (
-        <SkeletonRow key={i} />
-      ))}
+      {skelRows.map(function(i) {
+        return <SkeletonRow key={i} />;
+      })}
     </View>
   );
 }
 
 // ═══════════ EMPTY STATE ═══════════
-export function EmptyState({
-  icon = '◫',
-  title,
-  description,
-  cta,
-  onCta,
-  color = C.accent,
-}) {
+export function EmptyState(props) {
+  var icon = props.icon || '◫';
+  var title = props.title;
+  var description = props.description;
+  var cta = props.cta;
+  var onCta = props.onCta;
+  var color = props.color || C.accent;
+
   return (
     <View style={styles.emptyWrap}>
       <View style={[styles.emptyIcon, { backgroundColor: color + '08', borderColor: color + '15' }]}>
-        <Text style={[styles.emptyIconText, { color }]}>{icon}</Text>
+        <Text style={[styles.emptyIconText, { color: color }]}>{icon}</Text>
       </View>
       <Text style={styles.emptyTitle}>{title}</Text>
       {description && <Text style={styles.emptyDesc}>{description}</Text>}
@@ -110,7 +120,7 @@ export function EmptyState({
   );
 }
 
-const styles = StyleSheet.create({
+var styles = StyleSheet.create({
   // Skeleton
   skelCard: {
     backgroundColor: C.cardSolid,

@@ -8,7 +8,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { getAlertasConfig, updateAlertasConfig } from '../../../services/database';
 import { Glass, SectionLabel } from '../../../components';
 
-const ALERT_TYPES = [
+var ALERT_TYPES = [
   { key: 'descobertas', label: 'Opções descobertas', desc: 'Alerta quando há CALL sem cobertura', color: C.red },
   { key: 'margem', label: 'Margem de garantia', desc: 'Percentual mínimo', color: C.etfs, threshold: '%' },
   { key: 'vencimento', label: 'Próximo vencimento', desc: 'Dias antes do vencimento', color: C.opcoes, threshold: 'dias' },
@@ -17,41 +17,48 @@ const ALERT_TYPES = [
   { key: 'variacao', label: 'Variação de preço', desc: 'Percentual de variação', color: C.acoes, threshold: '%' },
 ];
 
-export default function ConfigAlertasScreen({ navigation }) {
-  const { user } = useAuth();
-  const [config, setConfig] = useState({});
+export default function ConfigAlertasScreen(props) {
+  var navigation = props.navigation;
+  var _auth = useAuth(); var user = _auth.user;
+  var _config = useState({}); var config = _config[0]; var setConfig = _config[1];
 
-  useEffect(() => { load(); }, []);
+  useEffect(function() { load(); }, []);
 
-  const load = async () => {
+  var load = async function() {
     if (!user) return;
-    const { data } = await getAlertasConfig(user.id);
-    if (data) setConfig(data);
+    var result = await getAlertasConfig(user.id);
+    if (result.data) setConfig(result.data);
   };
 
-  const toggle = (key) => {
-    setConfig((prev) => ({ ...prev, [key]: !prev[key] }));
+  var toggle = function(key) {
+    var next = {};
+    Object.keys(config).forEach(function(k) { next[k] = config[k]; });
+    next[key] = !config[key];
+    setConfig(next);
   };
 
-  const setThreshold = (key, val) => {
-    setConfig((prev) => ({ ...prev, [`${key}_threshold`]: val }));
+  var setThreshold = function(key, val) {
+    var next = {};
+    Object.keys(config).forEach(function(k) { next[k] = config[k]; });
+    next[key + '_threshold'] = val;
+    setConfig(next);
   };
 
-  const save = async () => {
-    const { error } = await updateAlertasConfig(user.id, config);
-    if (error) Alert.alert('Erro', 'Falha ao salvar');
+  var save = async function() {
+    var result = await updateAlertasConfig(user.id, config);
+    if (result.error) Alert.alert('Erro', 'Falha ao salvar');
     else {
       Alert.alert('Salvo', 'Alertas atualizados');
       navigation.goBack();
     }
   };
 
-  const activeCount = ALERT_TYPES.filter((t) => config[t.key]).length;
+  var activeCount = ALERT_TYPES.filter(function(t) { return config[t.key]; }).length;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={function() { navigation.goBack(); }}>
           <Text style={styles.back}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Alertas</Text>
@@ -60,37 +67,39 @@ export default function ConfigAlertasScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      <SectionLabel right={`${activeCount} de ${ALERT_TYPES.length} ativados`}>TIPOS DE ALERTA</SectionLabel>
+      <SectionLabel right={activeCount + ' de ' + ALERT_TYPES.length + ' ativados'}>TIPOS DE ALERTA</SectionLabel>
 
       <Glass padding={0}>
-        {ALERT_TYPES.map((t, i) => (
-          <View key={t.key}>
-            <View style={[styles.row, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.alertLabel}>{t.label}</Text>
-                <Text style={styles.alertDesc}>{t.desc}</Text>
-              </View>
-              <Switch
-                value={!!config[t.key]}
-                onValueChange={() => toggle(t.key)}
-                trackColor={{ false: C.border, true: t.color + '60' }}
-                thumbColor={config[t.key] ? t.color : C.dim}
-              />
-            </View>
-            {t.threshold && config[t.key] && (
-              <View style={styles.thresholdRow}>
-                <Text style={styles.thresholdLabel}>Limite:</Text>
-                <TextInput
-                  value={String(config[`${t.key}_threshold`] || '')}
-                  onChangeText={(v) => setThreshold(t.key, v)}
-                  keyboardType="numeric"
-                  style={styles.thresholdInput}
+        {ALERT_TYPES.map(function(t, i) {
+          return (
+            <View key={t.key}>
+              <View style={[styles.row, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.alertLabel}>{t.label}</Text>
+                  <Text style={styles.alertDesc}>{t.desc}</Text>
+                </View>
+                <Switch
+                  value={!!config[t.key]}
+                  onValueChange={function() { toggle(t.key); }}
+                  trackColor={{ false: C.border, true: t.color + '60' }}
+                  thumbColor={config[t.key] ? t.color : C.dim}
                 />
-                <Text style={styles.thresholdSuffix}>{t.threshold}</Text>
               </View>
-            )}
-          </View>
-        ))}
+              {t.threshold && config[t.key] && (
+                <View style={styles.thresholdRow}>
+                  <Text style={styles.thresholdLabel}>Limite:</Text>
+                  <TextInput
+                    value={String(config[t.key + '_threshold'] || '')}
+                    onChangeText={function(v) { setThreshold(t.key, v); }}
+                    keyboardType="numeric"
+                    style={styles.thresholdInput}
+                  />
+                  <Text style={styles.thresholdSuffix}>{t.threshold}</Text>
+                </View>
+              )}
+            </View>
+          );
+        })}
       </Glass>
 
       <View style={{ height: 40 }} />
@@ -98,7 +107,7 @@ export default function ConfigAlertasScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+var styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   content: { padding: 16, gap: SIZE.gap },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },

@@ -27,19 +27,61 @@ import EditOpcaoScreen from '../screens/opcoes/EditOpcaoScreen';
 import AddRendaFixaScreen from '../screens/rf/AddRendaFixaScreen';
 import RendaFixaScreen from '../screens/rf/RendaFixaScreen';
 import EditRendaFixaScreen from '../screens/rf/EditRendaFixaScreen';
+import HistoricoScreen from '../screens/mais/HistoricoScreen';
+import SobreScreen from '../screens/mais/SobreScreen';
+import GuiaScreen from '../screens/mais/GuiaScreen';
+import AddProventoScreen from '../screens/proventos/AddProventoScreen';
+import ProventosScreen from '../screens/proventos/ProventosScreen';
+import EditProventoScreen from '../screens/proventos/EditProventoScreen';
+
+// SafeArea HOC — protege telas stack contra notch/camera/relogio
+function withSafeArea(Screen) {
+  function SafeScreen(props) {
+    return (
+      <SafeAreaView style={safeStyle} edges={['top']}>
+        <Screen navigation={props.navigation} route={props.route} />
+      </SafeAreaView>
+    );
+  }
+  return SafeScreen;
+}
+
+var safeStyle = { flex: 1, backgroundColor: C.bg };
+
+// Wrapped stack screens (referências estáveis no module level)
+var SafeLoginScreen = withSafeArea(LoginScreen);
+var SafeOnboardingScreen = withSafeArea(OnboardingScreen);
+var SafeAssetDetailScreen = withSafeArea(AssetDetailScreen);
+var SafeAddOperacaoScreen = withSafeArea(AddOperacaoScreen);
+var SafeConfigMetaScreen = withSafeArea(ConfigMetaScreen);
+var SafeConfigCorretorasScreen = withSafeArea(ConfigCorretorasScreen);
+var SafeConfigAlertasScreen = withSafeArea(ConfigAlertasScreen);
+var SafeConfigSelicScreen = withSafeArea(ConfigSelicScreen);
+var SafeAddOpcaoScreen = withSafeArea(AddOpcaoScreen);
+var SafeEditOperacaoScreen = withSafeArea(EditOperacaoScreen);
+var SafeEditOpcaoScreen = withSafeArea(EditOpcaoScreen);
+var SafeAddRendaFixaScreen = withSafeArea(AddRendaFixaScreen);
+var SafeRendaFixaScreen = withSafeArea(RendaFixaScreen);
+var SafeEditRendaFixaScreen = withSafeArea(EditRendaFixaScreen);
+var SafeHistoricoScreen = withSafeArea(HistoricoScreen);
+var SafeSobreScreen = withSafeArea(SobreScreen);
+var SafeGuiaScreen = withSafeArea(GuiaScreen);
+var SafeAddProventoScreen = withSafeArea(AddProventoScreen);
+var SafeProventosScreen = withSafeArea(ProventosScreen);
+var SafeEditProventoScreen = withSafeArea(EditProventoScreen);
+
 // Dark Theme
-var PremioLabTheme = {
-  ...DefaultTheme,
+var PremioLabTheme = Object.assign({}, DefaultTheme, {
   dark: true,
-  colors: {
-    ...DefaultTheme.colors,    primary: C.accent,
+  colors: Object.assign({}, DefaultTheme.colors, {
+    primary: C.accent,
     background: C.bg,
     card: C.bg,
     text: C.text,
     border: C.border,
     notification: C.red,
-  },
-};
+  }),
+});
 
 // Tab Navigator
 var Tab = createBottomTabNavigator();
@@ -82,7 +124,7 @@ function MainTabs() {
           component={HomeScreen}
           options={{
             tabBarIcon: function(p) {
-              return <TabIcon icon="⌂" label="Home" focused={p.focused} badge={2} />;
+              return <TabIcon icon="⌂" label="Home" focused={p.focused} />;
             },
           }}
         />
@@ -139,7 +181,7 @@ var screenOptions = {
 function AuthStack() {
   return (
     <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="Login" component={SafeLoginScreen} />
     </Stack.Navigator>
   );
 }
@@ -148,18 +190,24 @@ function AppStack() {
   return (
     <Stack.Navigator screenOptions={screenOptions}>
       <Stack.Screen name="MainTabs" component={MainTabs} />
-      <Stack.Screen name="AssetDetail" component={AssetDetailScreen} />
-      <Stack.Screen name="AddOperacao" component={AddOperacaoScreen} />
-      <Stack.Screen name="ConfigMeta" component={ConfigMetaScreen} />
-      <Stack.Screen name="ConfigCorretoras" component={ConfigCorretorasScreen} />
-      <Stack.Screen name="ConfigAlertas" component={ConfigAlertasScreen} />
-      <Stack.Screen name="ConfigSelic" component={ConfigSelicScreen} />
-      <Stack.Screen name="AddOpcao" component={AddOpcaoScreen} />
-               <Stack.Screen name="EditOperacao" component={EditOperacaoScreen} />
-              <Stack.Screen name="EditOpcao" component={EditOpcaoScreen} />
-             <Stack.Screen name="AddRendaFixa" component={AddRendaFixaScreen} />
-            <Stack.Screen name="RendaFixa" component={RendaFixaScreen} />
-            <Stack.Screen name="EditRendaFixa" component={EditRendaFixaScreen} />
+      <Stack.Screen name="AssetDetail" component={SafeAssetDetailScreen} />
+      <Stack.Screen name="AddOperacao" component={SafeAddOperacaoScreen} />
+      <Stack.Screen name="ConfigMeta" component={SafeConfigMetaScreen} />
+      <Stack.Screen name="ConfigCorretoras" component={SafeConfigCorretorasScreen} />
+      <Stack.Screen name="ConfigAlertas" component={SafeConfigAlertasScreen} />
+      <Stack.Screen name="ConfigSelic" component={SafeConfigSelicScreen} />
+      <Stack.Screen name="AddOpcao" component={SafeAddOpcaoScreen} />
+      <Stack.Screen name="EditOperacao" component={SafeEditOperacaoScreen} />
+      <Stack.Screen name="EditOpcao" component={SafeEditOpcaoScreen} />
+      <Stack.Screen name="AddRendaFixa" component={SafeAddRendaFixaScreen} />
+      <Stack.Screen name="RendaFixa" component={SafeRendaFixaScreen} />
+      <Stack.Screen name="EditRendaFixa" component={SafeEditRendaFixaScreen} />
+      <Stack.Screen name="Historico" component={SafeHistoricoScreen} />
+      <Stack.Screen name="Sobre" component={SafeSobreScreen} />
+      <Stack.Screen name="Guia" component={SafeGuiaScreen} />
+      <Stack.Screen name="AddProvento" component={SafeAddProventoScreen} />
+      <Stack.Screen name="Proventos" component={SafeProventosScreen} />
+      <Stack.Screen name="EditProvento" component={SafeEditProventoScreen} />
     </Stack.Navigator>
   );
 }
@@ -185,7 +233,7 @@ export default function AppNavigator() {
         <AuthStack />
       ) : !onboarded ? (
         <Stack.Navigator screenOptions={screenOptions}>
-          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+          <Stack.Screen name="Onboarding" component={SafeOnboardingScreen} />
         </Stack.Navigator>
       ) : (
         <AppStack />

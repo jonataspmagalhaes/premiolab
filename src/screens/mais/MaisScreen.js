@@ -1,57 +1,99 @@
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Share } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
+import { getOperacoes, getProventos, getOpcoes } from '../../services/database';
 import { Glass, Badge } from '../../components';
 
-const SECTIONS = [
+var SECTIONS = [
   {
-    title: 'CONFIGURAÇÕES',
+    title: 'CONFIGURACOES',
     items: [
       { icon: '⚙', label: 'Taxa Selic', value: '13.25%', color: C.accent, route: 'ConfigSelic' },
       { icon: '⊕', label: 'Corretoras', value: 'Gerenciar', color: C.acoes, route: 'ConfigCorretoras' },
-      { icon: '◉', label: 'Alertas', value: 'Ativados', color: '#22C55E', route: 'ConfigAlertas' },
-      { icon: '🎯', label: 'Meta Mensal', value: 'Configurar', color: '#F59E0B', route: 'ConfigMeta' },
+      { icon: '◉', label: 'Alertas', value: 'Ativados', color: C.green, route: 'ConfigAlertas' },
+      { icon: '◎', label: 'Meta Mensal', value: 'Configurar', color: C.yellow, route: 'ConfigMeta' },
     ],
   },
   {
-    title: 'OPERAÇÕES',
+    title: 'OPERACOES',
     items: [
-      { icon: '☰', label: 'Histórico Completo', value: '', color: C.acoes },
-      { icon: '↓', label: 'Exportar CSV', value: '', color: C.sub },
-      { icon: '↑', label: 'Importar Operações', value: '', color: C.sub },
+      { icon: '☰', label: 'Historico Completo', value: '', color: C.acoes, route: 'Historico' },
+      { icon: '◈', label: 'Proventos', value: 'Gerenciar', color: C.fiis, route: 'Proventos' },
+      { icon: '🏦', label: 'Renda Fixa', value: 'Gerenciar', color: C.rf, route: 'RendaFixa' },
+      { icon: '↓', label: 'Exportar CSV', value: '', color: C.sub, action: 'export_csv' },
     ],
   },
   {
     title: 'APRENDER',
     items: [
-      { icon: '▸', label: 'Tutorial Interativo', value: '17 passos', color: C.opcoes },
-      { icon: '◈', label: 'Guia: Covered Call', value: '', color: C.fiis },
-      { icon: '◈', label: 'Guia: Cash Secured Put', value: '', color: C.fiis },
-      { icon: '◈', label: 'Guia: Wheel Strategy', value: '', color: C.fiis },
+      { icon: '◈', label: 'Guia: Covered Call', value: '', color: C.fiis, route: 'Guia', params: { guia: 'covered_call' } },
+      { icon: '◈', label: 'Guia: Cash Secured Put', value: '', color: C.fiis, route: 'Guia', params: { guia: 'csp' } },
+      { icon: '◈', label: 'Guia: Wheel Strategy', value: '', color: C.fiis, route: 'Guia', params: { guia: 'wheel' } },
     ],
   },
   {
     title: 'APP',
     items: [
-      { icon: '★', label: 'Novidades v4.0', value: 'Changelog', color: '#F59E0B' },
-      { icon: '?', label: 'Feedback / Suporte', value: '', color: C.sub },
-      { icon: 'ℹ', label: 'Sobre', value: 'v4.0.0', color: C.dim },
+      { icon: 'ℹ', label: 'Sobre', value: 'v4.0.0', color: C.dim, route: 'Sobre' },
       { icon: '↪', label: 'Sair', value: '', color: C.red, action: 'logout' },
     ],
   },
 ];
 
-export default function MaisScreen({ navigation }) {
-  const { signOut, user } = useAuth();
+export default function MaisScreen(props) {
+  var navigation = props.navigation;
+  var _auth = useAuth();
+  var signOut = _auth.signOut;
+  var user = _auth.user;
 
-  const handleItem = async (item) => {
+  var handleExportCSV = async function() {
+    try {
+      if (!user) return;
+      var results = await Promise.all([
+        getOperacoes(user.id),
+        getOpcoes(user.id),
+        getProventos(user.id),
+      ]);
+      var ops = results[0].data || [];
+      var opcoes = results[1].data || [];
+      var provs = results[2].data || [];
+
+      var csv = 'tipo,data,ticker,quantidade,preco,categoria,corretora\n';
+      ops.forEach(function(op) {
+        csv += [op.tipo, op.data, op.ticker, op.quantidade, op.preco, op.categoria || '', op.corretora || ''].join(',') + '\n';
+      });
+
+      csv += '\ntipo_opcao,ticker,strike,premio,quantidade,vencimento,status\n';
+      opcoes.forEach(function(op) {
+        csv += [op.tipo || '', op.ticker_opcao || op.ticker || '', op.strike, op.premio, op.quantidade, op.vencimento, op.status || ''].join(',') + '\n';
+      });
+
+      csv += '\ntipo_provento,data,ticker,valor_total\n';
+      provs.forEach(function(p) {
+        csv += [p.tipo_provento || '', p.data_pagamento, p.ticker, p.valor_total || 0].join(',') + '\n';
+      });
+
+      await Share.share({
+        message: csv,
+        title: 'PremioLab - Exportacao CSV',
+      });
+    } catch (e) {
+      Alert.alert('Erro', 'Nao foi possivel exportar os dados.');
+    }
+  };
+
+  var handleItem = async function(item) {
     if (item.action === 'logout') {
       await signOut();
       return;
     }
+    if (item.action === 'export_csv') {
+      await handleExportCSV();
+      return;
+    }
     if (item.route) {
-      navigation.navigate(item.route);
+      navigation.navigate(item.route, item.params || {});
     }
   };
 
@@ -66,56 +108,60 @@ export default function MaisScreen({ navigation }) {
         <View style={styles.profileRow}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
-              {user?.email?.[0]?.toUpperCase() || 'U'}
+              {user && user.email ? user.email[0].toUpperCase() : 'U'}
             </Text>
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.profileName}>Investidor</Text>
-            <Text style={styles.profileEmail}>{user?.email || ''}</Text>
+            <Text style={styles.profileEmail}>{user ? (user.email || '') : ''}</Text>
           </View>
           <Badge text="PRO" color={C.accent} />
         </View>
       </Glass>
 
       {/* Sections */}
-      {SECTIONS.map((sec, si) => (
-        <View key={si}>
-          <Text style={styles.sectionLabel}>{sec.title}</Text>
-          <Glass padding={0}>
-            {sec.items.map((item, i) => (
-              <TouchableOpacity
-                key={i}
-                activeOpacity={0.7}
-                onPress={() => handleItem(item)}
-                style={[
-                  styles.menuRow,
-                  i > 0 && { borderTopWidth: 1, borderTopColor: C.border },
-                ]}
-              >
-                <View style={styles.menuLeft}>
-                  <Text style={[styles.menuIcon, { color: item.color }]}>{item.icon}</Text>
-                  <Text style={[styles.menuLabel, item.action === 'logout' && { color: C.red }]}>
-                    {item.label}
-                  </Text>
-                </View>
-                <View style={styles.menuRight}>
-                  {item.value ? (
-                    <Text style={styles.menuValue}>{item.value}</Text>
-                  ) : null}
-                  <Text style={styles.menuChevron}>›</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </Glass>
-        </View>
-      ))}
+      {SECTIONS.map(function(sec, si) {
+        return (
+          <View key={si}>
+            <Text style={styles.sectionLabel}>{sec.title}</Text>
+            <Glass padding={0}>
+              {sec.items.map(function(item, i) {
+                return (
+                  <TouchableOpacity
+                    key={i}
+                    activeOpacity={0.7}
+                    onPress={function() { handleItem(item); }}
+                    style={[
+                      styles.menuRow,
+                      i > 0 && { borderTopWidth: 1, borderTopColor: C.border },
+                    ]}
+                  >
+                    <View style={styles.menuLeft}>
+                      <Text style={[styles.menuIcon, { color: item.color }]}>{item.icon}</Text>
+                      <Text style={[styles.menuLabel, item.action === 'logout' && { color: C.red }]}>
+                        {item.label}
+                      </Text>
+                    </View>
+                    <View style={styles.menuRight}>
+                      {item.value ? (
+                        <Text style={styles.menuValue}>{item.value}</Text>
+                      ) : null}
+                      <Text style={styles.menuChevron}>{'›'}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </Glass>
+          </View>
+        );
+      })}
 
       <View style={{ height: SIZE.tabBarHeight + 20 }} />
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
+var styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   content: { padding: 16, gap: SIZE.gap },
 

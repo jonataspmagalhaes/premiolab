@@ -66,9 +66,9 @@ export default function InteractiveChart(props) {
   var label = props.label || null;
   var onTouchStateChange = props.onTouchStateChange || null;
 
-  var [containerWidth, setContainerWidth] = useState(0);
-  var [activeIndex, setActiveIndex] = useState(null);
-  var [touching, setTouching] = useState(false);
+  var _cw = useState(0); var containerWidth = _cw[0]; var setContainerWidth = _cw[1];
+  var _ai = useState(null); var activeIndex = _ai[0]; var setActiveIndex = _ai[1];
+  var _touch = useState(false); var touching = _touch[0]; var setTouching = _touch[1];
 
   var padTop = 10;
   var padBottom = 6;
@@ -305,7 +305,7 @@ export function MiniLineChart(props) {
   var data = props.data || [];
   var color = props.color || '#0ea5e9';
   var h = props.height || 24;
-  var [w, setW] = useState(0);
+  var _w = useState(0); var w = _w[0]; var setW = _w[1];
 
   if (data.length < 2) return <View style={{ height: h }} />;
 

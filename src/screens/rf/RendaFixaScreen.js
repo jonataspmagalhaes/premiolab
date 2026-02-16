@@ -3,7 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -95,11 +95,10 @@ export default function RendaFixaScreen(props) {
 
   var totalAplicado = ativos.reduce(function(s, i) { return s + (parseFloat(i.valor_aplicado) || 0); }, 0);
 
-  if (loading) return <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}><LoadingScreen /></SafeAreaView>;
+  if (loading) return <View style={{ flex: 1, backgroundColor: C.bg, padding: 18 }}><LoadingScreen /></View>;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
-      <ScrollView
+    <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -238,7 +237,6 @@ export default function RendaFixaScreen(props) {
 
         <View style={{ height: SIZE.tabBarHeight + 20 }} />
       </ScrollView>
-    </SafeAreaView>
   );
 }
 

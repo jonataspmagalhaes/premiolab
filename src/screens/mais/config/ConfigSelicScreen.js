@@ -9,24 +9,25 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { updateProfile } from '../../../services/database';
 import { Glass, Badge, SectionLabel } from '../../../components';
 
-const COPOM = [
-  { data: '29/01/2026', taxa: 13.25, var: '+1.00' },
-  { data: '11/12/2025', taxa: 12.25, var: '+1.00' },
-  { data: '06/11/2025', taxa: 11.25, var: '+0.50' },
-  { data: '18/09/2025', taxa: 10.75, var: '+0.25' },
-  { data: '30/07/2025', taxa: 10.50, var: '0.00' },
-  { data: '18/06/2025', taxa: 10.50, var: '-0.50' },
-  { data: '07/05/2025', taxa: 11.00, var: '-0.50' },
-  { data: '19/03/2025', taxa: 11.50, var: '-0.50' },
+var COPOM = [
+  { data: '29/01/2026', taxa: 13.25, variacao: '+1.00' },
+  { data: '11/12/2025', taxa: 12.25, variacao: '+1.00' },
+  { data: '06/11/2025', taxa: 11.25, variacao: '+0.50' },
+  { data: '18/09/2025', taxa: 10.75, variacao: '+0.25' },
+  { data: '30/07/2025', taxa: 10.50, variacao: '0.00' },
+  { data: '18/06/2025', taxa: 10.50, variacao: '-0.50' },
+  { data: '07/05/2025', taxa: 11.00, variacao: '-0.50' },
+  { data: '19/03/2025', taxa: 11.50, variacao: '-0.50' },
 ];
 
-export default function ConfigSelicScreen({ navigation }) {
-  const { user } = useAuth();
-  const [selic, setSelic] = useState('13.25');
+export default function ConfigSelicScreen(props) {
+  var navigation = props.navigation;
+  var _auth = useAuth(); var user = _auth.user;
+  var _selic = useState('13.25'); var selic = _selic[0]; var setSelic = _selic[1];
 
-  const save = async () => {
-    const { error } = await updateProfile(user.id, { selic: parseFloat(selic) || 13.25 });
-    if (error) Alert.alert('Erro', 'Falha ao salvar');
+  var save = async function() {
+    var result = await updateProfile(user.id, { selic: parseFloat(selic) || 13.25 });
+    if (result.error) Alert.alert('Erro', 'Falha ao salvar');
     else {
       Alert.alert('Salvo', 'Taxa Selic atualizada');
       navigation.goBack();
@@ -36,7 +37,7 @@ export default function ConfigSelicScreen({ navigation }) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={function() { navigation.goBack(); }}>
           <Text style={styles.back}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Taxa Selic</Text>
@@ -70,15 +71,15 @@ export default function ConfigSelicScreen({ navigation }) {
 
       <SectionLabel>HISTÓRICO COPOM</SectionLabel>
       <Glass padding={0}>
-        {COPOM.map((c, i) => {
-          const isUp = c.var.startsWith('+') && c.var !== '+0.00';
-          const isDown = c.var.startsWith('-');
+        {COPOM.map(function(c, i) {
+          var isUp = c.variacao.startsWith('+') && c.variacao !== '+0.00';
+          var isDown = c.variacao.startsWith('-');
           return (
             <View key={i} style={[styles.copomRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
               <Text style={styles.copomDate}>{c.data}</Text>
               <Text style={styles.copomTaxa}>{c.taxa.toFixed(2)}%</Text>
               <Badge
-                text={c.var === '0.00' ? '=' : c.var}
+                text={c.variacao === '0.00' ? '=' : c.variacao}
                 color={isUp ? C.red : isDown ? C.green : C.dim}
               />
             </View>
@@ -91,7 +92,7 @@ export default function ConfigSelicScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+var styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   content: { padding: 16, gap: SIZE.gap },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },

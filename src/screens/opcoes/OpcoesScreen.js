@@ -6,7 +6,8 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOpcoes, getPositions } from '../../services/database';
+import { getOpcoes, getPositions, getSaldos, addOperacao } from '../../services/database';
+import { enrichPositionsWithPrices, clearPriceCache } from '../../services/priceService';
 import { supabase } from '../../config/supabase';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
@@ -16,7 +17,106 @@ function fmt(v) {
 }
 
 // ═══════════════════════════════════════
-// GREGAS (simplified BS approximation)
+// BLACK-SCHOLES MATH
+// ═══════════════════════════════════════
+
+// Standard normal CDF (Abramowitz & Stegun approximation)
+function normCDF(x) {
+  if (x > 10) return 1;
+  if (x < -10) return 0;
+  var a1 = 0.254829592;
+  var a2 = -0.284496736;
+  var a3 = 1.421413741;
+  var a4 = -1.453152027;
+  var a5 = 1.061405429;
+  var p = 0.3275911;
+  var sign = x < 0 ? -1 : 1;
+  var absX = Math.abs(x);
+  var t = 1.0 / (1.0 + p * absX);
+  var y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-absX * absX / 2);
+  return 0.5 * (1.0 + sign * y);
+}
+
+// Standard normal PDF
+function normPDF(x) {
+  return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+}
+
+// Black-Scholes d1 and d2
+function bsD1D2(s, k, t, r, sigma) {
+  if (t <= 0 || sigma <= 0 || s <= 0 || k <= 0) return { d1: 0, d2: 0 };
+  var d1 = (Math.log(s / k) + (r + sigma * sigma / 2) * t) / (sigma * Math.sqrt(t));
+  var d2 = d1 - sigma * Math.sqrt(t);
+  return { d1: d1, d2: d2 };
+}
+
+// BS option price
+function bsPrice(s, k, t, r, sigma, tipo) {
+  if (t <= 0) {
+    if (tipo === 'call') return Math.max(0, s - k);
+    return Math.max(0, k - s);
+  }
+  var dd = bsD1D2(s, k, t, r, sigma);
+  if (tipo === 'call') {
+    return s * normCDF(dd.d1) - k * Math.exp(-r * t) * normCDF(dd.d2);
+  }
+  return k * Math.exp(-r * t) * normCDF(-dd.d2) - s * normCDF(-dd.d1);
+}
+
+// BS Greeks
+function bsGreeks(s, k, t, r, sigma, tipo) {
+  if (s <= 0 || k <= 0 || t <= 0 || sigma <= 0) {
+    return { delta: 0, gamma: 0, theta: 0, vega: 0 };
+  }
+  var dd = bsD1D2(s, k, t, r, sigma);
+  var sqrtT = Math.sqrt(t);
+
+  // Delta
+  var delta;
+  if (tipo === 'call') {
+    delta = normCDF(dd.d1);
+  } else {
+    delta = normCDF(dd.d1) - 1;
+  }
+
+  // Gamma (same for call and put)
+  var gamma = normPDF(dd.d1) / (s * sigma * sqrtT);
+
+  // Theta (per day)
+  var thetaAnnual;
+  if (tipo === 'call') {
+    thetaAnnual = -(s * normPDF(dd.d1) * sigma) / (2 * sqrtT) - r * k * Math.exp(-r * t) * normCDF(dd.d2);
+  } else {
+    thetaAnnual = -(s * normPDF(dd.d1) * sigma) / (2 * sqrtT) + r * k * Math.exp(-r * t) * normCDF(-dd.d2);
+  }
+  var theta = thetaAnnual / 365;
+
+  // Vega (per 1% IV change)
+  var vega = s * sqrtT * normPDF(dd.d1) / 100;
+
+  return { delta: delta, gamma: gamma, theta: theta, vega: vega };
+}
+
+// Implied Volatility via Newton-Raphson
+function bsIV(s, k, t, r, marketPrice, tipo) {
+  if (marketPrice <= 0 || s <= 0 || k <= 0 || t <= 0) return 0.35;
+  var sigma = 0.30; // initial guess
+  for (var i = 0; i < 20; i++) {
+    var price = bsPrice(s, k, t, r, sigma, tipo);
+    var dd = bsD1D2(s, k, t, r, sigma);
+    var vegaVal = s * Math.sqrt(t) * normPDF(dd.d1);
+    if (vegaVal < 0.0001) break;
+    var diff = price - marketPrice;
+    sigma = sigma - diff / vegaVal;
+    if (sigma < 0.01) { sigma = 0.01; break; }
+    if (sigma > 5) { sigma = 5; break; }
+    if (Math.abs(diff) < 0.001) break;
+  }
+  return Math.max(0.01, Math.min(5, sigma));
+}
+
+// ═══════════════════════════════════════
+// CALC GREEKS FOR AN OPTION
 // ═══════════════════════════════════════
 function calcGreeks(op, spot) {
   var s = spot || op.strike || 0;
@@ -24,93 +124,217 @@ function calcGreeks(op, spot) {
   var p = op.premio || 0;
   var daysLeft = Math.max(1, Math.ceil((new Date(op.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
   var t = daysLeft / 365;
-  var ivGuess = 0.35; // Default IV estimate
+  var r = 0.1325; // Selic ~13.25%
+  var tipo = (op.tipo || 'call').toLowerCase();
 
-  if (s <= 0 || k <= 0) return { delta: 0, gamma: 0, theta: 0, iv: 0, daysLeft: daysLeft };
+  if (s <= 0 || k <= 0) return { delta: 0, gamma: 0, theta: 0, vega: 0, iv: 0, daysLeft: daysLeft };
 
-  var moneyness = s / k;
-  var rawDelta = 0.5 + (moneyness - 1) * 3;
-  var delta;
-  if (op.tipo === 'call') {
-    delta = Math.min(0.99, Math.max(0.01, rawDelta));
-  } else {
-    delta = -Math.min(0.99, Math.max(0.01, 1 - rawDelta));
-  }
-
-  var gamma = Math.max(0.001, 0.05 * Math.exp(-Math.pow(moneyness - 1, 2) * 50));
-  var theta = -(s * ivGuess * gamma) / (2 * Math.sqrt(t)) / 365;
-  var iv = (p > 0 && s > 0) ? (p / s) * Math.sqrt(365 / daysLeft) * 100 : ivGuess * 100;
+  // Compute IV from market premium
+  var iv = bsIV(s, k, t, r, p, tipo);
+  var greeks = bsGreeks(s, k, t, r, iv, tipo);
 
   return {
-    delta: delta,
-    gamma: gamma,
-    theta: theta,
-    iv: Math.min(200, Math.max(5, iv)),
+    delta: greeks.delta,
+    gamma: greeks.gamma,
+    theta: greeks.theta,
+    vega: greeks.vega,
+    iv: iv * 100,
     daysLeft: daysLeft,
   };
 }
 
 // ═══════════════════════════════════════
+// MONEYNESS HELPER
+// ═══════════════════════════════════════
+function getMoneyness(tipo, direcao, strike, spot) {
+  if (!spot || spot <= 0 || !strike || strike <= 0) return null;
+  var diff = ((spot - strike) / strike) * 100;
+  var absDiff = Math.abs(diff);
+  var distText = absDiff.toFixed(1) + '% ' + (spot > strike ? 'acima' : 'abaixo');
+
+  if (absDiff < 1) {
+    return { label: 'ATM', color: C.yellow, text: 'Strike R$ ' + fmt(strike) + ' . ' + distText };
+  }
+
+  var isCall = (tipo || 'call').toLowerCase() === 'call';
+  var itm;
+  if (isCall) {
+    itm = spot > strike;
+  } else {
+    itm = spot < strike;
+  }
+
+  // Para venda/lancamento: vendedor quer OTM (verde), ITM eh ruim (vermelho)
+  // Para compra: comprador quer ITM (verde), OTM eh ruim (vermelho)
+  var isLanc = direcao === 'lancamento' || direcao === 'venda';
+  var label;
+  var color;
+  if (itm) {
+    label = 'ITM';
+    color = isLanc ? C.red : C.green;
+  } else {
+    label = 'OTM';
+    color = isLanc ? C.green : C.red;
+  }
+
+  return { label: label, color: color, text: 'Strike R$ ' + fmt(strike) + ' . ' + distText };
+}
+
+// ═══════════════════════════════════════
 // OPTION CARD
 // ═══════════════════════════════════════
-function OpCard({ op, positions, onEdit, onDelete }) {
+function OpCard(props) {
+  var op = props.op;
+  var positions = props.positions;
+  var saldos = props.saldos || [];
+  var onEdit = props.onEdit;
+  var onDelete = props.onDelete;
+  var onClose = props.onClose;
+
+  var _showClose = useState(false); var showClose = _showClose[0]; var setShowClose = _showClose[1];
+  var _premRecompra = useState(''); var premRecompra = _premRecompra[0]; var setPremRecompra = _premRecompra[1];
+
   var tipoLabel = (op.tipo || 'call').toUpperCase();
+  var isVenda = op.direcao === 'lancamento' || op.direcao === 'venda';
   var premTotal = (op.premio || 0) * (op.quantidade || 0);
   var daysLeft = Math.max(0, Math.ceil((new Date(op.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
 
-  // Status: coberta, descoberta, etc
-  var status = 'COBERTA';
-  var statusColor = C.green;
-  if (tipoLabel === 'CALL' && (op.direcao === 'lancamento' || op.direcao === 'venda')) {
-    var pos = positions.find(function (p) { return p.ticker === op.ativo_base; });
-    if (!pos || pos.quantidade < (op.quantidade || 0)) {
-      status = 'DESCOBERTA';
-      statusColor = C.red;
+  // Cobertura: CALL = acoes na mesma corretora, PUT = saldo na mesma corretora
+  var cobertura = '';
+  var coberturaColor = C.green;
+  var coberturaDetail = '';
+
+  if (tipoLabel === 'CALL' && isVenda) {
+    // CALL vendida: precisa ter acoes do ativo_base na mesma corretora
+    var posMatch = null;
+    for (var ci = 0; ci < positions.length; ci++) {
+      if (positions[ci].ticker === op.ativo_base && positions[ci].corretora === op.corretora) {
+        posMatch = positions[ci];
+        break;
+      }
     }
-  } else if (tipoLabel === 'PUT') {
-    status = 'CSP';
-    statusColor = C.opcoes;
+    // Fallback: checar qualquer corretora
+    var posAny = null;
+    if (!posMatch) {
+      for (var cj = 0; cj < positions.length; cj++) {
+        if (positions[cj].ticker === op.ativo_base) {
+          posAny = positions[cj];
+          break;
+        }
+      }
+    }
+
+    if (posMatch && posMatch.quantidade >= (op.quantidade || 0)) {
+      cobertura = 'COBERTA';
+      coberturaColor = C.green;
+      coberturaDetail = posMatch.quantidade + ' acoes em ' + op.corretora;
+    } else if (posMatch) {
+      cobertura = 'PARCIAL';
+      coberturaColor = C.yellow;
+      coberturaDetail = 'Tem ' + posMatch.quantidade + '/' + (op.quantidade || 0) + ' em ' + op.corretora;
+    } else if (posAny && posAny.quantidade >= (op.quantidade || 0)) {
+      cobertura = 'COBERTA*';
+      coberturaColor = C.yellow;
+      coberturaDetail = posAny.quantidade + ' acoes em ' + (posAny.corretora || 'outra') + ' (corretora diferente)';
+    } else {
+      cobertura = 'DESCOBERTA';
+      coberturaColor = C.red;
+      coberturaDetail = 'Sem ' + op.ativo_base + ' em ' + (op.corretora || 'nenhuma corretora');
+    }
+  } else if (tipoLabel === 'PUT' && isVenda) {
+    // PUT vendida (CSP): precisa ter saldo >= strike * qty na mesma corretora
+    var custoExercicio = (op.strike || 0) * (op.quantidade || 0);
+    var saldoMatch = null;
+    for (var si = 0; si < saldos.length; si++) {
+      if (saldos[si].name === op.corretora) {
+        saldoMatch = saldos[si];
+        break;
+      }
+    }
+    var saldoVal = saldoMatch ? (saldoMatch.saldo || 0) : 0;
+
+    if (saldoMatch && saldoVal >= custoExercicio) {
+      cobertura = 'CSP';
+      coberturaColor = C.green;
+      coberturaDetail = 'Saldo R$ ' + fmt(saldoVal) + ' em ' + op.corretora + ' (precisa R$ ' + fmt(custoExercicio) + ')';
+    } else if (saldoMatch) {
+      cobertura = 'CSP PARCIAL';
+      coberturaColor = C.yellow;
+      coberturaDetail = 'Saldo R$ ' + fmt(saldoVal) + '/' + fmt(custoExercicio) + ' em ' + op.corretora;
+    } else {
+      cobertura = 'DESCOBERTA';
+      coberturaColor = C.red;
+      coberturaDetail = 'Sem saldo em ' + (op.corretora || 'nenhuma corretora') + ' (precisa R$ ' + fmt(custoExercicio) + ')';
+    }
+  } else if (isVenda) {
+    cobertura = 'VENDA';
+    coberturaColor = C.opcoes;
+  } else {
+    cobertura = 'COMPRA';
+    coberturaColor = C.accent;
   }
 
-  // Gregas
+  // Gregas + spot
   var spotPrice = 0;
-  var matchPos = positions.find(function (p) { return p.ticker === op.ativo_base; });
+  var matchPos = positions.find(function(p) { return p.ticker === op.ativo_base; });
   if (matchPos) spotPrice = matchPos.preco_atual || matchPos.pm || 0;
   var greeks = calcGreeks(op, spotPrice);
+
+  // Moneyness
+  var moneyness = getMoneyness(op.tipo, op.direcao, op.strike, spotPrice);
+
+  // Encerramento P&L
+  var recompraVal = parseFloat(premRecompra) || 0;
+  var closePL = 0;
+  if (recompraVal > 0) {
+    if (op.direcao === 'lancamento' || op.direcao === 'venda') {
+      closePL = ((op.premio || 0) - recompraVal) * (op.quantidade || 0);
+    } else {
+      closePL = (recompraVal - (op.premio || 0)) * (op.quantidade || 0);
+    }
+  }
 
   // Day urgency
   var dayColor = daysLeft <= 7 ? C.red : daysLeft <= 21 ? C.etfs : C.opcoes;
 
   return (
     <Glass padding={14} style={{
-      backgroundColor: statusColor + '04',
-      borderColor: statusColor + '12',
+      backgroundColor: coberturaColor + '04',
+      borderColor: coberturaColor + '12',
       borderWidth: 1,
     }}>
-      {/* Header: ticker + type + status + premium */}
+      {/* Header: ticker + type + cobertura + moneyness + premium */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
           <Text style={styles.opTicker}>{op.ativo_base}</Text>
           <Badge text={tipoLabel} color={tipoLabel === 'CALL' ? C.green : C.red} />
-          <Badge text={status} color={statusColor} />
+          <Badge text={cobertura} color={coberturaColor} />
+          {moneyness ? <Badge text={moneyness.label} color={moneyness.color} /> : null}
+          <Badge text={daysLeft + 'd'} color={dayColor} />
         </View>
         <Text style={[styles.opPremio, { color: C.green }]}>+R$ {fmt(premTotal)}</Text>
       </View>
 
-      {/* Option code */}
+      {/* Option code + moneyness text + cobertura detail */}
       {op.ticker_opcao ? (
         <Text style={styles.opCode}>{op.ticker_opcao}</Text>
+      ) : null}
+      {moneyness ? (
+        <Text style={{ fontSize: 10, color: moneyness.color, fontFamily: F.mono, marginBottom: 2 }}>{moneyness.text}</Text>
+      ) : null}
+      {coberturaDetail ? (
+        <Text style={{ fontSize: 9, color: coberturaColor, fontFamily: F.mono, marginBottom: 4 }}>{coberturaDetail}</Text>
       ) : null}
 
       {/* Greeks row */}
       <View style={styles.greeksRow}>
         {[
-          { l: 'Strike', v: 'R$ ' + fmt(op.strike) },
+          { l: 'Spot', v: spotPrice > 0 ? 'R$ ' + fmt(spotPrice) : '–' },
           { l: 'Delta', v: greeks.delta.toFixed(2) },
           { l: 'Theta', v: (greeks.theta * (op.quantidade || 1) >= 0 ? '+' : '') + 'R$' + (greeks.theta * (op.quantidade || 1)).toFixed(1) + '/d' },
           { l: 'IV', v: greeks.iv.toFixed(0) + '%' },
           { l: 'DTE', v: daysLeft + 'd' },
-        ].map(function (g, i) {
+        ].map(function(g, i) {
           return (
             <View key={i} style={{ alignItems: 'center', flex: 1 }}>
               <Text style={styles.greekLabel}>{g.l}</Text>
@@ -129,6 +353,9 @@ function OpCard({ op, positions, onEdit, onDelete }) {
           <Badge text={daysLeft + 'd'} color={dayColor} />
         </View>
         <View style={{ flexDirection: 'row', gap: 14 }}>
+          <TouchableOpacity onPress={function() { setShowClose(!showClose); }}>
+            <Text style={[styles.actionLink, { color: C.yellow }]}>Encerrar</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={onEdit}>
             <Text style={styles.actionLink}>Editar</Text>
           </TouchableOpacity>
@@ -137,6 +364,47 @@ function OpCard({ op, positions, onEdit, onDelete }) {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Encerramento panel */}
+      {showClose ? (
+        <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
+          <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4 }}>PREMIO RECOMPRA (R$)</Text>
+          <TextInput
+            value={premRecompra}
+            onChangeText={setPremRecompra}
+            placeholder="0.00"
+            placeholderTextColor={C.dim}
+            keyboardType="decimal-pad"
+            style={{
+              backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border,
+              borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+              fontSize: 15, color: C.text, fontFamily: F.body,
+            }}
+          />
+          {recompraVal > 0 ? (
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>P&L DO ENCERRAMENTO</Text>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: closePL >= 0 ? C.green : C.red, fontFamily: F.display }}>
+                {closePL >= 0 ? '+' : ''}R$ {fmt(closePL)}
+              </Text>
+            </View>
+          ) : null}
+          <TouchableOpacity
+            onPress={function() {
+              if (recompraVal <= 0) return;
+              if (onClose) onClose(op.id, recompraVal, closePL);
+            }}
+            disabled={recompraVal <= 0}
+            style={{
+              backgroundColor: recompraVal > 0 ? C.yellow : C.dim,
+              borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 8,
+              opacity: recompraVal > 0 ? 1 : 0.4,
+            }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#000', fontFamily: F.display }}>Confirmar encerramento</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
     </Glass>
   );
 }
@@ -146,11 +414,11 @@ function OpCard({ op, positions, onEdit, onDelete }) {
 // ═══════════════════════════════════════
 function SimuladorBS() {
   var s1 = useState('CALL'); var tipo = s1[0]; var setTipo = s1[1];
-  var s2 = useState('lancamento'); var direcao = s2[0]; var setDirecao = s2[1];
+  var s2 = useState('venda'); var direcao = s2[0]; var setDirecao = s2[1];
   var s3 = useState('34.30'); var spot = s3[0]; var setSpot = s3[1];
   var s4 = useState('36.00'); var strike = s4[0]; var setStrike = s4[1];
   var s5 = useState('1.20'); var premio = s5[0]; var setPremio = s5[1];
-  var s6 = useState('35'); var iv = s6[0]; var setIv = s6[1];
+  var s6 = useState('35'); var ivInput = s6[0]; var setIvInput = s6[1];
   var s7 = useState('21'); var dte = s7[0]; var setDte = s7[1];
   var s8 = useState('100'); var qty = s8[0]; var setQty = s8[1];
 
@@ -159,22 +427,29 @@ function SimuladorBS() {
   var pVal = parseFloat(premio) || 0;
   var qVal = parseInt(qty) || 0;
   var dVal = parseInt(dte) || 0;
-  var ivPct = parseFloat(iv) / 100 || 0;
+  var t = dVal / 365;
+  var r = 0.1325;
+  var tipoLower = tipo.toLowerCase();
 
-  var moneyness = kVal > 0 ? sVal / kVal : 1;
-  var delta = tipo === 'CALL'
-    ? Math.min(0.99, Math.max(0.01, 0.5 + (moneyness - 1) * 3))
-    : -Math.min(0.99, Math.max(0.01, 0.5 - (moneyness - 1) * 3));
-  var gamma = Math.max(0.001, 0.05 * Math.exp(-Math.pow(moneyness - 1, 2) * 50));
-  var theta = -(sVal * ivPct * gamma) / (2 * Math.sqrt(dVal / 365 || 0.01)) / 365;
-  var vega = sVal * Math.sqrt(dVal / 365 || 0.01) * gamma;
+  // Use input IV or calculate from premium
+  var sigma = parseFloat(ivInput) / 100 || 0.30;
+  if (pVal > 0 && sVal > 0 && kVal > 0 && t > 0) {
+    var computedIV = bsIV(sVal, kVal, t, r, pVal, tipoLower);
+    sigma = computedIV;
+  }
+
+  // Real BS Greeks
+  var greeks = bsGreeks(sVal, kVal, t, r, sigma, tipoLower);
 
   var premioTotal = pVal * qVal;
   var contratos = Math.floor(qVal / 100);
-  var thetaDia = theta * qVal;
-  var breakeven = tipo === 'CALL' ? kVal + pVal : kVal - pVal;
+  var thetaDia = greeks.theta * qVal;
+  var breakeven = tipoLower === 'call' ? kVal + pVal : kVal - pVal;
 
-  // What-If scenarios
+  // BS theoretical price
+  var bsTheoPrice = bsPrice(sVal, kVal, t, r, sigma, tipoLower);
+
+  // What-If scenarios with proper BS
   var scenarios = [
     { label: '+5%', pctMove: 0.05 },
     { label: '-5%', pctMove: -0.05 },
@@ -184,16 +459,13 @@ function SimuladorBS() {
 
   function calcScenarioResult(pctMove) {
     var newSpot = sVal * (1 + pctMove);
-    var intrinsic;
-    if (tipo === 'CALL') {
-      intrinsic = Math.max(0, newSpot - kVal);
+    // Recalculate BS price at new spot with reduced DTE (half the move period)
+    var newT = Math.max(0.001, (dVal - 5) / 365);
+    var newPrice = bsPrice(newSpot, kVal, newT, r, sigma, tipoLower);
+    if (direcao === 'lancamento' || direcao === 'venda') {
+      return (pVal - newPrice) * qVal;
     } else {
-      intrinsic = Math.max(0, kVal - newSpot);
-    }
-    if (direcao === 'lancamento') {
-      return (pVal - intrinsic) * qVal;
-    } else {
-      return (intrinsic - pVal) * qVal;
+      return (newPrice - pVal) * qVal;
     }
   }
 
@@ -212,16 +484,16 @@ function SimuladorBS() {
 
   return (
     <View style={{ gap: SIZE.gap }}>
-      {/* Tipo + Direção */}
+      {/* Tipo + Direcao */}
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <View style={{ flex: 1, flexDirection: 'row', gap: 6 }}>
-          {['CALL', 'PUT'].map(function (t) {
-            return <Pill key={t} active={tipo === t} color={t === 'CALL' ? C.green : C.red} onPress={function () { setTipo(t); }}>{t}</Pill>;
+          {['CALL', 'PUT'].map(function(t) {
+            return <Pill key={t} active={tipo === t} color={t === 'CALL' ? C.green : C.red} onPress={function() { setTipo(t); }}>{t}</Pill>;
           })}
         </View>
         <View style={{ flex: 1, flexDirection: 'row', gap: 6 }}>
-          <Pill active={direcao === 'lancamento'} color={C.accent} onPress={function () { setDirecao('lancamento'); }}>Lançamento</Pill>
-          <Pill active={direcao === 'compra'} color={C.accent} onPress={function () { setDirecao('compra'); }}>Compra</Pill>
+          <Pill active={direcao === 'venda'} color={C.accent} onPress={function() { setDirecao('venda'); }}>Venda</Pill>
+          <Pill active={direcao === 'compra'} color={C.accent} onPress={function() { setDirecao('compra'); }}>Compra</Pill>
         </View>
       </View>
 
@@ -230,23 +502,23 @@ function SimuladorBS() {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           {renderField('Spot', spot, setSpot, 'R$')}
           {renderField('Strike', strike, setStrike, 'R$')}
-          {renderField('Prêmio', premio, setPremio, 'R$')}
-          {renderField('IV', iv, setIv, '%')}
+          {renderField('Premio', premio, setPremio, 'R$')}
+          {renderField('IV', ivInput, setIvInput, '%')}
           {renderField('DTE', dte, setDte, 'dias')}
-          {renderField('Qtd Opções', qty, setQty)}
+          {renderField('Qtd Opcoes', qty, setQty)}
         </View>
       </Glass>
 
       {/* Gregas */}
       <Glass glow={C.opcoes} padding={14}>
-        <SectionLabel>GREGAS</SectionLabel>
+        <SectionLabel>GREGAS (BLACK-SCHOLES)</SectionLabel>
         <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: 8 }}>
           {[
-            { l: 'Delta', v: delta.toFixed(3), c: Math.abs(delta) > 0.5 ? C.green : C.sub },
-            { l: 'Gamma', v: gamma.toFixed(4), c: C.sub },
-            { l: 'Theta', v: theta.toFixed(3), c: C.red },
-            { l: 'Vega', v: vega.toFixed(3), c: C.acoes },
-          ].map(function (g, i) {
+            { l: 'Delta', v: greeks.delta.toFixed(3), c: Math.abs(greeks.delta) > 0.5 ? C.green : C.sub },
+            { l: 'Gamma', v: greeks.gamma.toFixed(4), c: C.sub },
+            { l: 'Theta', v: greeks.theta.toFixed(3), c: C.red },
+            { l: 'Vega', v: greeks.vega.toFixed(3), c: C.acoes },
+          ].map(function(g, i) {
             return (
               <View key={i} style={{ alignItems: 'center' }}>
                 <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{g.l}</Text>
@@ -255,6 +527,21 @@ function SimuladorBS() {
             );
           })}
         </View>
+        {/* IV + BS Price */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: 10, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 8 }}>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>IV IMPLICITA</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.opcoes, fontFamily: F.mono }}>{(sigma * 100).toFixed(1)}%</Text>
+          </View>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>PRECO BS</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }}>R$ {bsTheoPrice.toFixed(2)}</Text>
+          </View>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>MERCADO</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: bsTheoPrice > pVal ? C.green : C.red, fontFamily: F.mono }}>R$ {pVal.toFixed(2)}</Text>
+          </View>
+        </View>
       </Glass>
 
       {/* Resumo */}
@@ -262,15 +549,15 @@ function SimuladorBS() {
         <SectionLabel>RESUMO</SectionLabel>
         <View style={{ gap: 6, marginTop: 6 }}>
           {[
-            { l: 'Prêmio total', v: 'R$ ' + premioTotal.toFixed(2) },
+            { l: 'Premio total', v: 'R$ ' + premioTotal.toFixed(2) },
             { l: 'Theta/dia', v: 'R$ ' + thetaDia.toFixed(2) },
             { l: 'Breakeven', v: 'R$ ' + breakeven.toFixed(2) },
-            { l: 'Contratos', v: contratos + ' (' + qVal + ' opções)' },
-          ].map(function (r, i) {
+            { l: 'Contratos', v: contratos + ' (' + qVal + ' opcoes)' },
+          ].map(function(rr, i) {
             return (
               <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
-                <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body }}>{r.l}</Text>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, fontFamily: F.mono }}>{r.v}</Text>
+                <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body }}>{rr.l}</Text>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, fontFamily: F.mono }}>{rr.v}</Text>
               </View>
             );
           })}
@@ -279,9 +566,9 @@ function SimuladorBS() {
 
       {/* What-If Scenarios */}
       <Glass glow={C.etfs} padding={14}>
-        <SectionLabel>CENÁRIOS WHAT-IF</SectionLabel>
+        <SectionLabel>CENARIOS WHAT-IF</SectionLabel>
         <View style={{ gap: 6, marginTop: 8 }}>
-          {scenarios.map(function (sc, i) {
+          {scenarios.map(function(sc, i) {
             var result = calcScenarioResult(sc.pctMove);
             var isPos = result >= 0;
             var scColor = isPos ? C.green : C.red;
@@ -319,34 +606,72 @@ export default function OpcoesScreen() {
   var s4 = useState(false); var refreshing = s4[0]; var setRefreshing = s4[1];
   var s5 = useState([]); var positions = s5[0]; var setPositions = s5[1];
 
-  var load = async function () {
+  var s6 = useState(false); var pricesAvailable = s6[0]; var setPricesAvailable = s6[1];
+  var s7 = useState([]); var expired = s7[0]; var setExpired = s7[1];
+  var s8 = useState([]); var saldos = s8[0]; var setSaldos = s8[1];
+
+  var load = async function() {
     if (!user) return;
     var results = await Promise.all([
       getOpcoes(user.id),
       getPositions(user.id),
+      getSaldos(user.id),
     ]);
-    setOpcoes(results[0].data || []);
-    setPositions(results[1].data || []);
+    var allOpcoes = results[0].data || [];
+    var rawPos = results[1].data || [];
+    setSaldos(results[2].data || []);
+    setPositions(rawPos);
     setLoading(false);
+
+    // Detect expired options (ativa + vencimento < hoje)
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    var expiredList = [];
+    var nonExpiredOpcoes = [];
+    for (var ei = 0; ei < allOpcoes.length; ei++) {
+      var o = allOpcoes[ei];
+      if (o.status === 'ativa' && new Date(o.vencimento) < today) {
+        expiredList.push(o);
+      } else {
+        nonExpiredOpcoes.push(o);
+      }
+    }
+    setExpired(expiredList);
+    setOpcoes(nonExpiredOpcoes);
+
+    // Two-phase: enrich with real prices
+    try {
+      var enriched = await enrichPositionsWithPrices(rawPos);
+      setPositions(enriched);
+      var hasAnyPrice = false;
+      for (var i = 0; i < enriched.length; i++) {
+        if (enriched[i].preco_atual != null) { hasAnyPrice = true; break; }
+      }
+      setPricesAvailable(hasAnyPrice);
+    } catch (e) {
+      console.warn('OpcoesScreen price enrichment failed:', e.message);
+      setPricesAvailable(false);
+    }
   };
 
-  useFocusEffect(useCallback(function () { load(); }, [user]));
+  useFocusEffect(useCallback(function() { load(); }, [user]));
 
-  var onRefresh = async function () {
+  var onRefresh = async function() {
     setRefreshing(true);
+    clearPriceCache();
     await load();
     setRefreshing(false);
   };
 
-  var handleDelete = function (id) {
-    Alert.alert('Excluir opção?', 'Essa ação não pode ser desfeita.', [
+  var handleDelete = function(id) {
+    Alert.alert('Excluir opcao?', 'Essa acao nao pode ser desfeita.', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Excluir', style: 'destructive',
-        onPress: async function () {
+        onPress: async function() {
           var result = await supabase.from('opcoes').delete().eq('id', id);
           if (!result.error) {
-            setOpcoes(opcoes.filter(function (o) { return o.id !== id; }));
+            setOpcoes(opcoes.filter(function(o) { return o.id !== id; }));
           } else {
             Alert.alert('Erro', 'Falha ao excluir.');
           }
@@ -355,24 +680,139 @@ export default function OpcoesScreen() {
     ]);
   };
 
-  var ativas = opcoes.filter(function (o) { return o.status === 'ativa'; });
-  var historico = opcoes.filter(function (o) { return o.status !== 'ativa'; });
+  var handleClose = async function(id, premFechamento, pl) {
+    var result = await supabase
+      .from('opcoes')
+      .update({ status: 'fechada', premio_fechamento: premFechamento })
+      .eq('id', id);
+    if (result.error) {
+      Alert.alert('Erro', 'Falha ao encerrar opcao.');
+      return;
+    }
+    var updated = [];
+    for (var ci = 0; ci < opcoes.length; ci++) {
+      if (opcoes[ci].id === id) {
+        var copy = {};
+        var keys = Object.keys(opcoes[ci]);
+        for (var ck = 0; ck < keys.length; ck++) { copy[keys[ck]] = opcoes[ci][keys[ck]]; }
+        copy.status = 'fechada';
+        copy.premio_fechamento = premFechamento;
+        updated.push(copy);
+      } else {
+        updated.push(opcoes[ci]);
+      }
+    }
+    setOpcoes(updated);
+    var plText = pl >= 0 ? '+R$ ' + fmt(pl) : '-R$ ' + fmt(Math.abs(pl));
+    Alert.alert('Opcao encerrada', 'P&L: ' + plText);
+  };
+
+  var handleExpiredPo = async function(id) {
+    var result = await supabase
+      .from('opcoes')
+      .update({ status: 'expirou_po' })
+      .eq('id', id);
+    if (result.error) {
+      Alert.alert('Erro', 'Falha ao atualizar.');
+      return;
+    }
+    setExpired(expired.filter(function(o) { return o.id !== id; }));
+    // Move to opcoes list so it shows in historico
+    var expOp = null;
+    for (var fi = 0; fi < expired.length; fi++) {
+      if (expired[fi].id === id) { expOp = expired[fi]; break; }
+    }
+    if (expOp) {
+      var cp = {};
+      var ks = Object.keys(expOp);
+      for (var ki = 0; ki < ks.length; ki++) { cp[ks[ki]] = expOp[ks[ki]]; }
+      cp.status = 'expirou_po';
+      setOpcoes(opcoes.concat([cp]));
+    }
+    Alert.alert('Registrado', 'Opcao expirou sem valor (PO). Premio mantido integralmente.');
+  };
+
+  var handleExercida = function(expOp) {
+    var tipoUpper = (expOp.tipo || 'call').toUpperCase();
+    var isLanc = expOp.direcao === 'lancamento' || expOp.direcao === 'venda';
+    var descricao = '';
+    var opTipo = ''; // tipo da operacao de acoes resultante
+    if (tipoUpper === 'CALL') {
+      if (isLanc) {
+        descricao = 'CALL lancada exercida: venda de ' + expOp.quantidade + ' acoes de ' + expOp.ativo_base + ' ao strike R$ ' + fmt(expOp.strike);
+        opTipo = 'venda';
+      } else {
+        descricao = 'CALL comprada exercida: compra de ' + expOp.quantidade + ' acoes de ' + expOp.ativo_base + ' ao strike R$ ' + fmt(expOp.strike);
+        opTipo = 'compra';
+      }
+    } else {
+      if (isLanc) {
+        descricao = 'PUT lancada exercida: compra de ' + expOp.quantidade + ' acoes de ' + expOp.ativo_base + ' ao strike R$ ' + fmt(expOp.strike);
+        opTipo = 'compra';
+      } else {
+        descricao = 'PUT comprada exercida: venda de ' + expOp.quantidade + ' acoes de ' + expOp.ativo_base + ' ao strike R$ ' + fmt(expOp.strike);
+        opTipo = 'venda';
+      }
+    }
+
+    Alert.alert('Confirmar exercicio', descricao + '\n\nUma operacao de ' + opTipo + ' sera registrada na carteira.', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Confirmar',
+        onPress: async function() {
+          var result = await supabase
+            .from('opcoes')
+            .update({ status: 'exercida' })
+            .eq('id', expOp.id);
+          if (result.error) {
+            Alert.alert('Erro', 'Falha ao atualizar opcao.');
+            return;
+          }
+          // Criar operacao na carteira
+          var opResult = await addOperacao(user.id, {
+            ticker: expOp.ativo_base,
+            tipo: opTipo,
+            categoria: 'acao',
+            quantidade: expOp.quantidade,
+            preco: expOp.strike,
+            corretora: expOp.corretora || 'Clear',
+            data: new Date().toISOString().split('T')[0],
+          });
+          if (opResult.error) {
+            Alert.alert('Aviso', 'Opcao marcada como exercida, mas falha ao criar operacao: ' + opResult.error.message);
+          } else {
+            Alert.alert('Exercida!', 'Opcao exercida e operacao de ' + opTipo + ' registrada na carteira.');
+          }
+          setExpired(expired.filter(function(o) { return o.id !== expOp.id; }));
+          // Move to opcoes for historico
+          var cp2 = {};
+          var ks2 = Object.keys(expOp);
+          for (var ki2 = 0; ki2 < ks2.length; ki2++) { cp2[ks2[ki2]] = expOp[ks2[ki2]]; }
+          cp2.status = 'exercida';
+          setOpcoes(opcoes.concat([cp2]));
+        },
+      },
+    ]);
+  };
+
+  var ativas = opcoes.filter(function(o) { return o.status === 'ativa'; });
+  var historico = opcoes.filter(function(o) { return o.status !== 'ativa'; });
 
   // Totals
-  var premioMes = ativas.reduce(function (s, o) { return s + (o.premio || 0) * (o.quantidade || 0); }, 0);
+  var premioMes = ativas.reduce(function(s, o) { return s + (o.premio || 0) * (o.quantidade || 0); }, 0);
 
   // Theta/dia estimate
   var thetaDiaTotal = 0;
-  ativas.forEach(function (op) {
+  ativas.forEach(function(op) {
     var spotPrice = 0;
-    var matchPos = positions.find(function (p) { return p.ticker === op.ativo_base; });
-    if (matchPos) spotPrice = matchPos.pm || 0;
+    var matchPos = positions.find(function(p) { return p.ticker === op.ativo_base; });
+    if (matchPos) spotPrice = matchPos.preco_atual || matchPos.pm || 0;
     var greeks = calcGreeks(op, spotPrice);
     thetaDiaTotal += greeks.theta * (op.quantidade || 1);
   });
 
-  // Vencimentos próximos (sorted)
-  var vencimentos = ativas.slice().sort(function (a, b) {
+  // Vencimentos proximos (sorted)
+  var vencimentos = ativas.slice().sort(function(a, b) {
     return new Date(a.vencimento) - new Date(b.vencimento);
   });
 
@@ -387,14 +827,14 @@ export default function OpcoesScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />
       }
     >
-      {/* ═══ SUMMARY BAR ═══ */}
+      {/* SUMMARY BAR */}
       <Glass glow={C.opcoes} padding={16}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
           {[
-            { l: 'PRÊMIO MÊS', v: 'R$ ' + premioMes.toFixed(0), c: C.opcoes },
+            { l: 'PREMIO MES', v: 'R$ ' + premioMes.toFixed(0), c: C.opcoes },
             { l: 'THETA/DIA', v: (thetaDiaTotal >= 0 ? '+' : '') + 'R$ ' + thetaDiaTotal.toFixed(0), c: thetaDiaTotal >= 0 ? C.green : C.red },
-            { l: 'OPERAÇÕES', v: String(ativas.length), c: C.sub },
-          ].map(function (m, i) {
+            { l: 'OPERACOES', v: String(ativas.length), c: C.sub },
+          ].map(function(m, i) {
             return (
               <View key={i} style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
@@ -405,37 +845,98 @@ export default function OpcoesScreen() {
         </View>
       </Glass>
 
-      {/* ═══ SUB TABS ═══ */}
+      {/* BANNER: gregas usando PM */}
+      {!pricesAvailable && positions.length > 0 ? (
+        <View style={{ padding: 8, borderRadius: 8, backgroundColor: 'rgba(245,158,11,0.08)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)' }}>
+          <Text style={{ fontSize: 10, color: '#f59e0b', fontFamily: F.mono, textAlign: 'center' }}>
+            Gregas usando PM (cotacoes indisponiveis)
+          </Text>
+        </View>
+      ) : null}
+
+      {/* SUB TABS */}
       <View style={styles.subTabs}>
         {[
-          { k: 'ativas', l: 'Ativas (' + ativas.length + ')' },
+          { k: 'ativas', l: 'Ativas (' + ativas.length + (expired.length > 0 ? ' +' + expired.length + ' venc.' : '') + ')' },
           { k: 'sim', l: 'Simulador' },
-          { k: 'hist', l: 'Histórico (' + historico.length + ')' },
-        ].map(function (t) {
+          { k: 'hist', l: 'Historico (' + historico.length + ')' },
+        ].map(function(t) {
           return (
-            <Pill key={t.k} active={sub === t.k} color={C.opcoes} onPress={function () { setSub(t.k); }}>{t.l}</Pill>
+            <Pill key={t.k} active={sub === t.k} color={C.opcoes} onPress={function() { setSub(t.k); }}>{t.l}</Pill>
           );
         })}
       </View>
 
-      {/* ═══════ ATIVAS TAB ═══════ */}
+      {/* ATIVAS TAB */}
       {sub === 'ativas' && (
         <View style={{ gap: SIZE.gap }}>
-          {ativas.length === 0 ? (
+          {/* Opcoes vencidas que precisam de resolucao */}
+          {expired.length > 0 ? (
+            <View style={{ gap: SIZE.gap }}>
+              <SectionLabel>OPCOES VENCIDAS</SectionLabel>
+              {expired.map(function(expOp, ei) {
+                var expTipo = (expOp.tipo || 'call').toUpperCase();
+                var expPrem = (expOp.premio || 0) * (expOp.quantidade || 0);
+                return (
+                  <Glass key={expOp.id || ei} glow={C.red} padding={14} style={{
+                    borderColor: C.red + '30', borderWidth: 1,
+                  }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                        <Text style={styles.opTicker}>{expOp.ativo_base}</Text>
+                        <Badge text={expTipo} color={expTipo === 'CALL' ? C.green : C.red} />
+                        <Badge text={expOp.direcao === 'lancamento' || expOp.direcao === 'venda' ? 'VENDA' : 'COMPRA'} color={C.opcoes} />
+                        <Badge text="VENCIDA" color={C.red} />
+                      </View>
+                      <Text style={[styles.opPremio, { color: C.green }]}>+R$ {fmt(expPrem)}</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 12, marginBottom: 8 }}>
+                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                        Venc: {new Date(expOp.vencimento).toLocaleDateString('pt-BR')}
+                      </Text>
+                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                        Strike: R$ {fmt(expOp.strike)}
+                      </Text>
+                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                        Qtd: {expOp.quantidade}
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TouchableOpacity
+                        onPress={function() { handleExpiredPo(expOp.id); }}
+                        style={{ flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: C.green + '40', backgroundColor: C.green + '08', alignItems: 'center' }}
+                      >
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: C.green, fontFamily: F.display }}>Expirou sem valor (PO)</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={function() { handleExercida(expOp); }}
+                        style={{ flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: C.etfs + '40', backgroundColor: C.etfs + '08', alignItems: 'center' }}
+                      >
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: C.etfs, fontFamily: F.display }}>Foi exercida</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </Glass>
+                );
+              })}
+            </View>
+          ) : null}
+
+          {ativas.length === 0 && expired.length === 0 ? (
             <EmptyState
-              icon="⚡" title="Nenhuma opção ativa"
-              description="Lance opções para começar a receber prêmios."
-              cta="Nova opção" onCta={function () { navigation.navigate('AddOpcao'); }}
+              icon="\u26A1" title="Nenhuma opcao ativa"
+              description="Lance opcoes para comecar a receber premios."
+              cta="Nova opcao" onCta={function() { navigation.navigate('AddOpcao'); }}
               color={C.opcoes}
             />
-          ) : (
+          ) : ativas.length > 0 ? (
             <>
               {/* Option cards */}
-              {ativas.map(function (op, i) {
+              {ativas.map(function(op, i) {
                 return (
-                  <OpCard key={op.id || i} op={op} positions={positions}
-                    onEdit={function () { navigation.navigate('EditOpcao', { opcao: op }); }}
-                    onDelete={function () { handleDelete(op.id); }}
+                  <OpCard key={op.id || i} op={op} positions={positions} saldos={saldos}
+                    onEdit={function() { navigation.navigate('EditOpcao', { opcao: op }); }}
+                    onDelete={function() { handleDelete(op.id); }}
+                    onClose={handleClose}
                   />
                 );
               })}
@@ -443,8 +944,8 @@ export default function OpcoesScreen() {
               {/* Vencimentos */}
               {vencimentos.length > 0 && (
                 <View>
-                  <SectionLabel>PRÓXIMOS VENCIMENTOS</SectionLabel>
-                  {vencimentos.map(function (v, i) {
+                  <SectionLabel>PROXIMOS VENCIMENTOS</SectionLabel>
+                  {vencimentos.map(function(v, i) {
                     var daysLeft = Math.max(0, Math.ceil((new Date(v.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
                     var tipoLabel = (v.tipo || 'call').toUpperCase();
                     var dayColor = daysLeft <= 7 ? C.red : daysLeft <= 21 ? C.etfs : C.opcoes;
@@ -477,25 +978,25 @@ export default function OpcoesScreen() {
               {/* Add button */}
               <TouchableOpacity
                 activeOpacity={0.8} style={styles.addBtn}
-                onPress={function () { navigation.navigate('AddOpcao'); }}
+                onPress={function() { navigation.navigate('AddOpcao'); }}
               >
-                <Text style={styles.addBtnText}>+ Nova Opção</Text>
+                <Text style={styles.addBtnText}>+ Nova Opcao</Text>
               </TouchableOpacity>
             </>
-          )}
+          ) : null}
         </View>
       )}
 
-      {/* ═══════ SIMULADOR TAB ═══════ */}
+      {/* SIMULADOR TAB */}
       {sub === 'sim' && <SimuladorBS />}
 
-      {/* ═══════ HISTÓRICO TAB ═══════ */}
+      {/* HISTORICO TAB */}
       {sub === 'hist' && (
         <View style={{ gap: SIZE.gap }}>
           {historico.length === 0 ? (
             <Glass padding={24}>
               <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
-                Nenhuma operação encerrada ainda.
+                Nenhuma operacao encerrada ainda.
               </Text>
             </Glass>
           ) : (
@@ -503,16 +1004,16 @@ export default function OpcoesScreen() {
               {/* Summary */}
               <Glass padding={14}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-                  {(function () {
-                    var totalPrem = historico.reduce(function (s, o) { return s + (o.premio || 0) * (o.quantidade || 0); }, 0);
-                    var expiradas = historico.filter(function (o) { return o.status === 'expirou_po' || o.status === 'expirada'; }).length;
-                    var exercidas = historico.filter(function (o) { return o.status === 'exercida'; }).length;
+                  {(function() {
+                    var totalPrem = historico.reduce(function(s, o) { return s + (o.premio || 0) * (o.quantidade || 0); }, 0);
+                    var expiradas = historico.filter(function(o) { return o.status === 'expirou_po' || o.status === 'expirada'; }).length;
+                    var exercidas = historico.filter(function(o) { return o.status === 'exercida'; }).length;
                     return [
                       { l: 'TOTAL RECEBIDO', v: 'R$ ' + totalPrem.toFixed(0), c: C.green },
-                      { l: 'EXPIROU PÓ', v: String(expiradas), c: C.acoes },
+                      { l: 'EXPIROU PO', v: String(expiradas), c: C.acoes },
                       { l: 'EXERCIDAS', v: String(exercidas), c: C.etfs },
                     ];
-                  })().map(function (m, i) {
+                  })().map(function(m, i) {
                     return (
                       <View key={i} style={{ alignItems: 'center', flex: 1 }}>
                         <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
@@ -525,7 +1026,7 @@ export default function OpcoesScreen() {
 
               {/* History list */}
               <Glass padding={0}>
-                {historico.map(function (op, i) {
+                {historico.map(function(op, i) {
                   var tipoLabel = (op.tipo || 'call').toUpperCase();
                   var premTotal = (op.premio || 0) * (op.quantidade || 0);
                   var statusLabel = (op.status || 'encerrada').toUpperCase().replace('_', ' ');
@@ -533,6 +1034,7 @@ export default function OpcoesScreen() {
                     'EXPIROU PO': C.green,
                     'EXPIRADA': C.green,
                     'EXERCIDA': C.etfs,
+                    'FECHADA': C.yellow,
                     'RECOMPRADA': C.opcoes,
                     'ENCERRADA': C.dim,
                     'ROLADA': C.accent,

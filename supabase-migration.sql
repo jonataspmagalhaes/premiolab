@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════
--- PREMIOLAB v4.0.0 — SUPABASE MIGRATION
+-- PREMIOLAB v5.0.0 — SUPABASE MIGRATION
 -- Execute no SQL Editor do Supabase Dashboard
 -- ═══════════════════════════════════════════════════
 
@@ -21,12 +21,13 @@ CREATE TABLE IF NOT EXISTS operacoes (
   user_id UUID REFERENCES auth.users(id) NOT NULL,
   ticker TEXT NOT NULL,
   tipo TEXT NOT NULL CHECK (tipo IN ('compra', 'venda')),
-  tipo_ativo TEXT NOT NULL CHECK (tipo_ativo IN ('AÇ', 'FII', 'ETF')),
+  categoria TEXT NOT NULL DEFAULT 'acao' CHECK (categoria IN ('acao', 'fii', 'etf')),
   quantidade NUMERIC NOT NULL,
   preco NUMERIC NOT NULL,
-  custos NUMERIC DEFAULT 0,
+  custo_corretagem NUMERIC DEFAULT 0,
+  custo_emolumentos NUMERIC DEFAULT 0,
+  custo_impostos NUMERIC DEFAULT 0,
   corretora TEXT,
-  observacao TEXT,
   data DATE NOT NULL DEFAULT CURRENT_DATE,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -57,18 +58,18 @@ CREATE POLICY "proventos_own" ON proventos FOR ALL USING (auth.uid() = user_id);
 CREATE TABLE IF NOT EXISTS opcoes (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) NOT NULL,
-  ticker_subjacente TEXT NOT NULL,
-  tipo_opcao TEXT NOT NULL CHECK (tipo_opcao IN ('CALL', 'PUT')),
-  direcao TEXT NOT NULL CHECK (direcao IN ('lancamento', 'compra')),
+  ativo_base TEXT NOT NULL,
+  ticker_opcao TEXT,
+  tipo TEXT NOT NULL CHECK (tipo IN ('call', 'put')),
+  direcao TEXT NOT NULL CHECK (direcao IN ('lancamento', 'compra', 'venda')),
   strike NUMERIC NOT NULL,
-  premio_unitario NUMERIC NOT NULL,
+  premio NUMERIC NOT NULL,
   quantidade INTEGER NOT NULL,
-  premio_total NUMERIC GENERATED ALWAYS AS (premio_unitario * quantidade) STORED,
   vencimento DATE NOT NULL,
   corretora TEXT,
-  coberta BOOLEAN DEFAULT FALSE,
   status TEXT DEFAULT 'ativa' CHECK (status IN ('ativa', 'exercida', 'expirada', 'fechada')),
-  custos NUMERIC DEFAULT 0,
+  custo_corretagem NUMERIC DEFAULT 0,
+  custo_emolumentos NUMERIC DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX idx_opcoes_user ON opcoes(user_id);
@@ -169,3 +170,43 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+
+-- ═══════════════════════════════════════════════════
+-- MIGRATION FROM v4 TO v5 (run if upgrading)
+-- ═══════════════════════════════════════════════════
+
+-- Operações: rename tipo_ativo → categoria, split custos into 3 columns
+-- ALTER TABLE operacoes RENAME COLUMN tipo_ativo TO categoria;
+-- ALTER TABLE operacoes ADD COLUMN IF NOT EXISTS custo_corretagem NUMERIC DEFAULT 0;
+-- ALTER TABLE operacoes ADD COLUMN IF NOT EXISTS custo_emolumentos NUMERIC DEFAULT 0;
+-- ALTER TABLE operacoes ADD COLUMN IF NOT EXISTS custo_impostos NUMERIC DEFAULT 0;
+-- UPDATE operacoes SET custo_corretagem = custos WHERE custos > 0;
+-- ALTER TABLE operacoes DROP COLUMN IF EXISTS custos;
+-- ALTER TABLE operacoes DROP COLUMN IF EXISTS observacao;
+-- UPDATE operacoes SET categoria = 'acao' WHERE categoria = 'AÇ';
+-- UPDATE operacoes SET categoria = 'fii' WHERE categoria = 'FII';
+-- UPDATE operacoes SET categoria = 'etf' WHERE categoria = 'ETF';
+
+-- Opções: rename columns to match code
+-- ALTER TABLE opcoes RENAME COLUMN ticker_subjacente TO ativo_base;
+-- ALTER TABLE opcoes RENAME COLUMN tipo_opcao TO tipo;
+-- ALTER TABLE opcoes RENAME COLUMN premio_unitario TO premio;
+-- ALTER TABLE opcoes ADD COLUMN IF NOT EXISTS ticker_opcao TEXT;
+-- ALTER TABLE opcoes ADD COLUMN IF NOT EXISTS custo_corretagem NUMERIC DEFAULT 0;
+-- ALTER TABLE opcoes ADD COLUMN IF NOT EXISTS custo_emolumentos NUMERIC DEFAULT 0;
+-- ALTER TABLE opcoes DROP COLUMN IF EXISTS premio_total;
+-- ALTER TABLE opcoes DROP COLUMN IF EXISTS coberta;
+-- ALTER TABLE opcoes DROP COLUMN IF EXISTS custos;
+-- UPDATE opcoes SET tipo = lower(tipo);
+
+-- ═══════════════════════════════════════════════════
+-- MIGRATION: Opcoes - status expirou_po + premio_fechamento
+-- ═══════════════════════════════════════════════════
+ALTER TABLE opcoes DROP CONSTRAINT IF EXISTS opcoes_status_check;
+ALTER TABLE opcoes ADD CONSTRAINT opcoes_status_check
+  CHECK (status IN ('ativa', 'exercida', 'expirada', 'fechada', 'expirou_po'));
+ALTER TABLE opcoes ADD COLUMN IF NOT EXISTS premio_fechamento NUMERIC DEFAULT NULL;
+
+ALTER TABLE opcoes DROP CONSTRAINT IF EXISTS opcoes_direcao_check;
+ALTER TABLE opcoes ADD CONSTRAINT opcoes_direcao_check
+  CHECK (direcao IN ('lancamento', 'compra', 'venda'));
