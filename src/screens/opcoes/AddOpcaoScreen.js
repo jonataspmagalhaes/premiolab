@@ -84,12 +84,15 @@ export default function AddOpcaoScreen(props) {
   var dataAberturaValid = dataAbertura.length === 10 && isValidDate(dataAbertura);
   var canSubmit = ativoBase.length >= 4 && parseFloat(strike) > 0 && prem > 0 && qty > 0 && dateValid && dataAberturaValid && corretora;
 
+  var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
+
   var handleSubmit = async function() {
-    if (!canSubmit) return;
+    if (!canSubmit || submitted) return;
     if (!dateValid) {
       Alert.alert('Data inválida', 'O vencimento deve ser uma data futura no formato DD/MM/AAAA.');
       return;
     }
+    setSubmitted(true);
     setLoading(true);
     try {
       var isoDate = brToIso(vencimento);
@@ -109,6 +112,7 @@ export default function AddOpcaoScreen(props) {
       });
       if (result.error) {
         Alert.alert('Erro', result.error.message);
+        setSubmitted(false);
       } else {
         Alert.alert('Sucesso!', 'Opção registrada.', [
           {
@@ -121,6 +125,7 @@ export default function AddOpcaoScreen(props) {
               setQuantidade('');
               setVencimento('');
               setDataAbertura(todayBr());
+              setSubmitted(false);
             },
           },
           { text: 'Concluir', onPress: function() { navigation.goBack(); } },
@@ -128,6 +133,7 @@ export default function AddOpcaoScreen(props) {
       }
     } catch (err) {
       Alert.alert('Erro', 'Falha ao salvar.');
+      setSubmitted(false);
     }
     setLoading(false);
   };

@@ -81,19 +81,25 @@ export async function getPositions(userId) {
       positions[op.ticker] = {
         ticker: op.ticker,
         categoria: op.categoria,
-        corretora: op.corretora,
         quantidade: 0,
         custo_total: 0,
         pm: 0,
+        por_corretora: {},
       };
     }
     var p = positions[op.ticker];
+    var corr = op.corretora || 'Sem corretora';
+    if (!p.por_corretora[corr]) {
+      p.por_corretora[corr] = 0;
+    }
     if (op.tipo === 'compra') {
       var custos = (op.custo_corretagem || 0) + (op.custo_emolumentos || 0) + (op.custo_impostos || 0);
       p.custo_total += op.quantidade * op.preco + custos;
       p.quantidade += op.quantidade;
+      p.por_corretora[corr] += op.quantidade;
     } else {
       p.quantidade -= op.quantidade;
+      p.por_corretora[corr] -= op.quantidade;
     }
     p.pm = p.quantidade > 0 ? p.custo_total / p.quantidade : 0;
   }

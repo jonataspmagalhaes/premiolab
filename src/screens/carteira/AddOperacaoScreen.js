@@ -48,8 +48,11 @@ export default function AddOperacaoScreen(props) {
 
   var canSubmit = ticker.length >= 4 && qty > 0 && prc > 0 && corretora;
 
+  var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
+
   var handleSubmit = async function() {
-    if (!canSubmit) return;
+    if (!canSubmit || submitted) return;
+    setSubmitted(true);
     setLoading(true);
     try {
       var result = await addOperacao(user.id, {
@@ -66,6 +69,7 @@ export default function AddOperacaoScreen(props) {
       });
       if (result.error) {
         Alert.alert('Erro', result.error.message);
+        setSubmitted(false);
       } else {
         await incrementCorretora(user.id, corretora);
         Alert.alert('Sucesso!', 'Operação registrada.', [
@@ -79,6 +83,7 @@ export default function AddOperacaoScreen(props) {
               setEmolumentos('');
               setImpostos('');
               setShowCustos(false);
+              setSubmitted(false);
             },
           },
           { text: 'Concluir', onPress: function() { navigation.goBack(); } },
@@ -86,6 +91,7 @@ export default function AddOperacaoScreen(props) {
       }
     } catch (err) {
       Alert.alert('Erro', 'Falha ao salvar. Tente novamente.');
+      setSubmitted(false);
     }
     setLoading(false);
   };

@@ -75,6 +75,7 @@ export default function AddRendaFixaScreen(props) {
   var s8 = useState(''); var custodia = s8[0]; var setCustodia = s8[1];
   var s9 = useState(''); var corretora = s9[0]; var setCorretora = s9[1];
   var s10 = useState(false); var loading = s10[0]; var setLoading = s10[1];
+  var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
 
   // Auto-fill indexador when tipo changes
   function handleTipoSelect(tipoObj) {
@@ -120,7 +121,8 @@ export default function AddRendaFixaScreen(props) {
   var canSubmit = tipo && taxaNum > 0 && valorNum > 0 && vencValido && corretora;
 
   var handleSubmit = async function() {
-    if (!canSubmit) return;
+    if (!canSubmit || submitted) return;
+    setSubmitted(true);
     setLoading(true);
     try {
       var isoVenc = brToIso(vencimento);
@@ -142,6 +144,7 @@ export default function AddRendaFixaScreen(props) {
 
       if (result.error) {
         Alert.alert('Erro', result.error.message);
+        setSubmitted(false);
       } else {
         await incrementCorretora(user.id, corretora);
         Alert.alert(
@@ -157,6 +160,7 @@ export default function AddRendaFixaScreen(props) {
                 setDataAplicacao('');
                 setEmissor('');
                 setCustodia('');
+                setSubmitted(false);
               },
             },
             { text: 'Concluir', onPress: function() { navigation.goBack(); } },
@@ -165,6 +169,7 @@ export default function AddRendaFixaScreen(props) {
       }
     } catch (err) {
       Alert.alert('Erro', 'Falha ao salvar. Tente novamente.');
+      setSubmitted(false);
     } finally {
       setLoading(false);
     }

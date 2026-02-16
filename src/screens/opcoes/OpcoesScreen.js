@@ -461,37 +461,36 @@ function OpCard(props) {
   var coberturaDetail = '';
 
   if (tipoLabel === 'CALL' && isVenda) {
-    // CALL vendida: precisa ter acoes do ativo_base na mesma corretora
-    var posMatch = null;
+    // CALL vendida: checar acoes por corretora via por_corretora
+    var posForAsset = null;
     for (var ci = 0; ci < positions.length; ci++) {
-      if (positions[ci].ticker === op.ativo_base && positions[ci].corretora === op.corretora) {
-        posMatch = positions[ci];
+      if (positions[ci].ticker === op.ativo_base) {
+        posForAsset = positions[ci];
         break;
       }
     }
-    // Fallback: checar qualquer corretora
-    var posAny = null;
-    if (!posMatch) {
-      for (var cj = 0; cj < positions.length; cj++) {
-        if (positions[cj].ticker === op.ativo_base) {
-          posAny = positions[cj];
-          break;
-        }
+
+    var qtyCorretora = 0;
+    var qtyTotal = 0;
+    if (posForAsset) {
+      qtyTotal = posForAsset.quantidade || 0;
+      if (posForAsset.por_corretora && op.corretora) {
+        qtyCorretora = posForAsset.por_corretora[op.corretora] || 0;
       }
     }
 
-    if (posMatch && posMatch.quantidade >= (op.quantidade || 0)) {
+    if (qtyCorretora >= (op.quantidade || 0)) {
       cobertura = 'COBERTA';
       coberturaColor = C.green;
-      coberturaDetail = posMatch.quantidade + ' acoes em ' + op.corretora;
-    } else if (posMatch) {
+      coberturaDetail = qtyCorretora + ' acoes em ' + op.corretora;
+    } else if (qtyCorretora > 0) {
       cobertura = 'PARCIAL';
       coberturaColor = C.yellow;
-      coberturaDetail = 'Tem ' + posMatch.quantidade + '/' + (op.quantidade || 0) + ' em ' + op.corretora;
-    } else if (posAny && posAny.quantidade >= (op.quantidade || 0)) {
+      coberturaDetail = 'Tem ' + qtyCorretora + '/' + (op.quantidade || 0) + ' em ' + op.corretora;
+    } else if (qtyTotal >= (op.quantidade || 0)) {
       cobertura = 'COBERTA*';
       coberturaColor = C.yellow;
-      coberturaDetail = posAny.quantidade + ' acoes em ' + (posAny.corretora || 'outra') + ' (corretora diferente)';
+      coberturaDetail = qtyTotal + ' acoes em outra corretora';
     } else {
       cobertura = 'DESCOBERTA';
       coberturaColor = C.red;

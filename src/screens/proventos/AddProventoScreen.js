@@ -52,6 +52,7 @@ export default function AddProventoScreen(props) {
   var _qtd = useState(''); var qtd = _qtd[0]; var setQtd = _qtd[1];
   var _data = useState(todayBR()); var data = _data[0]; var setData = _data[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
+  var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
 
   var valorNum = parseFloat(valor) || 0;
   var qtdNum = parseInt(qtd) || 0;
@@ -62,7 +63,8 @@ export default function AddProventoScreen(props) {
   var tipoLabel = TIPOS.filter(function(t) { return t.key === tipo; })[0];
 
   var handleSubmit = async function() {
-    if (!canSubmit || !user) return;
+    if (!canSubmit || !user || submitted) return;
+    setSubmitted(true);
     setLoading(true);
     try {
       var isoDate = brToIso(data);
@@ -76,6 +78,7 @@ export default function AddProventoScreen(props) {
       });
       if (result.error) {
         Alert.alert('Erro', result.error.message);
+        setSubmitted(false);
       } else {
         Alert.alert('Sucesso!', 'Provento registrado.', [
           {
@@ -85,6 +88,7 @@ export default function AddProventoScreen(props) {
               setValor('');
               setQtd('');
               setData(todayBR());
+              setSubmitted(false);
             },
           },
           { text: 'Concluir', onPress: function() { navigation.goBack(); } },
@@ -92,6 +96,7 @@ export default function AddProventoScreen(props) {
       }
     } catch (err) {
       Alert.alert('Erro', 'Falha ao salvar. Tente novamente.');
+      setSubmitted(false);
     }
     setLoading(false);
   };

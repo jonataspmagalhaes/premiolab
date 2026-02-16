@@ -213,6 +213,18 @@ function PositionCard(props) {
   var sparkData = history || [];
   var pctCarteira = totalCarteira > 0 ? (valorAtual / totalCarteira) * 100 : 0;
 
+  var corretorasText = '';
+  if (pos.por_corretora) {
+    var cKeys = Object.keys(pos.por_corretora);
+    var cParts = [];
+    for (var ck = 0; ck < cKeys.length; ck++) {
+      if (pos.por_corretora[cKeys[ck]] > 0) {
+        cParts.push(cKeys[ck] + ' (' + pos.por_corretora[cKeys[ck]] + ')');
+      }
+    }
+    corretorasText = cParts.join(', ');
+  }
+
   return (
     <TouchableOpacity activeOpacity={0.8} onPress={onToggle}>
       <Glass padding={12} style={expanded ? { borderColor: color + '30' } : {}}>
@@ -224,7 +236,6 @@ function PositionCard(props) {
             <View style={[styles.typeBadge, { backgroundColor: color + '14' }]}>
               <Text style={[styles.typeBadgeText, { color: color }]}>{catLabel}</Text>
             </View>
-            {pos.corretora ? <Text style={styles.cardCorretora}>{pos.corretora}</Text> : null}
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Text style={[styles.cardPL, { color: pnlColor }]}>
@@ -269,7 +280,7 @@ function PositionCard(props) {
                 { l: 'Custo total', v: 'R$ ' + custoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) },
                 { l: 'Valor atual', v: 'R$ ' + valorAtual.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) },
                 { l: '% Carteira', v: pctCarteira.toFixed(1) + '%' },
-                { l: 'Corretora', v: pos.corretora || '–' },
+                { l: 'Corretoras', v: corretorasText || '–' },
               ].map(function (d, j) {
                 return (
                   <View key={j} style={styles.expandedStatItem}>
