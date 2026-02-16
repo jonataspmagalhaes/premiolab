@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(find:*)",
+      "Bash(done)",
+      "Bash(node -c:*)",
+      "Bash(node -e:*)",
+      "Bash(npx react-native start:*)",
+      "Bash(npx expo start:*)",
+      "Bash(npx expo export:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(grep:*)"
+    ]
+  }
+}
