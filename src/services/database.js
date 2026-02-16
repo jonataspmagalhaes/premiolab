@@ -446,14 +446,24 @@ export async function getDashboard(userId) {
       }
     }
 
-    // Opções que vencem em 30 dias
+    // Opções que vencem em breve (agrupadas por urgência)
+    var opsVenc7d = [];
+    var opsVenc15d = [];
+    var opsVenc30d = [];
+    var em7dias = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    var em15dias = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000);
     var em30dias = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-    var opsProxVenc = [];
     for (var ov = 0; ov < opsAtivas.length; ov++) {
-      if (new Date(opsAtivas[ov].vencimento) <= em30dias) {
-        opsProxVenc.push(opsAtivas[ov]);
+      var vencOp = new Date(opsAtivas[ov].vencimento);
+      if (vencOp <= em7dias) {
+        opsVenc7d.push(opsAtivas[ov]);
+      } else if (vencOp <= em15dias) {
+        opsVenc15d.push(opsAtivas[ov]);
+      } else if (vencOp <= em30dias) {
+        opsVenc30d.push(opsAtivas[ov]);
       }
     }
+    var opsProxVenc = opsVenc7d.concat(opsVenc15d).concat(opsVenc30d);
 
     // RF que vence em 90 dias
     var em90dias = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
@@ -612,6 +622,9 @@ export async function getDashboard(userId) {
       rentabilidadeMes: rentabilidadeMes,
       opsAtivas: opsAtivas.length,
       opsProxVenc: opsProxVenc.length,
+      opsVenc7d: opsVenc7d.length,
+      opsVenc15d: opsVenc15d.length,
+      opsVenc30d: opsVenc30d.length,
       meta: metaMensal,
       positions: posData,
       saldos: saldosData,

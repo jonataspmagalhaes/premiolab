@@ -55,12 +55,13 @@ function GlassCard({ children, style, glow, pad }) {
 function AlertRow({ type, title, desc, badge }) {
   var gc = {
     critico: ['#f59e0b', '#ef4444'],
+    warning: ['#f59e0b', '#f97316'],
     atencao: ['#f59e0b', '#f97316'],
     ok:      ['#22c55e', '#10b981'],
     info:    ['#0ea5e9', '#a855f7'],
   };
-  var icons = { critico: '⚠', atencao: '⚡', ok: '✓', info: '◈' };
-  var bc = { critico: '#ef4444', atencao: '#f59e0b', ok: '#22c55e', info: '#0ea5e9' };
+  var icons = { critico: '⚠', warning: '⚡', atencao: '⚡', ok: '✓', info: '◈' };
+  var bc = { critico: '#ef4444', warning: '#f59e0b', atencao: '#f59e0b', ok: '#22c55e', info: '#0ea5e9' };
   var colors = gc[type] || gc.info;
   var badgeColor = bc[type] || '#0ea5e9';
 
@@ -232,14 +233,16 @@ function DonutMini(props) {
   var compareText = '';
   var compareColor = 'rgba(255,255,255,0.25)';
   if (hasPrev) {
-    if (prevValue === 0 && value > 0) {
+    if (value === 0 && prevValue === 0) {
+      compareText = '';
+    } else if (prevValue === 0 && value > 0) {
       compareText = 'Novo';
       compareColor = '#22c55e';
     } else if (prevValue === 0 && value < 0) {
       compareText = 'Novo';
       compareColor = '#ef4444';
-    } else if (prevValue === 0 && value === 0) {
-      compareText = '=';
+    } else if (value === 0 && prevValue > 0) {
+      compareText = '';
     } else if (Math.abs(prevValue) > 0) {
       var changePct = ((value - prevValue) / Math.abs(prevValue)) * 100;
       if (changePct > 0) {
@@ -459,6 +462,9 @@ export default function HomeScreen({ navigation }) {
   var rentabilidadeMes = data.rentabilidadeMes || 0;
   var opsAtivas = data.opsAtivas || 0;
   var opsProxVenc = data.opsProxVenc || 0;
+  var opsVenc7d = data.opsVenc7d || 0;
+  var opsVenc15d = data.opsVenc15d || 0;
+  var opsVenc30d = data.opsVenc30d || 0;
   var meta = data.meta || 6000;
   var positions = data.positions || [];
   var saldos = data.saldos || [];
@@ -527,22 +533,33 @@ export default function HomeScreen({ navigation }) {
   // Top gainers / losers (need preco_atual from brapi)
   var posWithPrice = positions.filter(function (p) { return p.preco_atual != null; });
   var sorted = posWithPrice.slice().sort(function (a, b) { return (b.change_day || 0) - (a.change_day || 0); });
-  var topGainers = sorted.slice(0, 5);
-  var gainerTickers = {};
-  topGainers.forEach(function (p) { gainerTickers[p.ticker] = true; });
-  var topLosers = sorted.slice().reverse().filter(function (p) {
-    return !gainerTickers[p.ticker];
-  }).slice(0, 5);
-  // reverse so worst is first
+  var topGainers = sorted.filter(function (p) { return (p.change_day || 0) > 0; }).slice(0, 5);
+  var topLosers = sorted.filter(function (p) { return (p.change_day || 0) < 0; }).sort(function (a, b) { return (a.change_day || 0) - (b.change_day || 0); }).slice(0, 5);
 
   // Alerts
   var alerts = [];
-  if (opsProxVenc > 0) {
+  if (opsVenc7d > 0) {
     alerts.push({
       type: 'critico',
-      title: opsProxVenc + (opsProxVenc === 1 ? ' opção vence' : ' opções vencem') + ' em 30 dias',
-      desc: 'Verifique se deseja rolar, exercer ou encerrar.',
-      badge: 'CRÍTICO',
+      title: opsVenc7d + (opsVenc7d === 1 ? ' opção vence' : ' opções vencem') + ' em 7 dias',
+      desc: 'Ação urgente: rolar, exercer ou encerrar.',
+      badge: 'URGENTE',
+    });
+  }
+  if (opsVenc15d > 0) {
+    alerts.push({
+      type: 'warning',
+      title: opsVenc15d + (opsVenc15d === 1 ? ' opção vence' : ' opções vencem') + ' em 8-15 dias',
+      desc: 'Considere rolar ou encerrar em breve.',
+      badge: 'ATENÇÃO',
+    });
+  }
+  if (opsVenc30d > 0) {
+    alerts.push({
+      type: 'info',
+      title: opsVenc30d + (opsVenc30d === 1 ? ' opção vence' : ' opções vencem') + ' em 16-30 dias',
+      desc: 'Monitore o theta decay e avalie rolagem.',
+      badge: 'INFO',
     });
   }
   if (metaPct >= 100) {
@@ -843,7 +860,7 @@ export default function HomeScreen({ navigation }) {
           />
           <StatRow
             label="Opções ativas"
-            sub={opsProxVenc > 0 ? opsProxVenc + ' vencem em 30 dias' : 'nenhuma vencendo'}
+            sub={opsVenc7d > 0 ? opsVenc7d + ' vencem em 7 dias' : opsVenc15d > 0 ? opsVenc15d + ' vencem em 15 dias' : opsVenc30d > 0 ? opsVenc30d + ' vencem em 30 dias' : 'nenhuma vencendo'}
             value={opsAtivas}
             color={P.opcao.color}
           />
