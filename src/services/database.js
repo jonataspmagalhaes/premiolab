@@ -32,12 +32,18 @@ export async function getOperacoes(userId, filters) {
     .eq('user_id', userId)
     .order('data', { ascending: false });
 
-  if (filters.ticker) query = query.ilike('ticker', filters.ticker);
   if (filters.tipo) query = query.eq('tipo', filters.tipo);
   if (filters.limit) query = query.limit(filters.limit);
 
   var result = await query;
-  return { data: result.data || [], error: result.error };
+  var data = result.data || [];
+  if (filters.ticker) {
+    var normalTicker = filters.ticker.toUpperCase().trim();
+    data = data.filter(function(op) {
+      return (op.ticker || '').toUpperCase().trim() === normalTicker;
+    });
+  }
+  return { data: data, error: result.error };
 }
 
 export async function addOperacao(userId, operacao) {
@@ -124,11 +130,17 @@ export async function getProventos(userId, filters) {
     .eq('user_id', userId)
     .order('data_pagamento', { ascending: false });
 
-  if (filters.ticker) query = query.ilike('ticker', filters.ticker);
   if (filters.limit) query = query.limit(filters.limit);
 
   var result = await query;
-  return { data: result.data || [], error: result.error };
+  var data = result.data || [];
+  if (filters.ticker) {
+    var normalTicker = filters.ticker.toUpperCase().trim();
+    data = data.filter(function(p) {
+      return (p.ticker || '').toUpperCase().trim() === normalTicker;
+    });
+  }
+  return { data: data, error: result.error };
 }
 
 export async function addProvento(userId, provento) {
