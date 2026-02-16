@@ -4,6 +4,7 @@ import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../contexts/AuthContext';
 import { C, F, SIZE } from '../theme';
 
@@ -87,21 +88,19 @@ var PremioLabTheme = Object.assign({}, DefaultTheme, {
 var Tab = createBottomTabNavigator();
 
 function TabIcon(props) {
-  var icon = props.icon;
+  var iconName = props.focused ? props.iconFocused : props.iconDefault;
   var label = props.label;
   var focused = props.focused;
   var badge = props.badge;
   return (
     <View style={styles.tabItem}>
-      <Text style={[styles.tabIcon, { color: focused ? C.accent : C.dim }]}>
-        {icon}
-      </Text>
+      <Ionicons name={iconName} size={22} color={focused ? C.accent : C.dim} />
       {badge > 0 && (
         <View style={styles.tabBadge}>
           <Text style={styles.tabBadgeText}>{badge}</Text>
         </View>
       )}
-      <Text style={[styles.tabLabel, { color: focused ? C.accent : C.dim }]}>
+      <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.tabLabel, { color: focused ? C.accent : C.dim }]}>
         {label}
       </Text>
       {focused && <View style={styles.tabIndicator} />}
@@ -124,7 +123,7 @@ function MainTabs() {
           component={HomeScreen}
           options={{
             tabBarIcon: function(p) {
-              return <TabIcon icon="⌂" label="Home" focused={p.focused} />;
+              return <TabIcon iconFocused="home" iconDefault="home-outline" label="Home" focused={p.focused} />;
             },
           }}
         />
@@ -133,7 +132,7 @@ function MainTabs() {
           component={CarteiraScreen}
           options={{
             tabBarIcon: function(p) {
-              return <TabIcon icon="◫" label="Carteira" focused={p.focused} />;
+              return <TabIcon iconFocused="wallet" iconDefault="wallet-outline" label="Carteira" focused={p.focused} />;
             },
           }}
         />
@@ -142,7 +141,7 @@ function MainTabs() {
           component={OpcoesScreen}
           options={{
             tabBarIcon: function(p) {
-              return <TabIcon icon="⚡" label="Opções" focused={p.focused} />;
+              return <TabIcon iconFocused="trending-up" iconDefault="trending-up-outline" label="Opções" focused={p.focused} />;
             },
           }}
         />
@@ -151,7 +150,7 @@ function MainTabs() {
           component={AnaliseScreen}
           options={{
             tabBarIcon: function(p) {
-              return <TabIcon icon="◎" label="Análise" focused={p.focused} />;
+              return <TabIcon iconFocused="stats-chart" iconDefault="stats-chart-outline" label="Análise" focused={p.focused} />;
             },
           }}
         />
@@ -160,7 +159,7 @@ function MainTabs() {
           component={MaisScreen}
           options={{
             tabBarIcon: function(p) {
-              return <TabIcon icon="≡" label="Mais" focused={p.focused} />;
+              return <TabIcon iconFocused="ellipsis-horizontal-circle" iconDefault="ellipsis-horizontal-circle-outline" label="Mais" focused={p.focused} />;
             },
           }}
         />
@@ -255,37 +254,34 @@ var styles = StyleSheet.create({
   tabItem: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 1,
+    gap: 3,
     position: 'relative',
   },
-  tabIcon: {
-    fontSize: 17,
-  },
   tabLabel: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '600',
     fontFamily: F.body,
   },
   tabIndicator: {
-    width: 14,
-    height: 2,
-    borderRadius: 1,
+    width: 18,
+    height: 2.5,
+    borderRadius: 1.5,
     backgroundColor: C.accent,
     marginTop: 1,
   },
   tabBadge: {
     position: 'absolute',
     top: -4,
-    right: -8,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    right: -10,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     backgroundColor: C.red,
     justifyContent: 'center',
     alignItems: 'center',
   },
   tabBadgeText: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '800',
     color: 'white',
     fontFamily: F.mono,
