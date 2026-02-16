@@ -210,3 +210,6 @@ ALTER TABLE opcoes ADD COLUMN IF NOT EXISTS premio_fechamento NUMERIC DEFAULT NU
 ALTER TABLE opcoes DROP CONSTRAINT IF EXISTS opcoes_direcao_check;
 ALTER TABLE opcoes ADD CONSTRAINT opcoes_direcao_check
   CHECK (direcao IN ('lancamento', 'compra', 'venda'));
+
+-- MIGRATION: data_abertura (data em que a opcao foi aberta/vendida)
+ALTER TABLE opcoes ADD COLUMN IF NOT EXISTS data_abertura DATE DEFAULT NULL;

@@ -323,13 +323,40 @@ export async function getDashboard(userId) {
     // ── Patrimônio total ──
     var patrimonio = patrimonioAcoes + rfTotalAplicado;
 
+    // ── Mes anterior ──
+    var mesAnterior = mesAtual === 0 ? 11 : mesAtual - 1;
+    var anoMesAnterior = mesAtual === 0 ? anoAtual - 1 : anoAtual;
+
     // ── Dividendos do mês ──
     var proventosData = proventos.data || [];
     var dividendosMes = 0;
+    var dividendosMesAnterior = 0;
     for (var di = 0; di < proventosData.length; di++) {
       var dProv = new Date(proventosData[di].data_pagamento);
+      var provVal = proventosData[di].valor_por_cota * proventosData[di].quantidade || 0;
       if (dProv.getMonth() === mesAtual && dProv.getFullYear() === anoAtual) {
-        dividendosMes += (proventosData[di].valor_por_cota * proventosData[di].quantidade || 0);
+        dividendosMes += provVal;
+      } else if (dProv.getMonth() === mesAnterior && dProv.getFullYear() === anoMesAnterior) {
+        dividendosMesAnterior += provVal;
+      }
+    }
+
+    // ── Dividendos por categoria (mes atual e anterior) ──
+    var dividendosCatMes = { acao: 0, fii: 0, etf: 0 };
+    var dividendosCatMesAnt = { acao: 0, fii: 0, etf: 0 };
+    var posCategoria = {};
+    for (var pci = 0; pci < posDataRaw.length; pci++) {
+      posCategoria[posDataRaw[pci].ticker] = posDataRaw[pci].categoria || 'acao';
+    }
+    for (var dci = 0; dci < proventosData.length; dci++) {
+      var dcProv = new Date(proventosData[dci].data_pagamento);
+      var dcVal = proventosData[dci].valor_por_cota * proventosData[dci].quantidade || 0;
+      var dcCat = posCategoria[proventosData[dci].ticker] || 'acao';
+      if (dcCat !== 'acao' && dcCat !== 'fii' && dcCat !== 'etf') dcCat = 'acao';
+      if (dcProv.getMonth() === mesAtual && dcProv.getFullYear() === anoAtual) {
+        dividendosCatMes[dcCat] += dcVal;
+      } else if (dcProv.getMonth() === mesAnterior && dcProv.getFullYear() === anoMesAnterior) {
+        dividendosCatMesAnt[dcCat] += dcVal;
       }
     }
 
@@ -341,9 +368,27 @@ export async function getDashboard(userId) {
         opsAtivas.push(todasOpcoes[oi]);
       }
     }
+
+    // Premios recebidos no mes (D+1 da data_abertura)
     var premiosMes = 0;
-    for (var opi = 0; opi < opsAtivas.length; opi++) {
-      premiosMes += (opsAtivas[opi].premio * opsAtivas[opi].quantidade || 0);
+    var premiosMesAnterior = 0;
+    for (var opi = 0; opi < todasOpcoes.length; opi++) {
+      var opItem = todasOpcoes[opi];
+      var opDir = opItem.direcao || 'venda';
+      if (opDir !== 'venda' && opDir !== 'lancamento') continue;
+      var opPremTotal = (opItem.premio || 0) * (opItem.quantidade || 0);
+      if (opPremTotal <= 0) continue;
+
+      // Data de recebimento = data_abertura + 1 dia (D+1)
+      var dataRef = opItem.data_abertura || opItem.created_at || opItem.vencimento;
+      var dReceb = new Date(dataRef);
+      dReceb.setDate(dReceb.getDate() + 1);
+
+      if (dReceb.getMonth() === mesAtual && dReceb.getFullYear() === anoAtual) {
+        premiosMes += opPremTotal;
+      } else if (dReceb.getMonth() === mesAnterior && dReceb.getFullYear() === anoMesAnterior) {
+        premiosMesAnterior += opPremTotal;
+      }
     }
 
     // Opções que vencem em 30 dias
@@ -367,6 +412,7 @@ export async function getDashboard(userId) {
 
     // ── Renda total do mês ──
     var rendaTotalMes = dividendosMes + premiosMes + rfRendaMensal;
+    var rendaTotalMesAnterior = dividendosMesAnterior + premiosMesAnterior + rfRendaMensal;
 
     // ── Saldos ──
     var saldosData = saldos.data || [];
@@ -518,6 +564,11 @@ export async function getDashboard(userId) {
       rendaFixa: rfData,
       eventos: eventos,
       patrimonioHistory: patrimonioHistory,
+      dividendosMesAnterior: dividendosMesAnterior,
+      premiosMesAnterior: premiosMesAnterior,
+      rendaTotalMesAnterior: rendaTotalMesAnterior,
+      dividendosCatMes: dividendosCatMes,
+      dividendosCatMesAnt: dividendosCatMesAnt,
     };
   } catch (err) {
     console.error('Dashboard error:', err);
@@ -529,6 +580,9 @@ export async function getDashboard(userId) {
       positions: [], saldos: [], saldoTotal: 0,
       rendaFixa: [], eventos: [],
       patrimonioHistory: [],
+      dividendosMesAnterior: 0, premiosMesAnterior: 0, rendaTotalMesAnterior: 0,
+      dividendosCatMes: { acao: 0, fii: 0, etf: 0 },
+      dividendosCatMesAnt: { acao: 0, fii: 0, etf: 0 },
     };
   }
 }

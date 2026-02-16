@@ -1,18 +1,23 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity,
+  TouchableOpacity, TextInput, LayoutAnimation,
+  Platform, UIManager,
 } from 'react-native';
 import Svg, {
   Circle, Rect as SvgRect, G,
   Text as SvgText, Line as SvgLine, Path,
 } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
-import { C, F, SIZE } from '../../theme';
+import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { useAuth } from '../../contexts/AuthContext';
 import {
   getDashboard, getProventos,
-  getOperacoes, getProfile,
+  getOperacoes, getProfile, getOpcoes,
 } from '../../services/database';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
@@ -37,10 +42,38 @@ var PROV_FILTERS = [
 
 var MONTH_LABELS = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
-var CAT_COLORS = { acao: C.acoes, fii: C.fiis, etf: C.etfs };
+var CAT_COLORS = { acao: C.acoes, fii: C.fiis, etf: C.etfs, rf: C.rf };
 var CAT_LABELS = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs' };
 
+var PERF_SUBS = [
+  { k: 'todos', l: 'Todos' },
+  { k: 'acao', l: 'Acao' },
+  { k: 'fii', l: 'FII' },
+  { k: 'etf', l: 'ETF' },
+  { k: 'opcoes', l: 'Opcoes' },
+  { k: 'rf', l: 'RF' },
+];
+
+var PERF_SUB_COLORS = {
+  todos: C.accent, acao: C.acoes, fii: C.fiis, etf: C.etfs, opcoes: C.opcoes, rf: C.rf,
+};
+
+var OPC_STATUS_LABELS = { ativa: 'Ativa', exercida: 'Exercida', expirada: 'Expirada', fechada: 'Fechada', expirou_po: 'Expirou PO' };
+var OPC_STATUS_COLORS = { ativa: C.accent, exercida: C.green, expirada: C.dim, fechada: C.yellow, expirou_po: C.green };
+
+var RF_TIPO_LABELS = {
+  cdb: 'CDB', lci_lca: 'LCI/LCA', tesouro_selic: 'Tesouro Selic',
+  tesouro_ipca: 'Tesouro IPCA+', tesouro_pre: 'Tesouro Pre', debenture: 'Debenture',
+};
+
+var RF_IDX_LABELS = { prefixado: 'Prefixado', cdi: 'CDI', ipca: 'IPCA+', selic: 'Selic' };
+var RF_IDX_COLORS = { prefixado: C.green, cdi: C.accent, ipca: C.fiis, selic: C.rf };
+
+var RF_ISENTOS = { lci_lca: true, debenture: true };
+
 // ═══════════ HELPERS ═══════════
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -50,6 +83,61 @@ function fmtK(v) {
   if (Math.abs(v) >= 1000000) return (v / 1000000).toFixed(1) + 'M';
   if (Math.abs(v) >= 1000) return (v / 1000).toFixed(1) + 'k';
   return v.toFixed(0);
+}
+
+function rfIRAliquota(diasCorridos) {
+  if (diasCorridos <= 180) return 0.225;
+  if (diasCorridos <= 360) return 0.20;
+  if (diasCorridos <= 720) return 0.175;
+  return 0.15;
+}
+
+function rfIRFaixa(diasCorridos) {
+  if (diasCorridos <= 180) return '22,5%';
+  if (diasCorridos <= 360) return '20%';
+  if (diasCorridos <= 720) return '17,5%';
+  return '15%';
+}
+
+function rfCDIEquivalente(taxaIsenta, aliquotaIR) {
+  if (aliquotaIR >= 1) return taxaIsenta;
+  return taxaIsenta / (1 - aliquotaIR);
+}
+
+function rfValorAtualEstimado(valorAplicado, taxa, indexador, dataAplicacao, selicAnual) {
+  var hoje = new Date();
+  var inicio = new Date(dataAplicacao);
+  var diasCorridos = Math.max(Math.ceil((hoje - inicio) / (1000 * 60 * 60 * 24)), 0);
+  var anos = diasCorridos / 365;
+  if (anos <= 0) return valorAplicado;
+
+  if (indexador === 'prefixado') {
+    return valorAplicado * Math.pow(1 + taxa / 100, anos);
+  } else if (indexador === 'cdi') {
+    var cdiAnual = (selicAnual || 13.25) - 0.10;
+    var taxaEfetiva = cdiAnual * (taxa / 100);
+    return valorAplicado * Math.pow(1 + taxaEfetiva / 100, anos);
+  } else if (indexador === 'selic') {
+    var selicEfetiva = (selicAnual || 13.25) + (taxa || 0) / 100;
+    return valorAplicado * Math.pow(1 + selicEfetiva / 100, anos);
+  } else if (indexador === 'ipca') {
+    var ipcaEstimado = 4.5;
+    var taxaTotal = ipcaEstimado + (taxa || 0);
+    return valorAplicado * Math.pow(1 + taxaTotal / 100, anos);
+  }
+  return valorAplicado * Math.pow(1 + (taxa || 0) / 100, anos);
+}
+
+function bizDaysBetween(d1, d2) {
+  var count = 0;
+  var d = new Date(d1);
+  d.setDate(d.getDate() + 1);
+  while (d <= d2) {
+    var dow = d.getDay();
+    if (dow !== 0 && dow !== 6) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return count;
 }
 
 function computeMonthlyReturns(history) {
@@ -305,6 +393,243 @@ function BenchmarkChart(props) {
   );
 }
 
+// ═══════════ TREEMAP ═══════════
+
+function Treemap(props) {
+  var items = props.items || [];
+  var _w = useState(0);
+  var width = _w[0]; var setWidth = _w[1];
+  var height = props.height || 140;
+
+  if (items.length === 0 || width === 0) {
+    return <View onLayout={function (e) { setWidth(e.nativeEvent.layout.width); }} style={{ height: height }} />;
+  }
+
+  var total = items.reduce(function (s, it) { return s + Math.abs(it.weight); }, 0);
+  if (total === 0) return <View style={{ height: height }} />;
+
+  var sorted = items.slice().sort(function (a, b) { return Math.abs(b.weight) - Math.abs(a.weight); });
+  var rects = [];
+  var x = 0;
+
+  sorted.forEach(function (item) {
+    var pct = Math.abs(item.weight) / total;
+    var w = Math.max(pct * width, 2);
+    rects.push({ x: x, y: 0, w: w, h: height, item: item });
+    x += w;
+  });
+
+  return (
+    <View onLayout={function (e) { setWidth(e.nativeEvent.layout.width); }}>
+      <Svg width={width} height={height}>
+        {rects.map(function (r, i) {
+          var pnlPct = r.item.pnlPct || 0;
+          var intensity = clamp(Math.abs(pnlPct) / 20, 0.15, 0.6);
+          var fill = pnlPct >= 0 ? C.green : C.red;
+          var showLabel = r.w > 35;
+          return (
+            <G key={i}>
+              <SvgRect x={r.x + 1} y={1} width={Math.max(r.w - 2, 1)} height={r.h - 2}
+                rx={6} fill={fill} opacity={intensity} />
+              {showLabel ? (
+                <G>
+                  <SvgText x={r.x + r.w / 2} y={r.h / 2 - 8} fill="#fff" fontSize="10"
+                    fontWeight="700" textAnchor="middle" opacity="0.9">
+                    {r.item.ticker}
+                  </SvgText>
+                  <SvgText x={r.x + r.w / 2} y={r.h / 2 + 6} fill="#fff" fontSize="8"
+                    textAnchor="middle" opacity="0.6">
+                    {(r.item.weight / total * 100).toFixed(1)}%
+                  </SvgText>
+                  <SvgText x={r.x + r.w / 2} y={r.h / 2 + 18} fill={pnlPct >= 0 ? '#4ade80' : '#fb7185'}
+                    fontSize="8" fontWeight="600" textAnchor="middle">
+                    {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%
+                  </SvgText>
+                </G>
+              ) : null}
+            </G>
+          );
+        })}
+      </Svg>
+    </View>
+  );
+}
+
+// ═══════════ HBAR ═══════════
+
+function HBar(props) {
+  var label = props.label;
+  var value = props.value;
+  var maxValue = props.maxValue || 100;
+  var color = props.color || C.accent;
+  var suffix = props.suffix || '%';
+  var isNeg = value < 0;
+  var barPct = clamp(Math.abs(value) / Math.abs(maxValue) * 100, 2, 100);
+
+  return (
+    <View style={styles.hbarRow}>
+      <Text style={styles.hbarLabel} numberOfLines={1}>{label}</Text>
+      <View style={styles.hbarTrack}>
+        <View style={[styles.hbarFill, {
+          width: barPct + '%',
+          backgroundColor: color + (isNeg ? '60' : '40'),
+          borderColor: color + '80',
+        }]} />
+      </View>
+      <Text style={[styles.hbarValue, { color: isNeg ? C.red : color }]}>
+        {isNeg ? '' : '+'}{value.toFixed(1)}{suffix}
+      </Text>
+    </View>
+  );
+}
+
+// ═══════════ REBALANCEAMENTO ═══════════
+
+var CAT_NAMES_REBAL = { acao: 'Acoes', fii: 'FIIs', etf: 'ETFs', rf: 'RF' };
+
+function RebalanceTool(props) {
+  var allocAtual = props.allocAtual || {};
+  var totalCarteira = props.totalCarteira || 0;
+
+  var DEFAULT_TARGETS = { acao: 40, fii: 25, etf: 20, rf: 15 };
+  var _targets = useState(DEFAULT_TARGETS);
+  var targets = _targets[0]; var setTargets = _targets[1];
+  var _editing = useState(false);
+  var isEditing = _editing[0]; var setEditing = _editing[1];
+
+  var classes = ['acao', 'fii', 'etf', 'rf'];
+  var totalTargetPct = classes.reduce(function (s, k) { return s + (targets[k] || 0); }, 0);
+
+  function updateTarget(cat, val) {
+    var num = parseInt(val) || 0;
+    num = clamp(num, 0, 100);
+    var copy = {};
+    Object.keys(targets).forEach(function (k) { copy[k] = targets[k]; });
+    copy[cat] = num;
+    setTargets(copy);
+  }
+
+  return (
+    <Glass padding={14}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <Text style={styles.sectionTitle}>REBALANCEAMENTO</Text>
+        <TouchableOpacity onPress={function () {
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          setEditing(!isEditing);
+        }}>
+          <Text style={{ fontSize: 10, color: C.accent, fontFamily: F.mono }}>
+            {isEditing ? '✓ Salvar' : '✎ Editar metas'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {totalTargetPct !== 100 && isEditing ? (
+        <View style={{ padding: 6, borderRadius: 6, backgroundColor: C.red + '10', marginBottom: 8 }}>
+          <Text style={{ fontSize: 9, color: C.red, fontFamily: F.mono, textAlign: 'center' }}>
+            {'Total das metas: ' + totalTargetPct + '% (deve ser 100%)'}
+          </Text>
+        </View>
+      ) : null}
+
+      <View style={styles.rebalHeader}>
+        <Text style={[styles.rebalColLabel, { flex: 2 }]}>Classe</Text>
+        <Text style={styles.rebalColLabel}>Atual</Text>
+        <Text style={styles.rebalColLabel}>Meta</Text>
+        <Text style={styles.rebalColLabel}>Dif.</Text>
+        <Text style={[styles.rebalColLabel, { flex: 1.5 }]}>Acao</Text>
+      </View>
+
+      {classes.map(function (cat) {
+        var color = PRODUCT_COLORS[cat] || C.accent;
+        var nome = CAT_NAMES_REBAL[cat] || cat;
+        var atualVal = allocAtual[cat] || 0;
+        var atualPct = totalCarteira > 0 ? (atualVal / totalCarteira) * 100 : 0;
+        var metaPct = targets[cat] || 0;
+        var diff = atualPct - metaPct;
+        var diffColor = Math.abs(diff) < 2 ? C.green : diff > 0 ? C.yellow : C.red;
+        var metaVal = (metaPct / 100) * totalCarteira;
+        var ajuste = metaVal - atualVal;
+
+        return (
+          <View key={cat} style={styles.rebalRow}>
+            <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
+              <Text style={{ fontSize: 11, color: C.text, fontWeight: '600', fontFamily: F.body }}>{nome}</Text>
+            </View>
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>{atualPct.toFixed(1)}%</Text>
+            </View>
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              {isEditing ? (
+                <TextInput
+                  style={styles.rebalInput}
+                  value={String(targets[cat] || 0)}
+                  onChangeText={function (v) { updateTarget(cat, v); }}
+                  keyboardType="numeric"
+                  maxLength={3}
+                />
+              ) : (
+                <Text style={{ fontSize: 11, color: C.accent, fontWeight: '600', fontFamily: F.mono }}>
+                  {metaPct}%
+                </Text>
+              )}
+            </View>
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              <Text style={{ fontSize: 10, color: diffColor, fontWeight: '600', fontFamily: F.mono }}>
+                {diff > 0 ? '+' : ''}{diff.toFixed(1)}%
+              </Text>
+            </View>
+            <View style={{ flex: 1.5, alignItems: 'flex-end' }}>
+              {Math.abs(ajuste) > 50 ? (
+                <Text style={{ fontSize: 9, color: ajuste > 0 ? C.green : C.red, fontWeight: '600', fontFamily: F.mono }}>
+                  {ajuste > 0 ? '+ Comprar' : '- Vender'}
+                </Text>
+              ) : (
+                <Text style={{ fontSize: 9, color: C.green, fontFamily: F.mono }}>OK</Text>
+              )}
+              {Math.abs(ajuste) > 50 ? (
+                <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>
+                  {'R$ ' + fmtK(Math.abs(ajuste))}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        );
+      })}
+
+      <View style={{ marginTop: 10, gap: 6 }}>
+        {classes.map(function (cat) {
+          var color = PRODUCT_COLORS[cat] || C.accent;
+          var atualPct = totalCarteira > 0 ? ((allocAtual[cat] || 0) / totalCarteira) * 100 : 0;
+          var metaPct = targets[cat] || 0;
+          return (
+            <View key={cat} style={{ gap: 2 }}>
+              <View style={{ height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.03)' }}>
+                <View style={{ height: 4, borderRadius: 2, backgroundColor: color + '60',
+                  width: clamp(atualPct, 0, 100) + '%' }} />
+              </View>
+              <View style={{ height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.03)' }}>
+                <View style={{ height: 4, borderRadius: 2, backgroundColor: color,
+                  width: clamp(metaPct, 0, 100) + '%', opacity: 0.3 }} />
+              </View>
+            </View>
+          );
+        })}
+        <View style={{ flexDirection: 'row', gap: 12, marginTop: 2 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 8, height: 4, borderRadius: 1, backgroundColor: C.accent + '60' }} />
+            <Text style={{ fontSize: 7, color: C.dim, fontFamily: F.mono }}>Atual</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 8, height: 4, borderRadius: 1, backgroundColor: C.accent + '30' }} />
+            <Text style={{ fontSize: 7, color: C.dim, fontFamily: F.mono }}>Meta</Text>
+          </View>
+        </View>
+      </View>
+    </Glass>
+  );
+}
+
 // ═══════════ INLINE SVG: Proventos Bar Chart ═══════════
 
 function ProvBarChart(props) {
@@ -363,6 +688,9 @@ export default function AnaliseScreen() {
   var _perfPeriod = useState('Tudo'); var perfPeriod = _perfPeriod[0]; var setPerfPeriod = _perfPeriod[1];
   var _provFilter = useState('todos'); var provFilter = _provFilter[0]; var setProvFilter = _provFilter[1];
   var _chartTouching = useState(false); var chartTouching = _chartTouching[0]; var setChartTouching = _chartTouching[1];
+  var _perfSub = useState('todos'); var perfSub = _perfSub[0]; var setPerfSub = _perfSub[1];
+  var _rendaFixa = useState([]); var rendaFixa = _rendaFixa[0]; var setRendaFixa = _rendaFixa[1];
+  var _opcoes = useState([]); var opcoes = _opcoes[0]; var setOpcoes = _opcoes[1];
 
   // ── Data loading ──
   var load = async function() {
@@ -373,12 +701,15 @@ export default function AnaliseScreen() {
         getProventos(user.id),
         getOperacoes(user.id),
         getProfile(user.id),
+        getOpcoes(user.id),
       ]);
       setDashboard(results[0]);
       setPositions(results[0].positions || []);
+      setRendaFixa(results[0].rendaFixa || []);
       setProventos(results[1].data || []);
       setOperacoes(results[2].data || []);
       setProfile(results[3].data || null);
+      setOpcoes(results[4].data || []);
     } catch (e) {
       console.warn('AnaliseScreen load error:', e);
     }
@@ -454,6 +785,348 @@ export default function AnaliseScreen() {
     cdiBenchData = computeCDIAccumulated(filteredHistory, selicAnual);
   }
 
+  // ── Derived: Category Performance (Acao/FII/ETF) ──
+  var catPositions = [];
+  var catTotalInvested = 0;
+  var catCurrentValue = 0;
+  var catPL = 0;
+  var catRentPct = 0;
+  var catPctCDI = 0;
+  var catDividendsTotal = 0;
+  var catDividends12m = 0;
+  var catYieldOnCost = 0;
+  var catRetornoTotal = 0;
+  var catRetornoTotalPct = 0;
+  var catPesoCarteira = 0;
+  var catRankedPositions = [];
+  var catMonthlyDividends = [];
+  var catRendaMensal = 0;
+  var catMesesPositivos = 0;
+  var catMesesNegativos = 0;
+
+  if (perfSub === 'acao' || perfSub === 'fii' || perfSub === 'etf') {
+    for (var cp = 0; cp < positions.length; cp++) {
+      if ((positions[cp].categoria || 'acao') === perfSub) {
+        catPositions.push(positions[cp]);
+      }
+    }
+    for (var ci = 0; ci < catPositions.length; ci++) {
+      var cPos = catPositions[ci];
+      var cInvested = cPos.quantidade * cPos.pm;
+      var cCurrent = cPos.quantidade * (cPos.preco_atual || cPos.pm);
+      catTotalInvested += cInvested;
+      catCurrentValue += cCurrent;
+    }
+    catPL = catCurrentValue - catTotalInvested;
+    catRentPct = catTotalInvested > 0 ? ((catCurrentValue - catTotalInvested) / catTotalInvested) * 100 : 0;
+    catPctCDI = cdiPct > 0 ? (catRentPct / cdiPct * 100) : 0;
+    catPesoCarteira = totalPatrimonio > 0 ? (catCurrentValue / totalPatrimonio * 100) : 0;
+
+    // Dividends: total, 12m, per ticker, monthly
+    var oneYrAgo = new Date();
+    oneYrAgo.setFullYear(oneYrAgo.getFullYear() - 1);
+    var catTickerSet = {};
+    for (var ct = 0; ct < catPositions.length; ct++) {
+      catTickerSet[catPositions[ct].ticker] = true;
+    }
+    var catProvByMonth = {};
+    var catProvByTicker = {};
+    for (var cdp = 0; cdp < proventos.length; cdp++) {
+      var prov = proventos[cdp];
+      if (!catTickerSet[prov.ticker]) continue;
+      var provVal = prov.valor_total || 0;
+      catDividendsTotal += provVal;
+      var provDate = new Date(prov.data_pagamento);
+      if (provDate >= oneYrAgo) catDividends12m += provVal;
+      var pmKey = provDate.getFullYear() + '-' + String(provDate.getMonth() + 1).padStart(2, '0');
+      if (!catProvByMonth[pmKey]) catProvByMonth[pmKey] = 0;
+      catProvByMonth[pmKey] += provVal;
+      if (!catProvByTicker[prov.ticker]) catProvByTicker[prov.ticker] = { total: 0, last12m: 0 };
+      catProvByTicker[prov.ticker].total += provVal;
+      if (provDate >= oneYrAgo) catProvByTicker[prov.ticker].last12m += provVal;
+    }
+    catYieldOnCost = catTotalInvested > 0 ? (catDividends12m / catTotalInvested * 100) : 0;
+    catRetornoTotal = catPL + catDividendsTotal;
+    catRetornoTotalPct = catTotalInvested > 0 ? (catRetornoTotal / catTotalInvested * 100) : 0;
+
+    // Monthly dividends: last 12 months for chart
+    var nowCat = new Date();
+    for (var cmi = 11; cmi >= 0; cmi--) {
+      var cmd = new Date(nowCat.getFullYear(), nowCat.getMonth() - cmi, 1);
+      var cmk = cmd.getFullYear() + '-' + String(cmd.getMonth() + 1).padStart(2, '0');
+      var cml = MONTH_LABELS[cmd.getMonth() + 1] + '/' + String(cmd.getFullYear()).substring(2);
+      catMonthlyDividends.push({ month: cml, value: catProvByMonth[cmk] || 0 });
+    }
+
+    // Renda mensal media (ultimos 3 meses)
+    var last3sum = 0;
+    var last3count = 0;
+    for (var l3 = Math.max(catMonthlyDividends.length - 3, 0); l3 < catMonthlyDividends.length; l3++) {
+      last3sum += catMonthlyDividends[l3].value;
+      last3count++;
+    }
+    catRendaMensal = last3count > 0 ? last3sum / last3count : 0;
+
+    // Monthly returns for win/loss count
+    if (monthlyReturns.length > 0) {
+      for (var cmr = 0; cmr < monthlyReturns.length; cmr++) {
+        if (monthlyReturns[cmr].pct >= 0) catMesesPositivos++;
+        else catMesesNegativos++;
+      }
+    }
+
+    // Ranked positions with retorno total, DY, peso
+    var ranked = [];
+    for (var rp = 0; rp < catPositions.length; rp++) {
+      var rPos = catPositions[rp];
+      var rInvested = rPos.quantidade * rPos.pm;
+      var rCurrent = rPos.quantidade * (rPos.preco_atual || rPos.pm);
+      var rPL = rCurrent - rInvested;
+      var rPLPct = rInvested > 0 ? ((rCurrent - rInvested) / rInvested) * 100 : 0;
+      var rProvs = catProvByTicker[rPos.ticker] || { total: 0, last12m: 0 };
+      var rRetTotal = rPL + rProvs.total;
+      var rRetTotalPct = rInvested > 0 ? (rRetTotal / rInvested * 100) : 0;
+      var rDY = rCurrent > 0 ? (rProvs.last12m / rCurrent * 100) : 0;
+      var rYoC = rInvested > 0 ? (rProvs.last12m / rInvested * 100) : 0;
+      var rPeso = totalPatrimonio > 0 ? (rCurrent / totalPatrimonio * 100) : 0;
+      ranked.push({
+        ticker: rPos.ticker,
+        invested: rInvested,
+        current: rCurrent,
+        pl: rPL,
+        plPct: rPLPct,
+        retTotal: rRetTotal,
+        retTotalPct: rRetTotalPct,
+        dy: rDY,
+        yoc: rYoC,
+        peso: rPeso,
+        proventos12m: rProvs.last12m,
+        quantidade: rPos.quantidade,
+        pm: rPos.pm,
+        preco_atual: rPos.preco_atual || rPos.pm,
+        change_day: rPos.change_day || 0,
+      });
+    }
+    ranked.sort(function(a, b) { return b.retTotalPct - a.retTotalPct; });
+    catRankedPositions = ranked;
+  }
+
+  // ── Derived: RF Performance ──
+  var rfItems = [];
+  var rfTotalAplicado = 0;
+  var rfTotalAtual = 0;
+  var rfRentBruta = 0;
+  var rfRentLiquida = 0;
+  var rfPctCDI = 0;
+  var rfByTipo = {};
+  var rfByIndexador = {};
+  var rfSortedByMaturity = [];
+  var rfWeightedRate = 0;
+  var rfEnriched = [];
+
+  if (perfSub === 'rf') {
+    var hojeRF = new Date();
+    for (var rfi = 0; rfi < rendaFixa.length; rfi++) {
+      var rfItem = rendaFixa[rfi];
+      rfItems.push(rfItem);
+      var rfValor = parseFloat(rfItem.valor_aplicado) || 0;
+      rfTotalAplicado += rfValor;
+
+      var rfTipo = rfItem.tipo || 'cdb';
+      if (!rfByTipo[rfTipo]) rfByTipo[rfTipo] = { count: 0, valor: 0, valorAtual: 0 };
+      rfByTipo[rfTipo].count += 1;
+      rfByTipo[rfTipo].valor += rfValor;
+
+      var rfIdx = rfItem.indexador || 'prefixado';
+      if (!rfByIndexador[rfIdx]) rfByIndexador[rfIdx] = { count: 0, valor: 0, valorAtual: 0 };
+      rfByIndexador[rfIdx].count += 1;
+      rfByIndexador[rfIdx].valor += rfValor;
+
+      rfWeightedRate += (parseFloat(rfItem.taxa) || 0) * rfValor;
+
+      // MtM estimado
+      var dataAplic = rfItem.data_aplicacao || rfItem.created_at || '';
+      var valorAtualEst = rfValorAtualEstimado(rfValor, parseFloat(rfItem.taxa) || 0, rfIdx, dataAplic, selicAnual);
+      rfTotalAtual += valorAtualEst;
+      rfByTipo[rfTipo].valorAtual += valorAtualEst;
+      rfByIndexador[rfIdx].valorAtual += valorAtualEst;
+
+      // Per-item enrichment
+      var diasCorr = Math.max(Math.ceil((hojeRF - new Date(dataAplic)) / (1000 * 60 * 60 * 24)), 0);
+      var isIsento = RF_ISENTOS[rfTipo] || false;
+      var aliqIR = isIsento ? 0 : rfIRAliquota(diasCorr);
+      var rendBruto = valorAtualEst - rfValor;
+      var irDevido = rendBruto > 0 ? rendBruto * aliqIR : 0;
+      var rendLiquido = rendBruto - irDevido;
+      var rentBrutaPct = rfValor > 0 ? (rendBruto / rfValor * 100) : 0;
+      var rentLiqPct = rfValor > 0 ? (rendLiquido / rfValor * 100) : 0;
+      var diasVenc = Math.ceil((new Date(rfItem.vencimento) - hojeRF) / (1000 * 60 * 60 * 24));
+      var cdiEquiv = isIsento ? rfCDIEquivalente(parseFloat(rfItem.taxa) || 0, rfIRAliquota(Math.max(diasVenc, diasCorr))) : 0;
+
+      rfEnriched.push({
+        item: rfItem,
+        valorAtual: valorAtualEst,
+        rendBruto: rendBruto,
+        rendLiquido: rendLiquido,
+        rentBrutaPct: rentBrutaPct,
+        rentLiqPct: rentLiqPct,
+        aliqIR: aliqIR,
+        irFaixa: isIsento ? 'Isento' : rfIRFaixa(diasCorr),
+        isIsento: isIsento,
+        diasCorridos: diasCorr,
+        diasVenc: diasVenc,
+        cdiEquiv: cdiEquiv,
+      });
+    }
+    rfWeightedRate = rfTotalAplicado > 0 ? rfWeightedRate / rfTotalAplicado : 0;
+    rfRentBruta = rfTotalAplicado > 0 ? ((rfTotalAtual - rfTotalAplicado) / rfTotalAplicado * 100) : 0;
+
+    // Rent liquida agregada
+    var rfTotalRendLiq = 0;
+    for (var rle = 0; rle < rfEnriched.length; rle++) {
+      rfTotalRendLiq += rfEnriched[rle].rendLiquido;
+    }
+    rfRentLiquida = rfTotalAplicado > 0 ? (rfTotalRendLiq / rfTotalAplicado * 100) : 0;
+    rfPctCDI = cdiPct > 0 ? (rfRentBruta / cdiPct * 100) : 0;
+
+    rfSortedByMaturity = rfEnriched.slice().sort(function(a, b) {
+      return a.diasVenc - b.diasVenc;
+    });
+  }
+
+  // ── Derived: Opcoes Performance ──
+  var opcAtivas = [];
+  var opcEncerradas = [];
+  var opcTotalPremiosRecebidos = 0;
+  var opcTotalPremiosFechamento = 0;
+  var opcPLTotal = 0;
+  var opcByStatus = {};
+  var opcByTipo = { call: { count: 0, premio: 0 }, put: { count: 0, premio: 0 } };
+  var opcByBase = {};
+  var opcProxVenc = [];
+  var opcWinRate = 0;
+  var opcWins = 0;
+  var opcLosses = 0;
+  var opcTaxaExercicio = 0;
+  var opcTaxaExpirouPO = 0;
+  var opcTaxaMediaMensal = 0;
+  var opcPremiumYield = 0;
+  var opcMonthlyPremiums = [];
+
+  if (perfSub === 'opcoes') {
+    var nowOpc = new Date();
+    var opcTaxaMensalSum = 0;
+    var opcTaxaMensalCount = 0;
+    var opcPremByMonth = {};
+
+    for (var oi = 0; oi < opcoes.length; oi++) {
+      var op = opcoes[oi];
+      var premioTotal = (op.premio || 0) * (op.quantidade || 0);
+      var status = op.status || 'ativa';
+
+      if (!opcByStatus[status]) opcByStatus[status] = { count: 0, premio: 0 };
+      opcByStatus[status].count += 1;
+      opcByStatus[status].premio += premioTotal;
+
+      var direcao = op.direcao || 'venda';
+      var isVenda = direcao === 'venda' || direcao === 'lancamento';
+
+      if (isVenda) {
+        opcTotalPremiosRecebidos += premioTotal;
+      }
+
+      var tipo = op.tipo || 'call';
+      opcByTipo[tipo].count += 1;
+      opcByTipo[tipo].premio += premioTotal;
+
+      var base2 = op.ativo_base || 'N/A';
+      if (!opcByBase[base2]) opcByBase[base2] = { count: 0, premioRecebido: 0, pl: 0 };
+      opcByBase[base2].count += 1;
+
+      // Taxa mensal equivalente (normalizada por DTE)
+      if (isVenda && op.strike > 0) {
+        var taxaPremio = premioTotal / ((op.strike || 1) * (op.quantidade || 1)) * 100;
+        var vencOp = new Date(op.vencimento);
+        var criadoOp = new Date(op.created_at || op.vencimento);
+        var dteOp = Math.max(Math.ceil((vencOp - criadoOp) / (1000 * 60 * 60 * 24)), 1);
+        var taxaMensal = (Math.pow(1 + taxaPremio / 100, 30 / dteOp) - 1) * 100;
+        opcTaxaMensalSum += taxaMensal;
+        opcTaxaMensalCount++;
+      }
+
+      // Monthly premium tracking
+      var opMonth = (op.created_at || op.vencimento || '').substring(0, 7);
+      if (opMonth && isVenda) {
+        if (!opcPremByMonth[opMonth]) opcPremByMonth[opMonth] = 0;
+        opcPremByMonth[opMonth] += premioTotal;
+      }
+
+      if (status === 'ativa') {
+        opcAtivas.push(op);
+        if (isVenda) {
+          opcByBase[base2].premioRecebido += premioTotal;
+          opcByBase[base2].pl += premioTotal;
+        }
+        var vencDate = new Date(op.vencimento);
+        var daysToExp = Math.ceil((vencDate - nowOpc) / (1000 * 60 * 60 * 24));
+        if (daysToExp <= 30 && daysToExp >= 0) {
+          opcProxVenc.push({ op: op, daysLeft: daysToExp });
+        }
+      } else {
+        opcEncerradas.push(op);
+        var premioFech = (op.premio_fechamento || 0) * (op.quantidade || 0);
+        if (isVenda) {
+          var plOp = premioTotal - premioFech;
+          opcPLTotal += plOp;
+          opcTotalPremiosFechamento += premioFech;
+          opcByBase[base2].premioRecebido += premioTotal;
+          opcByBase[base2].pl += plOp;
+          if (plOp >= 0) opcWins++; else opcLosses++;
+        }
+      }
+    }
+    opcProxVenc.sort(function(a, b) { return a.daysLeft - b.daysLeft; });
+
+    // Win rate
+    var opcTotalEncerradasVenda = opcWins + opcLosses;
+    opcWinRate = opcTotalEncerradasVenda > 0 ? (opcWins / opcTotalEncerradasVenda * 100) : 0;
+
+    // Taxa exercicio / expirou PO
+    var exercidas = (opcByStatus.exercida && opcByStatus.exercida.count) || 0;
+    var expirouPO = (opcByStatus.expirou_po && opcByStatus.expirou_po.count) || 0;
+    var totalEncerradasAll = opcEncerradas.length;
+    opcTaxaExercicio = totalEncerradasAll > 0 ? (exercidas / totalEncerradasAll * 100) : 0;
+    opcTaxaExpirouPO = totalEncerradasAll > 0 ? (expirouPO / totalEncerradasAll * 100) : 0;
+
+    // Taxa media mensal
+    opcTaxaMediaMensal = opcTaxaMensalCount > 0 ? opcTaxaMensalSum / opcTaxaMensalCount : 0;
+
+    // Premium yield: premios 12m / valor carteira
+    var premios12m = 0;
+    var oneYrAgoOpc = new Date();
+    oneYrAgoOpc.setFullYear(oneYrAgoOpc.getFullYear() - 1);
+    for (var py = 0; py < opcoes.length; py++) {
+      var pyOp = opcoes[py];
+      var pyDir = pyOp.direcao || 'venda';
+      var pyVenda = pyDir === 'venda' || pyDir === 'lancamento';
+      if (pyVenda) {
+        var pyDate = new Date(pyOp.created_at || pyOp.vencimento || '');
+        if (pyDate >= oneYrAgoOpc) {
+          premios12m += (pyOp.premio || 0) * (pyOp.quantidade || 0);
+        }
+      }
+    }
+    opcPremiumYield = totalPatrimonio > 0 ? (premios12m / totalPatrimonio * 100) : 0;
+
+    // Monthly premium chart: last 12 months
+    for (var omi = 11; omi >= 0; omi--) {
+      var omd = new Date(nowOpc.getFullYear(), nowOpc.getMonth() - omi, 1);
+      var omk = omd.getFullYear() + '-' + String(omd.getMonth() + 1).padStart(2, '0');
+      var oml = MONTH_LABELS[omd.getMonth() + 1] + '/' + String(omd.getFullYear()).substring(2);
+      opcMonthlyPremiums.push({ month: oml, value: opcPremByMonth[omk] || 0 });
+    }
+  }
+
   // ── Derived: Alocação ──
   var alocGrouped = {};
   var totalAlocPatrimonio = 0;
@@ -464,6 +1137,23 @@ export default function AnaliseScreen() {
     alocGrouped[cat] += valor;
     totalAlocPatrimonio += valor;
   });
+  // Include RF in allocation
+  var rfTotalAloc = rendaFixa.reduce(function(s, r) { return s + (r.valor_aplicado || 0); }, 0);
+  if (rfTotalAloc > 0) {
+    alocGrouped.rf = rfTotalAloc;
+    totalAlocPatrimonio += rfTotalAloc;
+  }
+
+  // ── Derived: Asset list (for treemap + rentabilidade) ──
+  var assetList = positions.map(function(p) {
+    var val = p.quantidade * (p.preco_atual || p.pm);
+    var custo = p.quantidade * p.pm;
+    var pnlPct = custo > 0 ? ((val - custo) / custo) * 100 : 0;
+    return { ticker: p.ticker, weight: val, pnlPct: pnlPct, color: PRODUCT_COLORS[p.categoria] || C.accent,
+      categoria: p.categoria, pnl: val - custo };
+  });
+  var sortedByPnl = assetList.slice().sort(function(a, b) { return b.pnlPct - a.pnlPct; });
+  var maxAbsPnl = sortedByPnl.reduce(function(m, a) { return Math.max(m, Math.abs(a.pnlPct)); }, 1);
 
   // ── Derived: Proventos ──
   var filteredProventos = proventos;
@@ -562,125 +1252,777 @@ export default function AnaliseScreen() {
       {/* ═══════════ PERFORMANCE ═══════════ */}
       {sub === 'perf' && (
         <>
-          {/* Hero */}
-          <Glass glow={C.accent} padding={16}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <View>
-                <Text style={styles.heroLabel}>PATRIMONIO TOTAL</Text>
-                <Text style={styles.heroValue}>R$ {fmtK(totalPatrimonio)}</Text>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={styles.heroLabel}>RENTABILIDADE</Text>
-                <Text style={[styles.heroPct, { color: rentPct >= 0 ? C.green : C.red }]}>
-                  {rentPct >= 0 ? '+' : ''}{rentPct.toFixed(2)}%
-                </Text>
-                <Text style={[styles.heroPctSub, { color: C.sub }]}>
-                  CDI: {cdiPct.toFixed(2)}%
-                </Text>
-              </View>
-            </View>
-          </Glass>
-
-          {/* Period pills */}
-          <View style={styles.periodRow}>
-            {PERIODS.map(function(p) {
-              var active = perfPeriod === p.key;
+          {/* Performance sub-tabs */}
+          <View style={styles.perfSubTabs}>
+            {PERF_SUBS.map(function(ps) {
+              var isActive = perfSub === ps.k;
+              var color = PERF_SUB_COLORS[ps.k];
               return (
-                <TouchableOpacity key={p.key}
-                  style={[styles.periodPill, active ? styles.periodPillActive : styles.periodPillInactive]}
-                  onPress={function() { setPerfPeriod(p.key); }}>
-                  <Text style={[styles.periodPillText, { color: active ? C.accent : C.dim }]}>
-                    {p.key}
-                  </Text>
-                </TouchableOpacity>
+                <Pill key={ps.k} active={isActive} color={color}
+                  onPress={function() { setPerfSub(ps.k); }}>
+                  {ps.l}
+                </Pill>
               );
             })}
           </View>
 
-          {/* Chart */}
-          {filteredHistory.length >= 2 ? (
-            <Glass padding={12}>
-              <InteractiveChart
-                data={filteredHistory}
-                color={C.accent}
-                height={140}
-                showGrid={true}
-                fontFamily={F.mono}
-                label="Patrimonio"
-                onTouchStateChange={function(touching) { setChartTouching(touching); }}
-              />
-            </Glass>
-          ) : (
-            <Glass padding={20}>
-              <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
-                Adicione operacoes para ver o grafico de patrimonio
-              </Text>
-            </Glass>
+          {/* ── TODOS ── */}
+          {perfSub === 'todos' && (
+            <>
+              {/* Hero */}
+              <Glass glow={C.accent} padding={16}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <View>
+                    <Text style={styles.heroLabel}>PATRIMONIO TOTAL</Text>
+                    <Text style={styles.heroValue}>R$ {fmtK(totalPatrimonio)}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.heroLabel}>RENTABILIDADE</Text>
+                    <Text style={[styles.heroPct, { color: rentPct >= 0 ? C.green : C.red }]}>
+                      {rentPct >= 0 ? '+' : ''}{rentPct.toFixed(2)}%
+                    </Text>
+                    <Text style={[styles.heroPctSub, { color: C.sub }]}>
+                      CDI: {cdiPct.toFixed(2)}%
+                    </Text>
+                  </View>
+                </View>
+              </Glass>
+
+              {/* Period pills */}
+              <View style={styles.periodRow}>
+                {PERIODS.map(function(p) {
+                  var active = perfPeriod === p.key;
+                  return (
+                    <TouchableOpacity key={p.key}
+                      style={[styles.periodPill, active ? styles.periodPillActive : styles.periodPillInactive]}
+                      onPress={function() { setPerfPeriod(p.key); }}>
+                      <Text style={[styles.periodPillText, { color: active ? C.accent : C.dim }]}>
+                        {p.key}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Chart */}
+              {filteredHistory.length >= 2 ? (
+                <Glass padding={12}>
+                  <InteractiveChart
+                    data={filteredHistory}
+                    color={C.accent}
+                    height={140}
+                    showGrid={true}
+                    fontFamily={F.mono}
+                    label="Patrimonio"
+                    onTouchStateChange={function(touching) { setChartTouching(touching); }}
+                  />
+                </Glass>
+              ) : (
+                <Glass padding={20}>
+                  <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
+                    Adicione operacoes para ver o grafico de patrimonio
+                  </Text>
+                </Glass>
+              )}
+
+              {/* KPI Row */}
+              <View style={styles.kpiRow}>
+                <Glass padding={10} style={{ flex: 1 }}>
+                  <View style={styles.kpiCard}>
+                    <Text style={styles.kpiLabel}>CARTEIRA</Text>
+                    <Text style={[styles.kpiValue, { color: rentPct >= 0 ? C.green : C.red }]}>
+                      {rentPct >= 0 ? '+' : ''}{rentPct.toFixed(1)}%
+                    </Text>
+                  </View>
+                </Glass>
+                <Glass padding={10} style={{ flex: 1 }}>
+                  <View style={styles.kpiCard}>
+                    <Text style={styles.kpiLabel}>CDI</Text>
+                    <Text style={[styles.kpiValue, { color: C.etfs }]}>
+                      +{cdiPct.toFixed(1)}%
+                    </Text>
+                  </View>
+                </Glass>
+              </View>
+              <View style={styles.kpiRow}>
+                <Glass padding={10} style={{ flex: 1 }}>
+                  <View style={styles.kpiCard}>
+                    <Text style={styles.kpiLabel}>MELHOR MES</Text>
+                    {bestMonth ? (
+                      <>
+                        <Text style={[styles.kpiValue, { color: C.green }]}>
+                          +{bestMonth.pct.toFixed(1)}%
+                        </Text>
+                        <Text style={styles.kpiSub}>
+                          {MONTH_LABELS[parseInt(bestMonth.month.split('-')[1])]}/{bestMonth.month.split('-')[0].substring(2)}
+                        </Text>
+                      </>
+                    ) : (
+                      <Text style={[styles.kpiValue, { color: C.dim }]}>--</Text>
+                    )}
+                  </View>
+                </Glass>
+                <Glass padding={10} style={{ flex: 1 }}>
+                  <View style={styles.kpiCard}>
+                    <Text style={styles.kpiLabel}>PIOR MES</Text>
+                    {worstMonth ? (
+                      <>
+                        <Text style={[styles.kpiValue, { color: C.red }]}>
+                          {worstMonth.pct.toFixed(1)}%
+                        </Text>
+                        <Text style={styles.kpiSub}>
+                          {MONTH_LABELS[parseInt(worstMonth.month.split('-')[1])]}/{worstMonth.month.split('-')[0].substring(2)}
+                        </Text>
+                      </>
+                    ) : (
+                      <Text style={[styles.kpiValue, { color: C.dim }]}>--</Text>
+                    )}
+                  </View>
+                </Glass>
+              </View>
+
+              {/* Benchmark: Carteira vs CDI */}
+              {portBenchData.length >= 2 && (
+                <>
+                  <SectionLabel>BENCHMARK</SectionLabel>
+                  <Glass padding={12}>
+                    <BenchmarkChart portData={portBenchData} cdiData={cdiBenchData} />
+                  </Glass>
+                </>
+              )}
+
+              {/* Rentabilidade por ativo */}
+              {sortedByPnl.length > 0 && (
+                <>
+                  <SectionLabel>RENTABILIDADE POR ATIVO</SectionLabel>
+                  <Glass padding={14}>
+                    {sortedByPnl.map(function (a, i) {
+                      return <HBar key={i} label={a.ticker} value={a.pnlPct} maxValue={maxAbsPnl}
+                        color={a.pnlPct >= 0 ? C.green : C.red} suffix="%" />;
+                    })}
+                  </Glass>
+                </>
+              )}
+            </>
           )}
 
-          {/* KPI Row */}
-          <View style={styles.kpiRow}>
-            <Glass padding={10} style={{ flex: 1 }}>
-              <View style={styles.kpiCard}>
-                <Text style={styles.kpiLabel}>CARTEIRA</Text>
-                <Text style={[styles.kpiValue, { color: rentPct >= 0 ? C.green : C.red }]}>
-                  {rentPct >= 0 ? '+' : ''}{rentPct.toFixed(1)}%
-                </Text>
-              </View>
-            </Glass>
-            <Glass padding={10} style={{ flex: 1 }}>
-              <View style={styles.kpiCard}>
-                <Text style={styles.kpiLabel}>CDI</Text>
-                <Text style={[styles.kpiValue, { color: C.etfs }]}>
-                  +{cdiPct.toFixed(1)}%
-                </Text>
-              </View>
-            </Glass>
-          </View>
-          <View style={styles.kpiRow}>
-            <Glass padding={10} style={{ flex: 1 }}>
-              <View style={styles.kpiCard}>
-                <Text style={styles.kpiLabel}>MELHOR MES</Text>
-                {bestMonth ? (
-                  <>
-                    <Text style={[styles.kpiValue, { color: C.green }]}>
-                      +{bestMonth.pct.toFixed(1)}%
-                    </Text>
-                    <Text style={styles.kpiSub}>
-                      {MONTH_LABELS[parseInt(bestMonth.month.split('-')[1])]}/{bestMonth.month.split('-')[0].substring(2)}
-                    </Text>
-                  </>
-                ) : (
-                  <Text style={[styles.kpiValue, { color: C.dim }]}>--</Text>
-                )}
-              </View>
-            </Glass>
-            <Glass padding={10} style={{ flex: 1 }}>
-              <View style={styles.kpiCard}>
-                <Text style={styles.kpiLabel}>PIOR MES</Text>
-                {worstMonth ? (
-                  <>
-                    <Text style={[styles.kpiValue, { color: C.red }]}>
-                      {worstMonth.pct.toFixed(1)}%
-                    </Text>
-                    <Text style={styles.kpiSub}>
-                      {MONTH_LABELS[parseInt(worstMonth.month.split('-')[1])]}/{worstMonth.month.split('-')[0].substring(2)}
-                    </Text>
-                  </>
-                ) : (
-                  <Text style={[styles.kpiValue, { color: C.dim }]}>--</Text>
-                )}
-              </View>
-            </Glass>
-          </View>
-
-          {/* Benchmark: Carteira vs CDI */}
-          {portBenchData.length >= 2 && (
+          {/* ── ACAO / FII / ETF ── */}
+          {(perfSub === 'acao' || perfSub === 'fii' || perfSub === 'etf') && (
             <>
-              <SectionLabel>BENCHMARK</SectionLabel>
-              <Glass padding={12}>
-                <BenchmarkChart portData={portBenchData} cdiData={cdiBenchData} />
-              </Glass>
+              {catPositions.length === 0 ? (
+                <EmptyState
+                  icon={"\u25C9"}
+                  title={'Sem ' + (CAT_LABELS[perfSub] || perfSub)}
+                  description={'Adicione operacoes de ' + (CAT_LABELS[perfSub] || perfSub) + ' para ver a performance'}
+                  color={PERF_SUB_COLORS[perfSub]}
+                />
+              ) : (
+                <>
+                  {/* Hero Card */}
+                  <Glass glow={PERF_SUB_COLORS[perfSub]} padding={16}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <View>
+                        <Text style={styles.heroLabel}>INVESTIDO</Text>
+                        <Text style={styles.heroValue}>R$ {fmtK(catTotalInvested)}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={styles.heroLabel}>VALOR ATUAL</Text>
+                        <Text style={[styles.heroValue, { color: catPL >= 0 ? C.green : C.red }]}>R$ {fmtK(catCurrentValue)}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.catHeroDivider} />
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={styles.kpiLabel}>P&L CAPITAL</Text>
+                        <Text style={[styles.kpiValue, { color: catPL >= 0 ? C.green : C.red }]}>
+                          {catPL >= 0 ? '+' : ''}R$ {fmt(Math.abs(catPL))}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={styles.kpiLabel}>RETORNO TOTAL</Text>
+                        <Text style={[styles.kpiValue, { color: catRetornoTotal >= 0 ? C.green : C.red }]}>
+                          {catRetornoTotalPct >= 0 ? '+' : ''}{catRetornoTotalPct.toFixed(2)}%
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={styles.kpiLabel}>% CDI</Text>
+                        <Text style={[styles.kpiValue, { color: catPctCDI >= 100 ? C.green : C.yellow }]}>
+                          {catPctCDI.toFixed(0)}%
+                        </Text>
+                      </View>
+                    </View>
+                  </Glass>
+
+                  {/* Stats Row 1 */}
+                  <View style={styles.kpiRow}>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>POSICOES</Text>
+                        <Text style={[styles.kpiValue, { color: PERF_SUB_COLORS[perfSub] }]}>
+                          {String(catPositions.length)}
+                        </Text>
+                      </View>
+                    </Glass>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>PESO CARTEIRA</Text>
+                        <Text style={[styles.kpiValue, { color: PERF_SUB_COLORS[perfSub] }]}>
+                          {catPesoCarteira.toFixed(1)}%
+                        </Text>
+                      </View>
+                    </Glass>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>RENTAB.</Text>
+                        <Text style={[styles.kpiValue, { color: catRentPct >= 0 ? C.green : C.red }]}>
+                          {catRentPct >= 0 ? '+' : ''}{catRentPct.toFixed(1)}%
+                        </Text>
+                      </View>
+                    </Glass>
+                  </View>
+
+                  {/* Stats Row 2: Proventos */}
+                  <View style={styles.kpiRow}>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>PROVENTOS TOTAL</Text>
+                        <Text style={[styles.kpiValue, { color: C.green }]}>
+                          R$ {fmtK(catDividendsTotal)}
+                        </Text>
+                      </View>
+                    </Glass>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>{perfSub === 'fii' ? 'DY 12M' : 'YIELD ON COST'}</Text>
+                        <Text style={[styles.kpiValue, { color: C.green }]}>
+                          {catYieldOnCost.toFixed(2)}%
+                        </Text>
+                      </View>
+                    </Glass>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>RENDA/MES</Text>
+                        <Text style={[styles.kpiValue, { color: C.green }]}>
+                          R$ {fmtK(catRendaMensal)}
+                        </Text>
+                      </View>
+                    </Glass>
+                  </View>
+
+                  {/* Consistencia */}
+                  {(catMesesPositivos + catMesesNegativos) > 0 && (
+                    <View style={styles.kpiRow}>
+                      <Glass padding={10} style={{ flex: 1 }}>
+                        <View style={styles.kpiCard}>
+                          <Text style={styles.kpiLabel}>MESES POSITIVOS</Text>
+                          <Text style={[styles.kpiValue, { color: C.green }]}>
+                            {String(catMesesPositivos)}
+                          </Text>
+                        </View>
+                      </Glass>
+                      <Glass padding={10} style={{ flex: 1 }}>
+                        <View style={styles.kpiCard}>
+                          <Text style={styles.kpiLabel}>MESES NEGATIVOS</Text>
+                          <Text style={[styles.kpiValue, { color: C.red }]}>
+                            {String(catMesesNegativos)}
+                          </Text>
+                        </View>
+                      </Glass>
+                      <Glass padding={10} style={{ flex: 1 }}>
+                        <View style={styles.kpiCard}>
+                          <Text style={styles.kpiLabel}>TAXA ACERTO</Text>
+                          <Text style={[styles.kpiValue, { color: C.green }]}>
+                            {((catMesesPositivos / (catMesesPositivos + catMesesNegativos)) * 100).toFixed(0)}%
+                          </Text>
+                        </View>
+                      </Glass>
+                    </View>
+                  )}
+
+                  {/* Proventos mensais chart (FII focus) */}
+                  {catDividendsTotal > 0 && (
+                    <>
+                      <SectionLabel>{perfSub === 'fii' ? 'RENDIMENTOS MENSAIS' : 'PROVENTOS MENSAIS'}</SectionLabel>
+                      <Glass padding={12}>
+                        <ProvBarChart data={catMonthlyDividends} maxVal={catMonthlyDividends.reduce(function(m, d) { return Math.max(m, d.value); }, 1)} />
+                      </Glass>
+                    </>
+                  )}
+
+                  {/* Position Ranking */}
+                  <SectionLabel>RANKING POR RETORNO TOTAL</SectionLabel>
+                  <Glass padding={0}>
+                    {(function() {
+                      var maxAbsPct = 1;
+                      for (var mx = 0; mx < catRankedPositions.length; mx++) {
+                        if (Math.abs(catRankedPositions[mx].retTotalPct) > maxAbsPct) {
+                          maxAbsPct = Math.abs(catRankedPositions[mx].retTotalPct);
+                        }
+                      }
+                      return catRankedPositions.map(function(rp, i) {
+                        var barWidth = Math.min(Math.abs(rp.retTotalPct) / maxAbsPct * 100, 100);
+                        return (
+                          <View key={i} style={[styles.posCard, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <Text style={styles.rankIndex}>{String(i + 1)}</Text>
+                                <Text style={styles.rankTicker}>{rp.ticker}</Text>
+                                {rp.change_day !== 0 && (
+                                  <Badge text={(rp.change_day >= 0 ? '+' : '') + rp.change_day.toFixed(1) + '%'} color={rp.change_day >= 0 ? C.green : C.red} />
+                                )}
+                              </View>
+                              <Text style={[styles.rankPct, { color: rp.retTotal >= 0 ? C.green : C.red }]}>
+                                {rp.retTotalPct >= 0 ? '+' : ''}{rp.retTotalPct.toFixed(1)}%
+                              </Text>
+                            </View>
+                            <View style={[styles.rankBarBg, { marginVertical: 6, marginHorizontal: 0 }]}>
+                              <View style={[styles.rankBarFill, {
+                                width: barWidth + '%',
+                                backgroundColor: rp.retTotal >= 0 ? C.green : C.red,
+                              }]} />
+                            </View>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                              <View>
+                                <Text style={styles.posDetail}>PM R$ {fmt(rp.pm)} | Atual R$ {fmt(rp.preco_atual)}</Text>
+                                <Text style={styles.posDetail}>{String(rp.quantidade) + ' cotas | Peso ' + rp.peso.toFixed(1) + '%'}</Text>
+                              </View>
+                              <View style={{ alignItems: 'flex-end' }}>
+                                <Text style={[styles.posDetail, { color: rp.pl >= 0 ? C.green : C.red }]}>
+                                  P&L {rp.pl >= 0 ? '+' : ''}R$ {fmt(Math.abs(rp.pl))}
+                                </Text>
+                                {rp.proventos12m > 0 && (
+                                  <Text style={[styles.posDetail, { color: C.green }]}>
+                                    {perfSub === 'fii' ? 'DY' : 'YoC'} {rp.yoc.toFixed(1)}% | R$ {fmtK(rp.proventos12m)}/12m
+                                  </Text>
+                                )}
+                              </View>
+                            </View>
+                          </View>
+                        );
+                      });
+                    })()}
+                  </Glass>
+                </>
+              )}
+            </>
+          )}
+
+          {/* ── OPCOES ── */}
+          {perfSub === 'opcoes' && (
+            <>
+              {opcoes.length === 0 ? (
+                <EmptyState
+                  icon={"\u25C9"}
+                  title="Sem Opcoes"
+                  description="Cadastre suas opcoes para ver a performance"
+                  color={C.opcoes}
+                />
+              ) : (
+                <>
+                  {/* Hero Card */}
+                  <Glass glow={C.opcoes} padding={16}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <View>
+                        <Text style={styles.heroLabel}>PREMIOS RECEBIDOS</Text>
+                        <Text style={styles.heroValue}>R$ {fmtK(opcTotalPremiosRecebidos)}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={styles.heroLabel}>P&L ENCERRADAS</Text>
+                        <Text style={[styles.heroPct, { color: opcPLTotal >= 0 ? C.green : C.red }]}>
+                          {opcPLTotal >= 0 ? '+' : ''}R$ {fmt(Math.abs(opcPLTotal))}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.catHeroDivider} />
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={styles.kpiLabel}>ATIVAS</Text>
+                        <Text style={[styles.kpiValue, { color: C.opcoes }]}>
+                          {String(opcAtivas.length)}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={styles.kpiLabel}>ENCERRADAS</Text>
+                        <Text style={[styles.kpiValue, { color: C.sub }]}>
+                          {String(opcEncerradas.length)}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={styles.kpiLabel}>TOTAL</Text>
+                        <Text style={[styles.kpiValue, { color: C.text }]}>
+                          {String(opcoes.length)}
+                        </Text>
+                      </View>
+                    </View>
+                  </Glass>
+
+                  {/* Performance metrics */}
+                  <View style={styles.kpiRow}>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>WIN RATE</Text>
+                        <Text style={[styles.kpiValue, { color: opcWinRate >= 70 ? C.green : (opcWinRate >= 50 ? C.yellow : C.red) }]}>
+                          {opcWinRate.toFixed(0)}%
+                        </Text>
+                        <Text style={styles.kpiSub}>{String(opcWins) + 'W / ' + String(opcLosses) + 'L'}</Text>
+                      </View>
+                    </Glass>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>TAXA MEDIA a.m.</Text>
+                        <Text style={[styles.kpiValue, { color: C.opcoes }]}>
+                          {opcTaxaMediaMensal.toFixed(2)}%
+                        </Text>
+                        <Text style={styles.kpiSub}>{(opcTaxaMediaMensal * 12).toFixed(1) + '% a.a.'}</Text>
+                      </View>
+                    </Glass>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>PREMIUM YIELD</Text>
+                        <Text style={[styles.kpiValue, { color: C.green }]}>
+                          {opcPremiumYield.toFixed(1)}%
+                        </Text>
+                        <Text style={styles.kpiSub}>12 meses</Text>
+                      </View>
+                    </Glass>
+                  </View>
+
+                  {/* CALL vs PUT + Taxas */}
+                  <View style={styles.kpiRow}>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>CALL</Text>
+                        <Text style={[styles.kpiValue, { color: C.green }]}>
+                          {String(opcByTipo.call.count)}
+                        </Text>
+                        <Text style={styles.kpiSub}>R$ {fmtK(opcByTipo.call.premio)}</Text>
+                      </View>
+                    </Glass>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>PUT</Text>
+                        <Text style={[styles.kpiValue, { color: C.red }]}>
+                          {String(opcByTipo.put.count)}
+                        </Text>
+                        <Text style={styles.kpiSub}>R$ {fmtK(opcByTipo.put.premio)}</Text>
+                      </View>
+                    </Glass>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>CUSTO FECH.</Text>
+                        <Text style={[styles.kpiValue, { color: C.yellow }]}>
+                          R$ {fmtK(opcTotalPremiosFechamento)}
+                        </Text>
+                      </View>
+                    </Glass>
+                  </View>
+
+                  {/* Taxas de desfecho */}
+                  <View style={styles.kpiRow}>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>EXPIROU PO</Text>
+                        <Text style={[styles.kpiValue, { color: C.green }]}>
+                          {opcTaxaExpirouPO.toFixed(0)}%
+                        </Text>
+                      </View>
+                    </Glass>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>EXERCIDA</Text>
+                        <Text style={[styles.kpiValue, { color: C.yellow }]}>
+                          {opcTaxaExercicio.toFixed(0)}%
+                        </Text>
+                      </View>
+                    </Glass>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>FECHADA</Text>
+                        <Text style={[styles.kpiValue, { color: C.sub }]}>
+                          {opcEncerradas.length > 0 ? (((opcByStatus.fechada && opcByStatus.fechada.count || 0) / opcEncerradas.length * 100).toFixed(0)) : '0'}%
+                        </Text>
+                      </View>
+                    </Glass>
+                  </View>
+
+                  {/* Historico mensal de premios */}
+                  {opcMonthlyPremiums.length > 0 && (
+                    <>
+                      <SectionLabel>PREMIOS MENSAIS</SectionLabel>
+                      <Glass padding={12}>
+                        <ProvBarChart data={opcMonthlyPremiums} maxVal={opcMonthlyPremiums.reduce(function(m, d) { return Math.max(m, d.value); }, 1)} />
+                      </Glass>
+                    </>
+                  )}
+
+                  {/* Por Ativo Base */}
+                  <SectionLabel>POR ATIVO BASE</SectionLabel>
+                  <Glass padding={0}>
+                    {(function() {
+                      var bases = Object.keys(opcByBase).sort(function(a, b) {
+                        return opcByBase[b].premioRecebido - opcByBase[a].premioRecebido;
+                      });
+                      var maxPremio = 1;
+                      for (var bm = 0; bm < bases.length; bm++) {
+                        if (opcByBase[bases[bm]].premioRecebido > maxPremio) {
+                          maxPremio = opcByBase[bases[bm]].premioRecebido;
+                        }
+                      }
+                      return bases.map(function(base, i) {
+                        var bd = opcByBase[base];
+                        var barW = Math.min(bd.premioRecebido / maxPremio * 100, 100);
+                        return (
+                          <View key={base} style={[styles.rankRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                              <Text style={styles.rankTicker}>{base}</Text>
+                              <View style={styles.rankBarBg}>
+                                <View style={[styles.rankBarFill, { width: barW + '%', backgroundColor: C.opcoes }]} />
+                              </View>
+                            </View>
+                            <View style={{ alignItems: 'flex-end' }}>
+                              <Text style={[styles.rankPct, { color: C.opcoes }]}>R$ {fmtK(bd.premioRecebido)}</Text>
+                              <Text style={[styles.rankVal, { color: bd.pl >= 0 ? C.green : C.red }]}>
+                                P&L {bd.pl >= 0 ? '+' : ''}R$ {fmt(Math.abs(bd.pl))}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      });
+                    })()}
+                  </Glass>
+
+                  {/* Por Status */}
+                  <SectionLabel>POR STATUS</SectionLabel>
+                  <Glass padding={0}>
+                    {Object.keys(opcByStatus).map(function(status, i) {
+                      var sd = opcByStatus[status];
+                      var pct = opcoes.length > 0 ? (sd.count / opcoes.length * 100) : 0;
+                      var sColor = OPC_STATUS_COLORS[status] || C.dim;
+                      return (
+                        <View key={status} style={[styles.rankRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                            <Badge text={OPC_STATUS_LABELS[status] || status} color={sColor} />
+                            <View style={styles.rankBarBg}>
+                              <View style={[styles.rankBarFill, { width: pct + '%', backgroundColor: sColor }]} />
+                            </View>
+                          </View>
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={[styles.rankPct, { color: sColor }]}>{String(sd.count)}</Text>
+                            <Text style={styles.rankVal}>R$ {fmtK(sd.premio)}</Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </Glass>
+
+                  {/* Proximos Vencimentos */}
+                  {opcProxVenc.length > 0 && (
+                    <>
+                      <SectionLabel>VENCEM EM 30 DIAS</SectionLabel>
+                      <Glass padding={0}>
+                        {opcProxVenc.map(function(item, i) {
+                          var o = item.op;
+                          var premioOp = (o.premio || 0) * (o.quantidade || 0);
+                          var urgColor = item.daysLeft < 7 ? C.red : (item.daysLeft < 15 ? C.yellow : C.opcoes);
+                          return (
+                            <View key={o.id || i} style={[styles.rankRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+                              <View style={{ flex: 1 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                  <Text style={styles.rankTicker}>{o.ticker_opcao || o.ativo_base}</Text>
+                                  <Badge text={(o.tipo || 'CALL').toUpperCase()} color={o.tipo === 'put' ? C.red : C.green} />
+                                  <Badge text={item.daysLeft + 'd'} color={urgColor} />
+                                </View>
+                                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>
+                                  {o.ativo_base + ' | Strike R$ ' + fmt(o.strike || 0)}
+                                </Text>
+                              </View>
+                              <View style={{ alignItems: 'flex-end' }}>
+                                <Text style={[styles.rankPct, { color: C.opcoes }]}>R$ {fmt(premioOp)}</Text>
+                                <Text style={styles.rankVal}>{(o.direcao || 'venda') === 'compra' ? 'Compra' : 'Venda'}</Text>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </Glass>
+                    </>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
+          {/* ── RF ── */}
+          {perfSub === 'rf' && (
+            <>
+              {rfItems.length === 0 ? (
+                <EmptyState
+                  icon={"\u25C9"}
+                  title="Sem Renda Fixa"
+                  description="Cadastre seus titulos de renda fixa para ver a analise"
+                  color={C.rf}
+                />
+              ) : (
+                <>
+                  {/* Hero Card */}
+                  <Glass glow={C.rf} padding={16}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <View>
+                        <Text style={styles.heroLabel}>TOTAL APLICADO</Text>
+                        <Text style={styles.heroValue}>R$ {fmtK(rfTotalAplicado)}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={styles.heroLabel}>VALOR ATUAL EST.</Text>
+                        <Text style={[styles.heroValue, { color: C.rf }]}>R$ {fmtK(rfTotalAtual)}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.catHeroDivider} />
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={styles.kpiLabel}>RENT. BRUTA</Text>
+                        <Text style={[styles.kpiValue, { color: rfRentBruta >= 0 ? C.green : C.red }]}>
+                          {rfRentBruta >= 0 ? '+' : ''}{rfRentBruta.toFixed(2)}%
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={styles.kpiLabel}>RENT. LIQ.</Text>
+                        <Text style={[styles.kpiValue, { color: rfRentLiquida >= 0 ? C.green : C.red }]}>
+                          {rfRentLiquida >= 0 ? '+' : ''}{rfRentLiquida.toFixed(2)}%
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={styles.kpiLabel}>% CDI</Text>
+                        <Text style={[styles.kpiValue, { color: rfPctCDI >= 100 ? C.green : C.yellow }]}>
+                          {rfPctCDI.toFixed(0)}%
+                        </Text>
+                      </View>
+                    </View>
+                  </Glass>
+
+                  {/* Stats Row */}
+                  <View style={styles.kpiRow}>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>TITULOS</Text>
+                        <Text style={[styles.kpiValue, { color: C.rf }]}>
+                          {String(rfItems.length)}
+                        </Text>
+                      </View>
+                    </Glass>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>TAXA MEDIA</Text>
+                        <Text style={[styles.kpiValue, { color: C.rf }]}>
+                          {rfWeightedRate.toFixed(2)}%
+                        </Text>
+                      </View>
+                    </Glass>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>RENDIMENTO</Text>
+                        <Text style={[styles.kpiValue, { color: C.green }]}>
+                          +R$ {fmtK(rfTotalAtual - rfTotalAplicado)}
+                        </Text>
+                      </View>
+                    </Glass>
+                  </View>
+
+                  {/* Breakdown by Tipo */}
+                  <SectionLabel>POR TIPO</SectionLabel>
+                  <Glass padding={0}>
+                    {Object.keys(rfByTipo).map(function(tipo, i) {
+                      var td = rfByTipo[tipo];
+                      var pct = rfTotalAplicado > 0 ? (td.valor / rfTotalAplicado * 100) : 0;
+                      var rentTipo = td.valor > 0 ? ((td.valorAtual - td.valor) / td.valor * 100) : 0;
+                      return (
+                        <View key={tipo} style={[styles.rankRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                            <Text style={styles.rankTicker}>{RF_TIPO_LABELS[tipo] || tipo}</Text>
+                            {RF_ISENTOS[tipo] && <Badge text="Isento IR" color={C.green} />}
+                            <View style={styles.rankBarBg}>
+                              <View style={[styles.rankBarFill, { width: pct + '%', backgroundColor: C.rf }]} />
+                            </View>
+                          </View>
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={[styles.rankPct, { color: C.rf }]}>{pct.toFixed(0)}%</Text>
+                            <Text style={styles.rankVal}>R$ {fmtK(td.valor)} | {rentTipo >= 0 ? '+' : ''}{rentTipo.toFixed(1)}%</Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </Glass>
+
+                  {/* Breakdown by Indexador */}
+                  <SectionLabel>POR INDEXADOR</SectionLabel>
+                  <Glass padding={0}>
+                    {Object.keys(rfByIndexador).map(function(idx, i) {
+                      var id = rfByIndexador[idx];
+                      var pct = rfTotalAplicado > 0 ? (id.valor / rfTotalAplicado * 100) : 0;
+                      var idxColor = RF_IDX_COLORS[idx] || C.rf;
+                      var rentIdx = id.valor > 0 ? ((id.valorAtual - id.valor) / id.valor * 100) : 0;
+                      return (
+                        <View key={idx} style={[styles.rankRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                            <Badge text={RF_IDX_LABELS[idx] || idx} color={idxColor} />
+                            <View style={styles.rankBarBg}>
+                              <View style={[styles.rankBarFill, { width: pct + '%', backgroundColor: idxColor }]} />
+                            </View>
+                          </View>
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={[styles.rankPct, { color: idxColor }]}>{pct.toFixed(0)}%</Text>
+                            <Text style={styles.rankVal}>R$ {fmtK(id.valor)} | {rentIdx >= 0 ? '+' : ''}{rentIdx.toFixed(1)}%</Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </Glass>
+
+                  {/* Detalhamento por titulo */}
+                  <SectionLabel>DETALHAMENTO</SectionLabel>
+                  {rfEnriched.map(function(re, i) {
+                    var rf = re.item;
+                    var tipoLabel = RF_TIPO_LABELS[rf.tipo] || rf.tipo;
+                    var urgencyColor = re.diasVenc < 30 ? C.red : (re.diasVenc < 90 ? C.yellow : C.rf);
+                    return (
+                      <Glass key={rf.id || i} padding={0}>
+                        <View style={styles.posCard}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={styles.rankTicker}>{tipoLabel}</Text>
+                              <Badge text={re.irFaixa} color={re.isIsento ? C.green : C.yellow} />
+                              <Badge text={re.diasVenc + 'd'} color={urgencyColor} />
+                            </View>
+                            <Text style={[styles.rankPct, { color: C.rf }]}>R$ {fmtK(re.valorAtual)}</Text>
+                          </View>
+                          <Text style={[styles.posDetail, { marginTop: 4 }]}>
+                            {rf.emissor || 'N/A'} | {rf.taxa + '% ' + (RF_IDX_LABELS[rf.indexador] || '')}
+                          </Text>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                            <Text style={styles.posDetail}>
+                              Aplicado: R$ {fmt(parseFloat(rf.valor_aplicado) || 0)}
+                            </Text>
+                            <Text style={[styles.posDetail, { color: re.rendBruto >= 0 ? C.green : C.red }]}>
+                              Bruto: {re.rendBruto >= 0 ? '+' : ''}R$ {fmt(Math.abs(re.rendBruto))} ({re.rentBrutaPct.toFixed(1)}%)
+                            </Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                            <Text style={styles.posDetail}>
+                              Venc: {(function() { var d = new Date(rf.vencimento); return d.toLocaleDateString('pt-BR'); })()}
+                            </Text>
+                            <Text style={[styles.posDetail, { color: C.green }]}>
+                              Liq: {re.rendLiquido >= 0 ? '+' : ''}R$ {fmt(Math.abs(re.rendLiquido))} ({re.rentLiqPct.toFixed(1)}%)
+                            </Text>
+                          </View>
+                          {re.isIsento && re.cdiEquiv > 0 && (
+                            <Text style={[styles.posDetail, { marginTop: 2, color: C.green }]}>
+                              CDI equivalente: {re.cdiEquiv.toFixed(1)}% (vs {rf.taxa}% isento)
+                            </Text>
+                          )}
+                        </View>
+                      </Glass>
+                    );
+                  })}
+                </>
+              )}
             </>
           )}
         </>
@@ -777,6 +2119,23 @@ export default function AnaliseScreen() {
                   );
                 })}
               </Glass>
+
+              {/* Treemap */}
+              {assetList.length > 0 && (
+                <>
+                  <SectionLabel>TREEMAP — EXPOSICAO</SectionLabel>
+                  <Glass padding={14}>
+                    <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, marginBottom: 8 }}>
+                      Tamanho = peso na carteira · Cor = performance
+                    </Text>
+                    <Treemap items={assetList} height={130} />
+                  </Glass>
+                </>
+              )}
+
+              {/* Rebalanceamento */}
+              <SectionLabel>REBALANCEAMENTO</SectionLabel>
+              <RebalanceTool allocAtual={alocGrouped} totalCarteira={totalAlocPatrimonio} />
             </>
           )}
         </>
@@ -1091,4 +2450,36 @@ var styles = StyleSheet.create({
   irDarfValue: { fontSize: 12, fontWeight: '800', color: C.yellow, fontFamily: F.mono },
   irAlert: { padding: 10, borderRadius: 8, backgroundColor: C.yellow + '10', borderWidth: 1, borderColor: C.yellow + '25' },
   irAlertText: { fontSize: 10, color: C.yellow, fontFamily: F.body, textAlign: 'center' },
+
+  // Performance sub-tabs
+  perfSubTabs: { flexDirection: 'row', gap: 5, marginBottom: 4 },
+  catHeroDivider: { height: 1, backgroundColor: C.border, marginVertical: 10 },
+
+  // Ranking
+  rankRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12 },
+  rankIndex: { fontSize: 10, color: C.dim, fontFamily: F.mono, width: 16 },
+  rankTicker: { fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display },
+  rankBarBg: { flex: 1, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.03)', marginHorizontal: 8 },
+  rankBarFill: { height: 4, borderRadius: 2 },
+  rankPct: { fontSize: 12, fontWeight: '800', fontFamily: F.mono },
+  rankVal: { fontSize: 9, color: C.sub, fontFamily: F.mono, marginTop: 1 },
+
+  // Position cards
+  posCard: { padding: 12 },
+  posDetail: { fontSize: 9, color: C.dim, fontFamily: F.mono },
+
+  // HBar
+  hbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 8 },
+  hbarLabel: { width: 60, fontSize: 10, color: C.sub, fontWeight: '600', fontFamily: F.mono },
+  hbarTrack: { flex: 1, height: 12, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.03)' },
+  hbarFill: { height: 12, borderRadius: 6, borderWidth: 1, minWidth: 4 },
+  hbarValue: { width: 55, fontSize: 10, fontWeight: '700', fontFamily: F.mono, textAlign: 'right' },
+
+  // Rebalance
+  rebalHeader: { flexDirection: 'row', alignItems: 'center', paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: C.border, marginBottom: 6 },
+  rebalColLabel: { flex: 1, fontSize: 8, color: C.dim, fontFamily: F.mono, textAlign: 'center' },
+  rebalRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
+  rebalInput: { width: 36, height: 22, borderRadius: 4, borderWidth: 1, borderColor: C.accent + '40',
+    backgroundColor: C.accent + '08', color: C.accent, fontSize: 11, fontFamily: F.mono,
+    textAlign: 'center', paddingVertical: 0, paddingHorizontal: 4 },
 });

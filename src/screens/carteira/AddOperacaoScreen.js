@@ -69,7 +69,19 @@ export default function AddOperacaoScreen(props) {
       } else {
         await incrementCorretora(user.id, corretora);
         Alert.alert('Sucesso!', 'Operação registrada.', [
-          { text: 'OK', onPress: function() { navigation.goBack(); } },
+          {
+            text: 'Adicionar outra',
+            onPress: function() {
+              setTicker('');
+              setQuantidade('');
+              setPreco('');
+              setCorretagem('');
+              setEmolumentos('');
+              setImpostos('');
+              setShowCustos(false);
+            },
+          },
+          { text: 'Concluir', onPress: function() { navigation.goBack(); } },
         ]);
       }
     } catch (err) {

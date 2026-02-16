@@ -78,7 +78,16 @@ export default function AddProventoScreen(props) {
         Alert.alert('Erro', result.error.message);
       } else {
         Alert.alert('Sucesso!', 'Provento registrado.', [
-          { text: 'OK', onPress: function() { navigation.goBack(); } },
+          {
+            text: 'Adicionar outro',
+            onPress: function() {
+              setTicker('');
+              setValor('');
+              setQtd('');
+              setData(todayBR());
+            },
+          },
+          { text: 'Concluir', onPress: function() { navigation.goBack(); } },
         ]);
       }
     } catch (err) {

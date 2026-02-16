@@ -2,16 +2,16 @@ import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, ActivityIndicator, LayoutAnimation,
-  Platform, UIManager, TextInput,
+  Platform, UIManager, Alert,
 } from 'react-native';
 import Svg, {
   Circle as SvgCircle, Path, Defs, LinearGradient as SvgGrad,
-  Stop, Rect as SvgRect, Line as SvgLine, G, Text as SvgText,
+  Stop, Line as SvgLine,
 } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getPositions, getSaldos, getRendaFixa } from '../../services/database';
+import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa } from '../../services/database';
 import { enrichPositionsWithPrices, fetchPriceHistory, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { MiniLineChart } from '../../components/InteractiveChart';
@@ -87,70 +87,6 @@ function DonutChart(props) {
         );
       })}
     </Svg>
-  );
-}
-
-// ══════════════════════════════════════════════
-// SECTION: TREEMAP — exposição visual
-// ══════════════════════════════════════════════
-function Treemap(props) {
-  var items = props.items || [];
-  var _w = useState(0);
-  var width = _w[0]; var setWidth = _w[1];
-  var height = props.height || 140;
-
-  if (items.length === 0 || width === 0) {
-    return <View onLayout={function (e) { setWidth(e.nativeEvent.layout.width); }} style={{ height: height }} />;
-  }
-
-  // Simple slice-and-dice treemap
-  var total = items.reduce(function (s, it) { return s + Math.abs(it.weight); }, 0);
-  if (total === 0) return <View style={{ height: height }} />;
-
-  var sorted = items.slice().sort(function (a, b) { return Math.abs(b.weight) - Math.abs(a.weight); });
-  var rects = [];
-  var x = 0;
-
-  sorted.forEach(function (item) {
-    var pct = Math.abs(item.weight) / total;
-    var w = Math.max(pct * width, 2);
-    rects.push({ x: x, y: 0, w: w, h: height, item: item });
-    x += w;
-  });
-
-  return (
-    <View onLayout={function (e) { setWidth(e.nativeEvent.layout.width); }}>
-      <Svg width={width} height={height}>
-        {rects.map(function (r, i) {
-          var pnlPct = r.item.pnlPct || 0;
-          var intensity = clamp(Math.abs(pnlPct) / 20, 0.15, 0.6);
-          var fill = pnlPct >= 0 ? C.green : C.red;
-          var showLabel = r.w > 35;
-          return (
-            <G key={i}>
-              <SvgRect x={r.x + 1} y={1} width={Math.max(r.w - 2, 1)} height={r.h - 2}
-                rx={6} fill={fill} opacity={intensity} />
-              {showLabel ? (
-                <G>
-                  <SvgText x={r.x + r.w / 2} y={r.h / 2 - 8} fill="#fff" fontSize="10"
-                    fontWeight="700" textAnchor="middle" opacity="0.9">
-                    {r.item.ticker}
-                  </SvgText>
-                  <SvgText x={r.x + r.w / 2} y={r.h / 2 + 6} fill="#fff" fontSize="8"
-                    textAnchor="middle" opacity="0.6">
-                    {(r.item.weight / total * 100).toFixed(1)}%
-                  </SvgText>
-                  <SvgText x={r.x + r.w / 2} y={r.h / 2 + 18} fill={pnlPct >= 0 ? '#4ade80' : '#fb7185'}
-                    fontSize="8" fontWeight="600" textAnchor="middle">
-                    {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%
-                  </SvgText>
-                </G>
-              ) : null}
-            </G>
-          );
-        })}
-      </Svg>
-    </View>
   );
 }
 
@@ -251,163 +187,6 @@ function BenchmarkChart(props) {
 }
 
 // ══════════════════════════════════════════════
-// SECTION: REBALANCEAMENTO TOOL
-// ══════════════════════════════════════════════
-function RebalanceTool(props) {
-  var allocAtual = props.allocAtual || {};
-  var totalCarteira = props.totalCarteira || 0;
-
-  var DEFAULT_TARGETS = { acao: 40, fii: 25, etf: 20, rf: 15 };
-  var _targets = useState(DEFAULT_TARGETS);
-  var targets = _targets[0]; var setTargets = _targets[1];
-  var _editing = useState(false);
-  var isEditing = _editing[0]; var setEditing = _editing[1];
-
-  var classes = ['acao', 'fii', 'etf', 'rf'];
-  var totalTargetPct = classes.reduce(function (s, k) { return s + (targets[k] || 0); }, 0);
-
-  function updateTarget(cat, val) {
-    var num = parseInt(val) || 0;
-    num = clamp(num, 0, 100);
-    var copy = {};
-    Object.keys(targets).forEach(function (k) { copy[k] = targets[k]; });
-    copy[cat] = num;
-    setTargets(copy);
-  }
-
-  return (
-    <Glass padding={14}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <Text style={styles.sectionTitle2}>REBALANCEAMENTO</Text>
-        <TouchableOpacity onPress={function () {
-          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-          setEditing(!isEditing);
-        }}>
-          <Text style={{ fontSize: 10, color: C.accent, fontFamily: F.mono }}>
-            {isEditing ? '✓ Salvar' : '✎ Editar metas'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {totalTargetPct !== 100 && isEditing ? (
-        <View style={{ padding: 6, borderRadius: 6, backgroundColor: C.red + '10', marginBottom: 8 }}>
-          <Text style={{ fontSize: 9, color: C.red, fontFamily: F.mono, textAlign: 'center' }}>
-            Total das metas: {totalTargetPct}% (deve ser 100%)
-          </Text>
-        </View>
-      ) : null}
-
-      {/* Header */}
-      <View style={styles.rebalHeader}>
-        <Text style={[styles.rebalColLabel, { flex: 2 }]}>Classe</Text>
-        <Text style={styles.rebalColLabel}>Atual</Text>
-        <Text style={styles.rebalColLabel}>Meta</Text>
-        <Text style={styles.rebalColLabel}>Dif.</Text>
-        <Text style={[styles.rebalColLabel, { flex: 1.5 }]}>Ação</Text>
-      </View>
-
-      {classes.map(function (cat) {
-        var color = PRODUCT_COLORS[cat] || C.accent;
-        var nome = CAT_NAMES[cat] || cat;
-        var atualVal = (allocAtual[cat] || 0);
-        var atualPct = totalCarteira > 0 ? (atualVal / totalCarteira) * 100 : 0;
-        var metaPct = targets[cat] || 0;
-        var diff = atualPct - metaPct;
-        var diffColor = Math.abs(diff) < 2 ? C.green : diff > 0 ? C.yellow : C.red;
-        var metaVal = (metaPct / 100) * totalCarteira;
-        var ajuste = metaVal - atualVal;
-
-        return (
-          <View key={cat} style={styles.rebalRow}>
-            {/* Classe */}
-            <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
-              <Text style={{ fontSize: 11, color: C.text, fontWeight: '600', fontFamily: F.body }}>{nome}</Text>
-            </View>
-
-            {/* Atual % */}
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>{atualPct.toFixed(1)}%</Text>
-            </View>
-
-            {/* Meta % */}
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              {isEditing ? (
-                <TextInput
-                  style={styles.rebalInput}
-                  value={String(targets[cat] || 0)}
-                  onChangeText={function (v) { updateTarget(cat, v); }}
-                  keyboardType="numeric"
-                  maxLength={3}
-                />
-              ) : (
-                <Text style={{ fontSize: 11, color: C.accent, fontWeight: '600', fontFamily: F.mono }}>
-                  {metaPct}%
-                </Text>
-              )}
-            </View>
-
-            {/* Diferença */}
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={{ fontSize: 10, color: diffColor, fontWeight: '600', fontFamily: F.mono }}>
-                {diff > 0 ? '+' : ''}{diff.toFixed(1)}%
-              </Text>
-            </View>
-
-            {/* Ação sugerida */}
-            <View style={{ flex: 1.5, alignItems: 'flex-end' }}>
-              {Math.abs(ajuste) > 50 ? (
-                <Text style={{ fontSize: 9, color: ajuste > 0 ? C.green : C.red, fontWeight: '600', fontFamily: F.mono }}>
-                  {ajuste > 0 ? '+ Comprar' : '− Vender'}
-                </Text>
-              ) : (
-                <Text style={{ fontSize: 9, color: C.green, fontFamily: F.mono }}>✓ OK</Text>
-              )}
-              {Math.abs(ajuste) > 50 ? (
-                <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>
-                  {fmtK(Math.abs(ajuste))}
-                </Text>
-              ) : null}
-            </View>
-          </View>
-        );
-      })}
-
-      {/* Visual bars: atual vs meta */}
-      <View style={{ marginTop: 10, gap: 6 }}>
-        {classes.map(function (cat) {
-          var color = PRODUCT_COLORS[cat] || C.accent;
-          var atualPct = totalCarteira > 0 ? ((allocAtual[cat] || 0) / totalCarteira) * 100 : 0;
-          var metaPct = targets[cat] || 0;
-          return (
-            <View key={cat} style={{ gap: 2 }}>
-              <View style={{ height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.03)' }}>
-                <View style={{ height: 4, borderRadius: 2, backgroundColor: color + '60',
-                  width: clamp(atualPct, 0, 100) + '%' }} />
-              </View>
-              <View style={{ height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.03)' }}>
-                <View style={{ height: 4, borderRadius: 2, backgroundColor: color,
-                  width: clamp(metaPct, 0, 100) + '%', opacity: 0.3 }} />
-              </View>
-            </View>
-          );
-        })}
-        <View style={{ flexDirection: 'row', gap: 12, marginTop: 2 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <View style={{ width: 8, height: 4, borderRadius: 1, backgroundColor: C.accent + '60' }} />
-            <Text style={{ fontSize: 7, color: C.dim, fontFamily: F.mono }}>Atual</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <View style={{ width: 8, height: 4, borderRadius: 1, backgroundColor: C.accent + '30' }} />
-            <Text style={{ fontSize: 7, color: C.dim, fontFamily: F.mono }}>Meta</Text>
-          </View>
-        </View>
-      </View>
-    </Glass>
-  );
-}
-
-// ══════════════════════════════════════════════
 // SECTION: POSITION CARD — expandível
 // ══════════════════════════════════════════════
 function PositionCard(props) {
@@ -419,6 +198,7 @@ function PositionCard(props) {
   var onBuy = props.onBuy;
   var onSell = props.onSell;
   var onLancarOpcao = props.onLancarOpcao;
+  var onTransacoes = props.onTransacoes;
 
   var color = PRODUCT_COLORS[pos.categoria] || C.accent;
   var catLabel = CAT_LABELS[pos.categoria] || (pos.categoria || '').toUpperCase();
@@ -515,6 +295,12 @@ function PositionCard(props) {
                 </TouchableOpacity>
               ) : null}
             </View>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+              <TouchableOpacity style={[styles.actionBtn, { borderColor: C.accent + '30', backgroundColor: C.accent + '08' }]}
+                onPress={onTransacoes}>
+                <Text style={[styles.actionBtnText, { color: C.accent }]}>Transações</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : null}
       </Glass>
@@ -529,6 +315,8 @@ function RFCard(props) {
   var rf = props.rf;
   var expanded = props.expanded;
   var onToggle = props.onToggle;
+  var onEdit = props.onEdit;
+  var onDelete = props.onDelete;
 
   var valor = parseFloat(rf.valor_aplicado) || 0;
   var tipoLabel = TIPO_LABELS[rf.tipo] || rf.tipo;
@@ -575,6 +363,16 @@ function RFCard(props) {
                   </View>
                 );
               })}
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+              <TouchableOpacity style={[styles.actionBtn, { borderColor: C.accent + '30', backgroundColor: C.accent + '08' }]}
+                onPress={onEdit}>
+                <Text style={[styles.actionBtnText, { color: C.accent }]}>Editar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actionBtn, { borderColor: C.red + '30', backgroundColor: C.red + '08' }]}
+                onPress={onDelete}>
+                <Text style={[styles.actionBtnText, { color: C.red }]}>Excluir</Text>
+              </TouchableOpacity>
             </View>
           </View>
         ) : null}
@@ -681,10 +479,6 @@ export default function CarteiraScreen(props) {
       categoria: p.categoria, pnl: val - custo };
   });
 
-  // Sort by P&L% for rentabilidade bars
-  var sortedByPnl = assetList.slice().sort(function (a, b) { return b.pnlPct - a.pnlPct; });
-  var maxAbsPnl = sortedByPnl.reduce(function (m, a) { return Math.max(m, Math.abs(a.pnlPct)); }, 1);
-
   // P&L by class
   var pnlByClass = {};
   assetList.forEach(function (a) {
@@ -732,6 +526,23 @@ export default function CarteiraScreen(props) {
   function toggleExpand(key) {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpanded(expanded === key ? null : key);
+  }
+
+  function handleDeleteRF(rfId) {
+    Alert.alert('Excluir título?', 'Essa ação não pode ser desfeita.', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Excluir', style: 'destructive',
+        onPress: async function () {
+          var result = await deleteRendaFixa(rfId);
+          if (!result.error) {
+            setRfItems(rfItems.filter(function (r) { return r.id !== rfId; }));
+          } else {
+            Alert.alert('Erro', 'Falha ao excluir.');
+          }
+        },
+      },
+    ]);
   }
 
   if (loading) return <View style={styles.container}><LoadingScreen /></View>;
@@ -836,29 +647,7 @@ export default function CarteiraScreen(props) {
         </Glass>
       ) : null}
 
-      {/* ══════ 4. TREEMAP — exposição visual ══════ */}
-      {assetList.length > 0 ? (
-        <Glass padding={14}>
-          <Text style={styles.sectionTitle2}>TREEMAP — EXPOSIÇÃO</Text>
-          <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, marginBottom: 8 }}>
-            Tamanho = peso na carteira · Cor = performance
-          </Text>
-          <Treemap items={assetList} height={130} />
-        </Glass>
-      ) : null}
-
-      {/* ══════ 5. RENTABILIDADE POR ATIVO — barras P&L% ══════ */}
-      {sortedByPnl.length > 0 ? (
-        <Glass padding={14}>
-          <Text style={styles.sectionTitle2}>RENTABILIDADE POR ATIVO</Text>
-          {sortedByPnl.map(function (a, i) {
-            return <HBar key={i} label={a.ticker} value={a.pnlPct} maxValue={maxAbsPnl}
-              color={a.pnlPct >= 0 ? C.green : C.red} suffix="%" />;
-          })}
-        </Glass>
-      ) : null}
-
-      {/* ══════ 6. P&L POR CLASSE — contribuição ══════ */}
+      {/* ══════ 4. P&L POR CLASSE — contribuição ══════ */}
       {pnlClassList.length > 0 ? (
         <Glass padding={14}>
           <Text style={styles.sectionTitle2}>P&L POR CLASSE</Text>
@@ -891,12 +680,7 @@ export default function CarteiraScreen(props) {
         </Glass>
       ) : null}
 
-      {/* ══════ 8. REBALANCEAMENTO ══════ */}
-      {allocSegments.length > 0 ? (
-        <RebalanceTool allocAtual={allocMap} totalCarteira={allocTotal} />
-      ) : null}
-
-      {/* ══════ 9. FILTER PILLS ══════ */}
+      {/* ══════ 6. FILTER PILLS ══════ */}
       <SectionLabel>POSIÇÕES</SectionLabel>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ gap: 6, paddingBottom: 2 }}>
@@ -919,7 +703,8 @@ export default function CarteiraScreen(props) {
             onToggle={function () { toggleExpand(key); }}
             onBuy={function () { navigation.navigate('AddOperacao', { ticker: pos.ticker, tipo: 'compra', categoria: pos.categoria }); }}
             onSell={function () { navigation.navigate('AddOperacao', { ticker: pos.ticker, tipo: 'venda', categoria: pos.categoria }); }}
-            onLancarOpcao={function () { navigation.navigate('AddOpcao', { ativo_base: pos.ticker }); }} />
+            onLancarOpcao={function () { navigation.navigate('AddOpcao', { ativo_base: pos.ticker }); }}
+            onTransacoes={function () { navigation.navigate('AssetDetail', { ticker: pos.ticker }); }} />
         );
       })}
 
@@ -932,7 +717,9 @@ export default function CarteiraScreen(props) {
             return (
               <View key={key} style={{ marginTop: i > 0 ? 6 : 0 }}>
                 <RFCard rf={rf} expanded={expanded === key}
-                  onToggle={function () { toggleExpand(key); }} />
+                  onToggle={function () { toggleExpand(key); }}
+                  onEdit={function () { navigation.navigate('EditRendaFixa', { rf: rf }); }}
+                  onDelete={function () { handleDeleteRF(rf.id); }} />
               </View>
             );
           })}
@@ -1011,14 +798,6 @@ var styles = StyleSheet.create({
   hbarTrack: { flex: 1, height: 12, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.03)' },
   hbarFill: { height: 12, borderRadius: 6, borderWidth: 1, minWidth: 4 },
   hbarValue: { width: 55, fontSize: 10, fontWeight: '700', fontFamily: F.mono, textAlign: 'right' },
-
-  // Rebalance
-  rebalHeader: { flexDirection: 'row', alignItems: 'center', paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: C.border, marginBottom: 6 },
-  rebalColLabel: { flex: 1, fontSize: 8, color: C.dim, fontFamily: F.mono, textAlign: 'center' },
-  rebalRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
-  rebalInput: { width: 36, height: 22, borderRadius: 4, borderWidth: 1, borderColor: C.accent + '40',
-    backgroundColor: C.accent + '08', color: C.accent, fontSize: 11, fontFamily: F.mono,
-    textAlign: 'center', paddingVertical: 0, paddingHorizontal: 4 },
 
   // Cards
   cardRow1: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },

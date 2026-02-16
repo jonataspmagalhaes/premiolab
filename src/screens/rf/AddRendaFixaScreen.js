@@ -147,7 +147,20 @@ export default function AddRendaFixaScreen(props) {
         Alert.alert(
           'Sucesso!',
           tipo + ' de R$ ' + valorNum.toLocaleString('pt-BR') + ' registrado.',
-          [{ text: 'OK', onPress: function() { navigation.goBack(); } }]
+          [
+            {
+              text: 'Adicionar outro',
+              onPress: function() {
+                setTaxa('');
+                setValorAplicado('');
+                setVencimento('');
+                setDataAplicacao('');
+                setEmissor('');
+                setCustodia('');
+              },
+            },
+            { text: 'Concluir', onPress: function() { navigation.goBack(); } },
+          ]
         );
       }
     } catch (err) {

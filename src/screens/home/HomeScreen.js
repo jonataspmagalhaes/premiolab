@@ -9,6 +9,7 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getDashboard } from '../../services/database';
 import { clearPriceCache } from '../../services/priceService';
+import Svg, { Circle as SvgCircle } from 'react-native-svg';
 import { Badge } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import InteractiveChart from '../../components/InteractiveChart';
@@ -186,6 +187,194 @@ function IncomeCard({ label, subtitle, value, color }) {
   );
 }
 
+function fmtDonut(v) {
+  var abs = Math.abs(v);
+  var s = v < 0 ? '-' : '';
+  if (abs >= 100000) return s + (abs / 1000).toFixed(0) + 'k';
+  if (abs >= 10000) return s + (abs / 1000).toFixed(1) + 'k';
+  return s + Number(abs).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function DonutMini(props) {
+  var value = props.value || 0;
+  var prevValue = props.prevValue;
+  var hasPrev = prevValue != null && prevValue !== undefined;
+  var label = props.label || '';
+  var color = props.color || C.accent;
+  var size = props.size || 80;
+  var meta = props.meta;
+  var isTotalDonut = props.isTotal;
+
+  var _showPrev = useState(false);
+  var showPrev = _showPrev[0];
+  var setShowPrev = _showPrev[1];
+
+  // Ring dimensions — outer ring (prev) + inner ring (current)
+  var outerStroke = 5;
+  var innerStroke = 6;
+  var gap = 3;
+  var outerRadius = (size - outerStroke) / 2;
+  var innerRadius = outerRadius - outerStroke / 2 - gap - innerStroke / 2;
+  var outerCirc = 2 * Math.PI * outerRadius;
+  var innerCirc = 2 * Math.PI * innerRadius;
+
+  // Percentages — use meta as max if provided, otherwise max(value, prevValue)
+  var maxRef = meta && meta > 0 ? meta : Math.max(Math.abs(value), Math.abs(prevValue || 0), 1);
+  var innerPct = Math.min((Math.abs(value) / maxRef) * 100, 100);
+  var outerPct = hasPrev ? Math.min((Math.abs(prevValue) / maxRef) * 100, 100) : 0;
+
+  var innerOffset = innerCirc - (innerCirc * innerPct / 100);
+  var outerOffset = outerCirc - (outerCirc * outerPct / 100);
+
+  // Colors
+  var innerColor = value < 0 ? '#ef4444' : color;
+  var outerColor = color + '40';
+
+  // Comparison badge
+  var compareText = '';
+  var compareColor = 'rgba(255,255,255,0.25)';
+  if (hasPrev) {
+    if (prevValue === 0 && value > 0) {
+      compareText = 'Novo';
+      compareColor = '#22c55e';
+    } else if (prevValue === 0 && value < 0) {
+      compareText = 'Novo';
+      compareColor = '#ef4444';
+    } else if (prevValue === 0 && value === 0) {
+      compareText = '=';
+    } else if (Math.abs(prevValue) > 0) {
+      var changePct = ((value - prevValue) / Math.abs(prevValue)) * 100;
+      if (changePct > 0) {
+        compareText = '+' + changePct.toFixed(0) + '%';
+        compareColor = '#22c55e';
+      } else if (changePct < 0) {
+        compareText = changePct.toFixed(0) + '%';
+        compareColor = '#ef4444';
+      } else {
+        compareText = '0%';
+      }
+    }
+  }
+
+  // Center display — toggle between current and previous on tap
+  var displayValue = showPrev ? (prevValue || 0) : value;
+  var displayColor = showPrev ? (color + 'AA') : innerColor;
+  var centerNum = fmtDonut(displayValue);
+
+  var onTap = function () {
+    if (hasPrev) setShowPrev(!showPrev);
+  };
+
+  var center = size / 2;
+
+  return (
+    <View style={{ alignItems: 'center', width: size + 16 }}>
+      <Text style={{
+        fontSize: 9, color: 'rgba(255,255,255,0.45)', fontFamily: F.mono,
+        letterSpacing: 0.8, textTransform: 'uppercase', fontWeight: '600',
+        marginBottom: 6, textAlign: 'center',
+      }}>{label}</Text>
+
+      <TouchableOpacity activeOpacity={0.7} onPress={onTap}>
+        <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
+          <Svg width={size} height={size} style={{ position: 'absolute' }}>
+            {/* Outer ring background */}
+            <SvgCircle
+              cx={center} cy={center} r={outerRadius}
+              stroke="rgba(255,255,255,0.04)"
+              strokeWidth={outerStroke}
+              fill="none"
+            />
+            {/* Outer ring — previous month */}
+            {outerPct > 0 ? (
+              <SvgCircle
+                cx={center} cy={center} r={outerRadius}
+                stroke={outerColor}
+                strokeWidth={outerStroke}
+                fill="none"
+                strokeDasharray={outerCirc}
+                strokeDashoffset={outerOffset}
+                strokeLinecap="round"
+                rotation={-90}
+                origin={center + ',' + center}
+              />
+            ) : null}
+            {/* Inner ring background */}
+            <SvgCircle
+              cx={center} cy={center} r={innerRadius}
+              stroke="rgba(255,255,255,0.06)"
+              strokeWidth={innerStroke}
+              fill="none"
+            />
+            {/* Inner ring — current month */}
+            {innerPct > 0 ? (
+              <SvgCircle
+                cx={center} cy={center} r={innerRadius}
+                stroke={innerColor}
+                strokeWidth={innerStroke}
+                fill="none"
+                strokeDasharray={innerCirc}
+                strokeDashoffset={innerOffset}
+                strokeLinecap="round"
+                rotation={-90}
+                origin={center + ',' + center}
+              />
+            ) : null}
+          </Svg>
+
+          {/* Center value */}
+          <View style={{ alignItems: 'center' }}>
+            {showPrev ? (
+              <Text style={{
+                fontSize: 7, fontWeight: '600', color: 'rgba(255,255,255,0.35)',
+                fontFamily: F.mono, marginBottom: 1,
+              }}>MES ANT</Text>
+            ) : (
+              <Text style={{
+                fontSize: isTotalDonut ? 8 : 7,
+                fontWeight: '600', color: 'rgba(255,255,255,0.3)', fontFamily: F.mono,
+                marginBottom: 1,
+              }}>R$</Text>
+            )}
+            <Text style={{
+              fontSize: isTotalDonut ? 14 : 12,
+              fontWeight: '800', color: displayColor, fontFamily: F.mono, textAlign: 'center',
+            }}>{showPrev ? ('R$ ' + centerNum) : centerNum}</Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      {/* Comparison badge */}
+      {compareText ? (
+        <View style={{
+          marginTop: 5, paddingHorizontal: 7, paddingVertical: 2,
+          borderRadius: 6, backgroundColor: compareColor + '15',
+          borderWidth: 1, borderColor: compareColor + '35',
+        }}>
+          <Text style={{
+            fontSize: 9, fontWeight: '700', color: compareColor,
+            fontFamily: F.mono, letterSpacing: 0.3,
+          }}>{compareText}</Text>
+        </View>
+      ) : null}
+
+      {/* Legend dots */}
+      {hasPrev ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: innerColor }} />
+            <Text style={{ fontSize: 7, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono }}>Atual</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: outerColor, borderWidth: 1, borderColor: color + '60' }} />
+            <Text style={{ fontSize: 7, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono }}>Ant.</Text>
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function SLabel({ children, right }) {
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -278,6 +467,26 @@ export default function HomeScreen({ navigation }) {
   var saldoTotal = data.saldoTotal || 0;
   var rendaFixa = data.rendaFixa || [];
   var eventos = data.eventos || [];
+
+  // Mes anterior
+  var dividendosMesAnterior = data.dividendosMesAnterior || 0;
+  var premiosMesAnterior = data.premiosMesAnterior || 0;
+  var rendaTotalMesAnterior = data.rendaTotalMesAnterior || 0;
+  var dividendosCatMes = data.dividendosCatMes || { acao: 0, fii: 0, etf: 0 };
+  var dividendosCatMesAnt = data.dividendosCatMesAnt || { acao: 0, fii: 0, etf: 0 };
+
+  // Ganhos acumulados por categoria (P&L posicoes)
+  var ganhosPorCat = { acao: 0, fii: 0, rf: 0, etf: 0 };
+  for (var gi = 0; gi < positions.length; gi++) {
+    var gPos = positions[gi];
+    var gCat = gPos.categoria || 'acao';
+    if (gCat !== 'acao' && gCat !== 'fii' && gCat !== 'etf') gCat = 'acao';
+    var gPreco = gPos.preco_atual || gPos.pm;
+    ganhosPorCat[gCat] += (gPreco - gPos.pm) * gPos.quantidade;
+  }
+  // RF ganho = rendimento estimado mensal
+  ganhosPorCat.rf = rfRendaMensal;
+  var ganhosTotal = ganhosPorCat.acao + ganhosPorCat.fii + ganhosPorCat.etf + ganhosPorCat.rf;
 
   var metaPct = meta > 0 ? Math.min((rendaTotalMes / meta) * 100, 150) : 0;
 
@@ -489,61 +698,134 @@ export default function HomeScreen({ navigation }) {
           </View>
         </GlassCard>
 
-        {/* RENDA DO MÊS — 3 cards */}
-        <SLabel>RENDA DO MÊS</SLabel>
-        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
-          <IncomeCard
-            label="PRÊMIOS" subtitle="opções"
-            value={premiosMes} color={P.opcao.color}
-          />
-          <IncomeCard
-            label="DIVIDENDOS" subtitle="proventos"
-            value={dividendosMes} color={P.fii.color}
-          />
-          <IncomeCard
-            label="RENDA FIXA" subtitle={'est. mensal'}
-            value={rfRendaMensal} color={P.rf.color}
-          />
-        </View>
+        {/* RENDA DO MÊS — donuts + meta */}
+        <GlassCard glow="rgba(108,92,231,0.10)">
+          <SLabel right={
+            <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono }}>
+              {new Date().toLocaleString('pt-BR', { month: 'short' }).toUpperCase()}
+            </Text>
+          }>RENDA DO MES</SLabel>
 
-        {/* META MENSAL */}
-        <GlassCard glow={metaPct >= 100 ? 'rgba(34,197,94,0.12)' : 'rgba(14,165,233,0.08)'}>
-          <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.5, fontWeight: '600' }}>
-            META MENSAL
-          </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start', marginBottom: 16 }}>
+            <DonutMini
+              label="Premios"
+              value={premiosMes}
+              prevValue={premiosMesAnterior}
+              color={P.opcao.color}
+              size={76}
+            />
+            <DonutMini
+              label="Dividendos"
+              value={dividendosMes}
+              prevValue={dividendosMesAnterior}
+              color={P.fii.color}
+              size={76}
+            />
+            <DonutMini
+              label="Total"
+              value={premiosMes + dividendosMes}
+              prevValue={premiosMesAnterior + dividendosMesAnterior}
+              color={C.accent}
+              size={86}
+              meta={meta}
+              isTotal={true}
+            />
+          </View>
+
+          {/* Divider */}
+          <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginBottom: 14 }} />
+
+          {/* META MENSAL inline */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, fontWeight: '600', marginBottom: 6 }}>
+                META MENSAL
+              </Text>
               <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                <Text style={{ fontSize: 22, fontWeight: '800', color: C.accent, fontFamily: F.display }}>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: C.accent, fontFamily: F.display }}>
                   {fmt(rendaTotalMes)}
                 </Text>
-                <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.25)', fontFamily: F.display, marginLeft: 4 }}>
+                <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', fontFamily: F.display, marginLeft: 4 }}>
                   / {fmt(meta)}
                 </Text>
               </View>
               {rendaTotalMes > 0 ? (
-                <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, marginTop: 4 }}>
-                  Prêmios {fmt(premiosMes)} + Div {fmt(dividendosMes)} + RF {fmt(rfRendaMensal)}
+                <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontFamily: F.mono, marginTop: 3 }}>
+                  {'Premios ' + fmt(premiosMes) + ' + Div ' + fmt(dividendosMes) + ' + RF ' + fmt(rfRendaMensal)}
                 </Text>
               ) : null}
             </View>
             <Text style={{
-              fontSize: 24, fontWeight: '800', fontFamily: F.mono,
+              fontSize: 22, fontWeight: '800', fontFamily: F.mono,
               color: metaPct >= 100 ? '#22c55e' : metaPct >= 50 ? '#f59e0b' : C.accent,
             }}>{metaPct.toFixed(0)}%</Text>
           </View>
-          <View style={{ height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.03)', marginTop: 12, overflow: 'hidden' }}>
+          <View style={{ height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.03)', marginTop: 10, overflow: 'hidden' }}>
             <LinearGradient
               colors={[C.accent, metaPct >= 100 ? '#22c55e' : '#f59e0b']}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-              style={{ height: 6, borderRadius: 3, width: Math.min(metaPct, 100) + '%' }}
+              style={{ height: 5, borderRadius: 3, width: Math.min(metaPct, 100) + '%' }}
             />
           </View>
           {metaPct < 100 && metaPct > 0 ? (
-            <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono, textAlign: 'right', marginTop: 6 }}>
-              Faltam {fmt(meta - rendaTotalMes)}
+            <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, textAlign: 'right', marginTop: 5 }}>
+              {'Faltam ' + fmt(meta - rendaTotalMes)}
             </Text>
           ) : null}
+        </GlassCard>
+
+        {/* GANHOS ACUMULADOS — donuts por categoria */}
+        <GlassCard glow="rgba(34,197,94,0.06)">
+          <SLabel right={
+            <Text style={{ fontSize: 10, color: ganhosTotal >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono, fontWeight: '700' }}>
+              {ganhosTotal >= 0 ? '+' : ''}{fmt(ganhosTotal)}
+            </Text>
+          }>GANHOS ACUMULADOS</SLabel>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start', marginBottom: 10 }}>
+            <DonutMini
+              label="Acoes"
+              value={ganhosPorCat.acao}
+              prevValue={dividendosCatMesAnt.acao}
+              color={P.acao.color}
+              size={76}
+            />
+            <DonutMini
+              label="FIIs"
+              value={ganhosPorCat.fii}
+              prevValue={dividendosCatMesAnt.fii}
+              color={P.fii.color}
+              size={76}
+            />
+          </View>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start', marginBottom: 10 }}>
+            <DonutMini
+              label="RF"
+              value={ganhosPorCat.rf}
+              prevValue={0}
+              color={P.rf.color}
+              size={76}
+            />
+            <DonutMini
+              label="ETFs"
+              value={ganhosPorCat.etf}
+              prevValue={dividendosCatMesAnt.etf}
+              color={P.etf.color}
+              size={76}
+            />
+          </View>
+
+          <View style={{ alignItems: 'center' }}>
+            <DonutMini
+              label="Total"
+              value={ganhosTotal}
+              prevValue={dividendosCatMesAnt.acao + dividendosCatMesAnt.fii + dividendosCatMesAnt.etf}
+              color={ganhosTotal >= 0 ? '#22c55e' : '#ef4444'}
+              size={90}
+              isTotal={true}
+            />
+          </View>
         </GlassCard>
 
         {/* RESUMO DO PORTFÓLIO — dados reais e úteis */}

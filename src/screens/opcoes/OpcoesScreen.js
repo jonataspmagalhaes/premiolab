@@ -1,13 +1,14 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, TextInput, Alert,
+  TouchableOpacity, TextInput, Alert, Dimensions,
 } from 'react-native';
+import Svg, { Line, Rect, Path, Text as SvgText } from 'react-native-svg';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOpcoes, getPositions, getSaldos, addOperacao } from '../../services/database';
-import { enrichPositionsWithPrices, clearPriceCache } from '../../services/priceService';
+import { enrichPositionsWithPrices, clearPriceCache, fetchPrices } from '../../services/priceService';
 import { supabase } from '../../config/supabase';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
@@ -181,6 +182,260 @@ function getMoneyness(tipo, direcao, strike, spot) {
 }
 
 // ═══════════════════════════════════════
+// PAYOFF CHART
+// ═══════════════════════════════════════
+var CHART_H = 200;
+
+function PayoffChart(props) {
+  var tipo = (props.tipo || 'call').toLowerCase();
+  var direcao = props.direcao || 'venda';
+  var strike = props.strike || 0;
+  var premio = props.premio || 0;
+  var quantidade = props.quantidade || 1;
+  var spotPrice = props.spotPrice || strike;
+  var chartWidth = props.chartWidth || (Dimensions.get('window').width - 72);
+
+  var _touchX = useState(null); var touchX = _touchX[0]; var setTouchX = _touchX[1];
+
+  var isVenda = direcao === 'venda' || direcao === 'lancamento';
+  var rangeMin = strike * 0.7;
+  var rangeMax = strike * 1.3;
+  var numPoints = 60;
+  var step = (rangeMax - rangeMin) / numPoints;
+
+  // Breakeven
+  var breakeven = tipo === 'call' ? strike + premio : strike - premio;
+
+  // Compute P&L for a given price
+  function calcPL(price) {
+    var intrinsic;
+    if (tipo === 'call') {
+      intrinsic = Math.max(0, price - strike);
+    } else {
+      intrinsic = Math.max(0, strike - price);
+    }
+    if (isVenda) {
+      return (premio - intrinsic) * quantidade;
+    } else {
+      return (intrinsic - premio) * quantidade;
+    }
+  }
+
+  // Build data points
+  var points = [];
+  var minPL = Infinity;
+  var maxPL = -Infinity;
+  for (var i = 0; i <= numPoints; i++) {
+    var px = rangeMin + step * i;
+    var pl = calcPL(px);
+    points.push({ x: px, y: pl });
+    if (pl < minPL) minPL = pl;
+    if (pl > maxPL) maxPL = pl;
+  }
+
+  // Padding for Y axis
+  var yPad = Math.max(Math.abs(maxPL), Math.abs(minPL)) * 0.15 || 10;
+  var yMin = minPL - yPad;
+  var yMax = maxPL + yPad;
+  if (yMin === yMax) { yMin = yMin - 10; yMax = yMax + 10; }
+
+  // Chart area
+  var padL = 50;
+  var padR = 10;
+  var padT = 20;
+  var padB = 30;
+  var w = chartWidth - padL - padR;
+  var h = CHART_H - padT - padB;
+
+  function toX(price) { return padL + (price - rangeMin) / (rangeMax - rangeMin) * w; }
+  function toY(val) { return padT + (1 - (val - yMin) / (yMax - yMin)) * h; }
+
+  // Build path with split fill
+  var zeroY = toY(0);
+  // Clamp zeroY within chart area
+  var clampedZeroY = Math.max(padT, Math.min(padT + h, zeroY));
+
+  // Line path
+  var linePath = '';
+  for (var li = 0; li < points.length; li++) {
+    var lx = toX(points[li].x);
+    var ly = toY(points[li].y);
+    if (li === 0) {
+      linePath = linePath + 'M' + lx.toFixed(1) + ',' + ly.toFixed(1);
+    } else {
+      linePath = linePath + ' L' + lx.toFixed(1) + ',' + ly.toFixed(1);
+    }
+  }
+
+  // Green fill (above zero)
+  var greenPath = '';
+  var redPath = '';
+  for (var fi = 0; fi < points.length; fi++) {
+    var fx = toX(points[fi].x);
+    var fy = toY(points[fi].y);
+    var clampedGreen = Math.min(fy, clampedZeroY);
+    var clampedRed = Math.max(fy, clampedZeroY);
+
+    if (fi === 0) {
+      greenPath = 'M' + fx.toFixed(1) + ',' + clampedZeroY.toFixed(1);
+      redPath = 'M' + fx.toFixed(1) + ',' + clampedZeroY.toFixed(1);
+    }
+    greenPath = greenPath + ' L' + fx.toFixed(1) + ',' + clampedGreen.toFixed(1);
+    redPath = redPath + ' L' + fx.toFixed(1) + ',' + clampedRed.toFixed(1);
+  }
+  // Close fill paths
+  var lastFx = toX(points[points.length - 1].x);
+  var firstFx = toX(points[0].x);
+  greenPath = greenPath + ' L' + lastFx.toFixed(1) + ',' + clampedZeroY.toFixed(1) + ' Z';
+  redPath = redPath + ' L' + lastFx.toFixed(1) + ',' + clampedZeroY.toFixed(1) + ' Z';
+
+  // Breakeven X
+  var beX = toX(breakeven);
+  var spotX = toX(spotPrice);
+
+  // Touch handling
+  function handleTouch(evt) {
+    var touch = evt.nativeEvent;
+    var tx = touch.locationX;
+    if (tx >= padL && tx <= padL + w) {
+      setTouchX(tx);
+    }
+  }
+
+  // Touch info
+  var touchInfo = null;
+  if (touchX !== null) {
+    var tPrice = rangeMin + (touchX - padL) / w * (rangeMax - rangeMin);
+    var tPL = calcPL(tPrice);
+    touchInfo = { price: tPrice, pl: tPL, x: touchX, y: toY(tPL) };
+  }
+
+  // Y axis labels
+  var yLabels = [];
+  var ySteps = 4;
+  for (var yi = 0; yi <= ySteps; yi++) {
+    var yVal = yMin + (yMax - yMin) * (yi / ySteps);
+    yLabels.push({ val: yVal, y: toY(yVal) });
+  }
+
+  // X axis labels
+  var xLabels = [];
+  var xSteps = 4;
+  for (var xi = 0; xi <= xSteps; xi++) {
+    var xVal = rangeMin + (rangeMax - rangeMin) * (xi / xSteps);
+    xLabels.push({ val: xVal, x: toX(xVal) });
+  }
+
+  // Max profit/loss labels
+  var maxProfitLabel = isVenda ? 'Max +R$' + fmt(premio * quantidade) : 'Ilimitado';
+  var maxLossLabel = isVenda ? 'Ilimitado' : 'Max -R$' + fmt(premio * quantidade);
+
+  return (
+    <View style={styles.payoffContainer}>
+      <View
+        onTouchStart={handleTouch}
+        onTouchMove={handleTouch}
+        onTouchEnd={function() { setTouchX(null); }}
+      >
+        <Svg width={chartWidth} height={CHART_H}>
+          {/* Green fill (profit zone) */}
+          <Path d={greenPath} fill="rgba(34,197,94,0.12)" />
+          {/* Red fill (loss zone) */}
+          <Path d={redPath} fill="rgba(239,68,68,0.12)" />
+
+          {/* Zero line */}
+          <Line x1={padL} y1={clampedZeroY} x2={padL + w} y2={clampedZeroY}
+            stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
+
+          {/* P&L line */}
+          <Path d={linePath} fill="none" stroke={C.opcoes} strokeWidth={2} />
+
+          {/* Breakeven line */}
+          {breakeven >= rangeMin && breakeven <= rangeMax ? (
+            <>
+              <Line x1={beX} y1={padT} x2={beX} y2={padT + h}
+                stroke={C.yellow} strokeWidth={1} strokeDasharray="4,3" />
+              <SvgText x={beX} y={padT - 4} fill={C.yellow}
+                fontSize={8} fontFamily={F.mono} textAnchor="middle">
+                {'BE ' + fmt(breakeven)}
+              </SvgText>
+            </>
+          ) : null}
+
+          {/* Spot line */}
+          {spotPrice >= rangeMin && spotPrice <= rangeMax ? (
+            <>
+              <Line x1={spotX} y1={padT} x2={spotX} y2={padT + h}
+                stroke={C.accent} strokeWidth={1} strokeDasharray="2,3" />
+              <SvgText x={spotX} y={padT + h + 12} fill={C.accent}
+                fontSize={8} fontFamily={F.mono} textAnchor="middle">
+                {'Spot ' + fmt(spotPrice)}
+              </SvgText>
+            </>
+          ) : null}
+
+          {/* Y axis labels */}
+          {yLabels.map(function(yl, yi) {
+            return (
+              <SvgText key={'y' + yi} x={padL - 4} y={yl.y + 3} fill={C.dim}
+                fontSize={8} fontFamily={F.mono} textAnchor="end">
+                {yl.val >= 0 ? '+' + Math.round(yl.val) : Math.round(yl.val)}
+              </SvgText>
+            );
+          })}
+
+          {/* X axis labels */}
+          {xLabels.map(function(xl, xi) {
+            return (
+              <SvgText key={'x' + xi} x={xl.x} y={padT + h + 12} fill={C.dim}
+                fontSize={8} fontFamily={F.mono} textAnchor="middle">
+                {xl.val.toFixed(0)}
+              </SvgText>
+            );
+          })}
+
+          {/* Touch crosshair */}
+          {touchInfo ? (
+            <>
+              <Line x1={touchInfo.x} y1={padT} x2={touchInfo.x} y2={padT + h}
+                stroke="rgba(255,255,255,0.3)" strokeWidth={1} />
+              <Rect x={touchInfo.x - 1.5} y={touchInfo.y - 1.5} width={5} height={5}
+                rx={2.5} fill={C.text} />
+            </>
+          ) : null}
+        </Svg>
+
+        {/* Touch tooltip */}
+        {touchInfo ? (
+          <View style={[styles.payoffTooltip, {
+            left: Math.min(touchInfo.x, chartWidth - 100),
+            top: 4,
+          }]}>
+            <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>
+              {'Ativo R$ ' + fmt(touchInfo.price)}
+            </Text>
+            <Text style={{ fontSize: 11, fontWeight: '700', fontFamily: F.mono,
+              color: touchInfo.pl >= 0 ? C.green : C.red }}>
+              {'P&L ' + (touchInfo.pl >= 0 ? '+' : '') + 'R$ ' + fmt(touchInfo.pl)}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Legend row */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+        <Text style={{ fontSize: 9, color: C.green, fontFamily: F.mono }}>
+          {maxProfitLabel}
+        </Text>
+        <Text style={{ fontSize: 9, color: C.red, fontFamily: F.mono }}>
+          {maxLossLabel}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+// ═══════════════════════════════════════
 // OPTION CARD
 // ═══════════════════════════════════════
 function OpCard(props) {
@@ -193,6 +448,7 @@ function OpCard(props) {
 
   var _showClose = useState(false); var showClose = _showClose[0]; var setShowClose = _showClose[1];
   var _premRecompra = useState(''); var premRecompra = _premRecompra[0]; var setPremRecompra = _premRecompra[1];
+  var _showPayoff = useState(false); var showPayoff = _showPayoff[0]; var setShowPayoff = _showPayoff[1];
 
   var tipoLabel = (op.tipo || 'call').toUpperCase();
   var isVenda = op.direcao === 'lancamento' || op.direcao === 'venda';
@@ -353,6 +609,9 @@ function OpCard(props) {
           <Badge text={daysLeft + 'd'} color={dayColor} />
         </View>
         <View style={{ flexDirection: 'row', gap: 14 }}>
+          <TouchableOpacity onPress={function() { setShowPayoff(!showPayoff); }}>
+            <Text style={[styles.actionLink, { color: C.opcoes }]}>Payoff</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={function() { setShowClose(!showClose); }}>
             <Text style={[styles.actionLink, { color: C.yellow }]}>Encerrar</Text>
           </TouchableOpacity>
@@ -364,6 +623,18 @@ function OpCard(props) {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Payoff chart */}
+      {showPayoff ? (
+        <PayoffChart
+          tipo={op.tipo}
+          direcao={op.direcao}
+          strike={op.strike}
+          premio={op.premio}
+          quantidade={op.quantidade}
+          spotPrice={spotPrice}
+        />
+      ) : null}
 
       {/* Encerramento panel */}
       {showClose ? (
@@ -594,6 +865,236 @@ function SimuladorBS() {
 }
 
 // ═══════════════════════════════════════
+// CADEIA SINTETICA (BS)
+// ═══════════════════════════════════════
+function CadeiaSintetica(props) {
+  var positions = props.positions || [];
+
+  // Unique tickers with spot prices
+  var tickers = [];
+  var tickerSpots = {};
+  for (var ti = 0; ti < positions.length; ti++) {
+    var pt = positions[ti];
+    if (tickers.indexOf(pt.ticker) === -1) {
+      tickers.push(pt.ticker);
+      tickerSpots[pt.ticker] = pt.preco_atual || pt.pm || 0;
+    }
+  }
+
+  var _chainTicker = useState(tickers.length > 0 ? tickers[0] : null);
+  var chainTicker = _chainTicker[0]; var setChainTicker = _chainTicker[1];
+  var _chainIV = useState('35');
+  var chainIV = _chainIV[0]; var setChainIV = _chainIV[1];
+  var _chainDTE = useState('21');
+  var chainDTE = _chainDTE[0]; var setChainDTE = _chainDTE[1];
+
+  if (tickers.length === 0) {
+    return (
+      <Glass padding={24}>
+        <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
+          Adicione ativos na carteira para gerar a cadeia de opcoes.
+        </Text>
+      </Glass>
+    );
+  }
+
+  var spot = tickerSpots[chainTicker] || 0;
+  var ivVal = (parseFloat(chainIV) || 35) / 100;
+  var dteVal = parseInt(chainDTE) || 21;
+  var tYears = dteVal / 365;
+  var r = 0.1325;
+
+  // Generate strikes
+  var strikeStep;
+  if (spot < 20) { strikeStep = 1; }
+  else if (spot <= 50) { strikeStep = 2; }
+  else { strikeStep = 5; }
+
+  var centerStrike = Math.round(spot / strikeStep) * strikeStep;
+  var strikes = [];
+  for (var si = -5; si <= 5; si++) {
+    strikes.push(centerStrike + si * strikeStep);
+  }
+
+  // Find ATM strike (closest to spot)
+  var atmStrike = strikes[0];
+  var atmDiff = Math.abs(strikes[0] - spot);
+  for (var ai = 1; ai < strikes.length; ai++) {
+    var d = Math.abs(strikes[ai] - spot);
+    if (d < atmDiff) { atmDiff = d; atmStrike = strikes[ai]; }
+  }
+
+  function getSimpleMoneyness(tipo, strike, spotVal) {
+    if (!spotVal || spotVal <= 0) return 'OTM';
+    var diff = Math.abs(spotVal - strike) / strike * 100;
+    if (diff < 1) return 'ATM';
+    if (tipo === 'call') return spotVal > strike ? 'ITM' : 'OTM';
+    return spotVal < strike ? 'ITM' : 'OTM';
+  }
+
+  return (
+    <View style={{ gap: SIZE.gap }}>
+      {/* Ticker selector */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {tickers.map(function(tk) {
+          return (
+            <Pill key={tk} active={chainTicker === tk} color={C.acoes}
+              onPress={function() { setChainTicker(tk); }}>
+              {tk}
+            </Pill>
+          );
+        })}
+      </View>
+
+      {/* Spot display */}
+      {spot > 0 ? (
+        <Glass padding={10}>
+          <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
+            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>SPOT</Text>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: C.text, fontFamily: F.display }}>
+              {'R$ ' + fmt(spot)}
+            </Text>
+          </View>
+        </Glass>
+      ) : null}
+
+      {/* IV + DTE inputs */}
+      <Glass padding={14}>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.simFieldLabel}>IV (%)</Text>
+            <View style={styles.simFieldInput}>
+              <TextInput value={chainIV} onChangeText={setChainIV} keyboardType="numeric"
+                style={styles.simFieldText} placeholderTextColor={C.dim} />
+              <Text style={styles.simFieldSuffix}>%</Text>
+            </View>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.simFieldLabel}>DTE (dias)</Text>
+            <View style={styles.simFieldInput}>
+              <TextInput value={chainDTE} onChangeText={setChainDTE} keyboardType="numeric"
+                style={styles.simFieldText} placeholderTextColor={C.dim} />
+              <Text style={styles.simFieldSuffix}>dias</Text>
+            </View>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.simFieldLabel}>Taxa</Text>
+            <View style={[styles.simFieldInput, { backgroundColor: 'rgba(255,255,255,0.01)' }]}>
+              <Text style={[styles.simFieldText, { color: C.dim }]}>13.25</Text>
+              <Text style={styles.simFieldSuffix}>%</Text>
+            </View>
+          </View>
+        </View>
+      </Glass>
+
+      {/* Options chain grid */}
+      <Glass padding={0}>
+        {/* Header */}
+        <View style={styles.chainHeader}>
+          <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', gap: 4 }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: C.green, fontFamily: F.mono }}>CALL</Text>
+          </View>
+          <View style={styles.chainStrike}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>STRIKE</Text>
+          </View>
+          <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', gap: 4 }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: C.red, fontFamily: F.mono }}>PUT</Text>
+          </View>
+        </View>
+
+        {/* Sub-header */}
+        <View style={[styles.chainRow, { paddingVertical: 4 }]}>
+          <View style={{ flex: 1, flexDirection: 'row' }}>
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              <Text style={styles.chainDelta}>Delta</Text>
+            </View>
+            <View style={{ flex: 1.2, alignItems: 'center' }}>
+              <Text style={styles.chainDelta}>Preco</Text>
+            </View>
+            <View style={{ flex: 0.8, alignItems: 'center' }}>
+              <Text style={styles.chainDelta}>Tipo</Text>
+            </View>
+          </View>
+          <View style={styles.chainStrike} />
+          <View style={{ flex: 1, flexDirection: 'row' }}>
+            <View style={{ flex: 0.8, alignItems: 'center' }}>
+              <Text style={styles.chainDelta}>Tipo</Text>
+            </View>
+            <View style={{ flex: 1.2, alignItems: 'center' }}>
+              <Text style={styles.chainDelta}>Preco</Text>
+            </View>
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              <Text style={styles.chainDelta}>Delta</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Strike rows */}
+        {strikes.map(function(sk, idx) {
+          var isAtm = sk === atmStrike;
+          var callPrice = spot > 0 && tYears > 0 ? bsPrice(spot, sk, tYears, r, ivVal, 'call') : 0;
+          var putPrice = spot > 0 && tYears > 0 ? bsPrice(spot, sk, tYears, r, ivVal, 'put') : 0;
+          var callGreeks = spot > 0 && tYears > 0 ? bsGreeks(spot, sk, tYears, r, ivVal, 'call') : { delta: 0 };
+          var putGreeks = spot > 0 && tYears > 0 ? bsGreeks(spot, sk, tYears, r, ivVal, 'put') : { delta: 0 };
+          var callMon = getSimpleMoneyness('call', sk, spot);
+          var putMon = getSimpleMoneyness('put', sk, spot);
+
+          var monColor = { ITM: C.green, ATM: C.yellow, OTM: C.dim };
+          var rowBg = isAtm ? styles.chainAtm : (callMon === 'ITM' ? styles.chainItm : null);
+
+          return (
+            <View key={idx} style={[styles.chainRow, rowBg]}>
+              {/* CALL side */}
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Text style={styles.chainDelta}>{callGreeks.delta.toFixed(2)}</Text>
+                </View>
+                <View style={{ flex: 1.2, alignItems: 'center' }}>
+                  <Text style={styles.chainPrice}>{'R$' + callPrice.toFixed(2)}</Text>
+                </View>
+                <View style={{ flex: 0.8, alignItems: 'center' }}>
+                  <Badge text={callMon} color={monColor[callMon] || C.dim} />
+                </View>
+              </View>
+
+              {/* Strike center */}
+              <View style={styles.chainStrike}>
+                <Text style={{
+                  fontSize: 13, fontWeight: '700', fontFamily: F.mono,
+                  color: isAtm ? C.accent : C.text,
+                }}>
+                  {sk.toFixed(0)}
+                </Text>
+              </View>
+
+              {/* PUT side */}
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ flex: 0.8, alignItems: 'center' }}>
+                  <Badge text={putMon} color={monColor[putMon] || C.dim} />
+                </View>
+                <View style={{ flex: 1.2, alignItems: 'center' }}>
+                  <Text style={styles.chainPrice}>{'R$' + putPrice.toFixed(2)}</Text>
+                </View>
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Text style={styles.chainDelta}>{putGreeks.delta.toFixed(2)}</Text>
+                </View>
+              </View>
+            </View>
+          );
+        })}
+      </Glass>
+
+      {/* Legend */}
+      <View style={{ paddingHorizontal: 4 }}>
+        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, textAlign: 'center' }}>
+          Precos teoricos via Black-Scholes. IV e DTE ajustaveis.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+// ═══════════════════════════════════════
 // MAIN OPCOES SCREEN
 // ═══════════════════════════════════════
 export default function OpcoesScreen() {
@@ -642,6 +1143,37 @@ export default function OpcoesScreen() {
     // Two-phase: enrich with real prices
     try {
       var enriched = await enrichPositionsWithPrices(rawPos);
+
+      // Find option base tickers that are NOT in positions
+      var posTickerSet = {};
+      for (var pt = 0; pt < enriched.length; pt++) {
+        posTickerSet[enriched[pt].ticker] = true;
+      }
+      var extraTickers = [];
+      for (var xt = 0; xt < allOpcoes.length; xt++) {
+        var ab = allOpcoes[xt].ativo_base;
+        if (ab && !posTickerSet[ab] && extraTickers.indexOf(ab) === -1) {
+          extraTickers.push(ab);
+        }
+      }
+
+      // Fetch prices for extra tickers and add as synthetic positions
+      if (extraTickers.length > 0) {
+        var extraPrices = await fetchPrices(extraTickers);
+        for (var ep = 0; ep < extraTickers.length; ep++) {
+          var etk = extraTickers[ep];
+          var eq = extraPrices[etk];
+          enriched.push({
+            ticker: etk,
+            categoria: 'acao',
+            quantidade: 0,
+            pm: 0,
+            preco_atual: eq ? eq.price : null,
+            change_day: eq ? eq.changePercent : null,
+          });
+        }
+      }
+
       setPositions(enriched);
       var hasAnyPrice = false;
       for (var i = 0; i < enriched.length; i++) {
@@ -798,8 +1330,25 @@ export default function OpcoesScreen() {
   var ativas = opcoes.filter(function(o) { return o.status === 'ativa'; });
   var historico = opcoes.filter(function(o) { return o.status !== 'ativa'; });
 
-  // Totals
-  var premioMes = ativas.reduce(function(s, o) { return s + (o.premio || 0) * (o.quantidade || 0); }, 0);
+  // Totals - premio recebido no mes (D+1 da data_abertura)
+  var now = new Date();
+  var mesAtual = now.getMonth();
+  var anoAtual = now.getFullYear();
+  var premioMes = 0;
+  for (var pmi = 0; pmi < ativas.length; pmi++) {
+    var opPm = ativas[pmi];
+    var dataRef = opPm.data_abertura || opPm.created_at || null;
+    if (dataRef) {
+      var dReceb = new Date(dataRef);
+      dReceb.setDate(dReceb.getDate() + 1); // D+1
+      if (dReceb.getMonth() === mesAtual && dReceb.getFullYear() === anoAtual) {
+        premioMes += (opPm.premio || 0) * (opPm.quantidade || 0);
+      }
+    } else {
+      // Sem data, considerar no mes atual como fallback
+      premioMes += (opPm.premio || 0) * (opPm.quantidade || 0);
+    }
+  }
 
   // Theta/dia estimate
   var thetaDiaTotal = 0;
@@ -859,6 +1408,7 @@ export default function OpcoesScreen() {
         {[
           { k: 'ativas', l: 'Ativas (' + ativas.length + (expired.length > 0 ? ' +' + expired.length + ' venc.' : '') + ')' },
           { k: 'sim', l: 'Simulador' },
+          { k: 'cadeia', l: 'Cadeia' },
           { k: 'hist', l: 'Historico (' + historico.length + ')' },
         ].map(function(t) {
           return (
@@ -923,7 +1473,7 @@ export default function OpcoesScreen() {
 
           {ativas.length === 0 && expired.length === 0 ? (
             <EmptyState
-              icon="\u26A1" title="Nenhuma opcao ativa"
+              icon="$" title="Nenhuma opcao ativa"
               description="Lance opcoes para comecar a receber premios."
               cta="Nova opcao" onCta={function() { navigation.navigate('AddOpcao'); }}
               color={C.opcoes}
@@ -989,6 +1539,9 @@ export default function OpcoesScreen() {
 
       {/* SIMULADOR TAB */}
       {sub === 'sim' && <SimuladorBS />}
+
+      {/* CADEIA TAB */}
+      {sub === 'cadeia' && <CadeiaSintetica positions={positions} />}
 
       {/* HISTORICO TAB */}
       {sub === 'hist' && (
@@ -1118,4 +1671,18 @@ var styles = StyleSheet.create({
   },
   simFieldText: { flex: 1, fontSize: 15, color: C.text, fontFamily: F.mono, padding: 0 },
   simFieldSuffix: { fontSize: 11, color: C.dim, fontFamily: F.mono, marginLeft: 4 },
+
+  // Payoff chart
+  payoffContainer: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' },
+  payoffTooltip: { position: 'absolute', backgroundColor: C.cardSolid, borderRadius: 6, padding: 6, borderWidth: 1, borderColor: C.border },
+
+  // Cadeia
+  chainRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)' },
+  chainHeader: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: C.border },
+  chainCell: { flex: 1, alignItems: 'center' },
+  chainStrike: { width: 60, alignItems: 'center' },
+  chainPrice: { fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.mono },
+  chainDelta: { fontSize: 9, color: C.dim, fontFamily: F.mono },
+  chainItm: { backgroundColor: 'rgba(34,197,94,0.06)' },
+  chainAtm: { backgroundColor: 'rgba(245,158,11,0.06)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)' },
 });

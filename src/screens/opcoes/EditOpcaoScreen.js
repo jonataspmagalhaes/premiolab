@@ -55,6 +55,7 @@ export default function EditOpcaoScreen(props) {
   var _premio = useState(String(op.premio || '')); var premio = _premio[0]; var setPremio = _premio[1];
   var _qtd = useState(String(op.quantidade || '')); var quantidade = _qtd[0]; var setQuantidade = _qtd[1];
   var _venc = useState(isoToBr(op.vencimento)); var vencimento = _venc[0]; var setVencimento = _venc[1];
+  var _dataAbertura = useState(isoToBr(op.data_abertura) || ''); var dataAbertura = _dataAbertura[0]; var setDataAbertura = _dataAbertura[1];
   var _corretora = useState(op.corretora || ''); var corretora = _corretora[0]; var setCorretora = _corretora[1];
   var _status = useState(op.status || 'ativa'); var status = _status[0]; var setStatus = _status[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
@@ -65,13 +66,15 @@ export default function EditOpcaoScreen(props) {
   var contratos = Math.floor(qty / 100);
 
   var dateValid = vencimento.length === 10 && isValidDate(vencimento);
-  var canSubmit = ativoBase.length >= 4 && parseFloat(strike) > 0 && prem > 0 && qty > 0 && dateValid && corretora;
+  var dataAberturaValid = dataAbertura.length === 0 || (dataAbertura.length === 10 && isValidDate(dataAbertura));
+  var canSubmit = ativoBase.length >= 4 && parseFloat(strike) > 0 && prem > 0 && qty > 0 && dateValid && dataAberturaValid && corretora;
 
   var handleSave = async function() {
     if (!canSubmit) return;
     setLoading(true);
     try {
       var isoDate = brToIso(vencimento);
+      var isoAbertura = dataAbertura.length === 10 ? brToIso(dataAbertura) : null;
       var result = await supabase
         .from('opcoes')
         .update({
@@ -83,6 +86,7 @@ export default function EditOpcaoScreen(props) {
           premio: prem,
           quantidade: qty,
           vencimento: isoDate,
+          data_abertura: isoAbertura,
           status: status,
           corretora: corretora,
         })
@@ -175,11 +179,34 @@ export default function EditOpcaoScreen(props) {
         </View>
       </View>
 
-      {/* Qtd + Vencimento */}
+      {/* Qtd */}
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>QTD OPÇÕES *</Text>
           <TextInput value={quantidade} onChangeText={setQuantidade} placeholder="100" placeholderTextColor={C.dim} keyboardType="numeric" style={styles.input} />
+        </View>
+      </View>
+
+      {/* Data abertura + Vencimento */}
+      <View style={styles.row}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.label}>DATA ABERTURA</Text>
+          <TextInput
+            value={dataAbertura}
+            onChangeText={function(t) { setDataAbertura(maskDate(t)); }}
+            placeholder="DD/MM/AAAA"
+            placeholderTextColor={C.dim}
+            keyboardType="numeric"
+            maxLength={10}
+            style={[
+              styles.input,
+              dataAbertura.length === 10 && dataAberturaValid && { borderColor: C.green },
+              dataAbertura.length === 10 && !dataAberturaValid && { borderColor: C.red },
+            ]}
+          />
+          {dataAbertura.length === 10 && !dataAberturaValid && (
+            <Text style={styles.dateError}>Data invalida</Text>
+          )}
         </View>
         <View style={{ width: 12 }} />
         <View style={{ flex: 1 }}>
@@ -198,7 +225,7 @@ export default function EditOpcaoScreen(props) {
             ]}
           />
           {vencimento.length === 10 && !dateValid && (
-            <Text style={styles.dateError}>Data inválida</Text>
+            <Text style={styles.dateError}>Data invalida</Text>
           )}
         </View>
       </View>

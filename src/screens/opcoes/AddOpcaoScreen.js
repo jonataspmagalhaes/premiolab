@@ -38,6 +38,24 @@ function isValidFutureDate(brDate) {
   return date >= today;
 }
 
+function isValidDate(brDate) {
+  var iso = brToIso(brDate);
+  if (!iso) return false;
+  var date = new Date(iso + 'T12:00:00');
+  if (isNaN(date.getTime())) return false;
+  var day = parseInt(brDate.split('/')[0]);
+  var month = parseInt(brDate.split('/')[1]);
+  return date.getDate() === day && (date.getMonth() + 1) === month;
+}
+
+function todayBr() {
+  var d = new Date();
+  var dd = String(d.getDate()).padStart(2, '0');
+  var mm = String(d.getMonth() + 1).padStart(2, '0');
+  var yyyy = d.getFullYear();
+  return dd + '/' + mm + '/' + yyyy;
+}
+
 export default function AddOpcaoScreen(props) {
   var navigation = props.navigation;
   var route = props.route;
@@ -52,6 +70,7 @@ export default function AddOpcaoScreen(props) {
   var _premio = useState(''); var premio = _premio[0]; var setPremio = _premio[1];
   var _qtd = useState(''); var quantidade = _qtd[0]; var setQuantidade = _qtd[1];
   var _venc = useState(''); var vencimento = _venc[0]; var setVencimento = _venc[1];
+  var _dataAbertura = useState(todayBr()); var dataAbertura = _dataAbertura[0]; var setDataAbertura = _dataAbertura[1];
   var _corretora = useState(''); var corretora = _corretora[0]; var setCorretora = _corretora[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
 
@@ -62,7 +81,8 @@ export default function AddOpcaoScreen(props) {
 
   var dateValid = vencimento.length === 10 && isValidFutureDate(vencimento);
   var datePast = vencimento.length === 10 && !isValidFutureDate(vencimento);
-  var canSubmit = ativoBase.length >= 4 && parseFloat(strike) > 0 && prem > 0 && qty > 0 && dateValid && corretora;
+  var dataAberturaValid = dataAbertura.length === 10 && isValidDate(dataAbertura);
+  var canSubmit = ativoBase.length >= 4 && parseFloat(strike) > 0 && prem > 0 && qty > 0 && dateValid && dataAberturaValid && corretora;
 
   var handleSubmit = async function() {
     if (!canSubmit) return;
@@ -73,6 +93,7 @@ export default function AddOpcaoScreen(props) {
     setLoading(true);
     try {
       var isoDate = brToIso(vencimento);
+      var isoAbertura = brToIso(dataAbertura);
       var result = await addOpcao(user.id, {
         ativo_base: ativoBase.toUpperCase(),
         ticker_opcao: tickerOpcao.toUpperCase() || null,
@@ -82,6 +103,7 @@ export default function AddOpcaoScreen(props) {
         premio: prem,
         quantidade: qty,
         vencimento: isoDate,
+        data_abertura: isoAbertura,
         status: 'ativa',
         corretora: corretora,
       });
@@ -89,7 +111,19 @@ export default function AddOpcaoScreen(props) {
         Alert.alert('Erro', result.error.message);
       } else {
         Alert.alert('Sucesso!', 'Opção registrada.', [
-          { text: 'OK', onPress: function() { navigation.goBack(); } },
+          {
+            text: 'Adicionar outra',
+            onPress: function() {
+              setAtivoBase('');
+              setTickerOpcao('');
+              setStrike('');
+              setPremio('');
+              setQuantidade('');
+              setVencimento('');
+              setDataAbertura(todayBr());
+            },
+          },
+          { text: 'Concluir', onPress: function() { navigation.goBack(); } },
         ]);
       }
     } catch (err) {
@@ -158,11 +192,34 @@ export default function AddOpcaoScreen(props) {
         </View>
       </View>
 
-      {/* Qtd + Vencimento */}
+      {/* Qtd */}
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>QTD OPÇÕES *</Text>
           <TextInput value={quantidade} onChangeText={setQuantidade} placeholder="100" placeholderTextColor={C.dim} keyboardType="numeric" style={styles.input} />
+        </View>
+      </View>
+
+      {/* Data abertura + Vencimento */}
+      <View style={styles.row}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.label}>DATA ABERTURA *</Text>
+          <TextInput
+            value={dataAbertura}
+            onChangeText={function(t) { setDataAbertura(maskDate(t)); }}
+            placeholder="DD/MM/AAAA"
+            placeholderTextColor={C.dim}
+            keyboardType="numeric"
+            maxLength={10}
+            style={[
+              styles.input,
+              dataAberturaValid && { borderColor: C.green },
+              dataAbertura.length === 10 && !dataAberturaValid && { borderColor: C.red },
+            ]}
+          />
+          {dataAbertura.length === 10 && !dataAberturaValid && (
+            <Text style={styles.dateError}>Data invalida</Text>
+          )}
         </View>
         <View style={{ width: 12 }} />
         <View style={{ flex: 1 }}>
