@@ -17,8 +17,8 @@ var TIPO_LABELS = {
   lci_lca: 'LCI/LCA',
   tesouro_selic: 'Tesouro Selic',
   tesouro_ipca: 'Tesouro IPCA+',
-  tesouro_pre: 'Tesouro Pre',
-  debenture: 'Debenture',
+  tesouro_pre: 'Tesouro Pré',
+  debenture: 'Debênture',
 };
 
 var IDX_LABELS = {
@@ -69,8 +69,8 @@ export default function RendaFixaScreen(props) {
 
   var handleDelete = function(id) {
     Alert.alert(
-      'Excluir titulo?',
-      'Essa acao nao pode ser desfeita.',
+      'Excluir título?',
+      'Essa ação não pode ser desfeita.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -123,15 +123,15 @@ export default function RendaFixaScreen(props) {
           <Text style={styles.totalValue}>
             R$ {totalAplicado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </Text>
-          <Text style={styles.totalCount}>{ativos.length} titulo{ativos.length !== 1 ? 's' : ''} ativo{ativos.length !== 1 ? 's' : ''}</Text>
+          <Text style={styles.totalCount}>{ativos.length} título{ativos.length !== 1 ? 's' : ''} ativo{ativos.length !== 1 ? 's' : ''}</Text>
         </Glass>
 
         {ativos.length === 0 && vencidos.length === 0 && (
           <EmptyState
             icon="◉"
-            title="Nenhum titulo"
+            title="Nenhum título"
             description="Cadastre seus investimentos de renda fixa."
-            cta="Novo titulo"
+            cta="Novo título"
             onCta={function() { navigation.navigate('AddRendaFixa'); }}
             color={C.rf}
           />
@@ -232,7 +232,7 @@ export default function RendaFixaScreen(props) {
           style={styles.addBtn}
           onPress={function() { navigation.navigate('AddRendaFixa'); }}
         >
-          <Text style={styles.addBtnText}>+ Novo Titulo</Text>
+          <Text style={styles.addBtnText}>+ Novo Título</Text>
         </TouchableOpacity>
 
         <View style={{ height: SIZE.tabBarHeight + 20 }} />
@@ -251,7 +251,7 @@ var styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: '800', color: C.text, fontFamily: F.display },
   addIcon: { fontSize: 28, color: C.rf, fontWeight: '300' },
 
-  totalLabel: { fontSize: 13, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8 },
+  totalLabel: { fontSize: 12, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8 },
   totalValue: { fontSize: 30, fontWeight: '800', color: C.text, fontFamily: F.display, marginTop: 4 },
   totalCount: { fontSize: 13, color: C.sub, fontFamily: F.body, marginTop: 4 },
 
@@ -259,9 +259,9 @@ var styles = StyleSheet.create({
   rfTipo: { fontSize: 17, fontWeight: '700', color: C.text, fontFamily: F.display },
   rfTaxa: { fontSize: 15, fontWeight: '600', color: C.rf, fontFamily: F.mono, marginTop: 3 },
   rfEmissor: { fontSize: 13, color: C.sub, fontFamily: F.body, marginTop: 2 },
-  rfDetail: { fontSize: 13, color: C.dim, fontFamily: F.mono, marginTop: 3 },
+  rfDetail: { fontSize: 12, color: C.dim, fontFamily: F.mono, marginTop: 3 },
   rfValor: { fontSize: 17, fontWeight: '700', color: C.text, fontFamily: F.mono },
-  actionLink: { fontSize: 14, color: C.accent, fontFamily: F.mono, fontWeight: '600' },
+  actionLink: { fontSize: 13, color: C.accent, fontFamily: F.mono, fontWeight: '600' },
 
   addBtn: { backgroundColor: C.rf, borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
   addBtnText: { fontSize: 17, fontWeight: '700', color: 'white', fontFamily: F.display },

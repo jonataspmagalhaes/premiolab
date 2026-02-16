@@ -97,7 +97,7 @@ var styles = StyleSheet.create({
     borderWidth: 1,
   },
   badgeText: {
-    fontSize: 9,
+    fontSize: 11,
     fontFamily: F.mono,
     fontWeight: '700',
     letterSpacing: 0.3,
@@ -111,7 +111,7 @@ var styles = StyleSheet.create({
     borderWidth: 1,
   },
   pillText: {
-    fontSize: 10,
+    fontSize: 12,
     fontFamily: F.body,
     fontWeight: '600',
   },
@@ -141,7 +141,7 @@ var styles = StyleSheet.create({
     marginBottom: 8,
   },
   fieldLabel: {
-    fontSize: 8,
+    fontSize: 11,
     color: C.sub,
     fontFamily: F.body,
     marginBottom: 4,
@@ -163,7 +163,7 @@ var styles = StyleSheet.create({
     marginRight: 4,
   },
   fieldSuffix: {
-    fontSize: 10,
+    fontSize: 12,
     color: C.dim,
     fontFamily: F.mono,
     marginLeft: 4,

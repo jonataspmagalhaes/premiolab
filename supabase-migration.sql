@@ -213,3 +213,6 @@ ALTER TABLE opcoes ADD CONSTRAINT opcoes_direcao_check
 
 -- MIGRATION: data_abertura (data em que a opcao foi aberta/vendida)
 ALTER TABLE opcoes ADD COLUMN IF NOT EXISTS data_abertura DATE DEFAULT NULL;
+
+-- MIGRATION: exercicio_auto em alertas_config
+ALTER TABLE alertas_config ADD COLUMN IF NOT EXISTS exercicio_auto BOOLEAN DEFAULT FALSE;

@@ -83,8 +83,8 @@ export default function AssetDetailScreen(props) {
 
   var handleDelete = function(id, idx) {
     Alert.alert(
-      'Excluir operacao?',
-      'Essa acao nao pode ser desfeita.',
+      'Excluir operação?',
+      'Essa ação não pode ser desfeita.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -221,7 +221,7 @@ export default function AssetDetailScreen(props) {
           ) : (
             <View style={{ padding: 8 }}>
               <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, textAlign: 'center' }}>
-                Cotacao nao disponivel
+                Cotação não disponível
               </Text>
             </View>
           )}
@@ -360,23 +360,23 @@ var styles = StyleSheet.create({
   priceHeroValue: { fontSize: 28, fontWeight: '800', color: C.text, fontFamily: F.display, letterSpacing: -0.5 },
   plRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border },
   plItem: { alignItems: 'center', flex: 1 },
-  plLabel: { fontSize: 7, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 },
+  plLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 },
   plValue: { fontSize: 13, fontWeight: '700', fontFamily: F.mono, marginTop: 2 },
-  updateTime: { fontSize: 9, color: C.dim, fontFamily: F.mono, marginTop: 8, textAlign: 'right' },
+  updateTime: { fontSize: 11, color: C.dim, fontFamily: F.mono, marginTop: 8, textAlign: 'right' },
 
   // Position
   posGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
   posItem: { width: '48%', backgroundColor: C.surface, borderRadius: SIZE.radiusSm, padding: 10, borderWidth: 1, borderColor: C.border },
-  posItemLabel: { fontSize: 7, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 },
+  posItemLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 },
   posItemValue: { fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.display, marginTop: 2 },
 
   // Transactions
   txnRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12 },
-  txnDate: { fontSize: 9, color: C.sub, fontFamily: F.mono },
-  txnDetail: { fontSize: 9, color: C.dim, fontFamily: F.mono, marginTop: 2 },
+  txnDate: { fontSize: 11, color: C.sub, fontFamily: F.mono },
+  txnDetail: { fontSize: 11, color: C.dim, fontFamily: F.mono, marginTop: 2 },
   txnTotal: { fontSize: 12, fontWeight: '700', fontFamily: F.mono },
   emptyText: { padding: 20, fontSize: 11, color: C.dim, fontFamily: F.body, textAlign: 'center' },
-  actionLink: { fontSize: 10, color: C.accent, fontFamily: F.mono, fontWeight: '600' },
+  actionLink: { fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '600' },
   buyBtn: { backgroundColor: C.accent, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8 },
   buyBtnText: { fontSize: 14, fontWeight: '700', color: 'white', fontFamily: F.display },
 });

@@ -1,42 +1,43 @@
-import React from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Share } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Share, Switch } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOperacoes, getProventos, getOpcoes } from '../../services/database';
+import { getOperacoes, getProventos, getOpcoes, getAlertasConfig, updateAlertasConfig } from '../../services/database';
 import { Glass, Badge } from '../../components';
 
 var SECTIONS = [
   {
-    title: 'CONFIGURACOES',
+    title: 'CONFIGURAÇÕES',
     items: [
-      { icon: '⚙', label: 'Taxa Selic', value: '13.25%', color: C.accent, route: 'ConfigSelic' },
-      { icon: '⊕', label: 'Corretoras', value: 'Gerenciar', color: C.acoes, route: 'ConfigCorretoras' },
-      { icon: '◉', label: 'Alertas', value: 'Ativados', color: C.green, route: 'ConfigAlertas' },
-      { icon: '◎', label: 'Meta Mensal', value: 'Configurar', color: C.yellow, route: 'ConfigMeta' },
+      { icon: '📊', label: 'Taxa Selic', value: '13.25%', color: C.accent, route: 'ConfigSelic' },
+      { icon: '🏛', label: 'Corretoras', value: 'Gerenciar', color: C.acoes, route: 'ConfigCorretoras' },
+      { icon: '🔔', label: 'Alertas', value: 'Ativados', color: C.green, route: 'ConfigAlertas' },
+      { icon: '🎯', label: 'Meta Mensal', value: 'Configurar', color: C.yellow, route: 'ConfigMeta' },
     ],
   },
   {
-    title: 'OPERACOES',
+    title: 'OPERAÇÕES',
     items: [
-      { icon: '☰', label: 'Historico Completo', value: '', color: C.acoes, route: 'Historico' },
-      { icon: '◈', label: 'Proventos', value: 'Gerenciar', color: C.fiis, route: 'Proventos' },
+      { icon: '📋', label: 'Histórico Completo', value: '', color: C.acoes, route: 'Historico' },
+      { icon: '💰', label: 'Proventos', value: 'Gerenciar', color: C.fiis, route: 'Proventos' },
       { icon: '🏦', label: 'Renda Fixa', value: 'Gerenciar', color: C.rf, route: 'RendaFixa' },
-      { icon: '↓', label: 'Exportar CSV', value: '', color: C.sub, action: 'export_csv' },
+      { icon: '📤', label: 'Exportar CSV', value: '', color: C.sub, action: 'export_csv' },
     ],
   },
   {
     title: 'APRENDER',
     items: [
-      { icon: '◈', label: 'Guia: Covered Call', value: '', color: C.fiis, route: 'Guia', params: { guia: 'covered_call' } },
-      { icon: '◈', label: 'Guia: Cash Secured Put', value: '', color: C.fiis, route: 'Guia', params: { guia: 'csp' } },
-      { icon: '◈', label: 'Guia: Wheel Strategy', value: '', color: C.fiis, route: 'Guia', params: { guia: 'wheel' } },
+      { icon: '📖', label: 'Guia: Covered Call', value: '', color: C.fiis, route: 'Guia', params: { guia: 'covered_call' } },
+      { icon: '📖', label: 'Guia: Cash Secured Put', value: '', color: C.fiis, route: 'Guia', params: { guia: 'csp' } },
+      { icon: '📖', label: 'Guia: Wheel Strategy', value: '', color: C.fiis, route: 'Guia', params: { guia: 'wheel' } },
     ],
   },
   {
     title: 'APP',
     items: [
-      { icon: 'ℹ', label: 'Sobre', value: 'v4.0.0', color: C.dim, route: 'Sobre' },
-      { icon: '↪', label: 'Sair', value: '', color: C.red, action: 'logout' },
+      { icon: 'ℹ️', label: 'Sobre', value: 'v4.0.0', color: C.dim, route: 'Sobre' },
+      { icon: '🚪', label: 'Sair', value: '', color: C.red, action: 'logout' },
     ],
   },
 ];
@@ -46,6 +47,24 @@ export default function MaisScreen(props) {
   var _auth = useAuth();
   var signOut = _auth.signOut;
   var user = _auth.user;
+
+  var _exAuto = useState(false); var exAuto = _exAuto[0]; var setExAuto = _exAuto[1];
+
+  useFocusEffect(useCallback(function() {
+    if (!user) return;
+    getAlertasConfig(user.id).then(function(result) {
+      if (result.data) {
+        setExAuto(!!result.data.exercicio_auto);
+      }
+    });
+  }, [user]));
+
+  var toggleExAuto = function() {
+    var next = !exAuto;
+    setExAuto(next);
+    if (!user) return;
+    updateAlertasConfig(user.id, { exercicio_auto: next });
+  };
 
   var handleExportCSV = async function() {
     try {
@@ -76,10 +95,10 @@ export default function MaisScreen(props) {
 
       await Share.share({
         message: csv,
-        title: 'PremioLab - Exportacao CSV',
+        title: 'PremioLab - Exportação CSV',
       });
     } catch (e) {
-      Alert.alert('Erro', 'Nao foi possivel exportar os dados.');
+      Alert.alert('Erro', 'Não foi possível exportar os dados.');
     }
   };
 
@@ -151,6 +170,25 @@ export default function MaisScreen(props) {
                   </TouchableOpacity>
                 );
               })}
+              {sec.title === 'OPERAÇÕES' ? (
+                <View style={[styles.menuRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.menuLeft}>
+                      <Text style={[styles.menuIcon, { color: C.opcoes }]}>{'⚡'}</Text>
+                      <Text style={styles.menuLabel}>Exercício automático</Text>
+                    </View>
+                    <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, marginLeft: 30, marginTop: 2 }}>
+                      Resolver opções vencidas sem confirmação
+                    </Text>
+                  </View>
+                  <Switch
+                    value={exAuto}
+                    onValueChange={toggleExAuto}
+                    trackColor={{ false: C.border, true: C.opcoes + '60' }}
+                    thumbColor={exAuto ? C.opcoes : C.dim}
+                  />
+                </View>
+              ) : null}
             </Glass>
           </View>
         );
@@ -175,7 +213,7 @@ var styles = StyleSheet.create({
   profileEmail: { fontSize: 10, color: C.sub, fontFamily: F.body },
 
   sectionLabel: {
-    fontSize: 7, color: C.dim, fontFamily: F.mono,
+    fontSize: 10, color: C.dim, fontFamily: F.mono,
     letterSpacing: 0.8, fontWeight: '600', marginBottom: 4, marginTop: 8,
   },
 
@@ -184,9 +222,9 @@ var styles = StyleSheet.create({
     alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12,
   },
   menuLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  menuIcon: { fontSize: 14, width: 20, textAlign: 'center' },
-  menuLabel: { fontSize: 12, color: C.text, fontFamily: F.body },
+  menuIcon: { fontSize: 20, width: 28, textAlign: 'center' },
+  menuLabel: { fontSize: 14, color: C.text, fontFamily: F.body },
   menuRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  menuValue: { fontSize: 10, color: C.dim, fontFamily: F.mono },
-  menuChevron: { fontSize: 14, color: C.dim },
+  menuValue: { fontSize: 12, color: C.dim, fontFamily: F.mono },
+  menuChevron: { fontSize: 16, color: C.dim },
 });

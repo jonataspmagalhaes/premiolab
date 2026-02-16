@@ -102,7 +102,7 @@ var styles = StyleSheet.create({
   },
   back: { fontSize: 28, color: C.accent, fontWeight: '300' },
   title: { fontSize: 18, fontWeight: '800', color: C.text, fontFamily: F.display },
-  inputLabel: { fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 8 },
+  inputLabel: { fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 8 },
   inputRow: { flexDirection: 'row', alignItems: 'baseline' },
   prefix: { fontSize: 20, color: C.sub, fontFamily: F.body, marginRight: 4 },
   input: { fontSize: 36, fontWeight: '800', color: C.text, fontFamily: F.display, flex: 1, padding: 0 },

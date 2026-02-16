@@ -79,14 +79,14 @@ function AlertRow({ type, title, desc, badge }) {
                 backgroundColor: badgeColor + '18', borderWidth: 1, borderColor: badgeColor + '40',
                 borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3,
               }}>
-                <Text style={{ fontSize: 9, fontWeight: '700', color: badgeColor, fontFamily: F.mono, letterSpacing: 0.5 }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: badgeColor, fontFamily: F.mono, letterSpacing: 0.5 }}>
                   ● {badge}
                 </Text>
               </View>
             ) : null}
           </View>
           {desc ? (
-            <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', fontFamily: F.body, lineHeight: 17, paddingLeft: 21 }}>
+            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', fontFamily: F.body, lineHeight: 18, paddingLeft: 21 }}>
               {desc}
             </Text>
           ) : null}
@@ -119,7 +119,7 @@ function QuoteRow({ ticker, tipo, qty, pm, precoAtual, changeDay, pl, onPress, l
       </View>
       <View style={{ flex: 1 }}>
         <Text style={{ fontSize: 14, fontWeight: '600', color: '#fff', fontFamily: F.display }}>{ticker}</Text>
-        <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono, marginTop: 1 }}>
+        <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono, marginTop: 1 }}>
           {qty} un · PM R$ {fmt2(pm)}
         </Text>
       </View>
@@ -129,7 +129,7 @@ function QuoteRow({ ticker, tipo, qty, pm, precoAtual, changeDay, pl, onPress, l
             <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff', fontFamily: F.mono }}>
               R$ {fmt2(precoAtual)}
             </Text>
-            <Text style={{ fontSize: 10, fontWeight: '700', color: varColor, fontFamily: F.mono, marginTop: 2 }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: varColor, fontFamily: F.mono, marginTop: 2 }}>
               {isUp ? '▲' : changeDay < 0 ? '▼' : '–'} {Math.abs(changeDay || 0).toFixed(2)}%
             </Text>
           </>
@@ -156,7 +156,7 @@ function CalItem({ dia, diaSemana, titulo, detalhe, tipo, last }) {
         justifyContent: 'center', alignItems: 'center',
       }}>
         <Text style={{ fontSize: 16, fontWeight: '800', color: c, fontFamily: F.display, lineHeight: 18 }}>{dia}</Text>
-        <Text style={{ fontSize: 8, fontWeight: '600', color: c + '80', fontFamily: F.mono, marginTop: 1, letterSpacing: 0.5 }}>{diaSemana}</Text>
+        <Text style={{ fontSize: 10, fontWeight: '600', color: c + '80', fontFamily: F.mono, marginTop: 1, letterSpacing: 0.5 }}>{diaSemana}</Text>
       </View>
       <View style={{ flex: 1 }}>
         <Text style={{ fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.85)', fontFamily: F.display }}>{titulo}</Text>
@@ -174,11 +174,11 @@ function IncomeCard({ label, subtitle, value, color }) {
   var c = color || '#0ea5e9';
   return (
     <GlassCard pad={14} glow={c} style={{ flex: 1, marginBottom: 0 }}>
-      <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1, textTransform: 'uppercase' }}>
+      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1, textTransform: 'uppercase' }}>
         {label}
       </Text>
       {subtitle ? (
-        <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.18)', fontFamily: F.body, marginTop: 1 }}>{subtitle}</Text>
+        <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.18)', fontFamily: F.body, marginTop: 1 }}>{subtitle}</Text>
       ) : null}
       <Text style={{ fontSize: 16, fontWeight: '800', color: c, fontFamily: F.display, marginTop: 6 }}>
         {fmt(value)}
@@ -268,7 +268,7 @@ function DonutMini(props) {
   return (
     <View style={{ alignItems: 'center', width: size + 16 }}>
       <Text style={{
-        fontSize: 9, color: 'rgba(255,255,255,0.45)', fontFamily: F.mono,
+        fontSize: 11, color: 'rgba(255,255,255,0.45)', fontFamily: F.mono,
         letterSpacing: 0.8, textTransform: 'uppercase', fontWeight: '600',
         marginBottom: 6, textAlign: 'center',
       }}>{label}</Text>
@@ -324,18 +324,18 @@ function DonutMini(props) {
           <View style={{ alignItems: 'center' }}>
             {showPrev ? (
               <Text style={{
-                fontSize: 7, fontWeight: '600', color: 'rgba(255,255,255,0.35)',
+                fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.35)',
                 fontFamily: F.mono, marginBottom: 1,
               }}>MES ANT</Text>
             ) : (
               <Text style={{
-                fontSize: isTotalDonut ? 8 : 7,
+                fontSize: isTotalDonut ? 10 : 9,
                 fontWeight: '600', color: 'rgba(255,255,255,0.3)', fontFamily: F.mono,
                 marginBottom: 1,
               }}>R$</Text>
             )}
             <Text style={{
-              fontSize: isTotalDonut ? 14 : 12,
+              fontSize: isTotalDonut ? 16 : 14,
               fontWeight: '800', color: displayColor, fontFamily: F.mono, textAlign: 'center',
             }}>{showPrev ? ('R$ ' + centerNum) : centerNum}</Text>
           </View>
@@ -350,7 +350,7 @@ function DonutMini(props) {
           borderWidth: 1, borderColor: compareColor + '35',
         }}>
           <Text style={{
-            fontSize: 9, fontWeight: '700', color: compareColor,
+            fontSize: 10, fontWeight: '700', color: compareColor,
             fontFamily: F.mono, letterSpacing: 0.3,
           }}>{compareText}</Text>
         </View>
@@ -361,11 +361,11 @@ function DonutMini(props) {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
             <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: innerColor }} />
-            <Text style={{ fontSize: 7, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono }}>Atual</Text>
+            <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono }}>Atual</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
             <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: outerColor, borderWidth: 1, borderColor: color + '60' }} />
-            <Text style={{ fontSize: 7, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono }}>Ant.</Text>
+            <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono }}>Ant.</Text>
           </View>
         </View>
       ) : null}
@@ -377,7 +377,7 @@ function SLabel({ children, right }) {
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
       <Text style={{
-        fontSize: 10, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono,
+        fontSize: 12, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono,
         letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '600',
       }}>{children}</Text>
       {right || null}
@@ -396,7 +396,7 @@ function StatRow({ label, value, sub, color, last }) {
       <View>
         <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontFamily: F.body }}>{label}</Text>
         {sub ? (
-          <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, marginTop: 2 }}>{sub}</Text>
+          <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, marginTop: 2 }}>{sub}</Text>
         ) : null}
       </View>
       <Text style={{ fontSize: 15, fontWeight: '700', color: color || '#fff', fontFamily: F.mono }}>
@@ -569,7 +569,7 @@ export default function HomeScreen({ navigation }) {
             Premio<Text style={{ color: '#0ea5e9' }}>Lab</Text>
           </Text>
           <View style={st.syncBadge}>
-            <Text style={{ fontSize: 9, color: '#22c55e', fontWeight: '600', fontFamily: F.mono }}>
+            <Text style={{ fontSize: 10, color: '#22c55e', fontWeight: '600', fontFamily: F.mono }}>
               ● SYNC {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
             </Text>
           </View>
@@ -627,7 +627,7 @@ export default function HomeScreen({ navigation }) {
                           borderColor: active ? '#0ea5e9' + '50' : 'rgba(255,255,255,0.06)',
                         }}>
                         <Text style={{
-                          fontSize: 10, fontWeight: '700', fontFamily: F.mono, letterSpacing: 0.5,
+                          fontSize: 11, fontWeight: '700', fontFamily: F.mono, letterSpacing: 0.5,
                           color: active ? '#0ea5e9' : 'rgba(255,255,255,0.3)',
                         }}>{p.label}</Text>
                       </TouchableOpacity>
@@ -685,8 +685,8 @@ export default function HomeScreen({ navigation }) {
                     return (
                       <View key={k} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: P[k].color }} />
-                        <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', fontFamily: F.body }}>{P[k].short}</Text>
-                        <Text style={{ fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.6)', fontFamily: F.mono }}>{pct.toFixed(0)}%</Text>
+                        <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontFamily: F.body }}>{P[k].short}</Text>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.6)', fontFamily: F.mono }}>{pct.toFixed(0)}%</Text>
                       </View>
                     );
                   })}
@@ -706,25 +706,25 @@ export default function HomeScreen({ navigation }) {
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start', marginBottom: 16 }}>
             <DonutMini
-              label="Premios"
+              label="Prêmios"
               value={premiosMes}
               prevValue={premiosMesAnterior}
               color={P.opcao.color}
-              size={76}
+              size={88}
             />
             <DonutMini
               label="Dividendos"
               value={dividendosMes}
               prevValue={dividendosMesAnterior}
               color={P.fii.color}
-              size={76}
+              size={88}
             />
             <DonutMini
               label="Total"
               value={premiosMes + dividendosMes}
               prevValue={premiosMesAnterior + dividendosMesAnterior}
               color={C.accent}
-              size={86}
+              size={100}
               meta={meta}
               isTotal={true}
             />
@@ -736,7 +736,7 @@ export default function HomeScreen({ navigation }) {
           {/* META MENSAL inline */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, fontWeight: '600', marginBottom: 6 }}>
+              <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, fontWeight: '600', marginBottom: 6 }}>
                 META MENSAL
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
@@ -748,8 +748,8 @@ export default function HomeScreen({ navigation }) {
                 </Text>
               </View>
               {rendaTotalMes > 0 ? (
-                <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontFamily: F.mono, marginTop: 3 }}>
-                  {'Premios ' + fmt(premiosMes) + ' + Div ' + fmt(dividendosMes) + ' + RF ' + fmt(rfRendaMensal)}
+                <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', fontFamily: F.mono, marginTop: 3 }}>
+                  {'Prêmios ' + fmt(premiosMes) + ' + Div ' + fmt(dividendosMes) + ' + RF ' + fmt(rfRendaMensal)}
                 </Text>
               ) : null}
             </View>
@@ -766,7 +766,7 @@ export default function HomeScreen({ navigation }) {
             />
           </View>
           {metaPct < 100 && metaPct > 0 ? (
-            <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, textAlign: 'right', marginTop: 5 }}>
+            <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, textAlign: 'right', marginTop: 5 }}>
               {'Faltam ' + fmt(meta - rendaTotalMes)}
             </Text>
           ) : null}
@@ -782,18 +782,18 @@ export default function HomeScreen({ navigation }) {
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start', marginBottom: 10 }}>
             <DonutMini
-              label="Acoes"
+              label="Ações"
               value={ganhosPorCat.acao}
               prevValue={dividendosCatMesAnt.acao}
               color={P.acao.color}
-              size={76}
+              size={88}
             />
             <DonutMini
               label="FIIs"
               value={ganhosPorCat.fii}
               prevValue={dividendosCatMesAnt.fii}
               color={P.fii.color}
-              size={76}
+              size={88}
             />
           </View>
 
@@ -803,14 +803,14 @@ export default function HomeScreen({ navigation }) {
               value={ganhosPorCat.rf}
               prevValue={0}
               color={P.rf.color}
-              size={76}
+              size={88}
             />
             <DonutMini
               label="ETFs"
               value={ganhosPorCat.etf}
               prevValue={dividendosCatMesAnt.etf}
               color={P.etf.color}
-              size={76}
+              size={88}
             />
           </View>
 
@@ -820,7 +820,7 @@ export default function HomeScreen({ navigation }) {
               value={ganhosTotal}
               prevValue={dividendosCatMesAnt.acao + dividendosCatMesAnt.fii + dividendosCatMesAnt.etf}
               color={ganhosTotal >= 0 ? '#22c55e' : '#ef4444'}
-              size={90}
+              size={100}
               isTotal={true}
             />
           </View>
@@ -1033,7 +1033,7 @@ var st = StyleSheet.create({
     borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4,
   },
   heroLabel: {
-    fontSize: 11, color: 'rgba(255,255,255,0.35)',
+    fontSize: 12, color: 'rgba(255,255,255,0.35)',
     letterSpacing: 1.5, fontWeight: '600', fontFamily: F.mono,
   },
   heroPrefix: {

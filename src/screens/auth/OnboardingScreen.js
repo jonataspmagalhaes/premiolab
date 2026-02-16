@@ -249,7 +249,7 @@ var styles = StyleSheet.create({
     backgroundColor: C.cardSolid, justifyContent: 'center', alignItems: 'center',
   },
   featureIconText: { fontSize: 18 },
-  featureLabel: { fontSize: 9, color: C.sub, fontFamily: F.body },
+  featureLabel: { fontSize: 11, color: C.sub, fontFamily: F.body },
   bigInput: {
     fontSize: 28, fontWeight: '700', color: C.text, fontFamily: F.display,
     textAlign: 'center', borderBottomWidth: 2, borderBottomColor: C.accent,

@@ -7,7 +7,7 @@ import Svg, { Line, Rect, Path, Text as SvgText } from 'react-native-svg';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOpcoes, getPositions, getSaldos, addOperacao } from '../../services/database';
+import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig } from '../../services/database';
 import { enrichPositionsWithPrices, clearPriceCache, fetchPrices } from '../../services/priceService';
 import { supabase } from '../../config/supabase';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
@@ -424,10 +424,10 @@ function PayoffChart(props) {
 
       {/* Legend row */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-        <Text style={{ fontSize: 9, color: C.green, fontFamily: F.mono }}>
+        <Text style={{ fontSize: 11, color: C.green, fontFamily: F.mono }}>
           {maxProfitLabel}
         </Text>
-        <Text style={{ fontSize: 9, color: C.red, fontFamily: F.mono }}>
+        <Text style={{ fontSize: 11, color: C.red, fontFamily: F.mono }}>
           {maxLossLabel}
         </Text>
       </View>
@@ -482,7 +482,7 @@ function OpCard(props) {
     if (qtyCorretora >= (op.quantidade || 0)) {
       cobertura = 'COBERTA';
       coberturaColor = C.green;
-      coberturaDetail = qtyCorretora + ' acoes em ' + op.corretora;
+      coberturaDetail = qtyCorretora + ' ações em ' + op.corretora;
     } else if (qtyCorretora > 0) {
       cobertura = 'PARCIAL';
       coberturaColor = C.yellow;
@@ -490,7 +490,7 @@ function OpCard(props) {
     } else if (qtyTotal >= (op.quantidade || 0)) {
       cobertura = 'COBERTA*';
       coberturaColor = C.yellow;
-      coberturaDetail = qtyTotal + ' acoes em outra corretora';
+      coberturaDetail = qtyTotal + ' ações em outra corretora';
     } else {
       cobertura = 'DESCOBERTA';
       coberturaColor = C.red;
@@ -575,10 +575,10 @@ function OpCard(props) {
         <Text style={styles.opCode}>{op.ticker_opcao}</Text>
       ) : null}
       {moneyness ? (
-        <Text style={{ fontSize: 10, color: moneyness.color, fontFamily: F.mono, marginBottom: 2 }}>{moneyness.text}</Text>
+        <Text style={{ fontSize: 11, color: moneyness.color, fontFamily: F.mono, marginBottom: 2 }}>{moneyness.text}</Text>
       ) : null}
       {coberturaDetail ? (
-        <Text style={{ fontSize: 9, color: coberturaColor, fontFamily: F.mono, marginBottom: 4 }}>{coberturaDetail}</Text>
+        <Text style={{ fontSize: 11, color: coberturaColor, fontFamily: F.mono, marginBottom: 4 }}>{coberturaDetail}</Text>
       ) : null}
 
       {/* Greeks row */}
@@ -603,7 +603,7 @@ function OpCard(props) {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           {op.corretora ? (
-            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{op.corretora}</Text>
+            <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>{op.corretora}</Text>
           ) : null}
           <Badge text={daysLeft + 'd'} color={dayColor} />
         </View>
@@ -638,7 +638,7 @@ function OpCard(props) {
       {/* Encerramento panel */}
       {showClose ? (
         <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
-          <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4 }}>PREMIO RECOMPRA (R$)</Text>
+          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4 }}>PRÊMIO RECOMPRA (R$)</Text>
           <TextInput
             value={premRecompra}
             onChangeText={setPremRecompra}
@@ -653,7 +653,7 @@ function OpCard(props) {
           />
           {recompraVal > 0 ? (
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>P&L DO ENCERRAMENTO</Text>
+              <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>P&L DO ENCERRAMENTO</Text>
               <Text style={{ fontSize: 16, fontWeight: '800', color: closePL >= 0 ? C.green : C.red, fontFamily: F.display }}>
                 {closePL >= 0 ? '+' : ''}R$ {fmt(closePL)}
               </Text>
@@ -800,15 +800,15 @@ function SimuladorBS() {
         {/* IV + BS Price */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: 10, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 8 }}>
           <View style={{ alignItems: 'center' }}>
-            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>IV IMPLICITA</Text>
+            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>IV IMPLÍCITA</Text>
             <Text style={{ fontSize: 14, fontWeight: '700', color: C.opcoes, fontFamily: F.mono }}>{(sigma * 100).toFixed(1)}%</Text>
           </View>
           <View style={{ alignItems: 'center' }}>
-            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>PRECO BS</Text>
+            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>PREÇO BS</Text>
             <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }}>{'R$ ' + fmt(bsTheoPrice)}</Text>
           </View>
           <View style={{ alignItems: 'center' }}>
-            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>MERCADO</Text>
+            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>MERCADO</Text>
             <Text style={{ fontSize: 14, fontWeight: '700', color: bsTheoPrice > pVal ? C.green : C.red, fontFamily: F.mono }}>{'R$ ' + fmt(pVal)}</Text>
           </View>
         </View>
@@ -822,7 +822,7 @@ function SimuladorBS() {
             { l: 'Premio total', v: 'R$ ' + fmt(premioTotal) },
             { l: 'Theta/dia', v: 'R$ ' + fmt(thetaDia) },
             { l: 'Breakeven', v: 'R$ ' + fmt(breakeven) },
-            { l: 'Contratos', v: contratos + ' (' + qVal + ' opcoes)' },
+            { l: 'Contratos', v: contratos + ' (' + qVal + ' opções)' },
           ].map(function(rr, i) {
             return (
               <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
@@ -836,7 +836,7 @@ function SimuladorBS() {
 
       {/* What-If Scenarios */}
       <Glass glow={C.etfs} padding={14}>
-        <SectionLabel>CENARIOS WHAT-IF</SectionLabel>
+        <SectionLabel>CENÁRIOS WHAT-IF</SectionLabel>
         <View style={{ gap: 6, marginTop: 8 }}>
           {scenarios.map(function(sc, i) {
             var result = calcScenarioResult(sc.pctMove);
@@ -891,7 +891,7 @@ function CadeiaSintetica(props) {
     return (
       <Glass padding={24}>
         <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
-          Adicione ativos na carteira para gerar a cadeia de opcoes.
+          Adicione ativos na carteira para gerar a cadeia de opções.
         </Text>
       </Glass>
     );
@@ -991,13 +991,13 @@ function CadeiaSintetica(props) {
         {/* Header */}
         <View style={styles.chainHeader}>
           <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', gap: 4 }}>
-            <Text style={{ fontSize: 10, fontWeight: '700', color: C.green, fontFamily: F.mono }}>CALL</Text>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>CALL</Text>
           </View>
           <View style={styles.chainStrike}>
-            <Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>STRIKE</Text>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>STRIKE</Text>
           </View>
           <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', gap: 4 }}>
-            <Text style={{ fontSize: 10, fontWeight: '700', color: C.red, fontFamily: F.mono }}>PUT</Text>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.red, fontFamily: F.mono }}>PUT</Text>
           </View>
         </View>
 
@@ -1085,8 +1085,8 @@ function CadeiaSintetica(props) {
 
       {/* Legend */}
       <View style={{ paddingHorizontal: 4 }}>
-        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, textAlign: 'center' }}>
-          Precos teoricos via Black-Scholes. IV e DTE ajustaveis.
+        <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, textAlign: 'center' }}>
+          Preços teóricos via Black-Scholes. IV e DTE ajustáveis.
         </Text>
       </View>
     </View>
@@ -1109,6 +1109,7 @@ export default function OpcoesScreen() {
   var s6 = useState(false); var pricesAvailable = s6[0]; var setPricesAvailable = s6[1];
   var s7 = useState([]); var expired = s7[0]; var setExpired = s7[1];
   var s8 = useState([]); var saldos = s8[0]; var setSaldos = s8[1];
+  var s9 = useState(false); var exercicioAuto = s9[0]; var setExercicioAuto = s9[1];
 
   var load = async function() {
     if (!user) return;
@@ -1123,21 +1124,130 @@ export default function OpcoesScreen() {
     setPositions(rawPos);
     setLoading(false);
 
-    // Detect expired options (ativa + vencimento < hoje)
+    // Detect expired options (ativa + vencimento D+1 <= hoje)
     var today = new Date();
     today.setHours(0, 0, 0, 0);
     var expiredList = [];
     var nonExpiredOpcoes = [];
     for (var ei = 0; ei < allOpcoes.length; ei++) {
       var o = allOpcoes[ei];
-      if (o.status === 'ativa' && new Date(o.vencimento) < today) {
+      var vencDate = new Date(o.vencimento);
+      vencDate.setDate(vencDate.getDate() + 1);
+      if (o.status === 'ativa' && vencDate <= today) {
         expiredList.push(o);
       } else {
         nonExpiredOpcoes.push(o);
       }
     }
-    setExpired(expiredList);
-    setOpcoes(nonExpiredOpcoes);
+
+    // Auto-exercise: resolve expired options automatically if enabled
+    var alertasResult = await getAlertasConfig(user.id);
+    var alertasConfig = alertasResult.data || {};
+    setExercicioAuto(!!alertasConfig.exercicio_auto);
+    if (alertasConfig.exercicio_auto && expiredList.length > 0) {
+      // Fetch spot prices for expired option base tickers
+      var autoTickers = [];
+      for (var at = 0; at < expiredList.length; at++) {
+        var atBase = expiredList[at].ativo_base;
+        if (atBase && autoTickers.indexOf(atBase) === -1) {
+          autoTickers.push(atBase);
+        }
+      }
+      var autoSpots = {};
+      if (autoTickers.length > 0) {
+        try {
+          var autoPrices = await fetchPrices(autoTickers);
+          for (var ap = 0; ap < autoTickers.length; ap++) {
+            var apTk = autoTickers[ap];
+            if (autoPrices[apTk] && autoPrices[apTk].price) {
+              autoSpots[apTk] = autoPrices[apTk].price;
+            }
+          }
+        } catch (e) {
+          console.warn('Auto-exercise price fetch failed:', e.message);
+        }
+      }
+
+      var autoResolved = [];
+      var autoSkipped = [];
+      for (var ae = 0; ae < expiredList.length; ae++) {
+        var autoOp = expiredList[ae];
+        var autoTipo = (autoOp.tipo || 'call').toUpperCase();
+        var autoStrike = autoOp.strike || 0;
+        var autoSpot = autoSpots[autoOp.ativo_base] || 0;
+
+        // Determinar se esta ITM: CALL spot >= strike, PUT spot <= strike
+        var autoItm = false;
+        if (autoSpot > 0) {
+          if (autoTipo === 'CALL') {
+            autoItm = autoSpot >= autoStrike;
+          } else {
+            autoItm = autoSpot <= autoStrike;
+          }
+        }
+
+        if (autoItm) {
+          // ITM: exercicio — criar operacao na carteira
+          var autoIsVenda = autoOp.direcao === 'venda' || autoOp.direcao === 'lancamento';
+          var autoOpTipo = '';
+          if (autoTipo === 'CALL') {
+            autoOpTipo = autoIsVenda ? 'venda' : 'compra';
+          } else {
+            autoOpTipo = autoIsVenda ? 'compra' : 'venda';
+          }
+          var autoResult = await supabase
+            .from('opcoes')
+            .update({ status: 'exercida' })
+            .eq('id', autoOp.id);
+          if (!autoResult.error) {
+            await addOperacao(user.id, {
+              ticker: autoOp.ativo_base,
+              tipo: autoOpTipo,
+              categoria: 'acao',
+              quantidade: autoOp.quantidade,
+              preco: autoOp.strike,
+              corretora: autoOp.corretora || 'Clear',
+              data: new Date().toISOString().split('T')[0],
+            });
+            var autoCopy = {};
+            var autoKeys = Object.keys(autoOp);
+            for (var ak = 0; ak < autoKeys.length; ak++) { autoCopy[autoKeys[ak]] = autoOp[autoKeys[ak]]; }
+            autoCopy.status = 'exercida';
+            autoResolved.push(autoCopy);
+          }
+        } else if (autoSpot > 0) {
+          // OTM: expirou sem valor (PO)
+          var poResult = await supabase
+            .from('opcoes')
+            .update({ status: 'expirou_po' })
+            .eq('id', autoOp.id);
+          if (!poResult.error) {
+            var poCopy = {};
+            var poKeys = Object.keys(autoOp);
+            for (var pk = 0; pk < poKeys.length; pk++) { poCopy[poKeys[pk]] = autoOp[poKeys[pk]]; }
+            poCopy.status = 'expirou_po';
+            autoResolved.push(poCopy);
+          }
+        } else {
+          // Sem preco disponivel — nao resolve, manda pra pendentes
+          autoSkipped.push(autoOp);
+        }
+      }
+      setExpired(autoSkipped);
+      setOpcoes(nonExpiredOpcoes.concat(autoResolved));
+      if (autoResolved.length > 0) {
+        var exCount = autoResolved.filter(function(r) { return r.status === 'exercida'; }).length;
+        var poCount = autoResolved.filter(function(r) { return r.status === 'expirou_po'; }).length;
+        var msg = '';
+        if (exCount > 0) msg = msg + exCount + ' exercida(s)';
+        if (exCount > 0 && poCount > 0) msg = msg + ', ';
+        if (poCount > 0) msg = msg + poCount + ' expirou PO';
+        Alert.alert('Exercício automático', msg);
+      }
+    } else {
+      setExpired(expiredList);
+      setOpcoes(nonExpiredOpcoes);
+    }
 
     // Two-phase: enrich with real prices
     try {
@@ -1195,7 +1305,7 @@ export default function OpcoesScreen() {
   };
 
   var handleDelete = function(id) {
-    Alert.alert('Excluir opcao?', 'Essa acao nao pode ser desfeita.', [
+    Alert.alert('Excluir opção?', 'Essa ação não pode ser desfeita.', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Excluir', style: 'destructive',
@@ -1217,7 +1327,7 @@ export default function OpcoesScreen() {
       .update({ status: 'fechada', premio_fechamento: premFechamento })
       .eq('id', id);
     if (result.error) {
-      Alert.alert('Erro', 'Falha ao encerrar opcao.');
+      Alert.alert('Erro', 'Falha ao encerrar opção.');
       return;
     }
     var updated = [];
@@ -1235,7 +1345,7 @@ export default function OpcoesScreen() {
     }
     setOpcoes(updated);
     var plText = pl >= 0 ? '+R$ ' + fmt(pl) : '-R$ ' + fmt(Math.abs(pl));
-    Alert.alert('Opcao encerrada', 'P&L: ' + plText);
+    Alert.alert('Opção encerrada', 'P&L: ' + plText);
   };
 
   var handleExpiredPo = async function(id) {
@@ -1260,33 +1370,22 @@ export default function OpcoesScreen() {
       cp.status = 'expirou_po';
       setOpcoes(opcoes.concat([cp]));
     }
-    Alert.alert('Registrado', 'Opcao expirou sem valor (PO). Premio mantido integralmente.');
+    Alert.alert('Registrado', 'Opção expirou sem valor (PO). Prêmio mantido integralmente.');
   };
 
   var handleExercida = function(expOp) {
     var tipoUpper = (expOp.tipo || 'call').toUpperCase();
     var isLanc = expOp.direcao === 'lancamento' || expOp.direcao === 'venda';
-    var descricao = '';
-    var opTipo = ''; // tipo da operacao de acoes resultante
+    var opTipo = '';
     if (tipoUpper === 'CALL') {
-      if (isLanc) {
-        descricao = 'CALL lancada exercida: venda de ' + expOp.quantidade + ' acoes de ' + expOp.ativo_base + ' ao strike R$ ' + fmt(expOp.strike);
-        opTipo = 'venda';
-      } else {
-        descricao = 'CALL comprada exercida: compra de ' + expOp.quantidade + ' acoes de ' + expOp.ativo_base + ' ao strike R$ ' + fmt(expOp.strike);
-        opTipo = 'compra';
-      }
+      opTipo = isLanc ? 'venda' : 'compra';
     } else {
-      if (isLanc) {
-        descricao = 'PUT lancada exercida: compra de ' + expOp.quantidade + ' acoes de ' + expOp.ativo_base + ' ao strike R$ ' + fmt(expOp.strike);
-        opTipo = 'compra';
-      } else {
-        descricao = 'PUT comprada exercida: venda de ' + expOp.quantidade + ' acoes de ' + expOp.ativo_base + ' ao strike R$ ' + fmt(expOp.strike);
-        opTipo = 'venda';
-      }
+      opTipo = isLanc ? 'compra' : 'venda';
     }
+    var qtyFmt = (expOp.quantidade || 0).toLocaleString('pt-BR');
+    var descricao = 'Confirmar ' + opTipo + ' de ' + qtyFmt + ' ações de ' + expOp.ativo_base + ' a R$ ' + fmt(expOp.strike) + ' (' + (expOp.corretora || 'Clear') + ')';
 
-    Alert.alert('Confirmar exercicio', descricao + '\n\nUma operacao de ' + opTipo + ' sera registrada na carteira.', [
+    Alert.alert('Confirmar exercício', descricao, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Confirmar',
@@ -1296,7 +1395,7 @@ export default function OpcoesScreen() {
             .update({ status: 'exercida' })
             .eq('id', expOp.id);
           if (result.error) {
-            Alert.alert('Erro', 'Falha ao atualizar opcao.');
+            Alert.alert('Erro', 'Falha ao atualizar opção.');
             return;
           }
           // Criar operacao na carteira
@@ -1310,9 +1409,9 @@ export default function OpcoesScreen() {
             data: new Date().toISOString().split('T')[0],
           });
           if (opResult.error) {
-            Alert.alert('Aviso', 'Opcao marcada como exercida, mas falha ao criar operacao: ' + opResult.error.message);
+            Alert.alert('Aviso', 'Opção marcada como exercida, mas falha ao criar operação: ' + opResult.error.message);
           } else {
-            Alert.alert('Exercida!', 'Opcao exercida e operacao de ' + opTipo + ' registrada na carteira.');
+            Alert.alert('Exercida!', 'Opção exercida e operação de ' + opTipo + ' registrada na carteira.');
           }
           setExpired(expired.filter(function(o) { return o.id !== expOp.id; }));
           // Move to opcoes for historico
@@ -1379,13 +1478,13 @@ export default function OpcoesScreen() {
       <Glass glow={C.opcoes} padding={16}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
           {[
-            { l: 'PREMIO MES', v: 'R$ ' + fmt(premioMes), c: C.opcoes },
+            { l: 'PRÊMIO MÊS', v: 'R$ ' + fmt(premioMes), c: C.opcoes },
             { l: 'THETA/DIA', v: (thetaDiaTotal >= 0 ? '+' : '') + 'R$ ' + fmt(thetaDiaTotal), c: thetaDiaTotal >= 0 ? C.green : C.red },
-            { l: 'OPERACOES', v: String(ativas.length), c: C.sub },
+            { l: 'OPERAÇÕES', v: String(ativas.length), c: C.sub },
           ].map(function(m, i) {
             return (
               <View key={i} style={{ alignItems: 'center', flex: 1 }}>
-                <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
+                <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
                 <Text style={{ fontSize: 18, fontWeight: '800', color: m.c, fontFamily: F.display, marginTop: 2 }}>{m.v}</Text>
               </View>
             );
@@ -1396,8 +1495,8 @@ export default function OpcoesScreen() {
       {/* BANNER: gregas usando PM */}
       {!pricesAvailable && positions.length > 0 ? (
         <View style={{ padding: 8, borderRadius: 8, backgroundColor: 'rgba(245,158,11,0.08)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)' }}>
-          <Text style={{ fontSize: 10, color: '#f59e0b', fontFamily: F.mono, textAlign: 'center' }}>
-            Gregas usando PM (cotacoes indisponiveis)
+          <Text style={{ fontSize: 11, color: '#f59e0b', fontFamily: F.mono, textAlign: 'center' }}>
+            Gregas usando PM (cotações indisponíveis)
           </Text>
         </View>
       ) : null}
@@ -1405,24 +1504,31 @@ export default function OpcoesScreen() {
       {/* SUB TABS */}
       <View style={styles.subTabs}>
         {[
-          { k: 'ativas', l: 'Ativas (' + ativas.length + (expired.length > 0 ? ' +' + expired.length + ' venc.' : '') + ')' },
-          { k: 'sim', l: 'Simulador' },
-          { k: 'cadeia', l: 'Cadeia' },
-          { k: 'hist', l: 'Historico (' + historico.length + ')' },
+          { k: 'ativas', l: 'Ativas (' + ativas.length + ')', c: C.opcoes },
+          { k: 'pendentes', l: 'Pendentes (' + expired.length + ')', c: C.yellow },
+          { k: 'sim', l: 'Simulador', c: C.opcoes },
+          { k: 'cadeia', l: 'Cadeia', c: C.opcoes },
+          { k: 'hist', l: 'Histórico (' + historico.length + ')', c: C.opcoes },
         ].map(function(t) {
           return (
-            <Pill key={t.k} active={sub === t.k} color={C.opcoes} onPress={function() { setSub(t.k); }}>{t.l}</Pill>
+            <Pill key={t.k} active={sub === t.k} color={t.c} onPress={function() { setSub(t.k); }}>{t.l}</Pill>
           );
         })}
       </View>
 
-      {/* ATIVAS TAB */}
-      {sub === 'ativas' && (
+      {/* PENDENTES TAB */}
+      {sub === 'pendentes' && (
         <View style={{ gap: SIZE.gap }}>
-          {/* Opcoes vencidas que precisam de resolucao */}
+          {exercicioAuto ? (
+            <View style={{ padding: 10, borderRadius: 10, backgroundColor: C.opcoes + '10', borderWidth: 1, borderColor: C.opcoes + '25' }}>
+              <Text style={{ fontSize: 11, color: C.opcoes, fontFamily: F.body, textAlign: 'center' }}>
+                Exercício automático ativado — opções vencidas serão resolvidas automaticamente ao recarregar.
+              </Text>
+            </View>
+          ) : null}
           {expired.length > 0 ? (
-            <View style={{ gap: SIZE.gap }}>
-              <SectionLabel>OPCOES VENCIDAS</SectionLabel>
+            <>
+              <SectionLabel>OPÇÕES VENCIDAS</SectionLabel>
               {expired.map(function(expOp, ei) {
                 var expTipo = (expOp.tipo || 'call').toUpperCase();
                 var expPrem = (expOp.premio || 0) * (expOp.quantidade || 0);
@@ -1440,13 +1546,13 @@ export default function OpcoesScreen() {
                       <Text style={[styles.opPremio, { color: C.green }]}>+R$ {fmt(expPrem)}</Text>
                     </View>
                     <View style={{ flexDirection: 'row', gap: 12, marginBottom: 8 }}>
-                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                      <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>
                         Venc: {new Date(expOp.vencimento).toLocaleDateString('pt-BR')}
                       </Text>
-                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                      <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>
                         Strike: R$ {fmt(expOp.strike)}
                       </Text>
-                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                      <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>
                         Qtd: {expOp.quantidade}
                       </Text>
                     </View>
@@ -1467,17 +1573,28 @@ export default function OpcoesScreen() {
                   </Glass>
                 );
               })}
-            </View>
-          ) : null}
-
-          {ativas.length === 0 && expired.length === 0 ? (
+            </>
+          ) : (
             <EmptyState
-              icon="$" title="Nenhuma opcao ativa"
-              description="Lance opcoes para comecar a receber premios."
-              cta="Nova opcao" onCta={function() { navigation.navigate('AddOpcao'); }}
+              icon="~" title="Nenhuma opção pendente"
+              description="Opções vencidas aparecerão aqui para resolução."
+              color={C.yellow}
+            />
+          )}
+        </View>
+      )}
+
+      {/* ATIVAS TAB */}
+      {sub === 'ativas' && (
+        <View style={{ gap: SIZE.gap }}>
+          {ativas.length === 0 ? (
+            <EmptyState
+              icon="$" title="Nenhuma opção ativa"
+              description="Lance opções para começar a receber prêmios."
+              cta="Nova opção" onCta={function() { navigation.navigate('AddOpcao'); }}
               color={C.opcoes}
             />
-          ) : ativas.length > 0 ? (
+          ) : (
             <>
               {/* Option cards */}
               {ativas.map(function(op, i) {
@@ -1493,7 +1610,7 @@ export default function OpcoesScreen() {
               {/* Vencimentos */}
               {vencimentos.length > 0 && (
                 <View>
-                  <SectionLabel>PROXIMOS VENCIMENTOS</SectionLabel>
+                  <SectionLabel>PRÓXIMOS VENCIMENTOS</SectionLabel>
                   {vencimentos.map(function(v, i) {
                     var daysLeft = Math.max(0, Math.ceil((new Date(v.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
                     var tipoLabel = (v.tipo || 'call').toUpperCase();
@@ -1532,7 +1649,7 @@ export default function OpcoesScreen() {
                 <Text style={styles.addBtnText}>+ Nova Opcao</Text>
               </TouchableOpacity>
             </>
-          ) : null}
+          )}
         </View>
       )}
 
@@ -1548,7 +1665,7 @@ export default function OpcoesScreen() {
           {historico.length === 0 ? (
             <Glass padding={24}>
               <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
-                Nenhuma operacao encerrada ainda.
+                Nenhuma operação encerrada ainda.
               </Text>
             </Glass>
           ) : (
@@ -1568,7 +1685,7 @@ export default function OpcoesScreen() {
                   })().map(function(m, i) {
                     return (
                       <View key={i} style={{ alignItems: 'center', flex: 1 }}>
-                        <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
                         <Text style={{ fontSize: 16, fontWeight: '800', color: m.c, fontFamily: F.display, marginTop: 2 }}>{m.v}</Text>
                       </View>
                     );
@@ -1609,7 +1726,7 @@ export default function OpcoesScreen() {
                           </Text>
                           <Badge text={statusLabel} color={stColor} />
                           {op.corretora ? (
-                            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{op.corretora}</Text>
+                            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{op.corretora}</Text>
                           ) : null}
                         </View>
                       </View>
@@ -1644,7 +1761,7 @@ var styles = StyleSheet.create({
     paddingVertical: 8, marginTop: 4,
     borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.04)',
   },
-  greekLabel: { fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 },
+  greekLabel: { fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 },
   greekValue: { fontSize: 11, color: C.sub, fontFamily: F.mono, fontWeight: '500', marginTop: 2 },
 
   actionLink: { fontSize: 11, color: C.accent, fontFamily: F.mono, fontWeight: '600' },
@@ -1681,7 +1798,7 @@ var styles = StyleSheet.create({
   chainCell: { flex: 1, alignItems: 'center' },
   chainStrike: { width: 60, alignItems: 'center' },
   chainPrice: { fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.mono },
-  chainDelta: { fontSize: 9, color: C.dim, fontFamily: F.mono },
+  chainDelta: { fontSize: 11, color: C.dim, fontFamily: F.mono },
   chainItm: { backgroundColor: 'rgba(34,197,94,0.06)' },
   chainAtm: { backgroundColor: 'rgba(245,158,11,0.06)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)' },
 });

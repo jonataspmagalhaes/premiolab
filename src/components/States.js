@@ -191,7 +191,7 @@ var styles = StyleSheet.create({
     color: C.sub,
     fontFamily: F.body,
     textAlign: 'center',
-    lineHeight: 16,
+    lineHeight: 20,
     marginBottom: 20,
   },
   emptyCta: {

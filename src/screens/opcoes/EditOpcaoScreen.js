@@ -280,7 +280,7 @@ var styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },
   back: { fontSize: 28, color: C.accent, fontWeight: '300' },
   title: { fontSize: 18, fontWeight: '800', color: C.text, fontFamily: F.display },
-  label: { fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginTop: 4 },
+  label: { fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginTop: 4 },
   input: {
     backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border,
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
@@ -293,12 +293,12 @@ var styles = StyleSheet.create({
   custoToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6 },
   custoToggleText: { fontSize: 11, color: C.sub, fontFamily: F.body },
   resumoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 },
-  resumoLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 },
+  resumoLabel: { fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 },
   resumoValue: { fontSize: 18, fontWeight: '800', fontFamily: F.display },
   resumoSmall: { fontSize: 12, fontWeight: '600', color: C.text, fontFamily: F.mono },
   resumoPM: { fontSize: 14, fontWeight: '700', fontFamily: F.mono },
   divider: { height: 1, backgroundColor: C.border, marginVertical: 6 },
   submitBtn: { backgroundColor: C.opcoes, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8 },
   submitText: { fontSize: 15, fontWeight: '700', color: 'white', fontFamily: F.display },
-  dateError: { fontSize: 9, color: C.red, fontFamily: F.mono, marginTop: 2 },
+  dateError: { fontSize: 11, color: C.red, fontFamily: F.mono, marginTop: 2 },
 });

@@ -277,10 +277,10 @@ var styles = StyleSheet.create({
 
   provRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', padding: 14 },
   provTicker: { fontSize: 15, fontWeight: '700', color: C.text, fontFamily: F.display },
-  provDate: { fontSize: 10, color: C.sub, fontFamily: F.mono, marginTop: 2 },
-  provDetail: { fontSize: 9, color: C.dim, fontFamily: F.mono, marginTop: 2 },
+  provDate: { fontSize: 12, color: C.sub, fontFamily: F.mono, marginTop: 2 },
+  provDetail: { fontSize: 11, color: C.dim, fontFamily: F.mono, marginTop: 2 },
   provValor: { fontSize: 15, fontWeight: '700', color: C.green, fontFamily: F.mono },
-  actionLink: { fontSize: 10, color: C.accent, fontFamily: F.mono, fontWeight: '600' },
+  actionLink: { fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '600' },
 
   addBtn: { backgroundColor: C.fiis, borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
   addBtnText: { fontSize: 17, fontWeight: '700', color: 'white', fontFamily: F.display },

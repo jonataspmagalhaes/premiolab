@@ -171,8 +171,8 @@ function BenchmarkChart(props) {
             <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <View style={{ width: 10, height: 2, borderRadius: 1, backgroundColor: line.color,
                 opacity: i === 0 ? 1 : 0.5 }} />
-              <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>{line.label}</Text>
-              <Text style={{ fontSize: 8, color: line.color, fontWeight: '600', fontFamily: F.mono }}>
+              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{line.label}</Text>
+              <Text style={{ fontSize: 10, color: line.color, fontWeight: '600', fontFamily: F.mono }}>
                 {line.data.length > 0 ? (line.data[line.data.length - 1]).toFixed(1) + '%' : ''}
               </Text>
             </View>
@@ -603,11 +603,11 @@ export default function CarteiraScreen(props) {
         {pricesLoading ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
             <ActivityIndicator size="small" color={C.accent} />
-            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>Atualizando cotacoes...</Text>
+            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>Atualizando cotações...</Text>
           </View>
         ) : getLastPriceUpdate() ? (
-          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginTop: 6, textAlign: 'right' }}>
-            {'Cotacoes de ' + new Date(getLastPriceUpdate()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 6, textAlign: 'right' }}>
+            {'Cotações de ' + new Date(getLastPriceUpdate()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
           </Text>
         ) : null}
       </Glass>
@@ -617,12 +617,12 @@ export default function CarteiraScreen(props) {
         <Glass padding={14}>
           <Text style={styles.sectionTitle2}>ALOCAÇÃO POR CLASSE</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-            <View style={{ position: 'relative', width: 110, height: 110 }}>
-              <DonutChart segments={allocSegments} size={110} />
+            <View style={{ position: 'relative', width: 130, height: 130 }}>
+              <DonutChart segments={allocSegments} size={130} />
               <View style={styles.donutCenter}>
-                <Text style={{ fontSize: 7, color: C.dim, fontFamily: F.mono }}>TOTAL</Text>
-                <Text style={{ fontSize: 14, fontWeight: '800', color: C.text, fontFamily: F.display }}>{allocSegments.length}</Text>
-                <Text style={{ fontSize: 7, color: C.dim, fontFamily: F.mono }}>classes</Text>
+                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>TOTAL</Text>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: C.text, fontFamily: F.display }}>{allocSegments.length}</Text>
+                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>classes</Text>
               </View>
             </View>
             <View style={{ flex: 1, gap: 6 }}>
@@ -631,11 +631,11 @@ export default function CarteiraScreen(props) {
                   <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <View style={{ width: 8, height: 8, borderRadius: 3, backgroundColor: s.color }} />
-                      <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body }}>{s.label}</Text>
+                      <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>{s.label}</Text>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={{ fontSize: 11, fontWeight: '700', color: C.text, fontFamily: F.mono }}>{s.pct.toFixed(1)}%</Text>
-                      <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{fmtK(s.val)}</Text>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.mono }}>{s.pct.toFixed(1)}%</Text>
+                      <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{fmtK(s.val)}</Text>
                     </View>
                   </View>
                 );
@@ -786,16 +786,16 @@ var styles = StyleSheet.create({
   content: { padding: 18, gap: SIZE.gap },
 
   // Hero
-  heroLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.6 },
+  heroLabel: { fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.6 },
   heroValue: { fontSize: 24, fontWeight: '800', color: C.text, fontFamily: F.display, marginTop: 2, letterSpacing: -0.5 },
   heroPL: { fontSize: 18, fontWeight: '700', fontFamily: F.mono, marginTop: 2 },
-  heroPLSub: { fontSize: 9, fontFamily: F.mono, marginTop: 1 },
+  heroPLSub: { fontSize: 11, fontFamily: F.mono, marginTop: 1 },
   heroStats: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border },
-  heroStatLabel: { fontSize: 7, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 },
-  heroStatVal: { fontSize: 11, fontWeight: '700', fontFamily: F.mono, marginTop: 1 },
+  heroStatLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 },
+  heroStatVal: { fontSize: 13, fontWeight: '700', fontFamily: F.mono, marginTop: 1 },
 
   // Section
-  sectionTitle2: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.6, marginBottom: 10 },
+  sectionTitle2: { fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.6, marginBottom: 10 },
 
   // Donut center
   donutCenter: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' },
@@ -814,28 +814,28 @@ var styles = StyleSheet.create({
   dot: { width: 5, height: 5, borderRadius: 2.5 },
   cardTicker: { fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.display },
   typeBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  typeBadgeText: { fontSize: 8, fontWeight: '600', fontFamily: F.mono },
-  cardCorretora: { fontSize: 7, color: C.dim, fontFamily: F.mono },
+  typeBadgeText: { fontSize: 10, fontWeight: '600', fontFamily: F.mono },
+  cardCorretora: { fontSize: 9, color: C.dim, fontFamily: F.mono },
   cardPL: { fontSize: 13, fontWeight: '700', fontFamily: F.mono },
-  cardPLPct: { fontSize: 9, fontFamily: F.mono, marginTop: 1 },
-  cardPriceMain: { fontSize: 11, color: C.text, fontWeight: '600', fontFamily: F.mono },
-  cardPriceSub: { fontSize: 9, color: C.dim, fontFamily: F.mono },
-  cardDayVar: { fontSize: 9, fontWeight: '600', fontFamily: F.mono, marginTop: 2 },
+  cardPLPct: { fontSize: 11, fontFamily: F.mono, marginTop: 1 },
+  cardPriceMain: { fontSize: 13, color: C.text, fontWeight: '600', fontFamily: F.mono },
+  cardPriceSub: { fontSize: 11, color: C.dim, fontFamily: F.mono },
+  cardDayVar: { fontSize: 11, fontWeight: '600', fontFamily: F.mono, marginTop: 2 },
   sparkWrap: { width: '32%', flexShrink: 0 },
 
   // Expanded
   expandedWrap: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border },
   expandedStats: { flexDirection: 'row', justifyContent: 'space-between' },
   expandedStatItem: { alignItems: 'center', flex: 1 },
-  expandedStatLabel: { fontSize: 7, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 },
-  expandedStatValue: { fontSize: 10, color: C.sub, fontWeight: '600', fontFamily: F.mono, marginTop: 2 },
+  expandedStatLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 },
+  expandedStatValue: { fontSize: 12, color: C.sub, fontWeight: '600', fontFamily: F.mono, marginTop: 2 },
   expandedActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
   actionBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
-  actionBtnText: { fontSize: 11, fontWeight: '600', fontFamily: F.body },
+  actionBtnText: { fontSize: 13, fontWeight: '600', fontFamily: F.body },
 
   // Broker/Saldos
   brokerIcon: { width: 28, height: 28, borderRadius: 8, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
-  brokerIconText: { fontSize: 8, fontWeight: '700', fontFamily: F.mono },
+  brokerIconText: { fontSize: 10, fontWeight: '700', fontFamily: F.mono },
   saldoName: { fontSize: 13, fontWeight: '600', color: C.text, fontFamily: F.display },
   saldoValue: { fontSize: 14, fontWeight: '700', fontFamily: F.mono },
 });

@@ -263,25 +263,61 @@ export async function getSaldos(userId) {
 }
 
 // ═══════════ ALERTAS CONFIG ═══════════
+// Schema real: id (bigint PK), user_id, tipo (text), ativo (bool), threshold (numeric), created_at, exercicio_auto (bool)
+// Cada alerta eh uma row com tipo='descobertas', tipo='margem', etc.
+// Funcoes convertem multi-row <-> objeto flat { descobertas: true, margem_threshold: '80', exercicio_auto: false, ... }
+
 export async function getAlertasConfig(userId) {
   var result = await supabase
     .from('alertas_config')
     .select('*')
-    .eq('user_id', userId)
-    .single();
-  return { data: result.data, error: result.error };
+    .eq('user_id', userId);
+  if (result.error) return { data: {}, error: result.error };
+  var rows = result.data || [];
+  var config = {};
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    if (!row.tipo) continue;
+    config[row.tipo] = !!row.ativo;
+    if (row.threshold != null) {
+      config[row.tipo + '_threshold'] = String(row.threshold);
+    }
+  }
+  return { data: config, error: null };
 }
 
 export async function updateAlertasConfig(userId, config) {
-  var payload = { user_id: userId };
   var keys = Object.keys(config);
   for (var i = 0; i < keys.length; i++) {
-    payload[keys[i]] = config[keys[i]];
+    var k = keys[i];
+    if (k === 'user_id' || k.indexOf('_threshold') !== -1) continue;
+
+    var ativo = !!config[k];
+    var threshold = null;
+    if (config[k + '_threshold'] != null) {
+      threshold = parseFloat(config[k + '_threshold']) || null;
+    }
+
+    // Checar se row ja existe
+    var existing = await supabase
+      .from('alertas_config')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('tipo', k)
+      .maybeSingle();
+
+    if (existing.data) {
+      await supabase
+        .from('alertas_config')
+        .update({ ativo: ativo, threshold: threshold })
+        .eq('id', existing.data.id);
+    } else {
+      await supabase
+        .from('alertas_config')
+        .insert({ user_id: userId, tipo: k, ativo: ativo, threshold: threshold });
+    }
   }
-  var result = await supabase
-    .from('alertas_config')
-    .upsert(payload);
-  return { data: result.data, error: result.error };
+  return { data: null, error: null };
 }
 
 // ═══════════ DASHBOARD AGGREGATES ═══════════

@@ -47,10 +47,10 @@ var CAT_LABELS = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs' };
 
 var PERF_SUBS = [
   { k: 'todos', l: 'Todos' },
-  { k: 'acao', l: 'Acao' },
+  { k: 'acao', l: 'Ação' },
   { k: 'fii', l: 'FII' },
   { k: 'etf', l: 'ETF' },
-  { k: 'opcoes', l: 'Opcoes' },
+  { k: 'opcoes', l: 'Opções' },
   { k: 'rf', l: 'RF' },
 ];
 
@@ -523,7 +523,7 @@ function RebalanceTool(props) {
 
       {totalTargetPct !== 100 && isEditing ? (
         <View style={{ padding: 6, borderRadius: 6, backgroundColor: C.red + '10', marginBottom: 8 }}>
-          <Text style={{ fontSize: 9, color: C.red, fontFamily: F.mono, textAlign: 'center' }}>
+          <Text style={{ fontSize: 11, color: C.red, fontFamily: F.mono, textAlign: 'center' }}>
             {'Total das metas: ' + totalTargetPct + '% (deve ser 100%)'}
           </Text>
         </View>
@@ -534,7 +534,7 @@ function RebalanceTool(props) {
         <Text style={styles.rebalColLabel}>Atual</Text>
         <Text style={styles.rebalColLabel}>Meta</Text>
         <Text style={styles.rebalColLabel}>Dif.</Text>
-        <Text style={[styles.rebalColLabel, { flex: 1.5 }]}>Acao</Text>
+        <Text style={[styles.rebalColLabel, { flex: 1.5 }]}>Ação</Text>
       </View>
 
       {classes.map(function (cat) {
@@ -573,20 +573,20 @@ function RebalanceTool(props) {
               )}
             </View>
             <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={{ fontSize: 10, color: diffColor, fontWeight: '600', fontFamily: F.mono }}>
+              <Text style={{ fontSize: 11, color: diffColor, fontWeight: '600', fontFamily: F.mono }}>
                 {diff > 0 ? '+' : ''}{diff.toFixed(1)}%
               </Text>
             </View>
             <View style={{ flex: 1.5, alignItems: 'flex-end' }}>
               {Math.abs(ajuste) > 50 ? (
-                <Text style={{ fontSize: 9, color: ajuste > 0 ? C.green : C.red, fontWeight: '600', fontFamily: F.mono }}>
+                <Text style={{ fontSize: 11, color: ajuste > 0 ? C.green : C.red, fontWeight: '600', fontFamily: F.mono }}>
                   {ajuste > 0 ? '+ Comprar' : '- Vender'}
                 </Text>
               ) : (
-                <Text style={{ fontSize: 9, color: C.green, fontFamily: F.mono }}>OK</Text>
+                <Text style={{ fontSize: 11, color: C.green, fontFamily: F.mono }}>OK</Text>
               )}
               {Math.abs(ajuste) > 50 ? (
-                <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>
+                <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
                   {'R$ ' + fmt(Math.abs(ajuste))}
                 </Text>
               ) : null}
@@ -616,11 +616,11 @@ function RebalanceTool(props) {
         <View style={{ flexDirection: 'row', gap: 12, marginTop: 2 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <View style={{ width: 8, height: 4, borderRadius: 1, backgroundColor: C.accent + '60' }} />
-            <Text style={{ fontSize: 7, color: C.dim, fontFamily: F.mono }}>Atual</Text>
+            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>Atual</Text>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <View style={{ width: 8, height: 4, borderRadius: 1, backgroundColor: C.accent + '30' }} />
-            <Text style={{ fontSize: 7, color: C.dim, fontFamily: F.mono }}>Meta</Text>
+            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>Meta</Text>
           </View>
         </View>
       </View>
@@ -1788,8 +1788,8 @@ export default function AnaliseScreen() {
               {opcoes.length === 0 ? (
                 <EmptyState
                   icon={"\u25C9"}
-                  title="Sem Opcoes"
-                  description="Cadastre suas opcoes para ver a performance"
+                  title="Sem Opções"
+                  description="Cadastre suas opções para ver a performance"
                   color={C.opcoes}
                 />
               ) : (
@@ -2042,7 +2042,7 @@ export default function AnaliseScreen() {
                                   <Badge text={(o.tipo || 'CALL').toUpperCase()} color={o.tipo === 'put' ? C.red : C.green} />
                                   <Badge text={item.daysLeft + 'd'} color={urgColor} />
                                 </View>
-                                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>
+                                <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>
                                   {o.ativo_base + ' | Strike R$ ' + fmt(o.strike || 0)}
                                 </Text>
                               </View>
@@ -2333,9 +2333,9 @@ export default function AnaliseScreen() {
               {/* Treemap */}
               {assetList.length > 0 && (
                 <>
-                  <SectionLabel>TREEMAP — EXPOSICAO</SectionLabel>
+                  <SectionLabel>TREEMAP — EXPOSIÇÃO</SectionLabel>
                   <Glass padding={14}>
-                    <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, marginBottom: 8 }}>
+                    <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginBottom: 8 }}>
                       Tamanho = peso na carteira · Cor = performance
                     </Text>
                     <Treemap items={assetList} height={130} />
@@ -2364,7 +2364,7 @@ export default function AnaliseScreen() {
               ].map(function(d, i) {
                 return (
                   <View key={i} style={{ alignItems: 'center' }}>
-                    <Text style={{ fontSize: 7, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{d.l}</Text>
+                    <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{d.l}</Text>
                     <Text style={{ fontSize: 16, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }}>{d.v}</Text>
                   </View>
                 );
@@ -2595,34 +2595,34 @@ var styles = StyleSheet.create({
   subTabs: { flexDirection: 'row', gap: 5 },
 
   // Hero
-  heroLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.6 },
+  heroLabel: { fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.6 },
   heroValue: { fontSize: 24, fontWeight: '800', color: C.text, fontFamily: F.display, marginTop: 2, letterSpacing: -0.5 },
   heroPct: { fontSize: 18, fontWeight: '700', fontFamily: F.mono, marginTop: 2 },
-  heroPctSub: { fontSize: 9, fontFamily: F.mono, marginTop: 1 },
+  heroPctSub: { fontSize: 11, fontFamily: F.mono, marginTop: 1 },
 
   // Period pills
   periodRow: { flexDirection: 'row', gap: 6 },
   periodPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1 },
   periodPillActive: { backgroundColor: C.accent + '20', borderColor: C.accent + '50' },
   periodPillInactive: { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.06)' },
-  periodPillText: { fontSize: 10, fontWeight: '700', fontFamily: F.mono, letterSpacing: 0.5 },
+  periodPillText: { fontSize: 11, fontWeight: '700', fontFamily: F.mono, letterSpacing: 0.5 },
 
   // KPI
   kpiRow: { flexDirection: 'row', gap: 8 },
   kpiCard: { alignItems: 'center', gap: 2 },
-  kpiLabel: { fontSize: 7, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 },
+  kpiLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 },
   kpiValue: { fontSize: 16, fontWeight: '800', fontFamily: F.display },
-  kpiSub: { fontSize: 8, color: C.dim, fontFamily: F.mono },
+  kpiSub: { fontSize: 10, color: C.dim, fontFamily: F.mono },
 
   // Section
-  sectionTitle: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.6, marginBottom: 2 },
+  sectionTitle: { fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.6, marginBottom: 2 },
 
   // Benchmark legend
   benchLegend: { flexDirection: 'row', gap: 16, marginTop: 8 },
   benchLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   benchLegendDot: { width: 12, height: 2, borderRadius: 1 },
-  benchLegendLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono },
-  benchLegendValue: { fontSize: 9, fontWeight: '600', fontFamily: F.mono },
+  benchLegendLabel: { fontSize: 11, color: C.dim, fontFamily: F.mono },
+  benchLegendValue: { fontSize: 11, fontWeight: '600', fontFamily: F.mono },
 
   // Donut
   donutCenter: {
@@ -2648,7 +2648,7 @@ var styles = StyleSheet.create({
   // IR
   irSummaryRow: { flexDirection: 'row', justifyContent: 'space-around' },
   irSummaryItem: { alignItems: 'center', flex: 1 },
-  irSummaryLabel: { fontSize: 7, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 },
+  irSummaryLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 },
   irSummaryValue: { fontSize: 16, fontWeight: '800', fontFamily: F.display, marginTop: 2 },
   irMonthHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: C.border },
   irMonthLabel: { fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display },
@@ -2672,11 +2672,11 @@ var styles = StyleSheet.create({
   rankBarBg: { flex: 1, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.03)', marginHorizontal: 8 },
   rankBarFill: { height: 4, borderRadius: 2 },
   rankPct: { fontSize: 12, fontWeight: '800', fontFamily: F.mono },
-  rankVal: { fontSize: 9, color: C.sub, fontFamily: F.mono, marginTop: 1 },
+  rankVal: { fontSize: 11, color: C.sub, fontFamily: F.mono, marginTop: 1 },
 
   // Position cards
   posCard: { padding: 12 },
-  posDetail: { fontSize: 9, color: C.dim, fontFamily: F.mono },
+  posDetail: { fontSize: 11, color: C.dim, fontFamily: F.mono },
 
   // HBar
   hbarRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: 8 },
@@ -2687,7 +2687,7 @@ var styles = StyleSheet.create({
 
   // Rebalance
   rebalHeader: { flexDirection: 'row', alignItems: 'center', paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: C.border, marginBottom: 6 },
-  rebalColLabel: { flex: 1, fontSize: 8, color: C.dim, fontFamily: F.mono, textAlign: 'center' },
+  rebalColLabel: { flex: 1, fontSize: 10, color: C.dim, fontFamily: F.mono, textAlign: 'center' },
   rebalRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
   rebalInput: { width: 36, height: 22, borderRadius: 4, borderWidth: 1, borderColor: C.accent + '40',
     backgroundColor: C.accent + '08', color: C.accent, fontSize: 11, fontFamily: F.mono,

@@ -141,13 +141,13 @@ export default function HistoricoScreen(props) {
       <Glass glow={C.accent} padding={14}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
           {[
-            { l: 'OPERACOES', v: String(operacoes.length), c: C.acoes },
-            { l: 'OPCOES', v: String(opcoes.length), c: C.opcoes },
+            { l: 'OPERAÇÕES', v: String(operacoes.length), c: C.acoes },
+            { l: 'OPÇÕES', v: String(opcoes.length), c: C.opcoes },
             { l: 'PROVENTOS', v: String(proventos.length), c: C.fiis },
           ].map(function(d, i) {
             return (
               <View key={i} style={{ alignItems: 'center' }}>
-                <Text style={{ fontSize: 7, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{d.l}</Text>
+                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{d.l}</Text>
                 <Text style={{ fontSize: 18, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }}>{d.v}</Text>
               </View>
             );
@@ -159,8 +159,8 @@ export default function HistoricoScreen(props) {
       <View style={{ flexDirection: 'row', gap: 5 }}>
         {[
           { k: 'todos', l: 'Todos (' + timeline.length + ')' },
-          { k: 'operacoes', l: 'Operacoes' },
-          { k: 'opcoes', l: 'Opcoes' },
+          { k: 'operacoes', l: 'Operações' },
+          { k: 'opcoes', l: 'Opções' },
           { k: 'proventos', l: 'Proventos' },
         ].map(function(f) {
           return (
@@ -177,7 +177,7 @@ export default function HistoricoScreen(props) {
         <EmptyState
           icon="\u2630"
           title="Sem registros"
-          description="Adicione operacoes, opcoes ou proventos para ver o historico"
+          description="Adicione operações, opções ou proventos para ver o histórico"
           color={C.accent}
         />
       ) : (
@@ -237,7 +237,7 @@ var styles = StyleSheet.create({
   monthLabel: { fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display },
   itemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12 },
   itemTicker: { fontSize: 11, fontWeight: '700', color: C.text, fontFamily: F.display },
-  itemDetail: { fontSize: 9, color: C.sub, fontFamily: F.mono, marginTop: 2 },
+  itemDetail: { fontSize: 11, color: C.sub, fontFamily: F.mono, marginTop: 2 },
   itemValue: { fontSize: 11, fontWeight: '700', fontFamily: F.mono },
-  itemDate: { fontSize: 8, color: C.dim, fontFamily: F.mono, marginTop: 2 },
+  itemDate: { fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 2 },
 });

@@ -116,16 +116,16 @@ var styles = StyleSheet.create({
   saveBtn: { fontSize: 14, color: C.accent, fontWeight: '600', fontFamily: F.body },
   row: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 12 },
   alertLabel: { fontSize: 12, fontWeight: '600', color: C.text, fontFamily: F.display },
-  alertDesc: { fontSize: 9, color: C.dim, fontFamily: F.body, marginTop: 1 },
+  alertDesc: { fontSize: 11, color: C.dim, fontFamily: F.body, marginTop: 1 },
   thresholdRow: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 12, paddingBottom: 10,
   },
-  thresholdLabel: { fontSize: 9, color: C.sub, fontFamily: F.body },
+  thresholdLabel: { fontSize: 11, color: C.sub, fontFamily: F.body },
   thresholdInput: {
     width: 60, height: 30, backgroundColor: C.surface,
     borderWidth: 1, borderColor: C.border, borderRadius: 6,
     textAlign: 'center', color: C.text, fontSize: 13, fontFamily: F.mono,
   },
-  thresholdSuffix: { fontSize: 9, color: C.dim, fontFamily: F.mono },
+  thresholdSuffix: { fontSize: 11, color: C.dim, fontFamily: F.mono },
 });

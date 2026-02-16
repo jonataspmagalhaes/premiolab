@@ -230,7 +230,7 @@ var styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },
   back: { fontSize: 28, color: C.accent, fontWeight: '300' },
   title: { fontSize: 18, fontWeight: '800', color: C.text, fontFamily: F.display },
-  label: { fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginTop: 4 },
+  label: { fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginTop: 4 },
   input: {
     backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border,
     borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
@@ -239,7 +239,7 @@ var styles = StyleSheet.create({
   row: { flexDirection: 'row' },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  infoLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 },
+  infoLabel: { fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 },
   infoValue: { fontSize: 16, fontWeight: '700', color: C.text, fontFamily: F.display },
   submitBtn: { backgroundColor: C.fiis, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8 },
   submitText: { fontSize: 15, fontWeight: '700', color: 'white', fontFamily: F.display },

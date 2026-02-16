@@ -29,7 +29,7 @@ export default function ConfigCorretorasScreen(props) {
       await incrementCorretora(user.id, name);
       await load();
     } catch (e) {
-      Alert.alert('Erro', 'Nao foi possivel adicionar a corretora.');
+      Alert.alert('Erro', 'Não foi possível adicionar a corretora.');
     }
     setAdding(false);
   };
