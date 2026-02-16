@@ -8,6 +8,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../config/supabase';
 import { Glass, Pill, Badge } from '../../components';
 
+function fmt(v) {
+  return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 var CORRETORAS = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];
 var STATUS_LIST = ['ativa', 'fechada', 'exercida', 'expirada', 'expirou_po'];
 
@@ -236,7 +240,7 @@ export default function EditOpcaoScreen(props) {
           <View style={styles.resumoRow}>
             <Text style={styles.resumoLabel}>PRÊMIO TOTAL</Text>
             <Text style={[styles.resumoValue, { color: direcao === 'venda' ? C.green : C.red }]}>
-              R$ {premioTotal.toFixed(2)}
+              {'R$ ' + fmt(premioTotal)}
             </Text>
           </View>
           <View style={styles.resumoRow}>

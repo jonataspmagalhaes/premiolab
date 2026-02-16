@@ -79,10 +79,8 @@ function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function fmtK(v) {
-  if (Math.abs(v) >= 1000000) return (v / 1000000).toFixed(1) + 'M';
-  if (Math.abs(v) >= 1000) return (v / 1000).toFixed(1) + 'k';
-  return v.toFixed(0);
+function fmtC(v) {
+  return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
 function rfIRAliquota(diasCorridos) {
@@ -589,7 +587,7 @@ function RebalanceTool(props) {
               )}
               {Math.abs(ajuste) > 50 ? (
                 <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>
-                  {'R$ ' + fmtK(Math.abs(ajuste))}
+                  {'R$ ' + fmt(Math.abs(ajuste))}
                 </Text>
               ) : null}
             </View>
@@ -660,12 +658,179 @@ function ProvBarChart(props) {
                   rx={4} fill={C.fiis} opacity={0.5} />
                 <SvgText x={w - 2} y={y + barH / 2 + 4} fill={C.green}
                   fontSize={9} fontFamily={F.mono} fontWeight="600" textAnchor="end">
-                  R$ {d.value.toFixed(0)}
+                  {'R$ ' + fmt(d.value)}
                 </SvgText>
               </G>
             );
           })}
         </Svg>
+      ) : null}
+    </View>
+  );
+}
+
+// ═══════════ INLINE SVG: Premios Vertical Bar Chart ═══════════
+
+function PremiosBarChart(props) {
+  var data = props.data || [];
+  var showCall = props.showCall;
+  var showPut = props.showPut;
+  var selected = props.selected != null ? props.selected : -1;
+  var onSelect = props.onSelect || function() {};
+
+  var _w = useState(0); var w = _w[0]; var setW = _w[1];
+
+  var chartH = 180;
+  var topPad = 30;
+  var bottomPad = 28;
+  var leftPad = 38;
+  var rightPad = 8;
+  var drawH = chartH - topPad - bottomPad;
+  var drawW = w - leftPad - rightPad;
+
+  // Max is always based on total for consistent scale
+  var maxVal = 0;
+  for (var mi = 0; mi < data.length; mi++) {
+    var v = data[mi].total || 0;
+    if (v > maxVal) maxVal = v;
+  }
+  if (maxVal === 0) maxVal = 1;
+
+  var slotW = data.length > 0 ? drawW / data.length : 0;
+  var totalBarW = data.length > 0 ? Math.max(slotW - 4, 6) : 6;
+  var hasOverlay = showCall || showPut;
+  // Sub-bars are narrower; if both shown, split the slot
+  var subCount = (showCall ? 1 : 0) + (showPut ? 1 : 0);
+  var subBarW = subCount > 0 ? Math.max((totalBarW - 2) / subCount, 4) : 0;
+
+  var gridLines = [0, maxVal * 0.5, maxVal];
+
+  function handleTouch(e) {
+    if (drawW <= 0 || data.length === 0) return;
+    var x = e.nativeEvent.locationX - leftPad;
+    var idx = Math.floor(x / slotW);
+    if (idx < 0) idx = 0;
+    if (idx >= data.length) idx = data.length - 1;
+    onSelect(idx === selected ? -1 : idx);
+  }
+
+  function barY(val) {
+    var h = maxVal > 0 ? (val / maxVal) * drawH : 0;
+    if (val > 0 && h < 2) h = 2;
+    return { y: topPad + drawH - h, h: h };
+  }
+
+  if (data.length === 0) return null;
+
+  return (
+    <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }}>
+      {w > 0 ? (
+        <TouchableOpacity activeOpacity={1} onPress={handleTouch}>
+          <Svg width={w} height={chartH}>
+            {/* Grid lines */}
+            {gridLines.map(function(gv, gi) {
+              var gy = topPad + drawH - (gv / maxVal) * drawH;
+              return (
+                <G key={'g' + gi}>
+                  <SvgLine x1={leftPad} y1={gy} x2={w - rightPad} y2={gy}
+                    stroke={C.border} strokeWidth={0.5} strokeDasharray="3,3" />
+                  <SvgText x={leftPad - 4} y={gy + 3} fill={C.dim}
+                    fontSize={8} fontFamily={F.mono} textAnchor="end">
+                    {fmtC(gv)}
+                  </SvgText>
+                </G>
+              );
+            })}
+
+            {/* Bars */}
+            {data.map(function(d, i) {
+              var isSelected = i === selected;
+              var slotX = leftPad + i * slotW;
+              var barX = slotX + (slotW - totalBarW) / 2;
+              var totalB = barY(d.total || 0);
+              var totalOpacity = hasOverlay
+                ? (selected === -1 ? 0.25 : (isSelected ? 0.35 : 0.12))
+                : (selected === -1 ? 0.7 : (isSelected ? 1 : 0.35));
+
+              var monthParts = (d.month || '').split('/');
+              var monthLabel = monthParts[0] || '';
+
+              // Build tooltip lines
+              var tipLines = [];
+              if (isSelected) {
+                tipLines.push({ label: 'Total', value: d.total || 0, color: C.text });
+                if (showCall) tipLines.push({ label: 'C', value: d.call || 0, color: C.acoes });
+                if (showPut) tipLines.push({ label: 'P', value: d.put || 0, color: C.green });
+              }
+
+              // Tooltip height
+              var tipH = tipLines.length > 1 ? 12 * tipLines.length + 4 : 16;
+              var tipW = 72;
+              var tipY = totalB.y - tipH - 4;
+              if (tipY < 0) tipY = 0;
+
+              return (
+                <G key={'b' + i}>
+                  {/* Total bar (background) */}
+                  <SvgRect x={barX} y={totalB.y} width={totalBarW} height={totalB.h}
+                    rx={3} fill={C.opcoes} opacity={totalOpacity} />
+
+                  {/* Call/Put overlay bars */}
+                  {hasOverlay ? (function() {
+                    var elems = [];
+                    var subIdx = 0;
+                    var subOpBase = selected === -1 ? 0.8 : (isSelected ? 1 : 0.3);
+                    if (showCall) {
+                      var cb = barY(d.call || 0);
+                      var cx = barX + 1 + subIdx * subBarW;
+                      elems.push(
+                        <SvgRect key="c" x={cx} y={cb.y} width={subBarW - 1} height={cb.h}
+                          rx={2} fill={C.acoes} opacity={subOpBase} />
+                      );
+                      subIdx++;
+                    }
+                    if (showPut) {
+                      var pb = barY(d.put || 0);
+                      var px = barX + 1 + subIdx * subBarW;
+                      elems.push(
+                        <SvgRect key="p" x={px} y={pb.y} width={subBarW - 1} height={pb.h}
+                          rx={2} fill={C.green} opacity={subOpBase} />
+                      );
+                    }
+                    return elems;
+                  })() : null}
+
+                  {/* Tooltip */}
+                  {isSelected && (d.total || 0) > 0 ? (
+                    <G>
+                      <SvgRect x={barX + totalBarW / 2 - tipW / 2} y={tipY}
+                        width={tipW} height={tipH} rx={4} fill={C.surface} opacity={0.95} />
+                      {tipLines.length <= 1 ? (
+                        <SvgText x={barX + totalBarW / 2} y={tipY + 11} fill={C.text}
+                          fontSize={9} fontFamily={F.mono} fontWeight="600" textAnchor="middle">
+                          {'R$ ' + fmt(d.total || 0)}
+                        </SvgText>
+                      ) : tipLines.map(function(tl, ti) {
+                        return (
+                          <SvgText key={'t' + ti} x={barX + totalBarW / 2} y={tipY + 11 + ti * 12}
+                            fill={tl.color} fontSize={8} fontFamily={F.mono} fontWeight="600" textAnchor="middle">
+                            {tl.label + ' R$ ' + fmt(tl.value)}
+                          </SvgText>
+                        );
+                      })}
+                    </G>
+                  ) : null}
+
+                  {/* Month label */}
+                  <SvgText x={barX + totalBarW / 2} y={chartH - 6} fill={isSelected ? C.text : C.dim}
+                    fontSize={8} fontFamily={F.mono} textAnchor="middle" fontWeight={isSelected ? '600' : '400'}>
+                    {monthLabel}
+                  </SvgText>
+                </G>
+              );
+            })}
+          </Svg>
+        </TouchableOpacity>
       ) : null}
     </View>
   );
@@ -691,6 +856,9 @@ export default function AnaliseScreen() {
   var _perfSub = useState('todos'); var perfSub = _perfSub[0]; var setPerfSub = _perfSub[1];
   var _rendaFixa = useState([]); var rendaFixa = _rendaFixa[0]; var setRendaFixa = _rendaFixa[1];
   var _opcoes = useState([]); var opcoes = _opcoes[0]; var setOpcoes = _opcoes[1];
+  var _opcShowCall = useState(false); var opcShowCall = _opcShowCall[0]; var setOpcShowCall = _opcShowCall[1];
+  var _opcShowPut = useState(false); var opcShowPut = _opcShowPut[0]; var setOpcShowPut = _opcShowPut[1];
+  var _opcPremSelected = useState(-1); var opcPremSelected = _opcPremSelected[0]; var setOpcPremSelected = _opcPremSelected[1];
 
   // ── Data loading ──
   var load = async function() {
@@ -1054,11 +1222,17 @@ export default function AnaliseScreen() {
         opcTaxaMensalCount++;
       }
 
-      // Monthly premium tracking
-      var opMonth = (op.created_at || op.vencimento || '').substring(0, 7);
-      if (opMonth && isVenda) {
-        if (!opcPremByMonth[opMonth]) opcPremByMonth[opMonth] = 0;
-        opcPremByMonth[opMonth] += premioTotal;
+      // Monthly premium tracking (D+1 settlement)
+      if (isVenda) {
+        var dataRef = op.data_abertura || op.created_at || op.vencimento || '';
+        if (dataRef) {
+          var dReceb = new Date(dataRef);
+          dReceb.setDate(dReceb.getDate() + 1);
+          var opMonth = dReceb.getFullYear() + '-' + String(dReceb.getMonth() + 1).padStart(2, '0');
+          if (!opcPremByMonth[opMonth]) opcPremByMonth[opMonth] = { total: 0, call: 0, put: 0 };
+          opcPremByMonth[opMonth].total += premioTotal;
+          opcPremByMonth[opMonth][tipo] += premioTotal;
+        }
       }
 
       if (status === 'ativa') {
@@ -1123,7 +1297,8 @@ export default function AnaliseScreen() {
       var omd = new Date(nowOpc.getFullYear(), nowOpc.getMonth() - omi, 1);
       var omk = omd.getFullYear() + '-' + String(omd.getMonth() + 1).padStart(2, '0');
       var oml = MONTH_LABELS[omd.getMonth() + 1] + '/' + String(omd.getFullYear()).substring(2);
-      opcMonthlyPremiums.push({ month: oml, value: opcPremByMonth[omk] || 0 });
+      var omData = opcPremByMonth[omk] || { total: 0, call: 0, put: 0 };
+      opcMonthlyPremiums.push({ month: oml, total: omData.total, call: omData.call, put: omData.put });
     }
   }
 
@@ -1274,7 +1449,7 @@ export default function AnaliseScreen() {
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                   <View>
                     <Text style={styles.heroLabel}>PATRIMONIO TOTAL</Text>
-                    <Text style={styles.heroValue}>R$ {fmtK(totalPatrimonio)}</Text>
+                    <Text style={styles.heroValue}>R$ {fmt(totalPatrimonio)}</Text>
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={styles.heroLabel}>RENTABILIDADE</Text>
@@ -1423,11 +1598,11 @@ export default function AnaliseScreen() {
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                       <View>
                         <Text style={styles.heroLabel}>INVESTIDO</Text>
-                        <Text style={styles.heroValue}>R$ {fmtK(catTotalInvested)}</Text>
+                        <Text style={styles.heroValue}>R$ {fmt(catTotalInvested)}</Text>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={styles.heroLabel}>VALOR ATUAL</Text>
-                        <Text style={[styles.heroValue, { color: catPL >= 0 ? C.green : C.red }]}>R$ {fmtK(catCurrentValue)}</Text>
+                        <Text style={[styles.heroValue, { color: catPL >= 0 ? C.green : C.red }]}>R$ {fmt(catCurrentValue)}</Text>
                       </View>
                     </View>
                     <View style={styles.catHeroDivider} />
@@ -1487,7 +1662,7 @@ export default function AnaliseScreen() {
                       <View style={styles.kpiCard}>
                         <Text style={styles.kpiLabel}>PROVENTOS TOTAL</Text>
                         <Text style={[styles.kpiValue, { color: C.green }]}>
-                          R$ {fmtK(catDividendsTotal)}
+                          R$ {fmt(catDividendsTotal)}
                         </Text>
                       </View>
                     </Glass>
@@ -1503,7 +1678,7 @@ export default function AnaliseScreen() {
                       <View style={styles.kpiCard}>
                         <Text style={styles.kpiLabel}>RENDA/MES</Text>
                         <Text style={[styles.kpiValue, { color: C.green }]}>
-                          R$ {fmtK(catRendaMensal)}
+                          R$ {fmt(catRendaMensal)}
                         </Text>
                       </View>
                     </Glass>
@@ -1592,7 +1767,7 @@ export default function AnaliseScreen() {
                                 </Text>
                                 {rp.proventos12m > 0 && (
                                   <Text style={[styles.posDetail, { color: C.green }]}>
-                                    {perfSub === 'fii' ? 'DY' : 'YoC'} {rp.yoc.toFixed(1)}% | R$ {fmtK(rp.proventos12m)}/12m
+                                    {perfSub === 'fii' ? 'DY' : 'YoC'} {rp.yoc.toFixed(1)}% | R$ {fmt(rp.proventos12m)}/12m
                                   </Text>
                                 )}
                               </View>
@@ -1624,7 +1799,7 @@ export default function AnaliseScreen() {
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                       <View>
                         <Text style={styles.heroLabel}>PREMIOS RECEBIDOS</Text>
-                        <Text style={styles.heroValue}>R$ {fmtK(opcTotalPremiosRecebidos)}</Text>
+                        <Text style={styles.heroValue}>R$ {fmt(opcTotalPremiosRecebidos)}</Text>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={styles.heroLabel}>P&L ENCERRADAS</Text>
@@ -1695,7 +1870,7 @@ export default function AnaliseScreen() {
                         <Text style={[styles.kpiValue, { color: C.green }]}>
                           {String(opcByTipo.call.count)}
                         </Text>
-                        <Text style={styles.kpiSub}>R$ {fmtK(opcByTipo.call.premio)}</Text>
+                        <Text style={styles.kpiSub}>R$ {fmt(opcByTipo.call.premio)}</Text>
                       </View>
                     </Glass>
                     <Glass padding={10} style={{ flex: 1 }}>
@@ -1704,14 +1879,14 @@ export default function AnaliseScreen() {
                         <Text style={[styles.kpiValue, { color: C.red }]}>
                           {String(opcByTipo.put.count)}
                         </Text>
-                        <Text style={styles.kpiSub}>R$ {fmtK(opcByTipo.put.premio)}</Text>
+                        <Text style={styles.kpiSub}>R$ {fmt(opcByTipo.put.premio)}</Text>
                       </View>
                     </Glass>
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
                         <Text style={styles.kpiLabel}>CUSTO FECH.</Text>
                         <Text style={[styles.kpiValue, { color: C.yellow }]}>
-                          R$ {fmtK(opcTotalPremiosFechamento)}
+                          R$ {fmt(opcTotalPremiosFechamento)}
                         </Text>
                       </View>
                     </Glass>
@@ -1746,14 +1921,49 @@ export default function AnaliseScreen() {
                   </View>
 
                   {/* Historico mensal de premios */}
-                  {opcMonthlyPremiums.length > 0 && (
-                    <>
-                      <SectionLabel>PREMIOS MENSAIS</SectionLabel>
-                      <Glass padding={12}>
-                        <ProvBarChart data={opcMonthlyPremiums} maxVal={opcMonthlyPremiums.reduce(function(m, d) { return Math.max(m, d.value); }, 1)} />
-                      </Glass>
-                    </>
-                  )}
+                  {opcMonthlyPremiums.length > 0 && (function() {
+                    var sum12 = opcMonthlyPremiums.reduce(function(s, d) { return s + (d.total || 0); }, 0);
+                    var sumCall = opcMonthlyPremiums.reduce(function(s, d) { return s + (d.call || 0); }, 0);
+                    var sumPut = opcMonthlyPremiums.reduce(function(s, d) { return s + (d.put || 0); }, 0);
+                    return (
+                      <>
+                        <SectionLabel>PREMIOS MENSAIS</SectionLabel>
+                        <Glass padding={12}>
+                          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
+                            <Pill active={opcShowCall}
+                              color={C.acoes}
+                              onPress={function() { setOpcShowCall(!opcShowCall); setOpcPremSelected(-1); }}>Call</Pill>
+                            <Pill active={opcShowPut}
+                              color={C.green}
+                              onPress={function() { setOpcShowPut(!opcShowPut); setOpcPremSelected(-1); }}>Put</Pill>
+                          </View>
+                          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10, marginBottom: 8 }}>
+                            <Text style={{ fontFamily: F.mono, fontSize: 13, color: C.text }}>
+                              {'R$ ' + fmt(sum12)}
+                              <Text style={{ fontSize: 10, color: C.sub }}>{' 12m'}</Text>
+                            </Text>
+                            {opcShowCall ? (
+                              <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.acoes }}>
+                                {'C R$ ' + fmt(sumCall)}
+                              </Text>
+                            ) : null}
+                            {opcShowPut ? (
+                              <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.green }}>
+                                {'P R$ ' + fmt(sumPut)}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <PremiosBarChart
+                            data={opcMonthlyPremiums}
+                            showCall={opcShowCall}
+                            showPut={opcShowPut}
+                            selected={opcPremSelected}
+                            onSelect={setOpcPremSelected}
+                          />
+                        </Glass>
+                      </>
+                    );
+                  })()}
 
                   {/* Por Ativo Base */}
                   <SectionLabel>POR ATIVO BASE</SectionLabel>
@@ -1780,7 +1990,7 @@ export default function AnaliseScreen() {
                               </View>
                             </View>
                             <View style={{ alignItems: 'flex-end' }}>
-                              <Text style={[styles.rankPct, { color: C.opcoes }]}>R$ {fmtK(bd.premioRecebido)}</Text>
+                              <Text style={[styles.rankPct, { color: C.opcoes }]}>R$ {fmt(bd.premioRecebido)}</Text>
                               <Text style={[styles.rankVal, { color: bd.pl >= 0 ? C.green : C.red }]}>
                                 P&L {bd.pl >= 0 ? '+' : ''}R$ {fmt(Math.abs(bd.pl))}
                               </Text>
@@ -1808,7 +2018,7 @@ export default function AnaliseScreen() {
                           </View>
                           <View style={{ alignItems: 'flex-end' }}>
                             <Text style={[styles.rankPct, { color: sColor }]}>{String(sd.count)}</Text>
-                            <Text style={styles.rankVal}>R$ {fmtK(sd.premio)}</Text>
+                            <Text style={styles.rankVal}>R$ {fmt(sd.premio)}</Text>
                           </View>
                         </View>
                       );
@@ -1868,11 +2078,11 @@ export default function AnaliseScreen() {
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                       <View>
                         <Text style={styles.heroLabel}>TOTAL APLICADO</Text>
-                        <Text style={styles.heroValue}>R$ {fmtK(rfTotalAplicado)}</Text>
+                        <Text style={styles.heroValue}>R$ {fmt(rfTotalAplicado)}</Text>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={styles.heroLabel}>VALOR ATUAL EST.</Text>
-                        <Text style={[styles.heroValue, { color: C.rf }]}>R$ {fmtK(rfTotalAtual)}</Text>
+                        <Text style={[styles.heroValue, { color: C.rf }]}>R$ {fmt(rfTotalAtual)}</Text>
                       </View>
                     </View>
                     <View style={styles.catHeroDivider} />
@@ -1920,7 +2130,7 @@ export default function AnaliseScreen() {
                       <View style={styles.kpiCard}>
                         <Text style={styles.kpiLabel}>RENDIMENTO</Text>
                         <Text style={[styles.kpiValue, { color: C.green }]}>
-                          +R$ {fmtK(rfTotalAtual - rfTotalAplicado)}
+                          +R$ {fmt(rfTotalAtual - rfTotalAplicado)}
                         </Text>
                       </View>
                     </Glass>
@@ -1944,7 +2154,7 @@ export default function AnaliseScreen() {
                           </View>
                           <View style={{ alignItems: 'flex-end' }}>
                             <Text style={[styles.rankPct, { color: C.rf }]}>{pct.toFixed(0)}%</Text>
-                            <Text style={styles.rankVal}>R$ {fmtK(td.valor)} | {rentTipo >= 0 ? '+' : ''}{rentTipo.toFixed(1)}%</Text>
+                            <Text style={styles.rankVal}>R$ {fmt(td.valor)} | {rentTipo >= 0 ? '+' : ''}{rentTipo.toFixed(1)}%</Text>
                           </View>
                         </View>
                       );
@@ -1969,7 +2179,7 @@ export default function AnaliseScreen() {
                           </View>
                           <View style={{ alignItems: 'flex-end' }}>
                             <Text style={[styles.rankPct, { color: idxColor }]}>{pct.toFixed(0)}%</Text>
-                            <Text style={styles.rankVal}>R$ {fmtK(id.valor)} | {rentIdx >= 0 ? '+' : ''}{rentIdx.toFixed(1)}%</Text>
+                            <Text style={styles.rankVal}>R$ {fmt(id.valor)} | {rentIdx >= 0 ? '+' : ''}{rentIdx.toFixed(1)}%</Text>
                           </View>
                         </View>
                       );
@@ -1991,7 +2201,7 @@ export default function AnaliseScreen() {
                               <Badge text={re.irFaixa} color={re.isIsento ? C.green : C.yellow} />
                               <Badge text={re.diasVenc + 'd'} color={urgencyColor} />
                             </View>
-                            <Text style={[styles.rankPct, { color: C.rf }]}>R$ {fmtK(re.valorAtual)}</Text>
+                            <Text style={[styles.rankPct, { color: C.rf }]}>R$ {fmt(re.valorAtual)}</Text>
                           </View>
                           <Text style={[styles.posDetail, { marginTop: 4 }]}>
                             {rf.emissor || 'N/A'} | {rf.taxa + '% ' + (RF_IDX_LABELS[rf.indexador] || '')}
@@ -2073,7 +2283,7 @@ export default function AnaliseScreen() {
                     </Svg>
                     <View style={styles.donutCenter}>
                       <Text style={styles.donutValue}>
-                        R$ {fmtK(totalAlocPatrimonio)}
+                        R$ {fmt(totalAlocPatrimonio)}
                       </Text>
                     </View>
                   </View>

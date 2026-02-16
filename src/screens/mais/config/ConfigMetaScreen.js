@@ -72,7 +72,7 @@ export default function ConfigMetaScreen(props) {
               color={C.etfs}
               onPress={function() { setMeta(String(v)); }}
             >
-              R$ {v.toLocaleString('pt-BR')}
+              {'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Pill>
           );
         })}

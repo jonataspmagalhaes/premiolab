@@ -9,6 +9,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../config/supabase';
 import { Glass, Pill, Badge } from '../../components';
 
+function fmt(v) {
+  return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 var TIPOS = [
   { key: 'cdb', indexador: 'cdi', label: 'CDB' },
   { key: 'lci_lca', indexador: 'cdi', label: 'LCI / LCA' },
@@ -250,9 +254,9 @@ export default function EditRendaFixaScreen(props) {
             <Text style={styles.previewTitle}>RENDIMENTO ESTIMADO</Text>
             <View style={styles.previewRow}>
               {[
-                { l: 'Diario', v: 'R$ ' + rendDiario.toFixed(2), c: C.rf },
-                { l: 'Mensal', v: 'R$ ' + rendMensal.toFixed(2), c: C.green },
-                { l: 'Anual', v: 'R$ ' + rendAnual.toFixed(0), c: C.accent },
+                { l: 'Diario', v: 'R$ ' + fmt(rendDiario), c: C.rf },
+                { l: 'Mensal', v: 'R$ ' + fmt(rendMensal), c: C.green },
+                { l: 'Anual', v: 'R$ ' + fmt(rendAnual), c: C.accent },
               ].map(function(r, i) {
                 return (
                   <View key={i} style={{ alignItems: 'center', flex: 1 }}>

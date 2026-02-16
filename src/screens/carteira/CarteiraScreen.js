@@ -41,9 +41,6 @@ function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function fmtK(v) {
-  var abs = Math.abs(v || 0);
-  if (abs >= 1000000) return 'R$ ' + (v / 1000000).toFixed(1) + 'M';
-  if (abs >= 1000) return 'R$ ' + (v / 1000).toFixed(1) + 'k';
   return 'R$ ' + fmt(v);
 }
 function formatTaxa(taxa, indexador) {
@@ -254,7 +251,7 @@ function PositionCard(props) {
               <Text style={styles.cardPriceMain}>
                 {hasPrice ? 'R$ ' + fmt(precoRef) : 'PM R$ ' + fmt(pos.pm)}
               </Text>
-              {hasPrice ? <Text style={styles.cardPriceSub}>PM {pos.pm.toFixed(2)}</Text> : null}
+              {hasPrice ? <Text style={styles.cardPriceSub}>{'PM R$ ' + fmt(pos.pm)}</Text> : null}
               <Text style={styles.cardPriceSub}>Qtd: {pos.quantidade.toLocaleString('pt-BR')}</Text>
             </View>
             {hasPrice && pos.change_day != null && pos.change_day !== 0 ? (

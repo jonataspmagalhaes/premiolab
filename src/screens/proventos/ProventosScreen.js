@@ -28,6 +28,13 @@ var TIPO_COLORS = {
   bonificacao: C.opcoes,
 };
 
+function fmt(v) {
+  return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmt4(v) {
+  return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+}
+
 var FILTERS = [
   { key: 'todos', label: 'Todos' },
   { key: 'dividendo', label: 'Dividendos' },
@@ -188,7 +195,7 @@ export default function ProventosScreen(props) {
         var group = months[ym];
         return (
           <View key={ym}>
-            <SectionLabel right={'R$ ' + group.total.toFixed(2)}>
+            <SectionLabel right={'R$ ' + fmt(group.total)}>
               {monthLabel(ym)}
             </SectionLabel>
             <Glass padding={0}>
@@ -210,13 +217,13 @@ export default function ProventosScreen(props) {
                       <Text style={styles.provDate}>{isoToBr(p.data_pagamento)}</Text>
                       {p.quantidade > 0 && p.valor_por_cota > 0 && (
                         <Text style={styles.provDetail}>
-                          {p.quantidade + ' x R$ ' + p.valor_por_cota.toFixed(4)}
+                          {p.quantidade + ' x R$ ' + fmt4(p.valor_por_cota)}
                         </Text>
                       )}
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>
                       <Text style={styles.provValor}>
-                        +R$ {valorTotal.toFixed(2)}
+                        {'+R$ ' + fmt(valorTotal)}
                       </Text>
                       <View style={{ flexDirection: 'row', gap: 10 }}>
                         <TouchableOpacity onPress={function() {

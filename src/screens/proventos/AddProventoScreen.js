@@ -8,6 +8,13 @@ import { useAuth } from '../../contexts/AuthContext';
 import { addProvento } from '../../services/database';
 import { Glass, Pill, Badge } from '../../components';
 
+function fmt(v) {
+  return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmt4(v) {
+  return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+}
+
 var TIPOS = [
   { key: 'dividendo', label: 'Dividendo', color: C.fiis },
   { key: 'jcp', label: 'JCP', color: C.acoes },
@@ -166,7 +173,7 @@ export default function AddProventoScreen(props) {
         <Glass padding={12}>
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>VALOR POR AÇÃO</Text>
-            <Text style={styles.infoValue}>R$ {valorPorAcao.toFixed(4)}</Text>
+            <Text style={styles.infoValue}>{'R$ ' + fmt4(valorPorAcao)}</Text>
           </View>
         </Glass>
       )}
@@ -192,7 +199,7 @@ export default function AddProventoScreen(props) {
               {ticker} — {data}
             </Text>
             <Text style={{ fontSize: 24, fontWeight: '800', color: C.green, fontFamily: F.display }}>
-              + R$ {valorNum.toFixed(2)}
+              {'+ R$ ' + fmt(valorNum)}
             </Text>
           </View>
         </Glass>

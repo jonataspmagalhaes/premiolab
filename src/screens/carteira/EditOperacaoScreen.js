@@ -8,6 +8,13 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../config/supabase';
 import { Glass, Pill, Badge } from '../../components';
 
+function fmt(v) {
+  return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmt4(v) {
+  return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+}
+
 var CATEGORIAS = [
   { key: 'acao', label: 'Ação', color: C.acoes },
   { key: 'fii', label: 'FII', color: C.fiis },
@@ -182,7 +189,7 @@ export default function EditOperacaoScreen(props) {
       <TouchableOpacity onPress={function() { setShowCustos(!showCustos); }} style={styles.custoToggle}>
         <Text style={styles.custoToggleText}>{showCustos ? '▾ Custos operacionais' : '▸ Custos operacionais (opcional)'}</Text>
         {totalCustos > 0 && (
-          <Badge text={'R$ ' + totalCustos.toFixed(2)} color={C.yellow} />
+          <Badge text={'R$ ' + fmt(totalCustos)} color={C.yellow} />
         )}
       </TouchableOpacity>
 
@@ -213,32 +220,32 @@ export default function EditOperacaoScreen(props) {
           <View style={styles.resumoRow}>
             <Text style={styles.resumoLabel}>TOTAL DA OPERAÇÃO</Text>
             <Text style={[styles.resumoValue, { color: tipo === 'compra' ? C.green : C.red }]}>
-              R$ {total.toFixed(2)}
+              {'R$ ' + fmt(total)}
             </Text>
           </View>
           {totalCustos > 0 && (
             <View>
               <View style={styles.resumoRow}>
                 <Text style={styles.resumoLabel}>CUSTOS TOTAIS</Text>
-                <Text style={[styles.resumoSmall, { color: C.yellow }]}>R$ {totalCustos.toFixed(2)}</Text>
+                <Text style={[styles.resumoSmall, { color: C.yellow }]}>{'R$ ' + fmt(totalCustos)}</Text>
               </View>
               <View style={styles.divider} />
               <View style={styles.resumoRow}>
                 <Text style={styles.resumoLabel}>{tipo === 'compra' ? 'CUSTO TOTAL C/ TAXAS' : 'RECEITA LÍQUIDA'}</Text>
                 <Text style={[styles.resumoValue, { color: tipo === 'compra' ? C.green : C.red }]}>
-                  R$ {custoTotal.toFixed(2)}
+                  {'R$ ' + fmt(custoTotal)}
                 </Text>
               </View>
               <View style={styles.resumoRow}>
                 <Text style={styles.resumoLabel}>{tipo === 'compra' ? 'PM COM CUSTOS' : 'PREÇO LÍQ. P/ AÇÃO'}</Text>
-                <Text style={styles.resumoPM}>R$ {pmComCustos.toFixed(4)}</Text>
+                <Text style={styles.resumoPM}>{'R$ ' + fmt4(pmComCustos)}</Text>
               </View>
             </View>
           )}
           {totalCustos === 0 && qty > 0 && (
             <View style={styles.resumoRow}>
               <Text style={styles.resumoLabel}>PM</Text>
-              <Text style={styles.resumoPM}>R$ {prc.toFixed(4)}</Text>
+              <Text style={styles.resumoPM}>{'R$ ' + fmt4(prc)}</Text>
             </View>
           )}
         </Glass>

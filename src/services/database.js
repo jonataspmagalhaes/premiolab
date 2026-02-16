@@ -457,7 +457,7 @@ export async function getDashboard(userId) {
         dia: dEvt.getDate().toString(),
         diaSemana: diasSemana[dEvt.getDay()],
         titulo: (oEvt.tipo || 'Opção').toUpperCase() + ' ' + (oEvt.ticker_opcao || oEvt.ativo_base || ''),
-        detalhe: 'Strike R$ ' + ((oEvt.strike || 0).toFixed(2)) + ' · ' + (oEvt.quantidade || 0) + ' lotes',
+        detalhe: 'Strike R$ ' + ((oEvt.strike || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + ' · ' + (oEvt.quantidade || 0) + ' lotes',
         tipo: 'opcao',
       });
     }
@@ -470,7 +470,7 @@ export async function getDashboard(userId) {
         dia: dRf.getDate().toString(),
         diaSemana: diasSemana[dRf.getDay()],
         titulo: (rEvt.tipo || 'RF').toUpperCase() + ' ' + (rEvt.emissor || ''),
-        detalhe: 'R$ ' + ((rEvt.valor_aplicado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })) + ' · ' + (rEvt.taxa || 0) + '% a.a.',
+        detalhe: 'R$ ' + ((rEvt.valor_aplicado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + ' · ' + (rEvt.taxa || 0) + '% a.a.',
         tipo: 'rf',
       });
     }

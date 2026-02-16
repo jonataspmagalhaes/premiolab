@@ -180,7 +180,7 @@ export default function OnboardingScreen() {
                     color={C.green}
                     onPress={function() { setMeta(String(m)); }}
                   >
-                    R$ {m.toLocaleString('pt-BR')}
+                    {'R$ ' + m.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </Pill>
                 );
               })}

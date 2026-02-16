@@ -27,8 +27,8 @@ var P = {
 var PKEYS = ['acao', 'fii', 'opcao', 'etf', 'rf'];
 
 function fmt(v) {
-  if (v == null || isNaN(v)) return 'R$ 0';
-  return 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  if (v == null || isNaN(v)) return 'R$ 0,00';
+  return 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function fmt2(v) {
   if (v == null || isNaN(v)) return '0,00';
@@ -188,10 +188,8 @@ function IncomeCard({ label, subtitle, value, color }) {
 }
 
 function fmtDonut(v) {
-  var abs = Math.abs(v);
+  var abs = Math.abs(v || 0);
   var s = v < 0 ? '-' : '';
-  if (abs >= 100000) return s + (abs / 1000).toFixed(0) + 'k';
-  if (abs >= 10000) return s + (abs / 1000).toFixed(1) + 'k';
   return s + Number(abs).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 

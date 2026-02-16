@@ -121,7 +121,7 @@ export default function RendaFixaScreen(props) {
         <Glass glow={C.rf} padding={16}>
           <Text style={styles.totalLabel}>TOTAL APLICADO</Text>
           <Text style={styles.totalValue}>
-            R$ {totalAplicado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            R$ {totalAplicado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </Text>
           <Text style={styles.totalCount}>{ativos.length} titulo{ativos.length !== 1 ? 's' : ''} ativo{ativos.length !== 1 ? 's' : ''}</Text>
         </Glass>
@@ -167,7 +167,7 @@ export default function RendaFixaScreen(props) {
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 5 }}>
                       <Text style={styles.rfValor}>
-                        R$ {valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        R$ {valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
                       <Badge text={daysLeft + 'd'} color={daysLeft < 30 ? C.red : C.rf} />
                       <View style={{ flexDirection: 'row', gap: 12, marginTop: 4 }}>
@@ -213,7 +213,7 @@ export default function RendaFixaScreen(props) {
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 5 }}>
                       <Text style={[styles.rfValor, { color: C.dim }]}>
-                        R$ {valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        R$ {valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
                       <TouchableOpacity onPress={function() { handleDelete(rf.id); }}>
                         <Text style={[styles.actionLink, { color: C.red }]}>Excluir</Text>

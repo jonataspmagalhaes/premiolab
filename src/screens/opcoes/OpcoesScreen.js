@@ -379,7 +379,7 @@ function PayoffChart(props) {
             return (
               <SvgText key={'y' + yi} x={padL - 4} y={yl.y + 3} fill={C.dim}
                 fontSize={8} fontFamily={F.mono} textAnchor="end">
-                {yl.val >= 0 ? '+' + Math.round(yl.val) : Math.round(yl.val)}
+                {(yl.val >= 0 ? '+' : '') + fmt(Math.round(yl.val))}
               </SvgText>
             );
           })}
@@ -389,7 +389,7 @@ function PayoffChart(props) {
             return (
               <SvgText key={'x' + xi} x={xl.x} y={padT + h + 12} fill={C.dim}
                 fontSize={8} fontFamily={F.mono} textAnchor="middle">
-                {xl.val.toFixed(0)}
+                {fmt(xl.val)}
               </SvgText>
             );
           })}
@@ -586,7 +586,7 @@ function OpCard(props) {
         {[
           { l: 'Spot', v: spotPrice > 0 ? 'R$ ' + fmt(spotPrice) : '–' },
           { l: 'Delta', v: greeks.delta.toFixed(2) },
-          { l: 'Theta', v: (greeks.theta * (op.quantidade || 1) >= 0 ? '+' : '') + 'R$' + (greeks.theta * (op.quantidade || 1)).toFixed(1) + '/d' },
+          { l: 'Theta', v: (greeks.theta * (op.quantidade || 1) >= 0 ? '+' : '') + 'R$ ' + fmt(greeks.theta * (op.quantidade || 1)) + '/d' },
           { l: 'IV', v: greeks.iv.toFixed(0) + '%' },
           { l: 'DTE', v: daysLeft + 'd' },
         ].map(function(g, i) {
@@ -805,11 +805,11 @@ function SimuladorBS() {
           </View>
           <View style={{ alignItems: 'center' }}>
             <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>PRECO BS</Text>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }}>R$ {bsTheoPrice.toFixed(2)}</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }}>{'R$ ' + fmt(bsTheoPrice)}</Text>
           </View>
           <View style={{ alignItems: 'center' }}>
             <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>MERCADO</Text>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: bsTheoPrice > pVal ? C.green : C.red, fontFamily: F.mono }}>R$ {pVal.toFixed(2)}</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: bsTheoPrice > pVal ? C.green : C.red, fontFamily: F.mono }}>{'R$ ' + fmt(pVal)}</Text>
           </View>
         </View>
       </Glass>
@@ -819,9 +819,9 @@ function SimuladorBS() {
         <SectionLabel>RESUMO</SectionLabel>
         <View style={{ gap: 6, marginTop: 6 }}>
           {[
-            { l: 'Premio total', v: 'R$ ' + premioTotal.toFixed(2) },
-            { l: 'Theta/dia', v: 'R$ ' + thetaDia.toFixed(2) },
-            { l: 'Breakeven', v: 'R$ ' + breakeven.toFixed(2) },
+            { l: 'Premio total', v: 'R$ ' + fmt(premioTotal) },
+            { l: 'Theta/dia', v: 'R$ ' + fmt(thetaDia) },
+            { l: 'Breakeven', v: 'R$ ' + fmt(breakeven) },
             { l: 'Contratos', v: contratos + ' (' + qVal + ' opcoes)' },
           ].map(function(rr, i) {
             return (
@@ -1049,7 +1049,7 @@ function CadeiaSintetica(props) {
                   <Text style={styles.chainDelta}>{callGreeks.delta.toFixed(2)}</Text>
                 </View>
                 <View style={{ flex: 1.2, alignItems: 'center' }}>
-                  <Text style={styles.chainPrice}>{'R$' + callPrice.toFixed(2)}</Text>
+                  <Text style={styles.chainPrice}>{'R$ ' + fmt(callPrice)}</Text>
                 </View>
                 <View style={{ flex: 0.8, alignItems: 'center' }}>
                   <Badge text={callMon} color={monColor[callMon] || C.dim} />
@@ -1062,7 +1062,7 @@ function CadeiaSintetica(props) {
                   fontSize: 13, fontWeight: '700', fontFamily: F.mono,
                   color: isAtm ? C.accent : C.text,
                 }}>
-                  {sk.toFixed(0)}
+                  {fmt(sk)}
                 </Text>
               </View>
 
@@ -1072,7 +1072,7 @@ function CadeiaSintetica(props) {
                   <Badge text={putMon} color={monColor[putMon] || C.dim} />
                 </View>
                 <View style={{ flex: 1.2, alignItems: 'center' }}>
-                  <Text style={styles.chainPrice}>{'R$' + putPrice.toFixed(2)}</Text>
+                  <Text style={styles.chainPrice}>{'R$ ' + fmt(putPrice)}</Text>
                 </View>
                 <View style={{ flex: 1, alignItems: 'center' }}>
                   <Text style={styles.chainDelta}>{putGreeks.delta.toFixed(2)}</Text>
@@ -1379,8 +1379,8 @@ export default function OpcoesScreen() {
       <Glass glow={C.opcoes} padding={16}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
           {[
-            { l: 'PREMIO MES', v: 'R$ ' + premioMes.toFixed(0), c: C.opcoes },
-            { l: 'THETA/DIA', v: (thetaDiaTotal >= 0 ? '+' : '') + 'R$ ' + thetaDiaTotal.toFixed(0), c: thetaDiaTotal >= 0 ? C.green : C.red },
+            { l: 'PREMIO MES', v: 'R$ ' + fmt(premioMes), c: C.opcoes },
+            { l: 'THETA/DIA', v: (thetaDiaTotal >= 0 ? '+' : '') + 'R$ ' + fmt(thetaDiaTotal), c: thetaDiaTotal >= 0 ? C.green : C.red },
             { l: 'OPERACOES', v: String(ativas.length), c: C.sub },
           ].map(function(m, i) {
             return (
@@ -1561,7 +1561,7 @@ export default function OpcoesScreen() {
                     var expiradas = historico.filter(function(o) { return o.status === 'expirou_po' || o.status === 'expirada'; }).length;
                     var exercidas = historico.filter(function(o) { return o.status === 'exercida'; }).length;
                     return [
-                      { l: 'TOTAL RECEBIDO', v: 'R$ ' + totalPrem.toFixed(0), c: C.green },
+                      { l: 'TOTAL RECEBIDO', v: 'R$ ' + fmt(totalPrem), c: C.green },
                       { l: 'EXPIROU PO', v: String(expiradas), c: C.acoes },
                       { l: 'EXERCIDAS', v: String(exercidas), c: C.etfs },
                     ];
@@ -1600,7 +1600,7 @@ export default function OpcoesScreen() {
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.display }}>
-                            {op.ativo_base} {tipoLabel} {(op.strike || 0).toFixed(0)}
+                            {op.ativo_base + ' ' + tipoLabel + ' ' + fmt(op.strike || 0)}
                           </Text>
                         </View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>

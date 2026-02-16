@@ -249,9 +249,9 @@ export default function AssetDetailScreen(props) {
           <View style={styles.posGrid}>
             {[
               { l: 'Quantidade', v: String(position.qty) },
-              { l: 'Preco Medio', v: 'R$ ' + pm.toFixed(2) },
-              { l: 'Custo Total', v: 'R$ ' + position.custo.toFixed(2) },
-              { l: 'Proventos', v: 'R$ ' + totalProvs.toFixed(2) },
+              { l: 'Preco Medio', v: 'R$ ' + fmt(pm) },
+              { l: 'Custo Total', v: 'R$ ' + fmt(position.custo) },
+              { l: 'Proventos', v: 'R$ ' + fmt(totalProvs) },
               valorAtual != null ? { l: 'Valor Atual', v: 'R$ ' + fmt(valorAtual) } : null,
               yieldOnCost > 0 ? { l: 'Yield on Cost', v: yieldOnCost.toFixed(2) + '%' } : null,
             ].filter(Boolean).map(function(d, i) {
@@ -283,12 +283,12 @@ export default function AssetDetailScreen(props) {
                       <Text style={styles.txnDate}>{new Date(t.data).toLocaleDateString('pt-BR')}</Text>
                     </View>
                     <Text style={styles.txnDetail}>
-                      {t.quantidade + ' x R$ ' + (t.preco || 0).toFixed(2) + (t.corretora ? ' | ' + t.corretora : '')}
+                      {t.quantidade + ' x R$ ' + fmt(t.preco || 0) + (t.corretora ? ' | ' + t.corretora : '')}
                     </Text>
                   </View>
                   <View style={{ alignItems: 'flex-end', gap: 4 }}>
                     <Text style={[styles.txnTotal, { color: t.tipo === 'compra' ? C.acoes : C.red }]}>
-                      R$ {totalTxn.toFixed(2)}
+                      {'R$ ' + fmt(totalTxn)}
                     </Text>
                     <View style={{ flexDirection: 'row', gap: 8 }}>
                       <TouchableOpacity onPress={function() {
@@ -312,7 +312,7 @@ export default function AssetDetailScreen(props) {
 
         {provs.length > 0 && (
           <View>
-            <SectionLabel>{'PROVENTOS - R$ ' + totalProvs.toFixed(2)}</SectionLabel>
+            <SectionLabel>{'PROVENTOS - R$ ' + fmt(totalProvs)}</SectionLabel>
             <Glass padding={0}>
               {provs.map(function(p, i) {
                 var valProv = (p.valor_por_cota || 0) * (p.quantidade || 0);
@@ -327,7 +327,7 @@ export default function AssetDetailScreen(props) {
                         <Text style={styles.txnDate}>{new Date(p.data_pagamento).toLocaleDateString('pt-BR')}</Text>
                       </View>
                     </View>
-                    <Text style={[styles.txnTotal, { color: C.green }]}>+R$ {valProv.toFixed(2)}</Text>
+                    <Text style={[styles.txnTotal, { color: C.green }]}>{'+R$ ' + fmt(valProv)}</Text>
                   </View>
                 );
               })}

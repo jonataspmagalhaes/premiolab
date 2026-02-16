@@ -18,7 +18,7 @@ import Svg, { Path, Defs, LinearGradient as SvgGrad, Stop, Circle, Line, Rect } 
  */
 
 function formatBRL(v) {
-  if (v == null || isNaN(v)) return 'R$ 0';
+  if (v == null || isNaN(v)) return 'R$ 0,00';
   return 'R$ ' + Number(v).toLocaleString('pt-BR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
