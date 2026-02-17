@@ -12,14 +12,15 @@ export async function getProfile(userId) {
 }
 
 export async function updateProfile(userId, updates) {
-  var payload = { id: userId, updated_at: new Date().toISOString() };
+  var payload = { updated_at: new Date().toISOString() };
   var keys = Object.keys(updates);
   for (var i = 0; i < keys.length; i++) {
     payload[keys[i]] = updates[keys[i]];
   }
   var result = await supabase
     .from('profiles')
-    .upsert(payload);
+    .update(payload)
+    .eq('id', userId);
   return { data: result.data, error: result.error };
 }
 
