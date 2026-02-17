@@ -246,6 +246,17 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - Sub-tab **Indicadores** com tabela resumo (Ticker, HV, RSI, Beta, Max DD) + cards detalhados por ativo (14 indicadores)
 - Botao "Recalcular indicadores" para calculo manual
 - Auto-trigger de calculo se dados desatualizados
+- **Performance — Grafico Retorno Mensal/Semanal**: grafico de linhas comparando Carteira vs CDI vs IBOV
+  - 3 series: Carteira (roxo, com area fill), CDI (ciano), IBOV (amarelo)
+  - Granularidade adaptiva: **semanal** no filtro 1M, **mensal** nos filtros 3M/6M/1A/Tudo
+  - CDI: calculo puro matematico `((1 + cdiAnual/100)^(1/N) - 1) * 100` (N=52 semanal, N=12 mensal)
+  - IBOV: dados reais via `fetchPriceHistoryLong(['^BVSP'])` (6 meses OHLCV, cache 1h)
+  - Carteira: retornos calculados a partir dos snapshots de patrimonio
+  - Dots com glow em cada ponto + valor % em cima + linhas conectando 2+ pontos
+  - Funcoes: `computeMonthlyReturns(history)`, `computeWeeklyReturns(history)`
+- **Performance — KPIs**: Carteira %, CDI %, Melhor Mes, Pior Mes
+- **Performance — Benchmark**: Carteira vs CDI (retorno acumulado %)
+- **Performance — Rentabilidade por ativo**: barras horizontais com P&L % por ticker
 - **Rebalanceamento hierarquico**: Classe → Setor → Ticker (FIIs/ETFs/RF) ou Classe → Market Cap → Setor → Ticker (Acoes)
   - Classificacao por market cap via brapi: Large Cap (>R$40B), Mid Cap (>R$10B), Small Cap (>R$2B), Micro Cap (<R$2B)
   - Setores dinamicos via `fetchTickerProfile` (brapi summaryProfile) com fallback para TICKER_SECTORS
@@ -380,3 +391,29 @@ Grava o valor real do patrimonio periodicamente para construir o grafico de evol
 | `src/screens/home/HomeScreen.js` | Salva snapshot ao abrir, donuts double ring |
 | `src/components/InteractiveChart.js` | Pontos semanais, eixo Y com valores, eixo X com datas |
 | `supabase-migration.sql` | Tabela patrimonio_snapshots, pg_cron + Edge Function |
+
+## Grafico de Retorno Mensal/Semanal (Implementado)
+
+Grafico de linhas na aba Performance > Todos comparando retorno da carteira vs CDI vs IBOV. Substitui o grafico duplicado de patrimonio que ja existe na Home.
+
+### Series
+| Serie | Cor | Fonte | Calculo |
+|-------|-----|-------|---------|
+| Carteira | `C.accent` (roxo) | Snapshots patrimonio | `(valor_fim - valor_fim_anterior) / valor_fim_anterior * 100` |
+| CDI | `C.rf` (ciano) | Selic do perfil | Semanal: `((1+cdi/100)^(1/52)-1)*100` / Mensal: `((1+cdi/100)^(1/12)-1)*100` |
+| IBOV | `C.etfs` (amarelo) | brapi `^BVSP` (6mo OHLCV) | Mesmo calculo da carteira mas usando closes do Ibovespa |
+
+### Granularidade adaptiva
+- **Filtro 1M**: usa `computeWeeklyReturns` — agrupa por semana ISO, labels DD/MM
+- **Filtros 3M/6M/1A/Tudo**: usa `computeMonthlyReturns` — agrupa por YYYY-MM, labels Mes/AA
+
+### Funcoes
+- `computeMonthlyReturns(history)` — agrupa `{date, value}[]` por mes, retorna `{month, pct}[]`
+- `computeWeeklyReturns(history)` — agrupa por semana ISO (YYYY-WNN), retorna `{week, date, pct}[]`
+
+### Visual
+- Carteira: linha solida + area fill sutil ate zero + dots com glow + valor %
+- CDI/IBOV: linha solida + dots com glow + valor %
+- Grid com 5 niveis Y (±maxAbs, ±metade, zero) + labels %
+- Zero line mais grossa para separar positivo/negativo
+- IBOV carregado em background (fire-and-forget) via `fetchPriceHistoryLong(['^BVSP'])`
