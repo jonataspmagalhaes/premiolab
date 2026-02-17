@@ -414,6 +414,27 @@ export async function upsertIndicatorsBatch(userId, indicatorsList) {
   return { data: result.data || [], error: result.error };
 }
 
+// ═══════════ PATRIMONIO SNAPSHOTS ═══════════
+export async function getPatrimonioSnapshots(userId) {
+  var result = await supabase
+    .from('patrimonio_snapshots')
+    .select('*')
+    .eq('user_id', userId)
+    .order('data', { ascending: true });
+  return result.data || [];
+}
+
+export async function upsertPatrimonioSnapshot(userId, data, valor) {
+  var result = await supabase
+    .from('patrimonio_snapshots')
+    .upsert({
+      user_id: userId,
+      data: data,
+      valor: valor,
+    }, { onConflict: 'user_id,data' });
+  return { error: result.error };
+}
+
 // ═══════════ DASHBOARD AGGREGATES ═══════════
 export async function getDashboard(userId) {
   try {
@@ -424,6 +445,7 @@ export async function getDashboard(userId) {
       getRendaFixa(userId),
       getSaldos(userId),
       getProfile(userId),
+      getPatrimonioSnapshots(userId),
     ]);
 
     var positions = results[0];
@@ -432,6 +454,7 @@ export async function getDashboard(userId) {
     var rendaFixa = results[3];
     var saldos = results[4];
     var profile = results[5];
+    var snapshots = results[6];
 
     var now = new Date();
     var mesAtual = now.getMonth();
@@ -728,6 +751,40 @@ export async function getDashboard(userId) {
 
       patrimonioHistory.push({ date: curDate, value: lastEquity + rfAtDate });
     }
+
+    // Merge snapshots (real market value from past sessions)
+    var snapshotByDate = {};
+    for (var sn = 0; sn < snapshots.length; sn++) {
+      snapshotByDate[snapshots[sn].data] = snapshots[sn].valor;
+    }
+
+    // Build final timeline: prefer snapshot values (real market) over cost-based
+    var historyByDate = {};
+    for (var ph = 0; ph < patrimonioHistory.length; ph++) {
+      historyByDate[patrimonioHistory[ph].date] = patrimonioHistory[ph].value;
+    }
+
+    // Add snapshot dates that dont exist in history
+    var snKeys = Object.keys(snapshotByDate);
+    for (var sk = 0; sk < snKeys.length; sk++) {
+      historyByDate[snKeys[sk]] = snapshotByDate[snKeys[sk]];
+    }
+
+    // Override cost-based values with snapshot values where available
+    var mergedDates = Object.keys(historyByDate).sort();
+    var mergedHistory = [];
+    for (var mh = 0; mh < mergedDates.length; mh++) {
+      var mDate = mergedDates[mh];
+      var mVal = snapshotByDate[mDate] !== undefined ? snapshotByDate[mDate] : historyByDate[mDate];
+      mergedHistory.push({ date: mDate, value: mVal });
+    }
+
+    // Replace today's point with real market value
+    if (mergedHistory.length > 0 && mergedHistory[mergedHistory.length - 1].date === todayStr) {
+      mergedHistory[mergedHistory.length - 1].value = patrimonio;
+    }
+
+    patrimonioHistory = mergedHistory;
 
     var metaMensal = (profile.data && profile.data.meta_mensal) ? profile.data.meta_mensal : 6000;
 

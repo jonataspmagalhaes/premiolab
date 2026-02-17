@@ -7,7 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getDashboard, getIndicators, getProfile } from '../../services/database';
+import { getDashboard, getIndicators, getProfile, upsertPatrimonioSnapshot } from '../../services/database';
 import { clearPriceCache } from '../../services/priceService';
 import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { runDividendSync, shouldSyncDividends } from '../../services/dividendService';
@@ -20,7 +20,7 @@ var W = Dimensions.get('window').width;
 var PAD = 16;
 
 var P = {
-  acao:  { label: 'Ações',  short: 'AÇ', color: '#22c55e' },
+  acao:  { label: 'Ações',  short: 'Ações', color: '#22c55e' },
   fii:   { label: 'FIIs',   short: 'FII', color: '#a855f7' },
   opcao: { label: 'Opções', short: 'OP', color: '#0ea5e9' },
   etf:   { label: 'ETFs',   short: 'ETF', color: '#f59e0b' },
@@ -205,63 +205,53 @@ function DonutMini(props) {
   var size = props.size || 80;
   var meta = props.meta;
   var isTotalDonut = props.isTotal;
+  var subLines = props.subLines;
 
   var _showPrev = useState(false);
   var showPrev = _showPrev[0];
   var setShowPrev = _showPrev[1];
 
-  // Ring dimensions — outer ring (prev) + inner ring (current)
-  var outerStroke = 5;
-  var innerStroke = 6;
-  var gap = 3;
+  // ── Double Ring Chart — concentric rings ──
+  var outerStroke = 6;
+  var innerStroke = 7;
+  var gap = 4;
   var outerRadius = (size - outerStroke) / 2;
   var innerRadius = outerRadius - outerStroke / 2 - gap - innerStroke / 2;
   var outerCirc = 2 * Math.PI * outerRadius;
   var innerCirc = 2 * Math.PI * innerRadius;
 
-  // Percentages — use meta as max if provided, otherwise max(value, prevValue)
-  var maxRef = meta && meta > 0 ? meta : Math.max(Math.abs(value), Math.abs(prevValue || 0), 1);
-  var innerPct = Math.min((Math.abs(value) / maxRef) * 100, 100);
-  var outerPct = hasPrev ? Math.min((Math.abs(prevValue) / maxRef) * 100, 100) : 0;
+  // Dynamic scale: 100% = max(|value|, |prevValue|)
+  // The larger month fills the ring completely, the smaller is proportional
+  var absVal = Math.abs(value);
+  var absPrev = Math.abs(prevValue || 0);
+  var maxRef = Math.max(absVal, absPrev, 1);
+  var innerPct = Math.min((absVal / maxRef) * 100, 100);
+  var outerPct = hasPrev ? Math.min((absPrev / maxRef) * 100, 100) : 0;
 
   var innerOffset = innerCirc - (innerCirc * innerPct / 100);
   var outerOffset = outerCirc - (outerCirc * outerPct / 100);
 
-  // Colors
-  var innerColor = value < 0 ? '#ef4444' : color;
-  var outerColor = color + '40';
+  // Dynamic colors: green = better month, red = worse month
+  var atualMelhor = value >= (prevValue || 0);
+  var innerColor = atualMelhor ? '#22C55E' : '#EF4444';
+  var outerColor = atualMelhor ? '#EF4444' : '#22C55E';
 
-  // Comparison badge
-  var compareText = '';
-  var compareColor = 'rgba(255,255,255,0.25)';
-  if (hasPrev) {
-    if (value === 0 && prevValue === 0) {
-      compareText = '';
-    } else if (prevValue === 0 && value > 0) {
-      compareText = 'Novo';
-      compareColor = '#22c55e';
-    } else if (prevValue === 0 && value < 0) {
-      compareText = 'Novo';
-      compareColor = '#ef4444';
-    } else if (value === 0 && prevValue > 0) {
-      compareText = '';
-    } else if (Math.abs(prevValue) > 0) {
-      var changePct = ((value - prevValue) / Math.abs(prevValue)) * 100;
-      if (changePct > 0) {
-        compareText = '+' + changePct.toFixed(0) + '%';
-        compareColor = '#22c55e';
-      } else if (changePct < 0) {
-        compareText = changePct.toFixed(0) + '%';
-        compareColor = '#ef4444';
-      } else {
-        compareText = '0%';
-      }
+  // Comparison % (shown inside legend, not as separate badge)
+  var comparePct = '';
+  if (hasPrev && Math.abs(prevValue) > 0) {
+    var changePct = ((value - prevValue) / Math.abs(prevValue)) * 100;
+    if (changePct > 0) {
+      comparePct = '+' + changePct.toFixed(0) + '%';
+    } else if (changePct < 0) {
+      comparePct = changePct.toFixed(0) + '%';
+    } else {
+      comparePct = '0%';
     }
   }
 
   // Center display — toggle between current and previous on tap
   var displayValue = showPrev ? (prevValue || 0) : value;
-  var displayColor = showPrev ? (color + 'AA') : innerColor;
+  var displayColor = showPrev ? outerColor : innerColor;
   var centerNum = fmtDonut(displayValue);
 
   var onTap = function () {
@@ -281,19 +271,20 @@ function DonutMini(props) {
       <TouchableOpacity activeOpacity={0.7} onPress={onTap}>
         <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
           <Svg width={size} height={size} style={{ position: 'absolute' }}>
-            {/* Outer ring background */}
+            {/* Outer ring background track */}
             <SvgCircle
               cx={center} cy={center} r={outerRadius}
-              stroke="rgba(255,255,255,0.04)"
+              stroke="rgba(255,255,255,0.05)"
               strokeWidth={outerStroke}
               fill="none"
             />
-            {/* Outer ring — previous month */}
+            {/* Outer ring — Mês Anterior (purple) */}
             {outerPct > 0 ? (
               <SvgCircle
                 cx={center} cy={center} r={outerRadius}
                 stroke={outerColor}
                 strokeWidth={outerStroke}
+                strokeOpacity={0.7}
                 fill="none"
                 strokeDasharray={outerCirc}
                 strokeDashoffset={outerOffset}
@@ -302,19 +293,20 @@ function DonutMini(props) {
                 origin={center + ',' + center}
               />
             ) : null}
-            {/* Inner ring background */}
+            {/* Inner ring background track */}
             <SvgCircle
               cx={center} cy={center} r={innerRadius}
-              stroke="rgba(255,255,255,0.06)"
+              stroke="rgba(255,255,255,0.05)"
               strokeWidth={innerStroke}
               fill="none"
             />
-            {/* Inner ring — current month */}
+            {/* Inner ring — Mês Atual (green) */}
             {innerPct > 0 ? (
               <SvgCircle
                 cx={center} cy={center} r={innerRadius}
                 stroke={innerColor}
                 strokeWidth={innerStroke}
+                strokeOpacity={0.7}
                 fill="none"
                 strokeDasharray={innerCirc}
                 strokeDashoffset={innerOffset}
@@ -325,53 +317,54 @@ function DonutMini(props) {
             ) : null}
           </Svg>
 
-          {/* Center value */}
+          {/* Center value — always R$ + number */}
           <View style={{ alignItems: 'center' }}>
-            {showPrev ? (
-              <Text style={{
-                fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.35)',
-                fontFamily: F.mono, marginBottom: 1,
-              }}>MES ANT</Text>
-            ) : (
-              <Text style={{
-                fontSize: isTotalDonut ? 10 : 9,
-                fontWeight: '600', color: 'rgba(255,255,255,0.3)', fontFamily: F.mono,
-                marginBottom: 1,
-              }}>R$</Text>
-            )}
+            <Text style={{
+              fontSize: isTotalDonut ? 10 : 9,
+              fontWeight: '600', color: 'rgba(255,255,255,0.3)', fontFamily: F.mono,
+              marginBottom: 1,
+            }}>R$</Text>
             <Text style={{
               fontSize: isTotalDonut ? 16 : 14,
               fontWeight: '800', color: displayColor, fontFamily: F.mono, textAlign: 'center',
-            }}>{showPrev ? ('R$ ' + centerNum) : centerNum}</Text>
+            }}>{centerNum}</Text>
           </View>
         </View>
       </TouchableOpacity>
 
-      {/* Comparison badge */}
-      {compareText ? (
-        <View style={{
-          marginTop: 5, paddingHorizontal: 7, paddingVertical: 2,
-          borderRadius: 6, backgroundColor: compareColor + '15',
-          borderWidth: 1, borderColor: compareColor + '35',
-        }}>
-          <Text style={{
-            fontSize: 10, fontWeight: '700', color: compareColor,
-            fontFamily: F.mono, letterSpacing: 0.3,
-          }}>{compareText}</Text>
+      {/* Legend: Atual / Ant. + comparison % */}
+      {hasPrev ? (
+        <View style={{ alignItems: 'center', marginTop: 5 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: innerColor }} />
+              <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono }}>Atual</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: outerColor }} />
+              <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono }}>Ant.</Text>
+            </View>
+          </View>
+          {comparePct ? (
+            <Text style={{
+              fontSize: 10, fontWeight: '700', fontFamily: F.mono, marginTop: 3,
+              color: atualMelhor ? '#22c55e' : '#ef4444',
+            }}>{comparePct}</Text>
+          ) : null}
         </View>
       ) : null}
 
-      {/* Legend dots */}
-      {hasPrev ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: innerColor }} />
-            <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono }}>Atual</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: outerColor, borderWidth: 1, borderColor: color + '60' }} />
-            <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono }}>Ant.</Text>
-          </View>
+      {/* Optional sub-lines (e.g. Recebido / A receber) */}
+      {subLines && subLines.length > 0 ? (
+        <View style={{ alignItems: 'center', marginTop: 2 }}>
+          {subLines.map(function (line, idx) {
+            if (!line) return null;
+            return (
+              <Text key={idx} style={{ fontSize: 9, color: line.color || 'rgba(255,255,255,0.3)', fontFamily: F.mono }}>
+                {line.text}
+              </Text>
+            );
+          })}
         </View>
       ) : null}
     </View>
@@ -439,6 +432,14 @@ export default function HomeScreen({ navigation }) {
     var result = await getDashboard(user.id);
     setData(result);
     setLoading(false);
+
+    // Save patrimonio snapshot (real market value) for chart history
+    if (result && result.patrimonio > 0) {
+      var todayISO = new Date().toISOString().substring(0, 10);
+      upsertPatrimonioSnapshot(user.id, todayISO, result.patrimonio).catch(function (e) {
+        console.warn('Snapshot save failed:', e);
+      });
+    }
 
     // Fire-and-forget: trigger indicator calculation if stale
     getIndicators(user.id).then(function(indResult) {
@@ -715,7 +716,7 @@ export default function HomeScreen({ navigation }) {
                   <InteractiveChart
                     data={filteredChartData}
                     color="#0ea5e9"
-                    height={100}
+                    height={120}
                     fontFamily={F.mono}
                     label="Evolução do patrimônio"
                     onTouchStateChange={setChartTouching}
@@ -771,11 +772,10 @@ export default function HomeScreen({ navigation }) {
 
         {/* RENDA DO MÊS — donuts + meta */}
         <GlassCard glow="rgba(108,92,231,0.10)">
-          <SLabel right={
-            <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono }}>
-              {new Date().toLocaleString('pt-BR', { month: 'short' }).toUpperCase()}
-            </Text>
-          }>RENDA DO MES</SLabel>
+          <SLabel>RENDA DO MES</SLabel>
+          <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.20)', fontFamily: F.mono, letterSpacing: 0.5, textAlign: 'center', marginTop: -6, marginBottom: 10 }}>
+            {new Date().toLocaleString('pt-BR', { month: 'short' }).toUpperCase() + ' ' + new Date().getFullYear() + '  ·  ATUAL vs ANTERIOR'}
+          </Text>
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start', marginBottom: 16 }}>
             <DonutMini
@@ -785,29 +785,17 @@ export default function HomeScreen({ navigation }) {
               color={P.opcao.color}
               size={88}
             />
-            <View style={{ alignItems: 'center' }}>
-              <DonutMini
-                label="Dividendos"
-                value={dividendosMes}
-                prevValue={dividendosMesAnterior}
-                color={P.fii.color}
-                size={88}
-              />
-              {dividendosMes > 0 ? (
-                <View style={{ marginTop: 4, alignItems: 'center' }}>
-                  {dividendosRecebidosMes > 0 ? (
-                    <Text style={{ fontSize: 9, color: '#22c55e', fontFamily: F.mono }}>
-                      {'Recebido ' + fmt(dividendosRecebidosMes)}
-                    </Text>
-                  ) : null}
-                  {dividendosAReceberMes > 0 ? (
-                    <Text style={{ fontSize: 9, color: '#f59e0b', fontFamily: F.mono }}>
-                      {'A receber ' + fmt(dividendosAReceberMes)}
-                    </Text>
-                  ) : null}
-                </View>
-              ) : null}
-            </View>
+            <DonutMini
+              label="Dividendos"
+              value={dividendosMes}
+              prevValue={dividendosMesAnterior}
+              color={P.fii.color}
+              size={88}
+              subLines={dividendosMes > 0 ? [
+                dividendosRecebidosMes > 0 ? { text: 'Receb. ' + fmt(dividendosRecebidosMes), color: '#22c55e' } : null,
+                dividendosAReceberMes > 0 ? { text: 'A rec. ' + fmt(dividendosAReceberMes), color: '#f59e0b' } : null,
+              ] : null}
+            />
             <DonutMini
               label="Total"
               value={premiosMes + dividendosMes}
@@ -868,6 +856,9 @@ export default function HomeScreen({ navigation }) {
               {ganhosTotal >= 0 ? '+' : ''}{fmt(ganhosTotal)}
             </Text>
           }>GANHOS ACUMULADOS</SLabel>
+          <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.20)', fontFamily: F.mono, letterSpacing: 0.5, textAlign: 'center', marginTop: -6, marginBottom: 10 }}>
+            {new Date().toLocaleString('pt-BR', { month: 'short' }).toUpperCase() + ' ' + new Date().getFullYear() + '  ·  ATUAL vs ANTERIOR'}
+          </Text>
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start', marginBottom: 10 }}>
             <DonutMini

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
-import Svg, { Path, Defs, LinearGradient as SvgGrad, Stop, Circle, Line, Rect } from 'react-native-svg';
+import Svg, { Path, Defs, LinearGradient as SvgGrad, Stop, Circle, Line, Rect, Text as SvgText } from 'react-native-svg';
 
 /**
  * InteractiveChart — touch-draggable line chart with tooltip
@@ -23,6 +23,28 @@ function formatBRL(v) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function formatAxisValue(v) {
+  if (v == null || isNaN(v)) return '0';
+  var abs = Math.abs(v);
+  if (abs >= 1000000) return (v / 1000000).toFixed(1).replace('.', ',') + 'M';
+  if (abs >= 1000) return (v / 1000).toFixed(0) + 'k';
+  return v.toFixed(0);
+}
+
+function isSunday(dateStr) {
+  var dt = typeof dateStr === 'string' ? new Date(dateStr + 'T12:00:00') : dateStr;
+  return dt.getDay() === 0;
+}
+
+function getWeekKey(dateStr) {
+  var dt = typeof dateStr === 'string' ? new Date(dateStr + 'T12:00:00') : dateStr;
+  var year = dt.getFullYear();
+  var jan1 = new Date(year, 0, 1);
+  var dayOfYear = Math.floor((dt - jan1) / 86400000) + 1;
+  var weekNum = Math.ceil(dayOfYear / 7);
+  return year + '-W' + weekNum;
 }
 
 function formatDateDefault(d) {
@@ -72,14 +94,14 @@ export default function InteractiveChart(props) {
 
   var padTop = 10;
   var padBottom = 6;
-  var padLeft = 6;
+  var padLeft = 40;
   var padRight = 6;
   var drawH = chartHeight - padTop - padBottom;
   var drawW = containerWidth - padLeft - padRight;
 
-  // Compute points
+  // Compute points + weekly markers
   var computed = useMemo(function () {
-    if (data.length < 2 || drawW <= 0) return { points: [], minV: 0, maxV: 0 };
+    if (data.length < 2 || drawW <= 0) return { points: [], minV: 0, maxV: 0, weeklyIndices: [], yLabels: [] };
     var values = data.map(function (d) { return d.value; });
     var minV = Math.min.apply(null, values);
     var maxV = Math.max.apply(null, values);
@@ -95,7 +117,27 @@ export default function InteractiveChart(props) {
       return { x: x, y: y, value: d.value, date: d.date, index: i };
     });
 
-    return { points: points, minV: minV, maxV: maxV, range: range };
+    // Find last data point of each week
+    var weeklyIndices = [];
+    var lastWeek = '';
+    for (var w = 0; w < data.length; w++) {
+      var wk = getWeekKey(data[w].date);
+      if (wk !== lastWeek && lastWeek !== '') {
+        weeklyIndices.push(w - 1);
+      }
+      lastWeek = wk;
+    }
+    weeklyIndices.push(data.length - 1);
+
+    // Y-axis labels (3 values: bottom, middle, top)
+    var yLabels = [];
+    for (var yl = 0; yl <= 3; yl++) {
+      var valAtGrid = minV + (range * (3 - yl) / 3);
+      var yPos = padTop + (drawH / 3) * yl;
+      yLabels.push({ y: yPos, label: formatAxisValue(valAtGrid) });
+    }
+
+    return { points: points, minV: minV, maxV: maxV, range: range, weeklyIndices: weeklyIndices, yLabels: yLabels };
   }, [data, drawW, drawH]);
 
   var points = computed.points;
@@ -182,20 +224,31 @@ export default function InteractiveChart(props) {
     : 0;
   var tooltipAbove = ap && ap.y > chartHeight * 0.45;
 
-  // Horizontal grid
-  var gridLines = [];
-  if (showGrid && computed.range) {
-    for (var g = 1; g <= 3; g++) {
-      gridLines.push(padTop + (drawH / 4) * g);
+  // Y-axis grid + labels
+  var yLabels = computed.yLabels || [];
+
+  // Weekly markers
+  var weeklyIndices = computed.weeklyIndices || [];
+
+  // X-axis date labels from weekly points (max 5 to avoid crowding)
+  var xLabels = [];
+  if (weeklyIndices.length > 0 && points.length > 0) {
+    var step = Math.max(1, Math.floor(weeklyIndices.length / 5));
+    for (var xl = 0; xl < weeklyIndices.length; xl += step) {
+      var wi = weeklyIndices[xl];
+      if (points[wi]) {
+        xLabels.push({ x: points[wi].x, label: formatDate(data[wi].date) });
+      }
+    }
+    // Always include last point
+    var lastWi = weeklyIndices[weeklyIndices.length - 1];
+    if (xLabels.length === 0 || xLabels[xLabels.length - 1].x !== points[lastWi].x) {
+      xLabels.push({ x: points[lastWi].x, label: formatDate(data[lastWi].date) });
     }
   }
 
-  // First and last date labels
-  var firstDate = data.length > 0 ? formatDate(data[0].date) : '';
-  var lastDate = data.length > 1 ? formatDate(data[data.length - 1].date) : '';
-
   return (
-    <View onLayout={onLayout} style={{ height: chartHeight + 18, width: '100%' }}>
+    <View onLayout={onLayout} style={{ height: chartHeight + 22, width: '100%' }}>
       {containerWidth > 0 ? (
         <View>
           {/* Touch area */}
@@ -212,13 +265,22 @@ export default function InteractiveChart(props) {
               {/* Invisible touch target covering the whole area */}
               <Rect x="0" y="0" width={containerWidth} height={chartHeight} fill="transparent" />
 
-              {/* Grid */}
-              {gridLines.map(function (y, i) {
+              {/* Y-axis grid lines + labels */}
+              {yLabels.map(function (yl, i) {
                 return (
-                  <Line key={'g' + i}
-                    x1={padLeft} y1={y} x2={containerWidth - padRight} y2={y}
-                    stroke="rgba(255,255,255,0.04)" strokeWidth="1"
-                  />
+                  <React.Fragment key={'yl' + i}>
+                    <Line
+                      x1={padLeft} y1={yl.y} x2={containerWidth - padRight} y2={yl.y}
+                      stroke="rgba(255,255,255,0.05)" strokeWidth="1"
+                    />
+                    <SvgText
+                      x={padLeft - 4} y={yl.y + 3}
+                      fill="rgba(255,255,255,0.25)"
+                      fontSize="8"
+                      fontFamily={fontFamily}
+                      textAnchor="end"
+                    >{yl.label}</SvgText>
+                  </React.Fragment>
                 );
               })}
 
@@ -227,8 +289,20 @@ export default function InteractiveChart(props) {
 
               {/* Line */}
               {linePath ? (
-                <Path d={linePath} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                <Path d={linePath} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               ) : null}
+
+              {/* Weekly dots */}
+              {weeklyIndices.map(function (wi) {
+                var wp = points[wi];
+                if (!wp) return null;
+                return (
+                  <React.Fragment key={'wd' + wi}>
+                    <Circle cx={wp.x} cy={wp.y} r="4" fill={color} opacity="0.2" />
+                    <Circle cx={wp.x} cy={wp.y} r="2.5" fill={color} opacity="0.8" />
+                  </React.Fragment>
+                );
+              })}
 
               {/* Active cursor line */}
               {ap ? (
@@ -283,13 +357,22 @@ export default function InteractiveChart(props) {
             ) : null}
           </View>
 
-          {/* Date axis labels */}
+          {/* X-axis date labels */}
           <View style={styles.dateAxis}>
-            <Text style={[styles.dateLabel, { fontFamily: fontFamily }]}>{firstDate}</Text>
-            <Text style={[styles.dateLabelHint, { fontFamily: fontFamily }]}>
-              {ap ? '' : 'arraste para ver valores'}
-            </Text>
-            <Text style={[styles.dateLabel, { fontFamily: fontFamily }]}>{lastDate}</Text>
+            {xLabels.map(function (xl, i) {
+              return (
+                <Text key={'xl' + i} style={[styles.dateLabel, {
+                  fontFamily: fontFamily,
+                  position: 'absolute',
+                  left: xl.x - 16,
+                }]}>{xl.label}</Text>
+              );
+            })}
+            {!ap ? (
+              <Text style={[styles.dateLabelHint, { fontFamily: fontFamily, textAlign: 'center', flex: 1 }]}>
+                arraste para ver valores
+              </Text>
+            ) : null}
           </View>
         </View>
       ) : null}
@@ -385,10 +468,10 @@ var styles = StyleSheet.create({
   },
   dateAxis: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 6,
+    height: 16,
     marginTop: 4,
+    position: 'relative',
   },
   dateLabel: {
     fontSize: 9,

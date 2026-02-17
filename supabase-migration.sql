@@ -267,3 +267,46 @@ CREATE TABLE IF NOT EXISTS rebalance_targets (
 );
 ALTER TABLE rebalance_targets ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "rebalance_targets_own" ON rebalance_targets FOR ALL USING (auth.uid() = user_id);
+
+-- ═══════════════════════════════════════════════════
+-- 13. PATRIMONIO SNAPSHOTS
+-- ═══════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS patrimonio_snapshots (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) NOT NULL,
+  data DATE NOT NULL,
+  valor NUMERIC NOT NULL,
+  UNIQUE(user_id, data)
+);
+CREATE INDEX IF NOT EXISTS idx_snapshots_user ON patrimonio_snapshots(user_id);
+ALTER TABLE patrimonio_snapshots ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "snapshots_own" ON patrimonio_snapshots FOR ALL USING (auth.uid() = user_id);
+
+-- ═══════════════════════════════════════════════════
+-- 14. SNAPSHOT SEMANAL AUTOMATICO
+-- ═══════════════════════════════════════════════════
+-- Usa Supabase Edge Function (supabase/functions/weekly-snapshot)
+-- que busca cotacoes reais da brapi e calcula patrimonio de mercado.
+--
+-- Deploy:
+--   supabase functions deploy weekly-snapshot
+--
+-- Agendar no Dashboard > Database > Cron Jobs (ou pg_cron):
+--   Toda sexta 18h BRT (21:00 UTC):
+--
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+SELECT cron.schedule(
+  'weekly-patrimonio-snapshot',
+  '0 21 * * 5',
+  $$SELECT net.http_post(
+    url := current_setting('app.settings.supabase_url') || '/functions/v1/weekly-snapshot',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key'),
+      'Content-Type', 'application/json'
+    ),
+    body := '{}'::jsonb
+  )$$
+);
+--
+-- ALTERNATIVA: agendar via Supabase Dashboard > Edge Functions > Schedules
+-- sem precisar de pg_cron. Cron expression: 0 21 * * 5
