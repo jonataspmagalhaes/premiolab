@@ -7,6 +7,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getProventos, deleteProvento } from '../../services/database';
+import { runDividendSync } from '../../services/dividendService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
@@ -56,6 +57,7 @@ export default function ProventosScreen(props) {
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
   var _filter = useState('todos'); var filter = _filter[0]; var setFilter = _filter[1];
+  var _syncing = useState(false); var syncing = _syncing[0]; var setSyncing = _syncing[1];
 
   var load = async function() {
     if (!user) return;
@@ -70,6 +72,23 @@ export default function ProventosScreen(props) {
     setRefreshing(true);
     await load();
     setRefreshing(false);
+  };
+
+  var handleSync = async function() {
+    if (syncing || !user) return;
+    setSyncing(true);
+    try {
+      var result = await runDividendSync(user.id);
+      if (result.inserted > 0) {
+        Alert.alert('Sincronizado', result.inserted + ' provento' + (result.inserted > 1 ? 's' : '') + ' importado' + (result.inserted > 1 ? 's' : '') + '.');
+        await load();
+      } else {
+        Alert.alert('Atualizado', 'Nenhum provento novo encontrado.');
+      }
+    } catch (e) {
+      Alert.alert('Erro', 'Falha ao sincronizar dividendos.');
+    }
+    setSyncing(false);
   };
 
   var handleDelete = function(id) {
@@ -145,9 +164,16 @@ export default function ProventosScreen(props) {
           <Text style={styles.back}>{'‹'}</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Proventos</Text>
-        <TouchableOpacity onPress={function() { navigation.navigate('AddProvento'); }}>
-          <Text style={styles.addIcon}>+</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+          <TouchableOpacity onPress={handleSync} disabled={syncing} style={{ opacity: syncing ? 0.4 : 1 }}>
+            <Text style={{ fontSize: 13, color: C.accent, fontWeight: '700', fontFamily: F.mono }}>
+              {syncing ? 'Sincronizando...' : 'Sincronizar'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={function() { navigation.navigate('AddProvento'); }}>
+            <Text style={styles.addIcon}>+</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Total card */}

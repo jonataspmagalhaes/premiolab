@@ -249,3 +249,8 @@ CREATE INDEX IF NOT EXISTS idx_indicators_user ON indicators(user_id);
 CREATE INDEX IF NOT EXISTS idx_indicators_ticker ON indicators(user_id, ticker);
 ALTER TABLE indicators ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "indicators_own" ON indicators FOR ALL USING (auth.uid() = user_id);
+
+-- ═══════════════════════════════════════════════════
+-- 11. DIVIDEND SYNC
+-- ═══════════════════════════════════════════════════
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_dividend_sync DATE;

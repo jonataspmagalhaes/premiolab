@@ -7,9 +7,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getDashboard, getIndicators } from '../../services/database';
+import { getDashboard, getIndicators, getProfile } from '../../services/database';
 import { clearPriceCache } from '../../services/priceService';
 import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
+import { runDividendSync, shouldSyncDividends } from '../../services/dividendService';
 import Svg, { Circle as SvgCircle } from 'react-native-svg';
 import { Badge } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
@@ -437,6 +438,19 @@ export default function HomeScreen({ navigation }) {
       }
     }).catch(function(e) {
       console.warn('Home indicator check failed:', e);
+    });
+
+    // Fire-and-forget: trigger dividend sync if stale
+    getProfile(user.id).then(function(profResult) {
+      var profile = profResult.data;
+      var lastSync = profile && profile.last_dividend_sync ? profile.last_dividend_sync : null;
+      if (shouldSyncDividends(lastSync)) {
+        runDividendSync(user.id).catch(function(e) {
+          console.warn('Home dividend sync failed:', e);
+        });
+      }
+    }).catch(function(e) {
+      console.warn('Home dividend sync check failed:', e);
     });
   };
 
