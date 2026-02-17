@@ -205,6 +205,28 @@ var FII_REBAL_MAP = {
 var FII_SECTORS_SET = { 'Logistica': 1, 'Lajes Corp.': 1, 'Shopping': 1, 'Papel/CRI': 1, 'Agro': 1, 'Renda Urbana': 1, 'Fundo de Fundos': 1 };
 var ETF_SECTORS_SET = { 'RV Brasil': 1, 'Small Caps': 1, 'Dividendos': 1, 'Internacional': 1, 'Cripto': 1, 'RF ETF': 1, 'Setorial': 1 };
 
+// Market Cap classification (BRL thresholds)
+var CAP_THRESHOLDS = [
+  { key: 'Large Cap', min: 40000000000 },
+  { key: 'Mid Cap', min: 10000000000 },
+  { key: 'Small Cap', min: 2000000000 },
+  { key: 'Micro Cap', min: 0 },
+];
+var CAP_COLORS = {
+  'Large Cap': '#3B82F6', 'Mid Cap': '#10B981',
+  'Small Cap': '#F59E0B', 'Micro Cap': '#EF4444',
+  'Sem Info': '#6B7280',
+};
+var CAP_ORDER = ['Large Cap', 'Mid Cap', 'Small Cap', 'Micro Cap', 'Sem Info'];
+
+function classifyMarketCap(marketCap) {
+  if (!marketCap || marketCap <= 0) return 'Sem Info';
+  for (var i = 0; i < CAP_THRESHOLDS.length; i++) {
+    if (marketCap >= CAP_THRESHOLDS[i].min) return CAP_THRESHOLDS[i].key;
+  }
+  return 'Micro Cap';
+}
+
 function classifyTicker(ticker, positions, fallbackClass) {
   var t = ticker.toUpperCase().trim();
   var info = TICKER_SECTORS[t];
@@ -1159,7 +1181,7 @@ function TwoLevelDonut(props) {
 
 // ═══════════ REBALANCEAMENTO ═══════════
 
-function buildRebalanceTree(positions, rendaFixa, totalCarteira, classTargets, sectorTargets, tickerTargets) {
+function buildRebalanceTree(positions, rendaFixa, totalCarteira, classTargets, capTargets, sectorTargets, tickerTargets) {
   var classes = ['acao', 'fii', 'etf', 'rf'];
   var FLAT_CLASSES = { etf: true, rf: true };
   var tree = [];
@@ -1248,14 +1270,133 @@ function buildRebalanceTree(positions, rendaFixa, totalCarteira, classTargets, s
         metaPct: metaPctClass, diff: diffClass, ajuste: ajusteClass,
         sectors: [], tickers: tickers,
       });
+    } else if (cat === 'acao') {
+      // ── ACAO: cap → sector → ticker hierarchy ──
+      var capMap = {};
+      positionsByClass[cat].forEach(function (p) {
+        var capLabel = classifyMarketCap(p.marketCap);
+        if (!capMap[capLabel]) capMap[capLabel] = [];
+        capMap[capLabel].push(p);
+      });
+
+      // Include tickers from tickerTargets under acao caps
+      Object.keys(tickerTargets).forEach(function (tKey) {
+        if (tKey.indexOf('acao:') !== 0 || tKey === 'acao:_flat') return;
+        var parts = tKey.substring(5).split(':');
+        if (parts.length < 2) return;
+        var capName = parts[0];
+        var secName = parts[1];
+        var tObj = tickerTargets[tKey] || {};
+        Object.keys(tObj).forEach(function (tk) {
+          var found = false;
+          if (capMap[capName]) {
+            capMap[capName].forEach(function (p) {
+              if (p.ticker && p.ticker.toUpperCase() === tk.toUpperCase()) found = true;
+            });
+          }
+          if (!found) {
+            if (!capMap[capName]) capMap[capName] = [];
+            capMap[capName].push({ ticker: tk, quantidade: 0, preco_atual: 0, pm: 0, categoria: 'acao', marketCap: 0 });
+          }
+        });
+      });
+
+      var capTF = capTargets || {};
+      var capGroups = [];
+
+      CAP_ORDER.forEach(function (capName, cIdx) {
+        var capPositions = capMap[capName] || [];
+        var hasTarget = capTF[capName] && capTF[capName] > 0;
+        if (capPositions.length === 0 && !hasTarget) return;
+
+        var capMetaRel = capTF[capName] || 0;
+        var capMetaAbs = metaPctClass * capMetaRel / 100;
+        var atualValCap = 0;
+        capPositions.forEach(function (p) { atualValCap += p.quantidade * (p.preco_atual || p.pm); });
+        var atualPctCap = totalCarteira > 0 ? (atualValCap / totalCarteira) * 100 : 0;
+        var metaValCap = (capMetaAbs / 100) * totalCarteira;
+        var diffCap = atualPctCap - capMetaAbs;
+        var ajusteCap = metaValCap - atualValCap;
+
+        // Group by sector within cap
+        var sectorMap = {};
+        capPositions.forEach(function (p) {
+          var setor = getRebalSector(p.ticker, cat);
+          if (!sectorMap[setor]) sectorMap[setor] = [];
+          sectorMap[setor].push(p);
+        });
+
+        // Include targets-only tickers within this cap
+        var sectorTKey = 'acao:' + capName;
+        Object.keys(tickerTargets).forEach(function (tKey) {
+          if (tKey.indexOf(sectorTKey + ':') !== 0) return;
+          var secName = tKey.substring(sectorTKey.length + 1);
+          var tObj = tickerTargets[tKey] || {};
+          Object.keys(tObj).forEach(function (tk) {
+            var found = false;
+            if (sectorMap[secName]) {
+              sectorMap[secName].forEach(function (p) {
+                if (p.ticker && p.ticker.toUpperCase() === tk.toUpperCase()) found = true;
+              });
+            }
+            if (!found) {
+              if (!sectorMap[secName]) sectorMap[secName] = [];
+              sectorMap[secName].push({ ticker: tk, quantidade: 0, preco_atual: 0, pm: 0, categoria: 'acao', marketCap: 0 });
+            }
+          });
+        });
+
+        var sectorKeys = Object.keys(sectorMap);
+        sectorKeys.sort();
+        var sTF = sectorTargets[sectorTKey] || {};
+        var sectors = [];
+        sectorKeys.forEach(function (sectorName, sIdx) {
+          var items = sectorMap[sectorName];
+          var atualValSec = 0;
+          items.forEach(function (p) { atualValSec += p.quantidade * (p.preco_atual || p.pm); });
+          var atualPctSec = totalCarteira > 0 ? (atualValSec / totalCarteira) * 100 : 0;
+          var metaRel = sTF[sectorName] || 0;
+          var metaAbs = capMetaAbs * metaRel / 100;
+          var metaValSec = (metaAbs / 100) * totalCarteira;
+          var diffSec = atualPctSec - metaAbs;
+          var ajusteSec = metaValSec - atualValSec;
+          var tickTFKey = sectorTKey + ':' + sectorName;
+          var tickTF = tickerTargets[tickTFKey] || {};
+          var tickers = [];
+          items.forEach(function (p) {
+            var val = p.quantidade * (p.preco_atual || p.pm);
+            tickers.push(buildTicker(p.ticker, p.ticker, getSankeyColor(sIdx), val, metaAbs, tickTF[p.ticker] || 0, p.preco_atual || p.pm || 0, p.quantidade));
+          });
+          sectors.push({
+            key: sectorName, label: sectorName, level: 'sector', color: getSankeyColor(sIdx),
+            atualVal: atualValSec, atualPct: atualPctSec,
+            metaPctRel: metaRel, metaPctAbs: metaAbs,
+            diff: diffSec, ajuste: ajusteSec, tickers: tickers,
+          });
+        });
+
+        capGroups.push({
+          key: capName, label: capName, level: 'cap', color: CAP_COLORS[capName] || C.accent,
+          atualVal: atualValCap, atualPct: atualPctCap,
+          metaPctRel: capMetaRel, metaPctAbs: capMetaAbs,
+          diff: diffCap, ajuste: ajusteCap, sectors: sectors,
+        });
+      });
+
+      tree.push({
+        key: cat, label: nome, level: 'class', color: color, flat: false, hasCaps: true,
+        atualVal: atualValClass, atualPct: atualPctClass,
+        metaPct: metaPctClass, diff: diffClass, ajuste: ajusteClass,
+        capGroups: capGroups, sectors: [], tickers: [],
+      });
     } else {
+      // ── FII: sector → ticker hierarchy (unchanged) ──
       var sectorMap = {};
       positionsByClass[cat].forEach(function (p) {
         var setor = getRebalSector(p.ticker, cat);
         if (!sectorMap[setor]) sectorMap[setor] = [];
         sectorMap[setor].push(p);
       });
-      // Include tickers from tickerTargets that have no position (manually added)
       Object.keys(tickerTargets).forEach(function (tKey) {
         if (tKey.indexOf(cat + ':') !== 0 || tKey === cat + ':_flat') return;
         var secName = tKey.substring(cat.length + 1);
@@ -1323,14 +1464,19 @@ function RebalanceTool(props) {
   var DEFAULT_CLASS_TARGETS = { acao: 40, fii: 25, etf: 20, rf: 15 };
   var _expandedClass = useState(null);
   var expandedClass = _expandedClass[0]; var setExpandedClass = _expandedClass[1];
+  var _expandedCap = useState(null);
+  var expandedCap = _expandedCap[0]; var setExpandedCap = _expandedCap[1];
   var _expandedSector = useState(null);
   var expandedSector = _expandedSector[0]; var setExpandedSector = _expandedSector[1];
   var _editing = useState(false);
   var isEditing = _editing[0]; var setEditing = _editing[1];
   var _saving = useState(false);
   var isSaving = _saving[0]; var setSaving = _saving[1];
+  var DEFAULT_CAP_TARGETS = { 'Large Cap': 40, 'Mid Cap': 30, 'Small Cap': 20, 'Micro Cap': 10 };
   var _classTargets = useState(DEFAULT_CLASS_TARGETS);
   var classTargets = _classTargets[0]; var setClassTargets = _classTargets[1];
+  var _capTargets = useState(DEFAULT_CAP_TARGETS);
+  var capTargets = _capTargets[0]; var setCapTargets = _capTargets[1];
   var _sectorTargets = useState({});
   var sectorTargets = _sectorTargets[0]; var setSectorTargets = _sectorTargets[1];
   var _tickerTargets = useState({});
@@ -1348,7 +1494,16 @@ function RebalanceTool(props) {
     _didLoadDB = true;
     setDbLoaded(true);
     if (savedTargets.class_targets) setClassTargets(savedTargets.class_targets);
-    if (savedTargets.sector_targets) setSectorTargets(savedTargets.sector_targets);
+    // Extract cap targets from sector_targets._cap
+    var savedST = savedTargets.sector_targets || {};
+    if (savedST._cap) {
+      setCapTargets(savedST._cap);
+      var stClean = {};
+      Object.keys(savedST).forEach(function (k) { if (k !== '_cap') stClean[k] = savedST[k]; });
+      setSectorTargets(stClean);
+    } else {
+      if (savedTargets.sector_targets) setSectorTargets(savedTargets.sector_targets);
+    }
     if (savedTargets.ticker_targets) setTickerTargets(savedTargets.ticker_targets);
     setInitialized(true);
   }
@@ -1367,18 +1522,21 @@ function RebalanceTool(props) {
       label: 'Conservador', emoji: '🛡️',
       desc: 'Prioriza renda fixa e FIIs de papel. Menor exposicao a acoes.',
       classes: { acao: 15, fii: 15, etf: 10, rf: 60 },
+      acaoCaps: { 'Large Cap': 60, 'Mid Cap': 25, 'Small Cap': 10, 'Micro Cap': 5 },
       fiiSectors: { 'Tijolo': 30, 'Papel': 55, 'Hibrido': 15 },
     },
     moderado: {
       label: 'Moderado', emoji: '⚖️',
       desc: 'Equilibrio entre renda variavel e fixa. Diversificacao ampla.',
       classes: { acao: 30, fii: 25, etf: 20, rf: 25 },
+      acaoCaps: { 'Large Cap': 45, 'Mid Cap': 30, 'Small Cap': 20, 'Micro Cap': 5 },
       fiiSectors: { 'Tijolo': 45, 'Papel': 40, 'Hibrido': 15 },
     },
     arrojado: {
       label: 'Arrojado', emoji: '🚀',
       desc: 'Foco em acoes e ETFs para crescimento. Pouca renda fixa.',
       classes: { acao: 45, fii: 25, etf: 25, rf: 5 },
+      acaoCaps: { 'Large Cap': 30, 'Mid Cap': 30, 'Small Cap': 25, 'Micro Cap': 15 },
       fiiSectors: { 'Tijolo': 55, 'Papel': 30, 'Hibrido': 15 },
     },
   };
@@ -1468,33 +1626,42 @@ function RebalanceTool(props) {
           newSectorT['fii'] = sObj;
         }
       } else {
-        // Acao: equal weight sectors, equal weight tickers
-        var acSectorMap = {};
+        // Acao: group by cap → sector → ticker
+        var newCapT = profile.acaoCaps || { 'Large Cap': 40, 'Mid Cap': 30, 'Small Cap': 20, 'Micro Cap': 10 };
+        var capSectorMap = {};
         positions.forEach(function (p) {
-          if ((p.categoria || 'acao') !== cat) return;
+          if ((p.categoria || 'acao') !== 'acao') return;
+          var capLabel = classifyMarketCap(p.marketCap);
           var info = TICKER_SECTORS[p.ticker];
           var setor = info ? info.setor : 'Sem Setor';
-          if (!acSectorMap[setor]) acSectorMap[setor] = [];
-          acSectorMap[setor].push(p.ticker);
+          if (!capSectorMap[capLabel]) capSectorMap[capLabel] = {};
+          if (!capSectorMap[capLabel][setor]) capSectorMap[capLabel][setor] = [];
+          capSectorMap[capLabel][setor].push(p.ticker);
         });
-        var acKeys = Object.keys(acSectorMap);
-        if (acKeys.length > 0) {
-          var eqS = Math.floor(100 / acKeys.length);
-          var leftS = 100 - eqS * acKeys.length;
-          var acSObj = {};
-          acKeys.forEach(function (sk, si) {
-            acSObj[sk] = si === 0 ? eqS + leftS : eqS;
-            var sitems = acSectorMap[sk];
-            var eqT2 = Math.floor(100 / sitems.length);
-            var leftT2 = 100 - eqT2 * sitems.length;
-            var tO2 = {};
-            sitems.forEach(function (tk, ti) {
-              tO2[tk] = ti === 0 ? eqT2 + leftT2 : eqT2;
+
+        Object.keys(capSectorMap).forEach(function (capName) {
+          var sectorsInCap = capSectorMap[capName];
+          var sKeys = Object.keys(sectorsInCap);
+          if (sKeys.length > 0) {
+            var eqS = Math.floor(100 / sKeys.length);
+            var leftS = 100 - eqS * sKeys.length;
+            var sObj = {};
+            sKeys.forEach(function (sk, si) {
+              sObj[sk] = si === 0 ? eqS + leftS : eqS;
+              var sitems = sectorsInCap[sk];
+              var eqT3 = Math.floor(100 / sitems.length);
+              var leftT3 = 100 - eqT3 * sitems.length;
+              var tO3 = {};
+              sitems.forEach(function (tk, ti) {
+                tO3[tk] = ti === 0 ? eqT3 + leftT3 : eqT3;
+              });
+              newTickerT['acao:' + capName + ':' + sk] = tO3;
             });
-            newTickerT[cat + ':' + sk] = tO2;
-          });
-          newSectorT[cat] = acSObj;
-        }
+            newSectorT['acao:' + capName] = sObj;
+          }
+        });
+
+        setCapTargets(newCapT);
       }
     });
 
@@ -1503,11 +1670,14 @@ function RebalanceTool(props) {
     setSuggestions(null);
     setShowProfiles(false);
 
-    // Save profile to DB
+    // Save profile to DB (embed capTargets in sector_targets._cap)
     if (userId) {
+      var stToSave = {};
+      Object.keys(newSectorT).forEach(function (k) { stToSave[k] = newSectorT[k]; });
+      stToSave._cap = profile.acaoCaps || { 'Large Cap': 40, 'Mid Cap': 30, 'Small Cap': 20, 'Micro Cap': 10 };
       upsertRebalanceTargets(userId, {
         class_targets: profile.classes,
-        sector_targets: newSectorT,
+        sector_targets: stToSave,
         ticker_targets: newTickerT,
       }).catch(function () { /* silent */ });
     }
@@ -1540,17 +1710,56 @@ function RebalanceTool(props) {
           });
           initTickerT[cat + ':_flat'] = tObj;
         }
+      } else if (cat === 'acao') {
+        // Acao: group by cap → sector → ticker
+        var initCapSM = {};
+        positions.forEach(function (p) {
+          if ((p.categoria || 'acao') !== 'acao') return;
+          var capLabel = classifyMarketCap(p.marketCap);
+          var info = TICKER_SECTORS[p.ticker];
+          var setor = info ? info.setor : 'Sem Setor';
+          if (!initCapSM[capLabel]) initCapSM[capLabel] = {};
+          if (!initCapSM[capLabel][setor]) initCapSM[capLabel][setor] = [];
+          initCapSM[capLabel][setor].push(p.ticker);
+        });
+        // Equal weight caps that have positions
+        var capKeys = Object.keys(initCapSM);
+        if (capKeys.length > 0) {
+          var eqC = Math.round(100 / capKeys.length);
+          var initCapT = {};
+          capKeys.forEach(function (ck, ci) {
+            initCapT[ck] = ci === capKeys.length - 1 ? (100 - eqC * (capKeys.length - 1)) : eqC;
+          });
+          setCapTargets(initCapT);
+        }
+        Object.keys(initCapSM).forEach(function (capName) {
+          var sectorsInCap = initCapSM[capName];
+          var sKeys = Object.keys(sectorsInCap);
+          if (sKeys.length > 0) {
+            var eqS2 = Math.round(100 / sKeys.length);
+            var sObj2 = {};
+            sKeys.forEach(function (sk, si) {
+              sObj2[sk] = si === sKeys.length - 1 ? (100 - eqS2 * (sKeys.length - 1)) : eqS2;
+              var sitems = sectorsInCap[sk];
+              if (sitems.length > 0) {
+                var eqT4 = Math.round(100 / sitems.length);
+                var tO4 = {};
+                sitems.forEach(function (tk, ti) {
+                  tO4[tk] = ti === sitems.length - 1 ? (100 - eqT4 * (sitems.length - 1)) : eqT4;
+                });
+                initTickerT['acao:' + capName + ':' + sk] = tO4;
+              }
+            });
+            initSectorT['acao:' + capName] = sObj2;
+          }
+        });
       } else {
+        // FII: sector → ticker
         var sectorMap = {};
         positions.forEach(function (p) {
           if ((p.categoria || 'acao') !== cat) return;
           var info = TICKER_SECTORS[p.ticker];
-          var setor;
-          if (cat === 'fii') {
-            setor = info ? (FII_REBAL_MAP[info.setor] || 'Outros FII') : 'Sem Setor';
-          } else {
-            setor = info ? info.setor : 'Sem Setor';
-          }
+          var setor = info ? (FII_REBAL_MAP[info.setor] || 'Outros FII') : 'Sem Setor';
           if (!sectorMap[setor]) sectorMap[setor] = [];
           sectorMap[setor].push(p.ticker);
         });
@@ -1580,7 +1789,7 @@ function RebalanceTool(props) {
   }
 
   // Build the tree
-  var tree = buildRebalanceTree(positions, rendaFixa, totalCarteira, classTargets, sectorTargets, tickerTargets);
+  var tree = buildRebalanceTree(positions, rendaFixa, totalCarteira, classTargets, capTargets, sectorTargets, tickerTargets);
 
   // Accuracy: 100 - sum(|class drift|)
   var sumDrift = 0;
@@ -1608,7 +1817,13 @@ function RebalanceTool(props) {
     var leaves = [];
     tree.forEach(function (cls) {
       var allTickers = cls.flat ? cls.tickers : [];
-      if (!cls.flat) {
+      if (!cls.flat && cls.hasCaps) {
+        (cls.capGroups || []).forEach(function (cg) {
+          cg.sectors.forEach(function (sec) {
+            sec.tickers.forEach(function (t) { allTickers.push(t); });
+          });
+        });
+      } else if (!cls.flat) {
         cls.sectors.forEach(function (sec) {
           sec.tickers.forEach(function (t) { allTickers.push(t); });
         });
@@ -1633,7 +1848,13 @@ function RebalanceTool(props) {
       if (classDeficit <= 0) return;
       var hasTickerDef = false;
       var allT = cls.flat ? cls.tickers : [];
-      if (!cls.flat) {
+      if (!cls.flat && cls.hasCaps) {
+        (cls.capGroups || []).forEach(function (cg) {
+          cg.sectors.forEach(function (sec) {
+            sec.tickers.forEach(function (t) { allT.push(t); });
+          });
+        });
+      } else if (!cls.flat) {
         cls.sectors.forEach(function (sec) {
           sec.tickers.forEach(function (t) { allT.push(t); });
         });
@@ -1728,6 +1949,19 @@ function RebalanceTool(props) {
     setSuggestions(null);
   }
 
+  function stepCapTarget(capName, delta) {
+    var num = clamp((capTargets[capName] || 0) + delta, 0, 100);
+    var result = redistribute(capTargets, capName, num);
+    setCapTargets(result);
+    setSuggestions(null);
+  }
+  function setCapTargetVal(capName, val) {
+    var num = clamp(parseInt(val) || 0, 0, 100);
+    var result = redistribute(capTargets, capName, num);
+    setCapTargets(result);
+    setSuggestions(null);
+  }
+
   function stepSectorTarget(cat, sectorName, delta) {
     var catObj = sectorTargets[cat] || {};
     var num = clamp((catObj[sectorName] || 0) + delta, 0, 100);
@@ -1789,20 +2023,35 @@ function RebalanceTool(props) {
       innerCopy[t] = 0;
       outerCopy[flatKey] = innerCopy;
       setTickerTargets(outerCopy);
-    } else {
+    } else if (cat === 'acao') {
+      // Acao: determine cap group from marketCap
+      var mktCap = 0;
+      positions.forEach(function (p) {
+        if (p.ticker && p.ticker.toUpperCase() === t) mktCap = p.marketCap || 0;
+      });
+      var capLabel = classifyMarketCap(mktCap);
       var setor = cls.setor;
-      // Ensure sector exists
-      var catSectors = sectorTargets[cat] || {};
+
+      // Ensure cap exists in capTargets
+      if (capTargets[capLabel] === undefined) {
+        var ctCopy = {};
+        Object.keys(capTargets).forEach(function (k) { ctCopy[k] = capTargets[k]; });
+        ctCopy[capLabel] = 0;
+        setCapTargets(ctCopy);
+      }
+      // Ensure sector exists under cap
+      var sectorTKey = 'acao:' + capLabel;
+      var catSectors = sectorTargets[sectorTKey] || {};
       if (catSectors[setor] === undefined) {
         var sCopy = {};
         Object.keys(sectorTargets).forEach(function (k) { sCopy[k] = sectorTargets[k]; });
         var inner = {};
         Object.keys(catSectors).forEach(function (k) { inner[k] = catSectors[k]; });
         inner[setor] = 0;
-        sCopy[cat] = inner;
+        sCopy[sectorTKey] = inner;
         setSectorTargets(sCopy);
       }
-      var compKey = cat + ':' + setor;
+      var compKey = sectorTKey + ':' + setor;
       var secO = tickerTargets[compKey] || {};
       if (secO[t] !== undefined) return;
       var oC = {};
@@ -1812,6 +2061,29 @@ function RebalanceTool(props) {
       iC[t] = 0;
       oC[compKey] = iC;
       setTickerTargets(oC);
+    } else {
+      // FII: sector → ticker
+      var setor2 = cls.setor;
+      var catSectors2 = sectorTargets[cat] || {};
+      if (catSectors2[setor2] === undefined) {
+        var sCopy2 = {};
+        Object.keys(sectorTargets).forEach(function (k) { sCopy2[k] = sectorTargets[k]; });
+        var inner2 = {};
+        Object.keys(catSectors2).forEach(function (k) { inner2[k] = catSectors2[k]; });
+        inner2[setor2] = 0;
+        sCopy2[cat] = inner2;
+        setSectorTargets(sCopy2);
+      }
+      var compKey2 = cat + ':' + setor2;
+      var secO2 = tickerTargets[compKey2] || {};
+      if (secO2[t] !== undefined) return;
+      var oC2 = {};
+      Object.keys(tickerTargets).forEach(function (k) { oC2[k] = tickerTargets[k]; });
+      var iC2 = {};
+      Object.keys(secO2).forEach(function (k) { iC2[k] = secO2[k]; });
+      iC2[t] = 0;
+      oC2[compKey2] = iC2;
+      setTickerTargets(oC2);
     }
     setNewTicker('');
     setSuggestions(null);
@@ -1956,7 +2228,8 @@ function RebalanceTool(props) {
   }
 
   // ── RENDER: Sector row ──
-  function renderSectorRow(s, cat) {
+  function renderSectorRow(s, cat, indent) {
+    var ml = indent !== undefined ? indent : 16;
     var diffColor = Math.abs(s.diff) < 2 ? C.green : Math.abs(s.diff) < 5 ? C.yellow : C.red;
     var isExp = expandedSector === (cat + ':' + s.key);
     var compKey = cat + ':' + s.key;
@@ -1972,7 +2245,7 @@ function RebalanceTool(props) {
             setExpandedSector(isExp ? null : cat + ':' + s.key);
           }}
           activeOpacity={0.7}
-          style={{ marginLeft: 16, marginBottom: 1, padding: 9, borderRadius: 9,
+          style={{ marginLeft: ml, marginBottom: 1, padding: 9, borderRadius: 9,
             backgroundColor: 'rgba(255,255,255,0.02)', borderLeftWidth: 3, borderLeftColor: diffColor + '70' }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 }}>
@@ -2004,7 +2277,64 @@ function RebalanceTool(props) {
         {isExp ? (
           <View style={{ marginTop: 2 }}>
             {isEditing ? renderTotalBar(tickerTotalPct, 'Total tickers em ' + s.key) : null}
-            {s.tickers.map(function (t) { return renderTickerRow(t, cat, s.key, 32); })}
+            {s.tickers.map(function (t) { return renderTickerRow(t, cat, s.key, ml + 16); })}
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
+  // ── RENDER: Cap row (Market Cap level for acao) ──
+  function renderCapRow(cg) {
+    var diffColor = Math.abs(cg.diff) < 2 ? C.green : Math.abs(cg.diff) < 5 ? C.yellow : C.red;
+    var isExp = expandedCap === cg.key;
+    var sectorTKey = 'acao:' + cg.key;
+    var sTF = sectorTargets[sectorTKey] || {};
+    var sectorTotalPct = 0;
+    Object.keys(sTF).forEach(function (k) { sectorTotalPct += (sTF[k] || 0); });
+
+    return (
+      <View key={cg.key}>
+        <TouchableOpacity
+          onPress={function () {
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            if (isExp) { setExpandedCap(null); setExpandedSector(null); }
+            else { setExpandedCap(cg.key); setExpandedSector(null); }
+          }}
+          activeOpacity={0.7}
+          style={{ marginLeft: 16, marginBottom: 1, padding: 9, borderRadius: 9,
+            backgroundColor: 'rgba(255,255,255,0.02)', borderLeftWidth: 3, borderLeftColor: diffColor + '70' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 }}>
+              <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: cg.color }} />
+              <Text style={{ fontSize: 12, fontWeight: '600', color: C.text, fontFamily: F.display }}>{cg.label}</Text>
+              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{isExp ? '▾' : '▸'}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {isEditing ? (
+                <View>
+                  <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>META</Text>
+                  {renderStepper(cg.metaPctRel,
+                    function (d) { stepCapTarget(cg.key, d); },
+                    function (v) { setCapTargetVal(cg.key, v); })}
+                </View>
+              ) : null}
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>
+                  {cg.atualPct.toFixed(1) + '% / ' + cg.metaPctAbs.toFixed(1) + '%'}
+                </Text>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: diffColor, fontFamily: F.mono }}>
+                  {cg.diff > 0 ? '+' : ''}{cg.diff.toFixed(1) + '%'}
+                </Text>
+              </View>
+            </View>
+          </View>
+          {renderBar(cg.atualPct, cg.metaPctAbs, cg.color, 10)}
+        </TouchableOpacity>
+        {isExp ? (
+          <View style={{ marginTop: 2 }}>
+            {isEditing ? renderTotalBar(sectorTotalPct, 'Total setores em ' + cg.key) : null}
+            {cg.sectors.map(function (s) { return renderSectorRow(s, 'acao:' + cg.key, 32); })}
           </View>
         ) : null}
       </View>
@@ -2016,12 +2346,14 @@ function RebalanceTool(props) {
     var diffColor = Math.abs(cls.diff) < 2 ? C.green : Math.abs(cls.diff) < 5 ? C.yellow : C.red;
     var isExp = expandedClass === cls.key;
 
-    // Total for sector or flat ticker bar
+    // Total for sector/cap or flat ticker bar
     var subTotalPct = 0;
     if (cls.flat) {
       var fKey = cls.key + ':_flat';
       var fT = tickerTargets[fKey] || {};
       Object.keys(fT).forEach(function (k) { subTotalPct += (fT[k] || 0); });
+    } else if (cls.hasCaps) {
+      Object.keys(capTargets).forEach(function (k) { subTotalPct += (capTargets[k] || 0); });
     } else {
       var catST = sectorTargets[cls.key] || {};
       Object.keys(catST).forEach(function (k) { subTotalPct += (catST[k] || 0); });
@@ -2032,8 +2364,8 @@ function RebalanceTool(props) {
         <TouchableOpacity
           onPress={function () {
             LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-            if (isExp) { setExpandedClass(null); setExpandedSector(null); }
-            else { setExpandedClass(cls.key); setExpandedSector(null); }
+            if (isExp) { setExpandedClass(null); setExpandedCap(null); setExpandedSector(null); }
+            else { setExpandedClass(cls.key); setExpandedCap(null); setExpandedSector(null); }
           }}
           activeOpacity={0.7}
           style={{ marginBottom: 2, padding: 10, borderRadius: 10,
@@ -2068,9 +2400,11 @@ function RebalanceTool(props) {
 
         {isExp ? (
           <View style={{ marginTop: 2 }}>
-            {isEditing ? renderTotalBar(subTotalPct, cls.flat ? 'Total tickers em ' + cls.label : 'Total setores em ' + cls.label) : null}
+            {isEditing ? renderTotalBar(subTotalPct, cls.flat ? 'Total tickers em ' + cls.label : cls.hasCaps ? 'Total caps em ' + cls.label : 'Total setores em ' + cls.label) : null}
             {cls.flat ? (
               cls.tickers.map(function (t) { return renderTickerRow(t, cls.key, '_flat', 16); })
+            ) : cls.hasCaps ? (
+              cls.capGroups.map(function (cg) { return renderCapRow(cg); })
             ) : (
               cls.sectors.map(function (s) { return renderSectorRow(s, cls.key); })
             )}
@@ -2101,11 +2435,14 @@ function RebalanceTool(props) {
             <TouchableOpacity onPress={function () {
               LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
               if (isEditing && userId) {
-                // Save to DB when closing edit mode
+                // Save to DB when closing edit mode (embed capTargets in sector_targets._cap)
                 setSaving(true);
+                var stToSave = {};
+                Object.keys(sectorTargets).forEach(function (k) { stToSave[k] = sectorTargets[k]; });
+                stToSave._cap = capTargets;
                 upsertRebalanceTargets(userId, {
                   class_targets: classTargets,
-                  sector_targets: sectorTargets,
+                  sector_targets: stToSave,
                   ticker_targets: tickerTargets,
                 }).then(function () { setSaving(false); }).catch(function () { setSaving(false); });
               }

@@ -80,6 +80,7 @@ export async function fetchPrices(tickers) {
           changePercent: r.regularMarketChangePercent || 0,
           previousClose: r.regularMarketPreviousClose || 0,
           updatedAt: r.regularMarketTime || null,
+          marketCap: r.marketCap || 0,
         };
         prices[r.symbol] = entry;
         _cache.prices[r.symbol] = entry;
@@ -278,6 +279,7 @@ export async function enrichPositionsWithPrices(positions) {
       copy.variacao_pct = null;
       copy.pl = null;
       copy.change_day = null;
+      copy.marketCap = 0;
       enriched.push(copy);
       continue;
     }
@@ -296,6 +298,7 @@ export async function enrichPositionsWithPrices(positions) {
     enrichedItem.variacao_pct = variacao_pct;
     enrichedItem.pl = pl;
     enrichedItem.change_day = change_day;
+    enrichedItem.marketCap = quote.marketCap || 0;
     enriched.push(enrichedItem);
   }
 
