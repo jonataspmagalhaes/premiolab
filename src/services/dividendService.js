@@ -26,8 +26,9 @@ export async function fetchDividends(ticker) {
 
     if (results.length === 0) return [];
 
-    var dividendsData = results[0].dividendsData || [];
-    return dividendsData;
+    var dividendsData = results[0].dividendsData || {};
+    var cashDividends = dividendsData.cashDividends || [];
+    return cashDividends;
   } catch (err) {
     console.warn('fetchDividends error for ' + ticker + ':', err.message);
     return [];
