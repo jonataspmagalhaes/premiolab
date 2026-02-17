@@ -26,25 +26,28 @@ PremioLab e um app de investimentos focado no mercado brasileiro, construido com
 
 ```
 src/
-  components/      Componentes reutilizaveis (Glass, Badge, Pill, Charts, States)
+  components/      Componentes reutilizaveis (Glass, Badge, Pill, Charts, States, InteractiveChart)
   config/          Supabase client
   contexts/        AuthContext (login, session, onboarding)
   navigation/      AppNavigator (tabs + stacks)
   screens/
-    analise/       Dashboard analitico
+    analise/       Dashboard analitico + Rebalanceamento hierarquico
     auth/          Login + Onboarding
     carteira/      Portfolio (Carteira, AddOperacao, EditOperacao, AssetDetail)
-    home/          Dashboard principal
+    home/          Dashboard principal (donuts, grafico patrimonio, alertas)
     mais/          Menu + Configs (Meta, Corretoras, Alertas, Selic, Guia, Sobre, Historico)
     opcoes/        Opcoes (lista, add, edit, simulador BS)
     proventos/     Proventos (lista, add, edit)
     rf/            Renda Fixa (lista, add, edit)
   services/
     database.js    Todas as funcoes CRUD do Supabase
-    priceService.js Cotacoes em tempo real + cache
+    priceService.js Cotacoes em tempo real + cache + marketCap
     dividendService.js Auto-sync de dividendos via brapi.dev + StatusInvest
   theme/
     index.js       Cores (C), Fontes (F), Tamanhos (SIZE), Sombras (SHADOW)
+supabase/
+  functions/
+    weekly-snapshot/ Edge Function para snapshot semanal com cotacoes reais
 ```
 
 ## Navegacao
@@ -80,6 +83,7 @@ src/
 | `alertas_config` | flags de alertas + thresholds |
 | `indicators` | HV, RSI, SMA, EMA, Beta, ATR, BB, MaxDD por ticker (UNIQUE user_id+ticker) |
 | `rebalance_targets` | class_targets(JSONB), sector_targets(JSONB), ticker_targets(JSONB) — metas de rebalanceamento persistidas |
+| `patrimonio_snapshots` | user_id, data(DATE), valor — snapshot diario/semanal do patrimonio real (UNIQUE user_id+data) |
 
 ### Status de opcoes
 `ativa`, `exercida`, `expirada`, `fechada`, `expirou_po`
@@ -105,13 +109,14 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Dashboard**: getDashboard (endpoint agregado: patrimonio, renda, eventos, historico, proventosHoje)
 - **Indicadores**: getIndicators, getIndicatorByTicker, upsertIndicator, upsertIndicatorsBatch
 - **Rebalanceamento**: getRebalanceTargets, upsertRebalanceTargets
+- **Snapshots**: getPatrimonioSnapshots, upsertPatrimonioSnapshot
 
 ### priceService.js - Funcoes exportadas
 - `fetchPrices(tickers)` - Cotacoes atuais (cache 60s)
 - `fetchPriceHistory(tickers)` - Historico 1 mes (cache 5min)
 - `fetchPriceHistoryLong(tickers)` - Historico 6 meses OHLCV (cache 1h)
 - `fetchTickerProfile(tickers)` - Sector/industry via brapi summaryProfile (cache 24h)
-- `enrichPositionsWithPrices(positions)` - Adiciona preco_atual, variacao, P&L
+- `enrichPositionsWithPrices(positions)` - Adiciona preco_atual, variacao, P&L, marketCap
 - `clearPriceCache()` - Limpa cache manualmente
 - `getLastPriceUpdate()` - Timestamp da ultima atualizacao
 
@@ -147,6 +152,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 | `Pill` | Primitives.js | Botao selecionavel com estado ativo |
 | `SectionLabel` | Primitives.js | Titulo de secao |
 | `Field` | Primitives.js | Input com label, prefixo/sufixo |
+| `InteractiveChart` | InteractiveChart.js | Grafico interativo touch com tooltip, pontos semanais, eixos Y/X |
 | `MiniLineChart` | InteractiveChart.js | Sparkline interativo |
 | `Sparkline` | Charts.js | Sparkline simples |
 | `Gauge` | Charts.js | Indicador circular |
@@ -200,11 +206,21 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - DTE badge no header de cada card
 
 ### Home (HomeScreen)
-- Card de patrimonio com variacao
-- Card de renda mensal (dividendos + premios + RF) com donut Dividendos mostrando breakdown "Recebido" (verde) vs "A receber" (amarelo) no mes
+- Card de patrimonio com variacao + barra de alocacao por classe
+- **Donuts Double Ring**: aneis concentricos comparando mes atual vs anterior
+  - Anel interno = mes atual, anel externo = mes anterior
+  - Cores dinamicas: verde = mes melhor, vermelho = mes pior
+  - Escala proporcional: maior valor = 100% (anel completo), menor proporcional
+  - Transparencia nos aneis (strokeOpacity 0.7) para legibilidade
+  - Legenda padronizada "Atual / Ant." com dots coloridos + % comparativo
+  - Subtitulo "MES ANO · ATUAL vs ANTERIOR" nos cards
+  - Prop `subLines` para info extra (ex: Recebido/A receber em Dividendos)
+- Card de renda mensal (dividendos + premios + RF)
+- Card de ganhos acumulados (acoes, FIIs, ETFs, RF, total)
+- **Grafico de patrimonio**: InteractiveChart com pontos semanais, eixo Y com valores (k/M), eixo X com datas
+- **Snapshots de patrimonio**: salva valor real (cotacao brapi) ao abrir o app via `upsertPatrimonioSnapshot`
 - Alertas inteligentes
 - Timeline de eventos (vencimentos opcoes, vencimentos RF)
-- Grafico de historico patrimonial
 - **Auto-trigger indicadores**: dispara `runDailyCalculation` em background apos 18h BRT em dias uteis
 - **Auto-trigger dividend sync**: dispara `runDividendSync` fire-and-forget apos 18h BRT em dias uteis
 - **Alerta dividendo hoje**: se `proventosHoje` do dashboard tem itens, mostra alerta verde "Dividendo sendo pago hoje" com tickers e total, badge "HOJE"
@@ -230,6 +246,12 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - Sub-tab **Indicadores** com tabela resumo (Ticker, HV, RSI, Beta, Max DD) + cards detalhados por ativo (14 indicadores)
 - Botao "Recalcular indicadores" para calculo manual
 - Auto-trigger de calculo se dados desatualizados
+- **Rebalanceamento hierarquico**: Classe → Setor → Ticker (FIIs/ETFs/RF) ou Classe → Market Cap → Setor → Ticker (Acoes)
+  - Classificacao por market cap via brapi: Large Cap (>R$40B), Mid Cap (>R$10B), Small Cap (>R$2B), Micro Cap (<R$2B)
+  - Setores dinamicos via `fetchTickerProfile` (brapi summaryProfile) com fallback para TICKER_SECTORS
+  - Perfis pre-configurados: Conservador, Moderado, Arrojado
+  - Persistencia no Supabase (tabela `rebalance_targets`), capTargets embutido em `sector_targets._cap`
+  - Accordion com expand/collapse por nivel, steppers +/- para edicao de metas
 
 ### Auth
 - Login/Registro com Supabase Auth
@@ -245,6 +267,9 @@ Ao configurar um novo ambiente, executar `supabase-migration.sql` no SQL Editor 
 - Migration opcoes: status `expirou_po`, coluna `premio_fechamento`, direcao `venda`, coluna `data_abertura`
 - Tabela `indicators` com RLS + UNIQUE(user_id, ticker)
 - Coluna `profiles.last_dividend_sync` (DATE) para controle do auto-sync de dividendos
+- Tabela `rebalance_targets` com JSONB para class/sector/ticker targets
+- Tabela `patrimonio_snapshots` com UNIQUE(user_id, data)
+- pg_cron setup para snapshot semanal via Edge Function
 
 ## Padroes Importantes
 
@@ -326,3 +351,32 @@ Trigger automatico fire-and-forget na Home apos 18h BRT via `shouldSyncDividends
 | `src/screens/home/HomeScreen.js` | Auto-trigger fire-and-forget dividend sync |
 | `src/screens/proventos/ProventosScreen.js` | Botao "Sincronizar" no header + handleSync |
 | `supabase-migration.sql` | Coluna `profiles.last_dividend_sync` |
+
+## Snapshots de Patrimonio (Implementado)
+
+Grava o valor real do patrimonio periodicamente para construir o grafico de evolucao patrimonial com dados precisos.
+
+### Fontes de dados
+1. **App (ao abrir Home)**: salva snapshot com valor de mercado real (cotacoes brapi via `enrichPositionsWithPrices`) + RF
+2. **Edge Function semanal**: `supabase/functions/weekly-snapshot/index.ts` — busca cotacoes reais da brapi para todos os usuarios, calcula patrimonio e salva snapshots. Roda toda sexta 18h BRT via pg_cron + `net.http_post`
+
+### Logica de prioridade
+- Quando usuario abre o app: `upsertPatrimonioSnapshot` salva valor real (upsert por user_id+data)
+- Quando cron roda (sexta): Edge Function busca precos reais da brapi e faz upsert. Se usuario ja abriu naquele dia, sobrescreve com valor atualizado
+- `getDashboard` merge snapshots no `patrimonioHistory`: snapshots substituem valores baseados em custo
+
+### Grafico de patrimonio (InteractiveChart)
+- Pontos semanais: dot no ultimo ponto de cada semana (glow r=4 + centro r=2.5)
+- Eixo Y: labels com valores formatados (k/M) alinhados as linhas de grid
+- Eixo X: datas distribuidas nos pontos semanais (max 5 labels)
+- Touch interativo: arrastar para ver tooltip com valor + data
+- Linha suave com bezier cubico + area fill com gradiente
+
+### Arquivos
+| Arquivo | Mudanca |
+|---------|---------|
+| `supabase/functions/weekly-snapshot/index.ts` | Edge Function — busca brapi, calcula patrimonio, upsert snapshots |
+| `src/services/database.js` | getPatrimonioSnapshots, upsertPatrimonioSnapshot, merge no getDashboard |
+| `src/screens/home/HomeScreen.js` | Salva snapshot ao abrir, donuts double ring |
+| `src/components/InteractiveChart.js` | Pontos semanais, eixo Y com valores, eixo X com datas |
+| `supabase-migration.sql` | Tabela patrimonio_snapshots, pg_cron + Edge Function |
