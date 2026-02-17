@@ -142,6 +142,67 @@ export async function fetchPriceHistory(tickers) {
   }
 }
 
+// ══════════ FETCH HISTORY LONG (6 months OHLCV) ══════════
+var CACHE_HISTORY_LONG_MS = 3600000; // 1h
+
+export async function fetchPriceHistoryLong(tickers) {
+  if (!tickers || tickers.length === 0) return {};
+
+  // Check cache
+  if (isCacheValid(_cache.lastHistoryLong, CACHE_HISTORY_LONG_MS) && allTickersInCache(tickers, _cache.historyLong || {})) {
+    var cached = {};
+    for (var c = 0; c < tickers.length; c++) {
+      cached[tickers[c]] = _cache.historyLong[tickers[c]];
+    }
+    return cached;
+  }
+
+  var result = {};
+
+  // brapi nao suporta multiplos tickers com historico longo, buscar um por um
+  for (var t = 0; t < tickers.length; t++) {
+    try {
+      var ticker = tickers[t];
+      var url = buildUrl(ticker, { range: '6mo', interval: '1d' });
+      var response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
+
+      if (!response.ok) continue;
+
+      var json = await response.json();
+      var results = json.results || [];
+
+      if (results.length > 0 && results[0].historicalDataPrice) {
+        var histData = results[0].historicalDataPrice;
+        var ohlcv = [];
+        for (var h = 0; h < histData.length; h++) {
+          var candle = histData[h];
+          if (candle.close != null) {
+            ohlcv.push({
+              date: candle.date ? new Date(candle.date * 1000).toISOString().substring(0, 10) : null,
+              open: candle.open || candle.close,
+              high: candle.high || candle.close,
+              low: candle.low || candle.close,
+              close: candle.close,
+              volume: candle.volume || 0,
+            });
+          }
+        }
+        result[ticker] = ohlcv;
+        if (!_cache.historyLong) _cache.historyLong = {};
+        _cache.historyLong[ticker] = ohlcv;
+      }
+    } catch (err) {
+      console.warn('fetchPriceHistoryLong error for ' + tickers[t] + ':', err.message);
+    }
+  }
+
+  _cache.lastHistoryLong = Date.now();
+  return result;
+}
+
 // ══════════ ENRICH POSITIONS ══════════
 export async function enrichPositionsWithPrices(positions) {
   if (!positions || positions.length === 0) return [];

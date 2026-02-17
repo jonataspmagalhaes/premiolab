@@ -7,8 +7,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getDashboard } from '../../services/database';
+import { getDashboard, getIndicators } from '../../services/database';
 import { clearPriceCache } from '../../services/priceService';
+import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import Svg, { Circle as SvgCircle } from 'react-native-svg';
 import { Badge } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
@@ -424,6 +425,19 @@ export default function HomeScreen({ navigation }) {
     var result = await getDashboard(user.id);
     setData(result);
     setLoading(false);
+
+    // Fire-and-forget: trigger indicator calculation if stale
+    getIndicators(user.id).then(function(indResult) {
+      var indData = indResult.data || [];
+      var lastCalc = indData.length > 0 ? indData[0].data_calculo : null;
+      if (shouldCalculateToday(lastCalc)) {
+        runDailyCalculation(user.id).catch(function(e) {
+          console.warn('Home indicator calc failed:', e);
+        });
+      }
+    }).catch(function(e) {
+      console.warn('Home indicator check failed:', e);
+    });
   };
 
   useFocusEffect(useCallback(function () { load(); }, [user]));

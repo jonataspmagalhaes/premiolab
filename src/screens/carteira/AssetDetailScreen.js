@@ -6,7 +6,7 @@ import {
 
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOperacoes, getProventos, deleteOperacao } from '../../services/database';
+import { getOperacoes, getProventos, deleteOperacao, getIndicatorByTicker } from '../../services/database';
 import { fetchPrices, fetchPriceHistory, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
 import { Glass, Badge, SectionLabel } from '../../components';
 import InteractiveChart from '../../components/InteractiveChart';
@@ -29,6 +29,7 @@ export default function AssetDetailScreen(props) {
   var s6 = useState(false); var priceLoading = s6[0]; var setPriceLoading = s6[1];
   var s7 = useState(false); var refreshing = s7[0]; var setRefreshing = s7[1];
   var s8 = useState(null); var priceError = s8[0]; var setPriceError = s8[1];
+  var s9 = useState(null); var indicator = s9[0]; var setIndicator = s9[1];
 
   useEffect(function() { loadData(); }, []);
 
@@ -37,9 +38,11 @@ export default function AssetDetailScreen(props) {
     var results = await Promise.all([
       getOperacoes(user.id, { ticker: ticker }),
       getProventos(user.id, { ticker: ticker }),
+      getIndicatorByTicker(user.id, ticker),
     ]);
     setTxns(results[0].data || []);
     setProvs(results[1].data || []);
+    setIndicator(results[2].data || null);
     setLoading(false);
 
     // Fetch live price + history
@@ -243,6 +246,39 @@ export default function AssetDetailScreen(props) {
           </Glass>
         ) : null}
 
+        {/* ══════ INDICADORES TECNICOS ══════ */}
+        {indicator ? (
+          <Glass padding={14}>
+            <SectionLabel>INDICADORES TECNICOS</SectionLabel>
+            <View style={styles.indGrid}>
+              {[
+                { l: 'HV 20d', v: indicator.hv_20 != null ? indicator.hv_20.toFixed(1) + '%' : '–', c: C.opcoes },
+                { l: 'RSI 14', v: indicator.rsi_14 != null ? indicator.rsi_14.toFixed(1) : '–',
+                  c: indicator.rsi_14 != null ? (indicator.rsi_14 > 70 ? C.red : indicator.rsi_14 < 30 ? C.green : C.text) : C.text },
+                { l: 'SMA 20', v: indicator.sma_20 != null ? 'R$ ' + fmt(indicator.sma_20) : '–', c: C.acoes },
+                { l: 'EMA 9', v: indicator.ema_9 != null ? 'R$ ' + fmt(indicator.ema_9) : '–', c: C.acoes },
+                { l: 'Beta', v: indicator.beta != null ? indicator.beta.toFixed(2) : '–',
+                  c: indicator.beta != null ? (indicator.beta > 1.2 ? C.red : indicator.beta < 0.8 ? C.green : C.text) : C.text },
+                { l: 'ATR 14', v: indicator.atr_14 != null ? 'R$ ' + fmt(indicator.atr_14) : '–', c: C.text },
+                { l: 'Max DD', v: indicator.max_drawdown != null ? indicator.max_drawdown.toFixed(1) + '%' : '–', c: C.red },
+                { l: 'BB Width', v: indicator.bb_width != null ? indicator.bb_width.toFixed(1) + '%' : '–', c: C.opcoes },
+              ].map(function(d, i) {
+                return (
+                  <View key={i} style={styles.indItem}>
+                    <Text style={styles.indLabel}>{d.l}</Text>
+                    <Text style={[styles.indValue, { color: d.c }]}>{d.v}</Text>
+                  </View>
+                );
+              })}
+            </View>
+            {indicator.data_calculo ? (
+              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, textAlign: 'right', marginTop: 6 }}>
+                {'Calculado em ' + new Date(indicator.data_calculo).toLocaleDateString('pt-BR')}
+              </Text>
+            ) : null}
+          </Glass>
+        ) : null}
+
         {/* ══════ POSICAO ══════ */}
         <Glass glow={C.acoes} padding={14}>
           <SectionLabel>POSICAO</SectionLabel>
@@ -379,4 +415,10 @@ var styles = StyleSheet.create({
   actionLink: { fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '600' },
   buyBtn: { backgroundColor: C.accent, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8 },
   buyBtnText: { fontSize: 14, fontWeight: '700', color: 'white', fontFamily: F.display },
+
+  // Indicators grid
+  indGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  indItem: { width: '48%', backgroundColor: C.surface, borderRadius: SIZE.radiusSm, padding: 10, borderWidth: 1, borderColor: C.border },
+  indLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 },
+  indValue: { fontSize: 14, fontWeight: '700', fontFamily: F.display, marginTop: 2 },
 });

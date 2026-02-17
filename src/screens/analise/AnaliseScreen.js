@@ -18,7 +18,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   getDashboard, getProventos,
   getOperacoes, getProfile, getOpcoes,
+  getIndicators,
 } from '../../services/database';
+import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import InteractiveChart from '../../components/InteractiveChart';
@@ -859,6 +861,7 @@ export default function AnaliseScreen() {
   var _opcShowCall = useState(false); var opcShowCall = _opcShowCall[0]; var setOpcShowCall = _opcShowCall[1];
   var _opcShowPut = useState(false); var opcShowPut = _opcShowPut[0]; var setOpcShowPut = _opcShowPut[1];
   var _opcPremSelected = useState(-1); var opcPremSelected = _opcPremSelected[0]; var setOpcPremSelected = _opcPremSelected[1];
+  var _indicators = useState([]); var indicators = _indicators[0]; var setIndicators = _indicators[1];
 
   // ── Data loading ──
   var load = async function() {
@@ -870,6 +873,7 @@ export default function AnaliseScreen() {
         getOperacoes(user.id),
         getProfile(user.id),
         getOpcoes(user.id),
+        getIndicators(user.id),
       ]);
       setDashboard(results[0]);
       setPositions(results[0].positions || []);
@@ -878,6 +882,20 @@ export default function AnaliseScreen() {
       setOperacoes(results[2].data || []);
       setProfile(results[3].data || null);
       setOpcoes(results[4].data || []);
+      var indData = results[5].data || [];
+      setIndicators(indData);
+
+      // Trigger daily calculation if stale
+      var lastCalc = indData.length > 0 ? indData[0].data_calculo : null;
+      if (shouldCalculateToday(lastCalc)) {
+        runDailyCalculation(user.id).then(function(calcResult) {
+          if (calcResult.data && calcResult.data.length > 0) {
+            setIndicators(calcResult.data);
+          }
+        }).catch(function(e) {
+          console.warn('Indicator calc failed:', e);
+        });
+      }
     } catch (e) {
       console.warn('AnaliseScreen load error:', e);
     }
@@ -1413,6 +1431,7 @@ export default function AnaliseScreen() {
           { k: 'perf', l: 'Performance' },
           { k: 'aloc', l: 'Alocação' },
           { k: 'prov', l: 'Proventos' },
+          { k: 'ind', l: 'Indicadores' },
           { k: 'ir', l: 'IR' },
         ].map(function(t) {
           return (
@@ -2437,6 +2456,143 @@ export default function AnaliseScreen() {
         </>
       )}
 
+      {/* ═══════════ INDICADORES ═══════════ */}
+      {sub === 'ind' && (
+        <>
+          {indicators.length === 0 ? (
+            <EmptyState
+              icon={'\u0394'} title="Sem indicadores"
+              description="Indicadores sao calculados automaticamente apos 18h em dias uteis. Adicione ativos na carteira para comecar."
+              color={C.opcoes}
+            />
+          ) : (
+            <>
+              {/* Summary */}
+              <Glass padding={14}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                  {[
+                    { l: 'ATIVOS', v: String(indicators.length), c: C.acoes },
+                    { l: 'ULTIMO CALCULO', v: indicators[0] && indicators[0].data_calculo
+                      ? new Date(indicators[0].data_calculo).toLocaleDateString('pt-BR') : '–', c: C.sub },
+                  ].map(function(m, i) {
+                    return (
+                      <View key={i} style={{ alignItems: 'center', flex: 1 }}>
+                        <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: m.c, fontFamily: F.display, marginTop: 2 }}>{m.v}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </Glass>
+
+              {/* Recalculate button */}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={{ backgroundColor: C.opcoes + '15', borderWidth: 1, borderColor: C.opcoes + '30', borderRadius: 10, paddingVertical: 10, alignItems: 'center' }}
+                onPress={function() {
+                  if (!user) return;
+                  runDailyCalculation(user.id).then(function(calcResult) {
+                    if (calcResult.data && calcResult.data.length > 0) {
+                      setIndicators(calcResult.data);
+                    }
+                  }).catch(function(e) {
+                    console.warn('Manual calc failed:', e);
+                  });
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '700', color: C.opcoes, fontFamily: F.display }}>Recalcular indicadores</Text>
+              </TouchableOpacity>
+
+              {/* Table header */}
+              <Glass padding={0}>
+                <View style={styles.indTableHeader}>
+                  <Text style={[styles.indTableCol, { flex: 1.2 }]}>Ticker</Text>
+                  <Text style={styles.indTableCol}>HV 20d</Text>
+                  <Text style={styles.indTableCol}>RSI</Text>
+                  <Text style={styles.indTableCol}>Beta</Text>
+                  <Text style={styles.indTableCol}>Max DD</Text>
+                </View>
+
+                {/* Table rows */}
+                {indicators.map(function(ind, i) {
+                  var rsiColor = C.text;
+                  if (ind.rsi_14 != null) {
+                    if (ind.rsi_14 > 70) rsiColor = C.red;
+                    else if (ind.rsi_14 < 30) rsiColor = C.green;
+                  }
+                  var betaColor = C.text;
+                  if (ind.beta != null) {
+                    if (ind.beta > 1.2) betaColor = C.red;
+                    else if (ind.beta < 0.8) betaColor = C.green;
+                  }
+                  return (
+                    <View key={ind.ticker || i} style={[styles.indTableRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+                      <Text style={[styles.indTableTicker, { flex: 1.2 }]}>{ind.ticker}</Text>
+                      <Text style={[styles.indTableVal, { color: C.opcoes }]}>
+                        {ind.hv_20 != null ? ind.hv_20.toFixed(1) + '%' : '–'}
+                      </Text>
+                      <Text style={[styles.indTableVal, { color: rsiColor }]}>
+                        {ind.rsi_14 != null ? ind.rsi_14.toFixed(0) : '–'}
+                      </Text>
+                      <Text style={[styles.indTableVal, { color: betaColor }]}>
+                        {ind.beta != null ? ind.beta.toFixed(2) : '–'}
+                      </Text>
+                      <Text style={[styles.indTableVal, { color: C.red }]}>
+                        {ind.max_drawdown != null ? ind.max_drawdown.toFixed(1) + '%' : '–'}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </Glass>
+
+              {/* Detailed cards per ticker */}
+              <SectionLabel>DETALHES POR ATIVO</SectionLabel>
+              {indicators.map(function(ind, i) {
+                return (
+                  <Glass key={ind.ticker || i} padding={14}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, fontFamily: F.display }}>{ind.ticker}</Text>
+                      {ind.preco_fechamento != null ? (
+                        <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.mono }}>
+                          {'R$ ' + fmt(ind.preco_fechamento)}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {[
+                        { l: 'HV 20d', v: ind.hv_20 != null ? ind.hv_20.toFixed(1) + '%' : '–', c: C.opcoes },
+                        { l: 'HV 60d', v: ind.hv_60 != null ? ind.hv_60.toFixed(1) + '%' : '–', c: C.opcoes },
+                        { l: 'RSI 14', v: ind.rsi_14 != null ? ind.rsi_14.toFixed(1) : '–',
+                          c: ind.rsi_14 != null ? (ind.rsi_14 > 70 ? C.red : ind.rsi_14 < 30 ? C.green : C.text) : C.text },
+                        { l: 'Beta', v: ind.beta != null ? ind.beta.toFixed(2) : '–',
+                          c: ind.beta != null ? (ind.beta > 1.2 ? C.red : ind.beta < 0.8 ? C.green : C.text) : C.text },
+                        { l: 'SMA 20', v: ind.sma_20 != null ? 'R$ ' + fmt(ind.sma_20) : '–', c: C.acoes },
+                        { l: 'SMA 50', v: ind.sma_50 != null ? 'R$ ' + fmt(ind.sma_50) : '–', c: C.acoes },
+                        { l: 'EMA 9', v: ind.ema_9 != null ? 'R$ ' + fmt(ind.ema_9) : '–', c: C.acoes },
+                        { l: 'EMA 21', v: ind.ema_21 != null ? 'R$ ' + fmt(ind.ema_21) : '–', c: C.acoes },
+                        { l: 'ATR 14', v: ind.atr_14 != null ? 'R$ ' + fmt(ind.atr_14) : '–', c: C.text },
+                        { l: 'Max DD', v: ind.max_drawdown != null ? ind.max_drawdown.toFixed(1) + '%' : '–', c: C.red },
+                        { l: 'BB Upper', v: ind.bb_upper != null ? 'R$ ' + fmt(ind.bb_upper) : '–', c: C.acoes },
+                        { l: 'BB Lower', v: ind.bb_lower != null ? 'R$ ' + fmt(ind.bb_lower) : '–', c: C.acoes },
+                        { l: 'BB Width', v: ind.bb_width != null ? ind.bb_width.toFixed(1) + '%' : '–', c: C.opcoes },
+                        { l: 'Vol Med 20', v: ind.volume_medio_20 != null ? fmtC(ind.volume_medio_20) : '–', c: C.sub },
+                      ].map(function(d, di) {
+                        return (
+                          <View key={di} style={styles.indDetailItem}>
+                            <Text style={styles.indDetailLabel}>{d.l}</Text>
+                            <Text style={[styles.indDetailValue, { color: d.c }]}>{d.v}</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </Glass>
+                );
+              })}
+            </>
+          )}
+        </>
+      )}
+
       {/* ═══════════ IR ═══════════ */}
       {sub === 'ir' && (
         <>
@@ -2692,4 +2848,14 @@ var styles = StyleSheet.create({
   rebalInput: { width: 36, height: 22, borderRadius: 4, borderWidth: 1, borderColor: C.accent + '40',
     backgroundColor: C.accent + '08', color: C.accent, fontSize: 11, fontFamily: F.mono,
     textAlign: 'center', paddingVertical: 0, paddingHorizontal: 4 },
+
+  // Indicators table
+  indTableHeader: { flexDirection: 'row', alignItems: 'center', padding: 10, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: 'rgba(255,255,255,0.02)' },
+  indTableCol: { flex: 1, fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4, textAlign: 'center' },
+  indTableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 10 },
+  indTableTicker: { flex: 1, fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display },
+  indTableVal: { flex: 1, fontSize: 11, fontWeight: '600', fontFamily: F.mono, textAlign: 'center' },
+  indDetailItem: { width: '31%', backgroundColor: C.surface, borderRadius: 8, padding: 8, borderWidth: 1, borderColor: C.border },
+  indDetailLabel: { fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 },
+  indDetailValue: { fontSize: 12, fontWeight: '700', fontFamily: F.display, marginTop: 2 },
 });

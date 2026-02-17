@@ -7,8 +7,9 @@ import Svg, { Line, Rect, Path, Text as SvgText } from 'react-native-svg';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig } from '../../services/database';
+import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators } from '../../services/database';
 import { enrichPositionsWithPrices, clearPriceCache, fetchPrices } from '../../services/priceService';
+import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { supabase } from '../../config/supabase';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
@@ -442,6 +443,7 @@ function OpCard(props) {
   var op = props.op;
   var positions = props.positions;
   var saldos = props.saldos || [];
+  var indicatorsMap = props.indicators || {};
   var onEdit = props.onEdit;
   var onDelete = props.onDelete;
   var onClose = props.onClose;
@@ -598,6 +600,36 @@ function OpCard(props) {
           );
         })}
       </View>
+
+      {/* HV vs IV line */}
+      {(function() {
+        var ind = indicatorsMap[op.ativo_base];
+        var hv = ind && ind.hv_20 != null ? ind.hv_20 : null;
+        if (hv == null) return null;
+        var iv = greeks.iv;
+        var ratio = iv > 0 && hv > 0 ? iv / hv : null;
+        var ivLabel = null;
+        var ivColor = C.dim;
+        if (ratio != null && ratio >= 1.3) {
+          ivLabel = 'IV ALTA';
+          ivColor = C.red;
+        } else if (ratio != null && ratio <= 0.7) {
+          ivLabel = 'IV BAIXA';
+          ivColor = C.green;
+        }
+        return (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>
+              {'HV: ' + hv.toFixed(0) + '%'}
+            </Text>
+            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>|</Text>
+            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>
+              {'IV: ' + iv.toFixed(0) + '%'}
+            </Text>
+            {ivLabel ? <Badge text={ivLabel} color={ivColor} /> : null}
+          </View>
+        );
+      })()}
 
       {/* Bottom: corretora + actions */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
@@ -868,6 +900,7 @@ function SimuladorBS() {
 // ═══════════════════════════════════════
 function CadeiaSintetica(props) {
   var positions = props.positions || [];
+  var indicatorsMap = props.indicators || {};
 
   // Unique tickers with spot prices
   var tickers = [];
@@ -880,12 +913,32 @@ function CadeiaSintetica(props) {
     }
   }
 
-  var _chainTicker = useState(tickers.length > 0 ? tickers[0] : null);
+  // Default IV from HV 20d if available
+  var defaultTicker = tickers.length > 0 ? tickers[0] : null;
+  var defaultIV = '35';
+  if (defaultTicker && indicatorsMap[defaultTicker] && indicatorsMap[defaultTicker].hv_20) {
+    defaultIV = String(Math.round(indicatorsMap[defaultTicker].hv_20));
+  }
+
+  var _chainTicker = useState(defaultTicker);
   var chainTicker = _chainTicker[0]; var setChainTicker = _chainTicker[1];
-  var _chainIV = useState('35');
+  var _chainIV = useState(defaultIV);
   var chainIV = _chainIV[0]; var setChainIV = _chainIV[1];
   var _chainDTE = useState('21');
   var chainDTE = _chainDTE[0]; var setChainDTE = _chainDTE[1];
+
+  // When ticker changes, update IV to that ticker's HV
+  var handleTickerChange = function(tk) {
+    setChainTicker(tk);
+    if (indicatorsMap[tk] && indicatorsMap[tk].hv_20) {
+      setChainIV(String(Math.round(indicatorsMap[tk].hv_20)));
+    }
+  };
+
+  // Current ticker HV for badge
+  var currentHV = (chainTicker && indicatorsMap[chainTicker] && indicatorsMap[chainTicker].hv_20)
+    ? indicatorsMap[chainTicker].hv_20
+    : null;
 
   if (tickers.length === 0) {
     return (
@@ -938,14 +991,14 @@ function CadeiaSintetica(props) {
         {tickers.map(function(tk) {
           return (
             <Pill key={tk} active={chainTicker === tk} color={C.acoes}
-              onPress={function() { setChainTicker(tk); }}>
+              onPress={function() { handleTickerChange(tk); }}>
               {tk}
             </Pill>
           );
         })}
       </View>
 
-      {/* Spot display */}
+      {/* Spot display + HV badge */}
       {spot > 0 ? (
         <Glass padding={10}>
           <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
@@ -953,6 +1006,9 @@ function CadeiaSintetica(props) {
             <Text style={{ fontSize: 18, fontWeight: '800', color: C.text, fontFamily: F.display }}>
               {'R$ ' + fmt(spot)}
             </Text>
+            {currentHV != null ? (
+              <Badge text={'HV 20d: ' + currentHV.toFixed(0) + '%'} color={C.opcoes} />
+            ) : null}
           </View>
         </Glass>
       ) : null}
@@ -1086,7 +1142,9 @@ function CadeiaSintetica(props) {
       {/* Legend */}
       <View style={{ paddingHorizontal: 4 }}>
         <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, textAlign: 'center' }}>
-          Preços teóricos via Black-Scholes. IV e DTE ajustáveis.
+          {currentHV != null
+            ? 'IV inicializado com HV 20d (' + currentHV.toFixed(0) + '%). Ajuste manualmente se necessario.'
+            : 'Precos teoricos via Black-Scholes. IV e DTE ajustaveis.'}
         </Text>
       </View>
     </View>
@@ -1110,6 +1168,7 @@ export default function OpcoesScreen() {
   var s7 = useState([]); var expired = s7[0]; var setExpired = s7[1];
   var s8 = useState([]); var saldos = s8[0]; var setSaldos = s8[1];
   var s9 = useState(false); var exercicioAuto = s9[0]; var setExercicioAuto = s9[1];
+  var s10 = useState({}); var indicators = s10[0]; var setIndicators = s10[1];
 
   var load = async function() {
     if (!user) return;
@@ -1117,7 +1176,36 @@ export default function OpcoesScreen() {
       getOpcoes(user.id),
       getPositions(user.id),
       getSaldos(user.id),
+      getIndicators(user.id),
     ]);
+
+    // Build indicators map by ticker
+    var indData = results[3].data || [];
+    var indMap = {};
+    for (var ii = 0; ii < indData.length; ii++) {
+      indMap[indData[ii].ticker] = indData[ii];
+    }
+    setIndicators(indMap);
+
+    // Trigger daily calculation if stale
+    var lastCalc = indData.length > 0 ? indData[0].data_calculo : null;
+    if (shouldCalculateToday(lastCalc)) {
+      runDailyCalculation(user.id).then(function(calcResult) {
+        if (calcResult.data && calcResult.data.length > 0) {
+          var newMap = {};
+          var mapKeys = Object.keys(indMap);
+          for (var mk = 0; mk < mapKeys.length; mk++) {
+            newMap[mapKeys[mk]] = indMap[mapKeys[mk]];
+          }
+          for (var ci = 0; ci < calcResult.data.length; ci++) {
+            newMap[calcResult.data[ci].ticker] = calcResult.data[ci];
+          }
+          setIndicators(newMap);
+        }
+      }).catch(function(e) {
+        console.warn('Indicator calc failed:', e);
+      });
+    }
     var allOpcoes = results[0].data || [];
     var rawPos = results[1].data || [];
     setSaldos(results[2].data || []);
@@ -1599,7 +1687,7 @@ export default function OpcoesScreen() {
               {/* Option cards */}
               {ativas.map(function(op, i) {
                 return (
-                  <OpCard key={op.id || i} op={op} positions={positions} saldos={saldos}
+                  <OpCard key={op.id || i} op={op} positions={positions} saldos={saldos} indicators={indicators}
                     onEdit={function() { navigation.navigate('EditOpcao', { opcao: op }); }}
                     onDelete={function() { handleDelete(op.id); }}
                     onClose={handleClose}
@@ -1657,7 +1745,7 @@ export default function OpcoesScreen() {
       {sub === 'sim' && <SimuladorBS />}
 
       {/* CADEIA TAB */}
-      {sub === 'cadeia' && <CadeiaSintetica positions={positions} />}
+      {sub === 'cadeia' && <CadeiaSintetica positions={positions} indicators={indicators} />}
 
       {/* HISTORICO TAB */}
       {sub === 'hist' && (

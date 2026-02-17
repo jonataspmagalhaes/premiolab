@@ -77,6 +77,7 @@ src/
 | `saldos_corretora` | name, saldo, tipo(corretora/banco) |
 | `user_corretoras` | name, count |
 | `alertas_config` | flags de alertas + thresholds |
+| `indicators` | HV, RSI, SMA, EMA, Beta, ATR, BB, MaxDD por ticker (UNIQUE user_id+ticker) |
 
 ### Status de opcoes
 `ativa`, `exercida`, `expirada`, `fechada`, `expirou_po`
@@ -100,13 +101,29 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Saldos**: getSaldos
 - **Alertas**: getAlertasConfig, updateAlertasConfig
 - **Dashboard**: getDashboard (endpoint agregado: patrimonio, renda, eventos, historico)
+- **Indicadores**: getIndicators, getIndicatorByTicker, upsertIndicator, upsertIndicatorsBatch
 
 ### priceService.js - Funcoes exportadas
 - `fetchPrices(tickers)` - Cotacoes atuais (cache 60s)
 - `fetchPriceHistory(tickers)` - Historico 1 mes (cache 5min)
+- `fetchPriceHistoryLong(tickers)` - Historico 6 meses OHLCV (cache 1h)
 - `enrichPositionsWithPrices(positions)` - Adiciona preco_atual, variacao, P&L
 - `clearPriceCache()` - Limpa cache manualmente
 - `getLastPriceUpdate()` - Timestamp da ultima atualizacao
+
+### indicatorService.js - Funcoes exportadas
+- `calcHV(closes, period)` - Volatilidade historica anualizada (%)
+- `calcSMA(closes, period)` - Media movel simples
+- `calcEMA(closes, period)` - Media movel exponencial
+- `calcRSI(closes, period)` - RSI Wilder
+- `calcBeta(tickerCloses, ibovCloses, period)` - Beta vs IBOV
+- `calcATR(highs, lows, closes, period)` - Average True Range
+- `calcBollingerBands(closes, period, mult)` - Bandas de Bollinger {upper, lower, width}
+- `calcMaxDrawdown(closes)` - Maior queda pico-a-vale (%)
+- `calcIVMedia(opcoes)` - Media ponderada IV opcoes ativas
+- `calcIVRank(ivAtual, ivsHistoricas)` - Percentil IV atual
+- `runDailyCalculation(userId)` - Orquestrador: posicoes → historicos → calcula → upsert
+- `shouldCalculateToday(lastCalcDate)` - Verifica dia util + hora >= 18 BRT + nao calculou hoje
 
 ## Componentes
 
@@ -162,6 +179,9 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Simulador BS**: inputs editaveis, cenarios what-if (+/-5%, +/-10%)
 - **Payoff Chart**: grafico SVG de P&L no vencimento com breakeven, spot, zonas lucro/prejuizo, touch interativo
 - **Cadeia Sintetica BS**: grade de opcoes com 11 strikes, precos CALL/PUT via Black-Scholes, delta, ITM/ATM/OTM
+  - IV inicializado com **HV 20d real** do indicatorService (fallback 35% se sem dados)
+  - Badge "HV 20d: XX%" ao lado do spot, IV atualiza ao trocar ticker
+- **HV/IV nos cards**: linha "HV: XX% | IV: YY%" + badge "IV ALTA" (>130% HV) / "IV BAIXA" (<70% HV)
 - **Historico**: resumo total recebido, expiradas PO, exercidas + lista detalhada
 - **Data abertura**: campo data_abertura nas opcoes, premios calculados com D+1 (liquidacao)
 - DTE badge no header de cada card
@@ -172,6 +192,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - Alertas inteligentes
 - Timeline de eventos (vencimentos opcoes, vencimentos RF)
 - Grafico de historico patrimonial
+- **Auto-trigger indicadores**: dispara `runDailyCalculation` em background apos 18h BRT em dias uteis
 
 ### Renda Fixa (RendaFixaScreen)
 - Suporte a CDB, LCI/LCA, Tesouro Selic/IPCA/Pre, Debenture
@@ -182,6 +203,16 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - Tipos: dividendo, JCP, rendimento, juros RF, amortizacao, bonificacao
 - Filtros por tipo
 - Valor por cota + total
+
+### AssetDetail (AssetDetailScreen)
+- Card "INDICADORES TECNICOS" com grid 2x4: HV 20d, RSI 14, SMA 20, EMA 9, Beta, ATR 14, Max DD, BB Width
+- Cores semanticas por indicador (RSI >70 vermelho, <30 verde; Beta >1.2 vermelho, <0.8 verde)
+- Data do ultimo calculo no rodape
+
+### Analise (AnaliseScreen)
+- Sub-tab **Indicadores** com tabela resumo (Ticker, HV, RSI, Beta, Max DD) + cards detalhados por ativo (14 indicadores)
+- Botao "Recalcular indicadores" para calculo manual
+- Auto-trigger de calculo se dados desatualizados
 
 ### Auth
 - Login/Registro com Supabase Auth
@@ -195,6 +226,7 @@ Ao configurar um novo ambiente, executar `supabase-migration.sql` no SQL Editor 
 - Trigger para auto-criar profile no signup
 - Migration v4→v5 (comentada, so se upgrading)
 - Migration opcoes: status `expirou_po`, coluna `premio_fechamento`, direcao `venda`, coluna `data_abertura`
+- Tabela `indicators` com RLS + UNIQUE(user_id, ticker)
 
 ## Padroes Importantes
 
@@ -217,6 +249,7 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 
 ## Proximos Passos Possiveis
 
+- [x] **Sistema de Indicadores Tecnicos** (implementado: indicatorService.js, tabela indicators, integrado em Opcoes/AssetDetail/Analise/Home)
 - [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
 - [ ] Grafico de P&L de opcoes por mes (premios recebidos historico)
 - [ ] Notificacoes push para vencimentos proximos
@@ -225,3 +258,19 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 - [ ] Integracao com CEI/B3 para importacao automatica
 - [ ] Dark/Light mode toggle
 - [ ] Backup/restore de dados
+
+## Sistema de Indicadores Tecnicos (Implementado)
+
+Calcula HV, RSI, SMA, EMA, Beta, ATR, Bollinger, IV Rank, Max Drawdown diariamente apos 18h BRT. Dados OHLCV via brapi.dev (6 meses). Trigger automatico fire-and-forget na Home e OpcoesScreen via `shouldCalculateToday()`.
+
+### Arquivos modificados/criados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/services/indicatorService.js` | Criado — 12 funcoes de calculo + orquestrador |
+| `src/services/database.js` | CRUD indicators (get, getByTicker, upsert, upsertBatch) |
+| `src/services/priceService.js` | `fetchPriceHistoryLong()` (6mo OHLCV, cache 1h) |
+| `src/screens/opcoes/OpcoesScreen.js` | HV como IV default na Cadeia, HV/IV nos cards, auto-trigger |
+| `src/screens/carteira/AssetDetailScreen.js` | Grid 2x4 indicadores por ativo |
+| `src/screens/analise/AnaliseScreen.js` | Sub-tab "Indicadores" com tabela + cards detalhados |
+| `src/screens/home/HomeScreen.js` | Auto-trigger fire-and-forget |
+| `supabase-migration.sql` | Tabela `indicators` com RLS |

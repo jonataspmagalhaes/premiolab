@@ -216,3 +216,36 @@ ALTER TABLE opcoes ADD COLUMN IF NOT EXISTS data_abertura DATE DEFAULT NULL;
 
 -- MIGRATION: exercicio_auto em alertas_config
 ALTER TABLE alertas_config ADD COLUMN IF NOT EXISTS exercicio_auto BOOLEAN DEFAULT FALSE;
+
+-- ═══════════════════════════════════════════════════
+-- 10. INDICADORES TÉCNICOS
+-- ═══════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS indicators (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) NOT NULL,
+  ticker TEXT NOT NULL,
+  data_calculo DATE NOT NULL DEFAULT CURRENT_DATE,
+  hv_20 NUMERIC,
+  hv_60 NUMERIC,
+  sma_20 NUMERIC,
+  sma_50 NUMERIC,
+  ema_9 NUMERIC,
+  ema_21 NUMERIC,
+  rsi_14 NUMERIC,
+  beta NUMERIC,
+  atr_14 NUMERIC,
+  max_drawdown NUMERIC,
+  bb_upper NUMERIC,
+  bb_lower NUMERIC,
+  bb_width NUMERIC,
+  iv_media NUMERIC,
+  iv_rank NUMERIC,
+  preco_fechamento NUMERIC,
+  volume_medio_20 NUMERIC,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, ticker)
+);
+CREATE INDEX IF NOT EXISTS idx_indicators_user ON indicators(user_id);
+CREATE INDEX IF NOT EXISTS idx_indicators_ticker ON indicators(user_id, ticker);
+ALTER TABLE indicators ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "indicators_own" ON indicators FOR ALL USING (auth.uid() = user_id);

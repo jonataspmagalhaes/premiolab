@@ -320,6 +320,56 @@ export async function updateAlertasConfig(userId, config) {
   return { data: null, error: null };
 }
 
+// ═══════════ INDICADORES TÉCNICOS ═══════════
+export async function getIndicators(userId) {
+  var result = await supabase
+    .from('indicators')
+    .select('*')
+    .eq('user_id', userId);
+  return { data: result.data || [], error: result.error };
+}
+
+export async function getIndicatorByTicker(userId, ticker) {
+  var result = await supabase
+    .from('indicators')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('ticker', ticker.toUpperCase().trim())
+    .maybeSingle();
+  return { data: result.data, error: result.error };
+}
+
+export async function upsertIndicator(userId, indicator) {
+  var payload = { user_id: userId };
+  var keys = Object.keys(indicator);
+  for (var i = 0; i < keys.length; i++) {
+    payload[keys[i]] = indicator[keys[i]];
+  }
+  var result = await supabase
+    .from('indicators')
+    .upsert(payload, { onConflict: 'user_id,ticker' })
+    .select()
+    .single();
+  return { data: result.data, error: result.error };
+}
+
+export async function upsertIndicatorsBatch(userId, indicatorsList) {
+  var payloads = [];
+  for (var i = 0; i < indicatorsList.length; i++) {
+    var payload = { user_id: userId };
+    var keys = Object.keys(indicatorsList[i]);
+    for (var j = 0; j < keys.length; j++) {
+      payload[keys[j]] = indicatorsList[i][keys[j]];
+    }
+    payloads.push(payload);
+  }
+  var result = await supabase
+    .from('indicators')
+    .upsert(payloads, { onConflict: 'user_id,ticker' })
+    .select();
+  return { data: result.data || [], error: result.error };
+}
+
 // ═══════════ DASHBOARD AGGREGATES ═══════════
 export async function getDashboard(userId) {
   try {
