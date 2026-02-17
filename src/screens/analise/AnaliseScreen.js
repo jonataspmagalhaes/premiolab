@@ -20,7 +20,12 @@ import {
   getOperacoes, getProfile, getOpcoes,
   getIndicators,
 } from '../../services/database';
-import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
+import {
+  runDailyCalculation, shouldCalculateToday,
+  calcHV, calcSMA, calcEMA, calcRSI, calcBeta,
+  calcATR, calcBollingerBands, calcMaxDrawdown,
+} from '../../services/indicatorService';
+import { fetchPriceHistoryLong } from '../../services/priceService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import InteractiveChart from '../../components/InteractiveChart';
@@ -862,6 +867,10 @@ export default function AnaliseScreen() {
   var _opcShowPut = useState(false); var opcShowPut = _opcShowPut[0]; var setOpcShowPut = _opcShowPut[1];
   var _opcPremSelected = useState(-1); var opcPremSelected = _opcPremSelected[0]; var setOpcPremSelected = _opcPremSelected[1];
   var _indicators = useState([]); var indicators = _indicators[0]; var setIndicators = _indicators[1];
+  var _searchTicker = useState(''); var searchTicker = _searchTicker[0]; var setSearchTicker = _searchTicker[1];
+  var _searchLoading = useState(false); var searchLoading = _searchLoading[0]; var setSearchLoading = _searchLoading[1];
+  var _searchResult = useState(null); var searchResult = _searchResult[0]; var setSearchResult = _searchResult[1];
+  var _searchError = useState(''); var searchError = _searchError[0]; var setSearchError = _searchError[1];
 
   // ── Data loading ──
   var load = async function() {
@@ -2459,12 +2468,157 @@ export default function AnaliseScreen() {
       {/* ═══════════ INDICADORES ═══════════ */}
       {sub === 'ind' && (
         <>
+          {/* Consulta avulsa */}
+          <Glass padding={14}>
+            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 6 }}>CONSULTAR ATIVO AVULSO</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TextInput
+                value={searchTicker}
+                onChangeText={function(t) { setSearchTicker(t.toUpperCase()); }}
+                placeholder="Ex: WEGE3"
+                placeholderTextColor={C.dim}
+                autoCapitalize="characters"
+                style={{
+                  flex: 1, backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border,
+                  borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+                  fontSize: 14, color: C.text, fontFamily: F.mono,
+                }}
+              />
+              <TouchableOpacity
+                activeOpacity={0.8}
+                disabled={searchLoading || searchTicker.length < 4}
+                onPress={function() {
+                  var tk = searchTicker.trim().toUpperCase();
+                  if (tk.length < 4) return;
+                  setSearchLoading(true);
+                  setSearchError('');
+                  setSearchResult(null);
+                  fetchPriceHistoryLong([tk, '^BVSP']).then(function(histMap) {
+                    var hist = histMap[tk];
+                    if (!hist || hist.length < 20) {
+                      setSearchError('Dados insuficientes para ' + tk + ' (minimo 20 candles)');
+                      setSearchLoading(false);
+                      return;
+                    }
+                    var closes = [];
+                    var highs = [];
+                    var lows = [];
+                    var volumes = [];
+                    for (var i = 0; i < hist.length; i++) {
+                      closes.push(hist[i].close);
+                      highs.push(hist[i].high);
+                      lows.push(hist[i].low);
+                      volumes.push(hist[i].volume || 0);
+                    }
+                    var ibovHist = histMap['^BVSP'];
+                    var ibovCloses = [];
+                    if (ibovHist) {
+                      for (var j = 0; j < ibovHist.length; j++) {
+                        ibovCloses.push(ibovHist[j].close);
+                      }
+                    }
+                    var volSum = 0;
+                    var volCount = Math.min(20, volumes.length);
+                    for (var v = volumes.length - volCount; v < volumes.length; v++) {
+                      volSum = volSum + volumes[v];
+                    }
+                    var res = {
+                      ticker: tk,
+                      preco_fechamento: closes[closes.length - 1],
+                      hv_20: closes.length >= 21 ? calcHV(closes, 20) : null,
+                      hv_60: closes.length >= 61 ? calcHV(closes, 60) : null,
+                      sma_20: closes.length >= 20 ? calcSMA(closes, 20) : null,
+                      sma_50: closes.length >= 50 ? calcSMA(closes, 50) : null,
+                      ema_9: closes.length >= 9 ? calcEMA(closes, 9) : null,
+                      ema_21: closes.length >= 21 ? calcEMA(closes, 21) : null,
+                      rsi_14: closes.length >= 15 ? calcRSI(closes, 14) : null,
+                      beta: ibovCloses.length >= 21 ? calcBeta(closes, ibovCloses, 20) : null,
+                      atr_14: closes.length >= 15 ? calcATR(highs, lows, closes, 14) : null,
+                      max_drawdown: calcMaxDrawdown(closes),
+                      bb_upper: null, bb_lower: null, bb_width: null,
+                      volume_medio_20: volCount > 0 ? volSum / volCount : null,
+                    };
+                    if (closes.length >= 20) {
+                      var bb = calcBollingerBands(closes, 20, 2);
+                      res.bb_upper = bb.upper;
+                      res.bb_lower = bb.lower;
+                      res.bb_width = bb.width;
+                    }
+                    setSearchResult(res);
+                    setSearchLoading(false);
+                  }).catch(function(e) {
+                    setSearchError('Erro ao buscar ' + tk + ': ' + e.message);
+                    setSearchLoading(false);
+                  });
+                }}
+                style={{
+                  backgroundColor: C.accent, borderRadius: 10,
+                  paddingHorizontal: 16, paddingVertical: 10,
+                  opacity: (searchLoading || searchTicker.length < 4) ? 0.4 : 1,
+                }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '700', color: 'white', fontFamily: F.display }}>
+                  {searchLoading ? 'Buscando...' : 'Buscar'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {searchError ? (
+              <Text style={{ fontSize: 11, color: C.red, fontFamily: F.body, marginTop: 6 }}>{searchError}</Text>
+            ) : null}
+          </Glass>
+
+          {/* Search result card */}
+          {searchResult && (
+            <Glass padding={14} glow={C.accent}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: C.text, fontFamily: F.display }}>{searchResult.ticker}</Text>
+                  <Badge text="AVULSO" color={C.accent} />
+                </View>
+                {searchResult.preco_fechamento != null ? (
+                  <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.mono }}>
+                    {'R$ ' + fmt(searchResult.preco_fechamento)}
+                  </Text>
+                ) : null}
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {[
+                  { l: 'HV 20d', v: searchResult.hv_20 != null ? searchResult.hv_20.toFixed(1) + '%' : '-', c: C.opcoes },
+                  { l: 'HV 60d', v: searchResult.hv_60 != null ? searchResult.hv_60.toFixed(1) + '%' : '-', c: C.opcoes },
+                  { l: 'RSI 14', v: searchResult.rsi_14 != null ? searchResult.rsi_14.toFixed(1) : '-',
+                    c: searchResult.rsi_14 != null ? (searchResult.rsi_14 > 70 ? C.red : searchResult.rsi_14 < 30 ? C.green : C.text) : C.text },
+                  { l: 'Beta', v: searchResult.beta != null ? searchResult.beta.toFixed(2) : '-',
+                    c: searchResult.beta != null ? (searchResult.beta > 1.2 ? C.red : searchResult.beta < 0.8 ? C.green : C.text) : C.text },
+                  { l: 'SMA 20', v: searchResult.sma_20 != null ? 'R$ ' + fmt(searchResult.sma_20) : '-', c: C.acoes },
+                  { l: 'SMA 50', v: searchResult.sma_50 != null ? 'R$ ' + fmt(searchResult.sma_50) : '-', c: C.acoes },
+                  { l: 'EMA 9', v: searchResult.ema_9 != null ? 'R$ ' + fmt(searchResult.ema_9) : '-', c: C.acoes },
+                  { l: 'EMA 21', v: searchResult.ema_21 != null ? 'R$ ' + fmt(searchResult.ema_21) : '-', c: C.acoes },
+                  { l: 'ATR 14', v: searchResult.atr_14 != null ? 'R$ ' + fmt(searchResult.atr_14) : '-', c: C.text },
+                  { l: 'Max DD', v: searchResult.max_drawdown != null ? searchResult.max_drawdown.toFixed(1) + '%' : '-', c: C.red },
+                  { l: 'BB Upper', v: searchResult.bb_upper != null ? 'R$ ' + fmt(searchResult.bb_upper) : '-', c: C.acoes },
+                  { l: 'BB Lower', v: searchResult.bb_lower != null ? 'R$ ' + fmt(searchResult.bb_lower) : '-', c: C.acoes },
+                  { l: 'BB Width', v: searchResult.bb_width != null ? searchResult.bb_width.toFixed(1) + '%' : '-', c: C.opcoes },
+                  { l: 'Vol Med 20', v: searchResult.volume_medio_20 != null ? fmtC(searchResult.volume_medio_20) : '-', c: C.sub },
+                ].map(function(d, di) {
+                  return (
+                    <View key={di} style={styles.indDetailItem}>
+                      <Text style={styles.indDetailLabel}>{d.l}</Text>
+                      <Text style={[styles.indDetailValue, { color: d.c }]}>{d.v}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </Glass>
+          )}
+
           {indicators.length === 0 ? (
-            <EmptyState
-              icon={'\u0394'} title="Sem indicadores"
-              description="Indicadores sao calculados automaticamente apos 18h em dias uteis. Adicione ativos na carteira para comecar."
-              color={C.opcoes}
-            />
+            !searchResult ? (
+              <EmptyState
+                icon={'\u0394'} title="Sem indicadores"
+                description="Indicadores sao calculados automaticamente apos 18h em dias uteis. Adicione ativos na carteira para comecar. Use a busca acima para consultar qualquer ativo."
+                color={C.opcoes}
+              />
+            ) : null
           ) : (
             <>
               {/* Summary */}
