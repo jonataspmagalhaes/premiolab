@@ -4,7 +4,7 @@
  * Detecta novos dividendos para tickers na carteira e insere como proventos
  */
 
-import { getPositions, getProventos, addProvento, getProfile, updateProfile } from './database';
+import { getPositions, getProventos, addProvento, getOperacoes, updateProfile } from './database';
 
 var BRAPI_URL = 'https://brapi.dev/api/quote/';
 var BRAPI_TOKEN = 'tEU8wyBixv8hCi7J3NCjsi';
@@ -106,14 +106,28 @@ export async function runDividendSync(userId) {
       existingKeys[key] = true;
     }
 
-    // 3. Filtro de data: ultimos 12 meses
+    // 3. Buscar operacoes para determinar primeira compra por ticker
+    var opsResult = await getOperacoes(userId, { tipo: 'compra' });
+    var allOps = opsResult.data || [];
+    var firstBuyDate = {};
+    for (var o = 0; o < allOps.length; o++) {
+      var op = allOps[o];
+      var opTicker = (op.ticker || '').toUpperCase().trim();
+      var opDate = (op.data || '').substring(0, 10);
+      if (!opDate) continue;
+      if (!firstBuyDate[opTicker] || opDate < firstBuyDate[opTicker]) {
+        firstBuyDate[opTicker] = opDate;
+      }
+    }
+
+    // 4. Filtro de data: ultimos 12 meses
     var now = new Date();
     var cutoff = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
     var cutoffStr = cutoff.toISOString().substring(0, 10);
 
     var inserted = 0;
 
-    // 4. Para cada ticker, buscar dividendos e inserir novos
+    // 5. Para cada ticker, buscar dividendos e inserir novos
     for (var p = 0; p < positions.length; p++) {
       var pos = positions[p];
       var ticker = pos.ticker;
@@ -136,15 +150,18 @@ export async function runDividendSync(userId) {
         var rate = div.rate;
         if (!rate || rate <= 0) continue;
 
+        // Checar data-com: usuario precisa ter comprado ANTES da data-ex
+        var dataCom = div.lastDatePrior ? div.lastDatePrior.substring(0, 10) : null;
+        if (dataCom && firstBuyDate[ticker]) {
+          if (firstBuyDate[ticker] > dataCom) continue;
+        }
+
         // Dedup check
         var dkey = dedupKey(ticker, paymentDateStr, rate);
         if (existingKeys[dkey]) continue;
 
         // Mapear tipo
         var tipoProv = mapLabelToTipo(div.label);
-
-        // data_com from lastDatePrior
-        var dataCom = div.lastDatePrior ? div.lastDatePrior.substring(0, 10) : null;
 
         // Inserir provento
         var provento = {
