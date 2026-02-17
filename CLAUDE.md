@@ -42,6 +42,7 @@ src/
   services/
     database.js    Todas as funcoes CRUD do Supabase
     priceService.js Cotacoes em tempo real + cache
+    dividendService.js Auto-sync de dividendos via brapi.dev
   theme/
     index.js       Cores (C), Fontes (F), Tamanhos (SIZE), Sombras (SHADOW)
 ```
@@ -69,7 +70,7 @@ src/
 
 | Tabela | Descricao |
 |--------|-----------|
-| `profiles` | id, nome, meta_mensal, selic |
+| `profiles` | id, nome, meta_mensal, selic, last_dividend_sync |
 | `operacoes` | ticker, tipo(compra/venda), categoria(acao/fii/etf), quantidade, preco, custos, corretora, data |
 | `opcoes` | ativo_base, ticker_opcao, tipo(call/put), direcao(venda/compra/lancamento), strike, premio, quantidade, vencimento, data_abertura, status, corretora, premio_fechamento |
 | `proventos` | ticker, tipo_provento, valor_por_cota, quantidade, valor_total, data_pagamento |
@@ -124,6 +125,12 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - `calcIVRank(ivAtual, ivsHistoricas)` - Percentil IV atual
 - `runDailyCalculation(userId)` - Orquestrador: posicoes → historicos → calcula → upsert
 - `shouldCalculateToday(lastCalcDate)` - Verifica dia util + hora >= 18 BRT + nao calculou hoje
+
+### dividendService.js - Funcoes exportadas
+- `fetchDividends(ticker)` - Busca dividendos do ticker via brapi.dev (`?dividends=true`)
+- `mapLabelToTipo(label)` - "DIVIDENDO" → "dividendo", "JCP" → "jcp"
+- `shouldSyncDividends(lastSyncDate)` - Verifica dia util + hora >= 18 BRT + nao sincronizou hoje
+- `runDividendSync(userId)` - Orquestrador: posicoes → dividendos brapi → dedup → addProvento → updateProfile
 
 ## Componentes
 
@@ -193,6 +200,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - Timeline de eventos (vencimentos opcoes, vencimentos RF)
 - Grafico de historico patrimonial
 - **Auto-trigger indicadores**: dispara `runDailyCalculation` em background apos 18h BRT em dias uteis
+- **Auto-trigger dividend sync**: dispara `runDividendSync` fire-and-forget apos 18h BRT em dias uteis
 
 ### Renda Fixa (RendaFixaScreen)
 - Suporte a CDB, LCI/LCA, Tesouro Selic/IPCA/Pre, Debenture
@@ -203,6 +211,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - Tipos: dividendo, JCP, rendimento, juros RF, amortizacao, bonificacao
 - Filtros por tipo
 - Valor por cota + total
+- **Botao "Sincronizar"**: sync manual de dividendos via brapi.dev no header
 
 ### AssetDetail (AssetDetailScreen)
 - Card "INDICADORES TECNICOS" com grid 2x4: HV 20d, RSI 14, SMA 20, EMA 9, Beta, ATR 14, Max DD, BB Width
@@ -227,6 +236,7 @@ Ao configurar um novo ambiente, executar `supabase-migration.sql` no SQL Editor 
 - Migration v4→v5 (comentada, so se upgrading)
 - Migration opcoes: status `expirou_po`, coluna `premio_fechamento`, direcao `venda`, coluna `data_abertura`
 - Tabela `indicators` com RLS + UNIQUE(user_id, ticker)
+- Coluna `profiles.last_dividend_sync` (DATE) para controle do auto-sync de dividendos
 
 ## Padroes Importantes
 
@@ -250,6 +260,7 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 ## Proximos Passos Possiveis
 
 - [x] **Sistema de Indicadores Tecnicos** (implementado: indicatorService.js, tabela indicators, integrado em Opcoes/AssetDetail/Analise/Home)
+- [x] **Auto-sync de dividendos** (implementado: dividendService.js, auto-trigger Home, sync manual Proventos, dedup por ticker+data+valor)
 - [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
 - [ ] Grafico de P&L de opcoes por mes (premios recebidos historico)
 - [ ] Notificacoes push para vencimentos proximos
@@ -274,3 +285,23 @@ Calcula HV, RSI, SMA, EMA, Beta, ATR, Bollinger, IV Rank, Max Drawdown diariamen
 | `src/screens/analise/AnaliseScreen.js` | Sub-tab "Indicadores" com tabela + cards detalhados |
 | `src/screens/home/HomeScreen.js` | Auto-trigger fire-and-forget |
 | `supabase-migration.sql` | Tabela `indicators` com RLS |
+
+## Auto-sync de Dividendos (Implementado)
+
+Importa automaticamente dividendos e JCP da brapi.dev para tickers na carteira do usuario. Usa endpoint `?dividends=true` que retorna array `dividendsData` com `rate`, `paymentDate`, `lastDatePrior` e `label`. Trigger automatico fire-and-forget na Home apos 18h BRT via `shouldSyncDividends()`. Sync manual via botao "Sincronizar" na tela de Proventos.
+
+### Deduplicacao
+Chave composta: `ticker (upper) + data_pagamento (YYYY-MM-DD) + round(valor_por_cota, 4)`. Se match com provento existente, pula. Proventos manuais coexistem sem conflito.
+
+### Limitacoes
+- **Quantidade**: usa qty ATUAL da posicao, nao historica na data-ex
+- **Corretora**: auto-sync nao preenche campo corretora
+- **Escopo**: filtra dividendos dos ultimos 12 meses com paymentDate valido
+
+### Arquivos modificados/criados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/services/dividendService.js` | Criado — fetchDividends, mapLabelToTipo, shouldSyncDividends, runDividendSync |
+| `src/screens/home/HomeScreen.js` | Auto-trigger fire-and-forget dividend sync |
+| `src/screens/proventos/ProventosScreen.js` | Botao "Sincronizar" no header + handleSync |
+| `supabase-migration.sql` | Coluna `profiles.last_dividend_sync` |

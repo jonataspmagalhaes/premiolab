@@ -423,6 +423,19 @@ export default function HomeScreen({ navigation }) {
 
   var load = async function () {
     if (!user) return;
+
+    // Sync dividendos ANTES do dashboard para numeros atualizados
+    try {
+      var profResult = await getProfile(user.id);
+      var profile = profResult.data;
+      var lastSync = profile && profile.last_dividend_sync ? profile.last_dividend_sync : null;
+      if (shouldSyncDividends(lastSync)) {
+        await runDividendSync(user.id);
+      }
+    } catch (e) {
+      console.warn('Home dividend sync failed:', e);
+    }
+
     var result = await getDashboard(user.id);
     setData(result);
     setLoading(false);
@@ -438,19 +451,6 @@ export default function HomeScreen({ navigation }) {
       }
     }).catch(function(e) {
       console.warn('Home indicator check failed:', e);
-    });
-
-    // Fire-and-forget: trigger dividend sync if stale
-    getProfile(user.id).then(function(profResult) {
-      var profile = profResult.data;
-      var lastSync = profile && profile.last_dividend_sync ? profile.last_dividend_sync : null;
-      if (shouldSyncDividends(lastSync)) {
-        runDividendSync(user.id).catch(function(e) {
-          console.warn('Home dividend sync failed:', e);
-        });
-      }
-    }).catch(function(e) {
-      console.warn('Home dividend sync check failed:', e);
     });
   };
 
