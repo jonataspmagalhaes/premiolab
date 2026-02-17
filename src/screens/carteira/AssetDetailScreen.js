@@ -241,8 +241,12 @@ export default function AssetDetailScreen(props) {
   var pm = position.qty > 0 ? position.custo / position.qty : 0;
   var porCorretora = calcPorCorretora(txns);
   var totalProvs = 0;
+  var todayStr = new Date().toISOString().substring(0, 10);
   for (var j = 0; j < provs.length; j++) {
-    totalProvs += (provs[j].valor_por_cota || 0) * (provs[j].quantidade || 0);
+    var pDate = (provs[j].data_pagamento || '').substring(0, 10);
+    if (pDate <= todayStr) {
+      totalProvs += (provs[j].valor_por_cota || 0) * (provs[j].quantidade || 0);
+    }
   }
 
   // Date range for filtering
@@ -265,7 +269,11 @@ export default function AssetDetailScreen(props) {
     }
   }
   var filteredProvs = [];
+  var todayDateStr = new Date().toISOString().substring(0, 10);
   for (var fp = 0; fp < provs.length; fp++) {
+    var provDate = (provs[fp].data_pagamento || '').substring(0, 10);
+    // So mostrar proventos ja pagos (data_pagamento <= hoje)
+    if (provDate > todayDateStr) continue;
     if (isInDateRange(provs[fp].data_pagamento, dateRange)) {
       filteredProvs.push(provs[fp]);
     }

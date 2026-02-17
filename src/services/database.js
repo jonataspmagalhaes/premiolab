@@ -141,6 +141,15 @@ export async function getProventos(userId, filters) {
       return (p.ticker || '').toUpperCase().trim() === normalTicker;
     });
   }
+  // Normalizar: DB tem coluna 'tipo', UI espera 'tipo_provento'; computar valor_total
+  for (var j = 0; j < data.length; j++) {
+    if (data[j].tipo && !data[j].tipo_provento) {
+      data[j].tipo_provento = data[j].tipo;
+    }
+    if (data[j].valor_total == null) {
+      data[j].valor_total = (data[j].valor_por_cota || 0) * (data[j].quantidade || 0);
+    }
+  }
   return { data: data, error: result.error };
 }
 
@@ -321,6 +330,40 @@ export async function updateAlertasConfig(userId, config) {
   return { data: null, error: null };
 }
 
+// ═══════════ REBALANCE TARGETS ═══════════
+export async function getRebalanceTargets(userId) {
+  try {
+    var result = await supabase
+      .from('rebalance_targets')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+    return { data: result.data, error: result.error };
+  } catch (e) {
+    return { data: null, error: e };
+  }
+}
+
+export async function upsertRebalanceTargets(userId, targets) {
+  try {
+    var payload = {
+      user_id: userId,
+      class_targets: targets.class_targets,
+      sector_targets: targets.sector_targets,
+      ticker_targets: targets.ticker_targets,
+      updated_at: new Date().toISOString(),
+    };
+    var result = await supabase
+      .from('rebalance_targets')
+      .upsert(payload, { onConflict: 'user_id' })
+      .select()
+      .single();
+    return { data: result.data, error: result.error };
+  } catch (e) {
+    return { data: null, error: e };
+  }
+}
+
 // ═══════════ INDICADORES TÉCNICOS ═══════════
 export async function getIndicators(userId) {
   var result = await supabase
@@ -376,7 +419,7 @@ export async function getDashboard(userId) {
   try {
     var results = await Promise.all([
       getPositions(userId),
-      getProventos(userId, { limit: 200 }),
+      getProventos(userId, { limit: 1000 }),
       getOpcoes(userId),
       getRendaFixa(userId),
       getSaldos(userId),
@@ -434,6 +477,14 @@ export async function getDashboard(userId) {
     var anoMesAnterior = mesAtual === 0 ? anoAtual - 1 : anoAtual;
 
     // ── Dividendos do mês ──
+    // Parse YYYY-MM-DD sem timezone (new Date("YYYY-MM-DD") e UTC, getMonth() e local = bug)
+    var mesAtualStr = String(mesAtual + 1);
+    if (mesAtualStr.length === 1) mesAtualStr = '0' + mesAtualStr;
+    var mesAntStr = String(mesAnterior + 1);
+    if (mesAntStr.length === 1) mesAntStr = '0' + mesAntStr;
+    var prefixMesAtual = anoAtual + '-' + mesAtualStr;
+    var prefixMesAnterior = anoMesAnterior + '-' + mesAntStr;
+
     var proventosData = proventos.data || [];
     var dividendosMes = 0;
     var dividendosMesAnterior = 0;
@@ -441,17 +492,16 @@ export async function getDashboard(userId) {
     var dividendosAReceberMes = 0;
     var todayDateStr = now.toISOString().substring(0, 10);
     for (var di = 0; di < proventosData.length; di++) {
-      var dProv = new Date(proventosData[di].data_pagamento);
-      var provVal = proventosData[di].valor_por_cota * proventosData[di].quantidade || 0;
-      if (dProv.getMonth() === mesAtual && dProv.getFullYear() === anoAtual) {
+      var provDateStr = (proventosData[di].data_pagamento || '').substring(0, 10);
+      var provVal = (proventosData[di].valor_por_cota || 0) * (proventosData[di].quantidade || 0);
+      if (provDateStr.substring(0, 7) === prefixMesAtual) {
         dividendosMes += provVal;
-        var provDateStr = (proventosData[di].data_pagamento || '').substring(0, 10);
         if (provDateStr <= todayDateStr) {
           dividendosRecebidosMes += provVal;
         } else {
           dividendosAReceberMes += provVal;
         }
-      } else if (dProv.getMonth() === mesAnterior && dProv.getFullYear() === anoMesAnterior) {
+      } else if (provDateStr.substring(0, 7) === prefixMesAnterior) {
         dividendosMesAnterior += provVal;
       }
     }
@@ -474,13 +524,13 @@ export async function getDashboard(userId) {
       posCategoria[posDataRaw[pci].ticker] = posDataRaw[pci].categoria || 'acao';
     }
     for (var dci = 0; dci < proventosData.length; dci++) {
-      var dcProv = new Date(proventosData[dci].data_pagamento);
-      var dcVal = proventosData[dci].valor_por_cota * proventosData[dci].quantidade || 0;
+      var dcDateStr = (proventosData[dci].data_pagamento || '').substring(0, 10);
+      var dcVal = (proventosData[dci].valor_por_cota || 0) * (proventosData[dci].quantidade || 0);
       var dcCat = posCategoria[proventosData[dci].ticker] || 'acao';
       if (dcCat !== 'acao' && dcCat !== 'fii' && dcCat !== 'etf') dcCat = 'acao';
-      if (dcProv.getMonth() === mesAtual && dcProv.getFullYear() === anoAtual) {
+      if (dcDateStr.substring(0, 7) === prefixMesAtual) {
         dividendosCatMes[dcCat] += dcVal;
-      } else if (dcProv.getMonth() === mesAnterior && dcProv.getFullYear() === anoMesAnterior) {
+      } else if (dcDateStr.substring(0, 7) === prefixMesAnterior) {
         dividendosCatMesAnt[dcCat] += dcVal;
       }
     }

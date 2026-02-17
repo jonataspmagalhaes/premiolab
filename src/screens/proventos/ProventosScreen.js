@@ -16,8 +16,8 @@ var TIPO_LABELS = {
   jcp: 'JCP',
   rendimento: 'Rendimento',
   juros_rf: 'Juros RF',
-  amortizacao: 'Amortização',
-  bonificacao: 'Bonificação',
+  amortizacao: 'Amortizacao',
+  bonificacao: 'Bonificacao',
 };
 
 var TIPO_COLORS = {
@@ -41,6 +41,9 @@ var FILTERS = [
   { key: 'dividendo', label: 'Dividendos' },
   { key: 'jcp', label: 'JCP' },
   { key: 'rendimento', label: 'Rendimento' },
+  { key: 'juros_rf', label: 'Juros RF' },
+  { key: 'amortizacao', label: 'Amortizacao' },
+  { key: 'bonificacao', label: 'Bonificacao' },
 ];
 
 function isoToBr(iso) {
@@ -50,6 +53,15 @@ function isoToBr(iso) {
   return parts[2] + '/' + parts[1] + '/' + parts[0];
 }
 
+function daysUntil(isoDate) {
+  if (!isoDate) return 0;
+  var today = new Date();
+  today.setHours(0, 0, 0, 0);
+  var target = new Date(isoDate + 'T12:00:00');
+  var diff = target.getTime() - today.getTime();
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
 export default function ProventosScreen(props) {
   var navigation = props.navigation;
   var user = useAuth().user;
@@ -57,6 +69,7 @@ export default function ProventosScreen(props) {
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
   var _filter = useState('todos'); var filter = _filter[0]; var setFilter = _filter[1];
+  var _tab = useState('pendente'); var tab = _tab[0]; var setTab = _tab[1];
   var _syncing = useState(false); var syncing = _syncing[0]; var setSyncing = _syncing[1];
 
   var load = async function() {
@@ -80,13 +93,13 @@ export default function ProventosScreen(props) {
     try {
       var result = await runDividendSync(user.id);
       if (result.inserted > 0) {
-        Alert.alert('Sincronizado', result.inserted + ' provento' + (result.inserted > 1 ? 's' : '') + ' importado' + (result.inserted > 1 ? 's' : '') + '.');
+        Alert.alert('Sincronizado', result.inserted + ' provento' + (result.inserted > 1 ? 's' : '') + ' importado' + (result.inserted > 1 ? 's' : '') + '.\n\n' + (result.checked || 0) + ' ticker' + (result.checked > 1 ? 's' : '') + ' verificado' + (result.checked > 1 ? 's' : '') + '.');
         await load();
       } else {
-        Alert.alert('Atualizado', 'Nenhum provento novo encontrado.');
+        Alert.alert('Nenhum provento novo', result.message || 'Nenhum provento novo encontrado.');
       }
     } catch (e) {
-      Alert.alert('Erro', 'Falha ao sincronizar dividendos.');
+      Alert.alert('Erro', 'Falha ao sincronizar dividendos: ' + (e.message || e));
     }
     setSyncing(false);
   };
@@ -94,7 +107,7 @@ export default function ProventosScreen(props) {
   var handleDelete = function(id) {
     Alert.alert(
       'Excluir provento?',
-      'Essa ação não pode ser desfeita.',
+      'Essa acao nao pode ser desfeita.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -113,10 +126,25 @@ export default function ProventosScreen(props) {
     );
   };
 
-  // Filter items
+  // Separar por status: pendente (a receber) vs historico (ja pago)
+  var todayStr = new Date().toISOString().substring(0, 10);
+  var pendentes = [];
+  var historico = [];
+  for (var s = 0; s < items.length; s++) {
+    var provDate = (items[s].data_pagamento || '').substring(0, 10);
+    if (provDate > todayStr) {
+      pendentes.push(items[s]);
+    } else {
+      historico.push(items[s]);
+    }
+  }
+
+  var baseItems = tab === 'pendente' ? pendentes : historico;
+
+  // Filter by tipo
   var filtered = filter === 'todos'
-    ? items
-    : items.filter(function(i) { return i.tipo_provento === filter; });
+    ? baseItems
+    : baseItems.filter(function(i) { return i.tipo_provento === filter; });
 
   // Group by month
   var months = {};
@@ -149,6 +177,8 @@ export default function ProventosScreen(props) {
 
   if (loading) return <View style={{ flex: 1, backgroundColor: C.bg, padding: 18 }}><LoadingScreen /></View>;
 
+  var isPendente = tab === 'pendente';
+
   return (
     <ScrollView
       style={styles.container}
@@ -176,14 +206,34 @@ export default function ProventosScreen(props) {
         </View>
       </View>
 
+      {/* Tabs: A receber / Historico */}
+      <View style={styles.tabRow}>
+        <TouchableOpacity
+          style={[styles.tabBtn, isPendente && styles.tabBtnActive]}
+          onPress={function() { setTab('pendente'); }}
+        >
+          <Text style={[styles.tabText, isPendente && styles.tabTextActive]}>
+            {'A receber (' + pendentes.length + ')'}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tabBtn, !isPendente && styles.tabBtnActive]}
+          onPress={function() { setTab('historico'); }}
+        >
+          <Text style={[styles.tabText, !isPendente && styles.tabTextActive]}>
+            {'Historico (' + historico.length + ')'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Total card */}
-      <Glass glow={C.fiis} padding={16}>
-        <Text style={styles.totalLabel}>TOTAL RECEBIDO</Text>
-        <Text style={styles.totalValue}>
-          R$ {totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+      <Glass glow={isPendente ? C.yellow : C.fiis} padding={16}>
+        <Text style={styles.totalLabel}>{isPendente ? 'TOTAL A RECEBER' : 'TOTAL RECEBIDO'}</Text>
+        <Text style={[styles.totalValue, isPendente && { color: C.yellow }]}>
+          {'R$ ' + totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
         </Text>
         <Text style={styles.totalCount}>
-          {filtered.length} provento{filtered.length !== 1 ? 's' : ''}
+          {filtered.length + ' provento' + (filtered.length !== 1 ? 's' : '')}
           {filter !== 'todos' ? ' (' + TIPO_LABELS[filter] + ')' : ''}
         </Text>
       </Glass>
@@ -208,11 +258,13 @@ export default function ProventosScreen(props) {
       {filtered.length === 0 && (
         <EmptyState
           icon="◈"
-          title="Nenhum provento"
-          description="Registre dividendos, JCP e rendimentos recebidos."
-          cta="Registrar Provento"
-          onCta={function() { navigation.navigate('AddProvento'); }}
-          color={C.fiis}
+          title={isPendente ? 'Nenhum provento pendente' : 'Nenhum provento no historico'}
+          description={isPendente
+            ? 'Proventos a receber aparecerao aqui apos a sincronizacao.'
+            : 'Proventos ja pagos aparecem aqui para consulta.'}
+          cta={isPendente ? 'Sincronizar' : 'Registrar Provento'}
+          onCta={isPendente ? handleSync : function() { navigation.navigate('AddProvento'); }}
+          color={isPendente ? C.yellow : C.fiis}
         />
       )}
 
@@ -229,6 +281,7 @@ export default function ProventosScreen(props) {
                 var tipoLabel = TIPO_LABELS[p.tipo_provento] || p.tipo_provento || 'DIV';
                 var tipoColor = TIPO_COLORS[p.tipo_provento] || C.fiis;
                 var valorTotal = p.valor_total || 0;
+                var days = isPendente ? daysUntil(p.data_pagamento) : 0;
 
                 return (
                   <View
@@ -239,6 +292,9 @@ export default function ProventosScreen(props) {
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                         <Text style={styles.provTicker}>{p.ticker}</Text>
                         <Badge text={tipoLabel} color={tipoColor} />
+                        {isPendente && days > 0 && (
+                          <Badge text={days + 'd'} color={days <= 7 ? C.yellow : C.dim} />
+                        )}
                       </View>
                       <Text style={styles.provDate}>{isoToBr(p.data_pagamento)}</Text>
                       {p.quantidade > 0 && p.valor_por_cota > 0 && (
@@ -248,8 +304,8 @@ export default function ProventosScreen(props) {
                       )}
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                      <Text style={styles.provValor}>
-                        {'+R$ ' + fmt(valorTotal)}
+                      <Text style={[styles.provValor, isPendente && { color: C.yellow }]}>
+                        {(isPendente ? '' : '+') + 'R$ ' + fmt(valorTotal)}
                       </Text>
                       <View style={{ flexDirection: 'row', gap: 10 }}>
                         <TouchableOpacity onPress={function() {
@@ -294,6 +350,18 @@ var styles = StyleSheet.create({
   back: { fontSize: 34, color: C.accent, fontWeight: '300' },
   title: { fontSize: 20, fontWeight: '800', color: C.text, fontFamily: F.display },
   addIcon: { fontSize: 28, color: C.fiis, fontWeight: '300' },
+
+  tabRow: {
+    flexDirection: 'row', borderRadius: 10, overflow: 'hidden',
+    borderWidth: 1, borderColor: C.border,
+  },
+  tabBtn: {
+    flex: 1, paddingVertical: 10, alignItems: 'center',
+    backgroundColor: C.cardSolid,
+  },
+  tabBtnActive: { backgroundColor: C.accent },
+  tabText: { fontSize: 13, fontWeight: '600', color: C.sub, fontFamily: F.body },
+  tabTextActive: { color: 'white' },
 
   totalLabel: { fontSize: 13, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8 },
   totalValue: { fontSize: 30, fontWeight: '800', color: C.green, fontFamily: F.display, marginTop: 4 },

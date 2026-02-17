@@ -21,24 +21,31 @@ export async function fetchDividendsBrapi(ticker) {
       headers: { 'Accept': 'application/json' },
     });
 
-    if (!response.ok) return [];
+    if (!response.ok) {
+      console.warn('brapi HTTP ' + response.status + ' for ' + ticker);
+      return { data: [], error: 'HTTP ' + response.status };
+    }
 
     var json = await response.json();
     var results = json.results || [];
 
-    if (results.length === 0) return [];
+    if (results.length === 0) {
+      return { data: [], error: null };
+    }
 
     var dividendsData = results[0].dividendsData || {};
     var cashDividends = dividendsData.cashDividends || [];
-    return cashDividends;
+    return { data: cashDividends, error: null };
   } catch (err) {
     console.warn('fetchDividendsBrapi error for ' + ticker + ':', err.message);
-    return [];
+    return { data: [], error: err.message };
   }
 }
 
 // Alias para compatibilidade
-export var fetchDividends = fetchDividendsBrapi;
+export function fetchDividends(ticker) {
+  return fetchDividendsBrapi(ticker);
+}
 
 // ══════════ FETCH DIVIDENDS STATUSINVEST ══════════
 
@@ -51,45 +58,75 @@ function parseDateDDMMYYYY(dateStr) {
 
 export async function fetchDividendsStatusInvest(ticker, categoria) {
   try {
+    // StatusInvest nao suporta ETFs — endpoints sao apenas /acao/ e /fii/
+    if (categoria === 'etf') {
+      return { data: [], error: null };
+    }
     var tipo = (categoria === 'fii') ? 'fii' : 'acao';
-    var url = SI_BASE_URL + tipo + '/companytickerprovents?ticker=' + ticker + '&chartProvType=2';
-
-    var response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    });
-
-    if (!response.ok) return [];
-
-    var json = await response.json();
-    var models = json.assetEarningsModels;
-    if (!models || models.length === 0) return [];
+    var siHeaders = {
+      'Accept': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    };
 
     var result = [];
-    for (var i = 0; i < models.length; i++) {
-      var item = models[i];
-      var paymentDate = parseDateDDMMYYYY(item.pd);
-      var lastDatePrior = parseDateDDMMYYYY(item.ed);
-      var rate = item.v;
-      var label = item.et || '';
+    var resultKeys = {};
 
-      if (!paymentDate || !rate || rate <= 0) continue;
+    // Endpoint 1: companytickerprovents (chart — dados historicos)
+    try {
+      var url1 = SI_BASE_URL + tipo + '/companytickerprovents?ticker=' + ticker + '&chartProvType=2';
+      var resp1 = await fetch(url1, { method: 'GET', headers: siHeaders });
+      if (resp1.ok) {
+        var text1 = await resp1.text();
+        try {
+          var json1 = JSON.parse(text1);
+          var models = json1 && json1.assetEarningsModels ? json1.assetEarningsModels : [];
+          for (var i = 0; i < models.length; i++) {
+            var item = models[i];
+            var pd = parseDateDDMMYYYY(item.pd);
+            var ed = parseDateDDMMYYYY(item.ed);
+            var rate = item.v;
+            var label = item.et || '';
+            if (!pd || !rate || rate <= 0) continue;
+            var rk = mergeDedupKey(pd, rate);
+            if (!resultKeys[rk]) {
+              resultKeys[rk] = true;
+              result.push({ paymentDate: pd, rate: rate, label: label.toUpperCase(), lastDatePrior: ed });
+            }
+          }
+        } catch (e) { /* nao-JSON, ignora */ }
+      }
+    } catch (e) { /* ignora erro no endpoint 1 */ }
 
-      result.push({
-        paymentDate: paymentDate,
-        rate: rate,
-        label: label.toUpperCase(),
-        lastDatePrior: lastDatePrior,
-      });
-    }
+    // Endpoint 2: companytickerproventsresult (tabela — inclui proventos recentes/futuros)
+    try {
+      var url2 = SI_BASE_URL + tipo + '/companytickerproventsresult?ticker=' + ticker + '&start=0&length=50';
+      var resp2 = await fetch(url2, { method: 'GET', headers: siHeaders });
+      if (resp2.ok) {
+        var text2 = await resp2.text();
+        try {
+          var json2 = JSON.parse(text2);
+          var rows = json2 && json2.data ? json2.data : [];
+          for (var j = 0; j < rows.length; j++) {
+            var row = rows[j];
+            var pd2 = parseDateDDMMYYYY(row.pd);
+            var ed2 = parseDateDDMMYYYY(row.ed);
+            var rate2 = row.v;
+            var label2 = row.et || '';
+            if (!pd2 || !rate2 || rate2 <= 0) continue;
+            var rk2 = mergeDedupKey(pd2, rate2);
+            if (!resultKeys[rk2]) {
+              resultKeys[rk2] = true;
+              result.push({ paymentDate: pd2, rate: rate2, label: label2.toUpperCase(), lastDatePrior: ed2 });
+            }
+          }
+        } catch (e) { /* nao-JSON, ignora */ }
+      }
+    } catch (e) { /* ignora erro no endpoint 2 */ }
 
-    return result;
+    return { data: result, error: null };
   } catch (err) {
     console.warn('fetchDividendsStatusInvest error for ' + ticker + ':', err.message);
-    return [];
+    return { data: [], error: err.message };
   }
 }
 
@@ -143,26 +180,17 @@ export function mapLabelToTipo(label) {
 // ══════════ SHOULD SYNC DIVIDENDS ══════════
 
 export function shouldSyncDividends(lastSyncDate) {
+  // Se nunca sincronizou, sincronizar imediatamente
+  if (!lastSyncDate) return true;
+
   var now = new Date();
 
-  // Verificar se e dia util (seg-sex)
-  var dayOfWeek = now.getDay();
-  if (dayOfWeek === 0 || dayOfWeek === 6) return false;
-
-  // Verificar se hora >= 18 BRT (UTC-3 = 21 UTC)
-  var utcHour = now.getUTCHours();
-  var brtHour = utcHour - 3;
-  if (brtHour < 0) brtHour += 24;
-  if (brtHour < 18) return false;
-
   // Verificar se ja sincronizou hoje
-  if (lastSyncDate) {
-    var todayStr = now.toISOString().substring(0, 10);
-    var lastStr = typeof lastSyncDate === 'string'
-      ? lastSyncDate.substring(0, 10)
-      : new Date(lastSyncDate).toISOString().substring(0, 10);
-    if (lastStr === todayStr) return false;
-  }
+  var todayStr = now.toISOString().substring(0, 10);
+  var lastStr = typeof lastSyncDate === 'string'
+    ? lastSyncDate.substring(0, 10)
+    : new Date(lastSyncDate).toISOString().substring(0, 10);
+  if (lastStr === todayStr) return false;
 
   return true;
 }
@@ -185,7 +213,7 @@ export async function runDividendSync(userId) {
     var positions = posResult.data || [];
 
     if (positions.length === 0) {
-      return { inserted: 0, message: 'Nenhuma posicao encontrada' };
+      return { inserted: 0, checked: 0, details: [], message: 'Nenhuma posicao encontrada' };
     }
 
     // 2. Buscar proventos existentes para dedup
@@ -200,26 +228,52 @@ export async function runDividendSync(userId) {
       existingKeys[key] = true;
     }
 
-    // 3. Buscar operacoes para determinar primeira compra por ticker
-    var opsResult = await getOperacoes(userId, { tipo: 'compra' });
+    // 3. Buscar TODAS operacoes para calcular posicao historica na data-com
+    var opsResult = await getOperacoes(userId);
     var allOps = opsResult.data || [];
     var firstBuyDate = {};
+    var opsByTicker = {};
     for (var o = 0; o < allOps.length; o++) {
       var op = allOps[o];
       var opTicker = (op.ticker || '').toUpperCase().trim();
       var opDate = (op.data || '').substring(0, 10);
       if (!opDate) continue;
-      if (!firstBuyDate[opTicker] || opDate < firstBuyDate[opTicker]) {
-        firstBuyDate[opTicker] = opDate;
+      // primeira compra
+      if (op.tipo === 'compra') {
+        if (!firstBuyDate[opTicker] || opDate < firstBuyDate[opTicker]) {
+          firstBuyDate[opTicker] = opDate;
+        }
       }
+      // agrupar por ticker para calculo historico
+      if (!opsByTicker[opTicker]) opsByTicker[opTicker] = [];
+      opsByTicker[opTicker].push(op);
     }
 
-    // 4. Filtro de data: ultimos 12 meses
+    // Helper: calcular posicao historica na data-com
+    function positionAtDate(tkr, dateStr) {
+      var ops = opsByTicker[tkr] || [];
+      var qtyAt = 0;
+      for (var i = 0; i < ops.length; i++) {
+        var od = (ops[i].data || '').substring(0, 10);
+        if (od <= dateStr) {
+          if (ops[i].tipo === 'compra') {
+            qtyAt += (ops[i].quantidade || 0);
+          } else if (ops[i].tipo === 'venda') {
+            qtyAt -= (ops[i].quantidade || 0);
+          }
+        }
+      }
+      return Math.max(0, qtyAt);
+    }
+
+    // 4. Filtro de data: ultimos 12 meses + hoje
     var now = new Date();
+    var todayStr = now.toISOString().substring(0, 10);
     var cutoff = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
     var cutoffStr = cutoff.toISOString().substring(0, 10);
 
     var inserted = 0;
+    var details = [];
 
     // 5. Para cada ticker, buscar dividendos de AMBAS as fontes e inserir novos
     for (var p = 0; p < positions.length; p++) {
@@ -229,10 +283,36 @@ export async function runDividendSync(userId) {
 
       if (qty <= 0) continue;
 
+      var tickerDetail = {
+        ticker: ticker,
+        brapiCount: 0,
+        brapiError: null,
+        siCount: 0,
+        siError: null,
+        merged: 0,
+        skippedDate: 0,
+        skippedBuyDate: 0,
+        skippedDedup: 0,
+        inserted: 0,
+        insertFailed: 0,
+        lastInsertError: null,
+        firstBuy: firstBuyDate[ticker] || null,
+        buyDateExamples: [],
+      };
+
       // Buscar de ambas as fontes (independente, cada uma com try/catch proprio)
-      var brapiDivs = await fetchDividendsBrapi(ticker);
-      var siDivs = await fetchDividendsStatusInvest(ticker, pos.categoria);
+      var brapiResult = await fetchDividendsBrapi(ticker);
+      var siResult = await fetchDividendsStatusInvest(ticker, pos.categoria);
+
+      var brapiDivs = brapiResult.data;
+      var siDivs = siResult.data;
+      tickerDetail.brapiCount = brapiDivs.length;
+      tickerDetail.brapiError = brapiResult.error;
+      tickerDetail.siCount = siDivs.length;
+      tickerDetail.siError = siResult.error;
+
       var dividends = mergeDividends(brapiDivs, siDivs);
+      tickerDetail.merged = dividends.length;
 
       for (var d = 0; d < dividends.length; d++) {
         var div = dividends[d];
@@ -242,55 +322,116 @@ export async function runDividendSync(userId) {
         if (!paymentDate) continue;
 
         var paymentDateStr = paymentDate.substring(0, 10);
-        if (paymentDateStr < cutoffStr) continue;
+        if (paymentDateStr < cutoffStr) {
+          tickerDetail.skippedDate++;
+          continue;
+        }
 
         var rate = div.rate;
         if (!rate || rate <= 0) continue;
 
-        // Checar data-com: usuario precisa ter comprado ANTES da data-ex
+        // Data-com: so importar se data-com ja passou (usuario confirmou direito)
         var dataCom = div.lastDatePrior ? div.lastDatePrior.substring(0, 10) : null;
-        if (dataCom && firstBuyDate[ticker]) {
-          if (firstBuyDate[ticker] > dataCom) continue;
+        var qtyForDiv = qty; // fallback: posicao atual se nao tem data-com
+        if (dataCom) {
+          // Pular dividendos com data-com futura — usuario pode vender antes
+          if (dataCom > todayStr) {
+            tickerDetail.skippedDate++;
+            continue;
+          }
+          qtyForDiv = positionAtDate(ticker, dataCom);
+          if (qtyForDiv <= 0) {
+            tickerDetail.skippedBuyDate++;
+            if (tickerDetail.buyDateExamples.length < 2) {
+              tickerDetail.buyDateExamples.push('pag ' + paymentDateStr + ' ex ' + dataCom + ' qty=0');
+            }
+            continue;
+          }
         }
 
         // Dedup check
         var dkey = dedupKey(ticker, paymentDateStr, rate);
-        if (existingKeys[dkey]) continue;
+        if (existingKeys[dkey]) {
+          tickerDetail.skippedDedup++;
+          continue;
+        }
 
         // Mapear tipo
         var tipoProv = mapLabelToTipo(div.label);
 
-        // Inserir provento
+        // Inserir provento com quantidade historica na data-com
         var provento = {
           ticker: ticker,
-          tipo_provento: tipoProv,
+          tipo: tipoProv,
           valor_por_cota: rate,
-          quantidade: qty,
-          valor_total: Math.round(rate * qty * 100) / 100,
+          quantidade: qtyForDiv,
           data_pagamento: paymentDateStr,
         };
-        if (dataCom) {
-          provento.data_com = dataCom;
-        }
 
         var addResult = await addProvento(userId, provento);
 
         if (!addResult.error) {
           existingKeys[dkey] = true;
           inserted++;
+          tickerDetail.inserted++;
         } else {
+          tickerDetail.insertFailed++;
+          tickerDetail.lastInsertError = addResult.error.message || addResult.error.code || JSON.stringify(addResult.error);
           console.warn('dividendSync: falha ao inserir provento ' + ticker + ' ' + paymentDateStr + ':', addResult.error);
         }
       }
+
+      details.push(tickerDetail);
     }
 
     // 6. Atualizar data do ultimo sync
-    var todayStr = now.toISOString().substring(0, 10);
     await updateProfile(userId, { last_dividend_sync: todayStr });
 
-    return { inserted: inserted, message: 'Sincronizados ' + inserted + ' proventos' };
+    // Montar mensagem detalhada
+    var msg = inserted + ' proventos importados de ' + details.length + ' tickers';
+    if (inserted === 0 && details.length > 0) {
+      var apiErrors = [];
+      var noData = [];
+      var allDedup = [];
+      var buyDateSkip = [];
+      var insertErrors = [];
+      for (var di = 0; di < details.length; di++) {
+        var det = details[di];
+        if (det.brapiError || det.siError) {
+          var errParts = det.ticker + ':';
+          if (det.brapiError) errParts += ' brapi=' + det.brapiError;
+          if (det.siError) errParts += ' SI=' + det.siError;
+          apiErrors.push(errParts);
+        }
+        if (det.merged === 0 && !det.brapiError && !det.siError) {
+          noData.push(det.ticker);
+        }
+        if (det.skippedDedup > 0 && det.inserted === 0 && det.merged > 0) {
+          allDedup.push(det.ticker);
+        }
+        if (det.insertFailed > 0) {
+          insertErrors.push(det.ticker + ' (' + det.insertFailed + 'x): ' + (det.lastInsertError || '?'));
+        }
+        if (det.skippedBuyDate > 0) {
+          var exMsg = det.ticker + ' compra=' + (det.firstBuy || '?') + ' [brapi=' + det.brapiCount + ' si=' + det.siCount + ']';
+          if (det.buyDateExamples.length > 0) {
+            exMsg += ' (' + det.buyDateExamples.join(', ') + ')';
+          }
+          buyDateSkip.push(exMsg);
+        }
+      }
+      var parts = [];
+      if (insertErrors.length > 0) parts.push('ERRO INSERT:\n' + insertErrors.join('\n'));
+      if (apiErrors.length > 0) parts.push('API falhou: ' + apiErrors.join(', '));
+      if (noData.length > 0) parts.push('Sem dividendos nas APIs: ' + noData.join(', '));
+      if (allDedup.length > 0) parts.push('Ja importados: ' + allDedup.join(', '));
+      if (buyDateSkip.length > 0) parts.push('Compra apos data-ex:\n' + buyDateSkip.join('\n'));
+      if (parts.length > 0) msg = parts.join('\n\n');
+    }
+
+    return { inserted: inserted, checked: details.length, details: details, message: msg };
   } catch (err) {
     console.error('runDividendSync error:', err);
-    return { inserted: 0, error: err.message || 'Erro no sync' };
+    return { inserted: 0, checked: 0, details: [], error: err.message || 'Erro no sync' };
   }
 }

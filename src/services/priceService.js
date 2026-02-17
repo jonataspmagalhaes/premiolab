@@ -203,6 +203,59 @@ export async function fetchPriceHistoryLong(tickers) {
   return result;
 }
 
+// ══════════ FETCH TICKER PROFILE (sector/industry) ══════════
+var _profileCache = {};
+var PROFILE_CACHE_MS = 86400000; // 24h
+var _profileCacheTime = null;
+
+export async function fetchTickerProfile(tickers) {
+  if (!tickers || tickers.length === 0) return {};
+
+  // Filter already cached
+  var toFetch = [];
+  for (var i = 0; i < tickers.length; i++) {
+    var t = tickers[i].toUpperCase().trim();
+    if (!_profileCache[t]) toFetch.push(t);
+  }
+
+  if (toFetch.length > 0) {
+    // Fetch in chunks of 10
+    for (var c = 0; c < toFetch.length; c += 10) {
+      var chunk = toFetch.slice(c, c + 10);
+      try {
+        var url = BRAPI_URL + chunk.join(',') + '?modules=summaryProfile&token=' + BRAPI_TOKEN;
+        var response = await fetch(url, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+        });
+        if (!response.ok) continue;
+        var json = await response.json();
+        var results = json.results || [];
+        for (var r = 0; r < results.length; r++) {
+          var item = results[r];
+          if (item.symbol) {
+            var sp = item.summaryProfile || {};
+            _profileCache[item.symbol] = {
+              sector: sp.sector || '',
+              industry: sp.industry || '',
+              longName: item.longName || '',
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('fetchTickerProfile chunk error:', err.message);
+      }
+    }
+  }
+
+  var result = {};
+  for (var k = 0; k < tickers.length; k++) {
+    var tk = tickers[k].toUpperCase().trim();
+    if (_profileCache[tk]) result[tk] = _profileCache[tk];
+  }
+  return result;
+}
+
 // ══════════ ENRICH POSITIONS ══════════
 export async function enrichPositionsWithPrices(positions) {
   if (!positions || positions.length === 0) return [];

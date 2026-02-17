@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator,
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { addProvento } from '../../services/database';
+import { addProvento, getUserCorretoras } from '../../services/database';
 import { Glass, Pill, Badge } from '../../components';
 
 function fmt(v) {
@@ -19,7 +19,12 @@ var TIPOS = [
   { key: 'dividendo', label: 'Dividendo', color: C.fiis },
   { key: 'jcp', label: 'JCP', color: C.acoes },
   { key: 'rendimento', label: 'Rendimento', color: C.etfs },
+  { key: 'juros_rf', label: 'Juros RF', color: C.rf },
+  { key: 'amortizacao', label: 'Amortizacao', color: C.yellow },
+  { key: 'bonificacao', label: 'Bonificacao', color: C.opcoes },
 ];
+
+var CORRETORAS_DEFAULT = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];
 
 function maskDate(text) {
   var clean = text.replace(/[^0-9]/g, '');
@@ -58,12 +63,28 @@ export default function AddProventoScreen(props) {
   var _valor = useState(''); var valor = _valor[0]; var setValor = _valor[1];
   var _qtd = useState(''); var qtd = _qtd[0]; var setQtd = _qtd[1];
   var _data = useState(todayBR()); var data = _data[0]; var setData = _data[1];
+  var _corretora = useState(''); var corretora = _corretora[0]; var setCorretora = _corretora[1];
+  var _corretoras = useState(CORRETORAS_DEFAULT); var corretoras = _corretoras[0]; var setCorretoras = _corretoras[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
 
+  useEffect(function() {
+    if (!user) return;
+    getUserCorretoras(user.id).then(function(result) {
+      var list = result.data || [];
+      if (list.length > 0) {
+        var names = [];
+        for (var i = 0; i < list.length; i++) {
+          names.push(list[i].name);
+        }
+        setCorretoras(names);
+      }
+    });
+  }, [user]);
+
   var valorNum = parseFloat(valor) || 0;
   var qtdNum = parseInt(qtd) || 0;
-  var valorPorAcao = qtdNum > 0 ? valorNum / qtdNum : 0;
+  var valorPorCota = qtdNum > 0 ? valorNum / qtdNum : 0;
 
   var canSubmit = ticker.length >= 4 && valorNum > 0 && isValidDate(data);
 
@@ -75,14 +96,22 @@ export default function AddProventoScreen(props) {
     setLoading(true);
     try {
       var isoDate = brToIso(data);
-      var result = await addProvento(user.id, {
-        tipo_provento: tipo,
+      var payload = {
+        tipo: tipo,
         ticker: ticker.toUpperCase(),
-        valor_total: valorNum,
-        quantidade: qtdNum || null,
-        valor_por_cota: qtdNum > 0 ? parseFloat(valorPorAcao.toFixed(4)) : null,
         data_pagamento: isoDate,
-      });
+      };
+      if (qtdNum > 0) {
+        payload.quantidade = qtdNum;
+        payload.valor_por_cota = parseFloat(valorPorCota.toFixed(4));
+      } else {
+        payload.quantidade = 1;
+        payload.valor_por_cota = valorNum;
+      }
+      if (corretora) {
+        payload.corretora = corretora;
+      }
+      var result = await addProvento(user.id, payload);
       if (result.error) {
         Alert.alert('Erro', result.error.message);
         setSubmitted(false);
@@ -112,7 +141,7 @@ export default function AddProventoScreen(props) {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <TouchableOpacity onPress={function() { navigation.goBack(); }}>
-          <Text style={styles.back}>‹</Text>
+          <Text style={styles.back}>{'‹'}</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Novo Provento</Text>
         <View style={{ width: 32 }} />
@@ -168,12 +197,12 @@ export default function AddProventoScreen(props) {
         </View>
       </View>
 
-      {/* Valor por ação */}
+      {/* Valor por cota */}
       {valorNum > 0 && qtdNum > 0 && (
         <Glass padding={12}>
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>VALOR POR AÇÃO</Text>
-            <Text style={styles.infoValue}>{'R$ ' + fmt4(valorPorAcao)}</Text>
+            <Text style={styles.infoLabel}>VALOR POR COTA</Text>
+            <Text style={styles.infoValue}>{'R$ ' + fmt4(valorPorCota)}</Text>
           </View>
         </Glass>
       )}
@@ -190,13 +219,27 @@ export default function AddProventoScreen(props) {
         style={styles.input}
       />
 
+      {/* Corretora */}
+      <Text style={styles.label}>CORRETORA</Text>
+      <View style={styles.pillRow}>
+        {corretoras.map(function(c) {
+          return (
+            <Pill key={c} active={corretora === c} color={C.acoes} onPress={function() {
+              setCorretora(corretora === c ? '' : c);
+            }}>
+              {c}
+            </Pill>
+          );
+        })}
+      </View>
+
       {/* Preview */}
       {canSubmit && (
         <Glass glow={tipoLabel ? tipoLabel.color : C.fiis} padding={14}>
           <View style={{ alignItems: 'center', gap: 6 }}>
             <Badge text={tipo.toUpperCase()} color={tipoLabel ? tipoLabel.color : C.fiis} />
             <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body }}>
-              {ticker} — {data}
+              {ticker + ' — ' + data + (corretora ? ' — ' + corretora : '')}
             </Text>
             <Text style={{ fontSize: 24, fontWeight: '800', color: C.green, fontFamily: F.display }}>
               {'+ R$ ' + fmt(valorNum)}

@@ -254,3 +254,16 @@ CREATE POLICY "indicators_own" ON indicators FOR ALL USING (auth.uid() = user_id
 -- 11. DIVIDEND SYNC
 -- ═══════════════════════════════════════════════════
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_dividend_sync DATE;
+
+-- ═══════════════════════════════════════════════════
+-- 12. REBALANCE TARGETS
+-- ═══════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS rebalance_targets (
+  user_id UUID REFERENCES auth.users(id) PRIMARY KEY,
+  class_targets JSONB DEFAULT '{"acao":40,"fii":25,"etf":20,"rf":15}',
+  sector_targets JSONB DEFAULT '{}',
+  ticker_targets JSONB DEFAULT '{}',
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE rebalance_targets ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "rebalance_targets_own" ON rebalance_targets FOR ALL USING (auth.uid() = user_id);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator,
@@ -6,6 +6,7 @@ import {
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../config/supabase';
+import { getUserCorretoras } from '../../services/database';
 import { Glass, Pill, Badge } from '../../components';
 
 function fmt(v) {
@@ -19,7 +20,12 @@ var TIPOS = [
   { key: 'dividendo', label: 'Dividendo', color: C.fiis },
   { key: 'jcp', label: 'JCP', color: C.acoes },
   { key: 'rendimento', label: 'Rendimento', color: C.etfs },
+  { key: 'juros_rf', label: 'Juros RF', color: C.rf },
+  { key: 'amortizacao', label: 'Amortizacao', color: C.yellow },
+  { key: 'bonificacao', label: 'Bonificacao', color: C.opcoes },
 ];
+
+var CORRETORAS_DEFAULT = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];
 
 function maskDate(text) {
   var clean = text.replace(/[^0-9]/g, '');
@@ -54,12 +60,31 @@ export default function EditProventoScreen(props) {
   var p = route.params.provento;
   var user = useAuth().user;
 
-  var _tipo = useState(p.tipo_provento || 'dividendo'); var tipo = _tipo[0]; var setTipo = _tipo[1];
+  var initialTipo = p.tipo_provento || p.tipo || 'dividendo';
+  var initialValor = p.valor_total || ((p.valor_por_cota || 0) * (p.quantidade || 0));
+
+  var _tipo = useState(initialTipo); var tipo = _tipo[0]; var setTipo = _tipo[1];
   var _ticker = useState(p.ticker || ''); var ticker = _ticker[0]; var setTicker = _ticker[1];
-  var _valor = useState(String(p.valor_total || '')); var valor = _valor[0]; var setValor = _valor[1];
+  var _valor = useState(String(initialValor || '')); var valor = _valor[0]; var setValor = _valor[1];
   var _qtd = useState(String(p.quantidade || '')); var qtd = _qtd[0]; var setQtd = _qtd[1];
   var _data = useState(isoToBr(p.data_pagamento)); var data = _data[0]; var setData = _data[1];
+  var _corretora = useState(p.corretora || ''); var corretora = _corretora[0]; var setCorretora = _corretora[1];
+  var _corretoras = useState(CORRETORAS_DEFAULT); var corretoras = _corretoras[0]; var setCorretoras = _corretoras[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
+
+  useEffect(function() {
+    if (!user) return;
+    getUserCorretoras(user.id).then(function(result) {
+      var list = result.data || [];
+      if (list.length > 0) {
+        var names = [];
+        for (var i = 0; i < list.length; i++) {
+          names.push(list[i].name);
+        }
+        setCorretoras(names);
+      }
+    });
+  }, [user]);
 
   var valorNum = parseFloat(valor) || 0;
   var qtdNum = parseInt(qtd) || 0;
@@ -74,16 +99,22 @@ export default function EditProventoScreen(props) {
     setLoading(true);
     try {
       var isoDate = brToIso(data);
+      var payload = {
+        tipo: tipo,
+        ticker: ticker.toUpperCase(),
+        data_pagamento: isoDate,
+        corretora: corretora || null,
+      };
+      if (qtdNum > 0) {
+        payload.quantidade = qtdNum;
+        payload.valor_por_cota = parseFloat(valorPorCota.toFixed(4));
+      } else {
+        payload.quantidade = 1;
+        payload.valor_por_cota = valorNum;
+      }
       var result = await supabase
         .from('proventos')
-        .update({
-          tipo_provento: tipo,
-          ticker: ticker.toUpperCase(),
-          valor_total: valorNum,
-          quantidade: qtdNum || null,
-          valor_por_cota: qtdNum > 0 ? parseFloat(valorPorCota.toFixed(4)) : null,
-          data_pagamento: isoDate,
-        })
+        .update(payload)
         .eq('id', p.id);
 
       if (result.error) {
@@ -181,13 +212,27 @@ export default function EditProventoScreen(props) {
         style={styles.input}
       />
 
+      {/* Corretora */}
+      <Text style={styles.label}>CORRETORA</Text>
+      <View style={styles.pillRow}>
+        {corretoras.map(function(c) {
+          return (
+            <Pill key={c} active={corretora === c} color={C.acoes} onPress={function() {
+              setCorretora(corretora === c ? '' : c);
+            }}>
+              {c}
+            </Pill>
+          );
+        })}
+      </View>
+
       {/* Preview */}
       {canSubmit && (
         <Glass glow={tipoObj ? tipoObj.color : C.fiis} padding={14}>
           <View style={{ alignItems: 'center', gap: 6 }}>
             <Badge text={tipo.toUpperCase()} color={tipoObj ? tipoObj.color : C.fiis} />
             <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body }}>
-              {ticker} — {data}
+              {ticker + ' — ' + data + (corretora ? ' — ' + corretora : '')}
             </Text>
             <Text style={{ fontSize: 24, fontWeight: '800', color: C.green, fontFamily: F.display }}>
               {'+ R$ ' + fmt(valorNum)}
@@ -206,7 +251,7 @@ export default function EditProventoScreen(props) {
         {loading ? (
           <ActivityIndicator color="white" />
         ) : (
-          <Text style={styles.submitText}>Salvar Alterações</Text>
+          <Text style={styles.submitText}>Salvar Alteracoes</Text>
         )}
       </TouchableOpacity>
 

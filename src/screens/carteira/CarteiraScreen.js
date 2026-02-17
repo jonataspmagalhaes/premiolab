@@ -612,50 +612,7 @@ export default function CarteiraScreen(props) {
         ) : null}
       </Glass>
 
-      {/* ══════ 2. ALOCAÇÃO POR CLASSE — Donut ══════ */}
-      {allocSegments.length > 0 ? (
-        <Glass padding={14}>
-          <Text style={styles.sectionTitle2}>ALOCAÇÃO POR CLASSE</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-            <View style={{ position: 'relative', width: 130, height: 130 }}>
-              <DonutChart segments={allocSegments} size={130} />
-              <View style={styles.donutCenter}>
-                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>TOTAL</Text>
-                <Text style={{ fontSize: 16, fontWeight: '800', color: C.text, fontFamily: F.display }}>{allocSegments.length}</Text>
-                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>classes</Text>
-              </View>
-            </View>
-            <View style={{ flex: 1, gap: 6 }}>
-              {allocSegments.map(function (s, i) {
-                return (
-                  <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <View style={{ width: 8, height: 8, borderRadius: 3, backgroundColor: s.color }} />
-                      <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>{s.label}</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.mono }}>{s.pct.toFixed(1)}%</Text>
-                      <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{fmtK(s.val)}</Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-        </Glass>
-      ) : null}
-
-      {/* ══════ 3. PESO POR ATIVO — barras % ══════ */}
-      {pesoList.length > 0 ? (
-        <Glass padding={14}>
-          <Text style={styles.sectionTitle2}>PESO POR ATIVO</Text>
-          {pesoList.map(function (a, i) {
-            return <HBar key={i} label={a.ticker} value={a.pct} maxValue={pesoList[0].pct} color={a.color} suffix="%" />;
-          })}
-        </Glass>
-      ) : null}
-
-      {/* ══════ 4. P&L POR CLASSE — contribuição ══════ */}
+      {/* ══════ 2. P&L POR CLASSE — contribuição ══════ */}
       {pnlClassList.length > 0 ? (
         <Glass padding={14}>
           <Text style={styles.sectionTitle2}>P&L POR CLASSE</Text>

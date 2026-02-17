@@ -79,6 +79,7 @@ src/
 | `user_corretoras` | name, count |
 | `alertas_config` | flags de alertas + thresholds |
 | `indicators` | HV, RSI, SMA, EMA, Beta, ATR, BB, MaxDD por ticker (UNIQUE user_id+ticker) |
+| `rebalance_targets` | class_targets(JSONB), sector_targets(JSONB), ticker_targets(JSONB) — metas de rebalanceamento persistidas |
 
 ### Status de opcoes
 `ativa`, `exercida`, `expirada`, `fechada`, `expirou_po`
@@ -103,11 +104,13 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Alertas**: getAlertasConfig, updateAlertasConfig
 - **Dashboard**: getDashboard (endpoint agregado: patrimonio, renda, eventos, historico, proventosHoje)
 - **Indicadores**: getIndicators, getIndicatorByTicker, upsertIndicator, upsertIndicatorsBatch
+- **Rebalanceamento**: getRebalanceTargets, upsertRebalanceTargets
 
 ### priceService.js - Funcoes exportadas
 - `fetchPrices(tickers)` - Cotacoes atuais (cache 60s)
 - `fetchPriceHistory(tickers)` - Historico 1 mes (cache 5min)
 - `fetchPriceHistoryLong(tickers)` - Historico 6 meses OHLCV (cache 1h)
+- `fetchTickerProfile(tickers)` - Sector/industry via brapi summaryProfile (cache 24h)
 - `enrichPositionsWithPrices(positions)` - Adiciona preco_atual, variacao, P&L
 - `clearPriceCache()` - Limpa cache manualmente
 - `getLastPriceUpdate()` - Timestamp da ultima atualizacao
