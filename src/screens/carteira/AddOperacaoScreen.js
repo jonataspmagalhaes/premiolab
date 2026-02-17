@@ -16,6 +16,27 @@ function fmt4(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 }
 
+function maskDate(text) {
+  var clean = text.replace(/[^0-9]/g, '');
+  if (clean.length <= 2) return clean;
+  if (clean.length <= 4) return clean.slice(0, 2) + '/' + clean.slice(2);
+  return clean.slice(0, 2) + '/' + clean.slice(2, 4) + '/' + clean.slice(4, 8);
+}
+
+function brToIso(br) {
+  var parts = br.split('/');
+  if (parts.length !== 3 || parts[2].length !== 4) return null;
+  return parts[2] + '-' + parts[1] + '-' + parts[0];
+}
+
+function todayBr() {
+  var now = new Date();
+  var d = String(now.getDate()).padStart(2, '0');
+  var m = String(now.getMonth() + 1).padStart(2, '0');
+  var y = now.getFullYear();
+  return d + '/' + m + '/' + y;
+}
+
 var CATEGORIAS = [
   { key: 'acao', label: 'Ação', color: C.acoes },
   { key: 'fii', label: 'FII', color: C.fiis },
@@ -39,6 +60,7 @@ export default function AddOperacaoScreen(props) {
   var _corretagem = useState(''); var corretagem = _corretagem[0]; var setCorretagem = _corretagem[1];
   var _emolumentos = useState(''); var emolumentos = _emolumentos[0]; var setEmolumentos = _emolumentos[1];
   var _impostos = useState(''); var impostos = _impostos[0]; var setImpostos = _impostos[1];
+  var _data = useState(todayBr()); var data = _data[0]; var setData = _data[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
   var _showCustos = useState(false); var showCustos = _showCustos[0]; var setShowCustos = _showCustos[1];
 
@@ -54,7 +76,7 @@ export default function AddOperacaoScreen(props) {
   var custoTotal = tipo === 'compra' ? total + totalCustos : total - totalCustos;
   var pmComCustos = qty > 0 ? (tipo === 'compra' ? (total + totalCustos) / qty : (total - totalCustos) / qty) : 0;
 
-  var canSubmit = ticker.length >= 4 && qty > 0 && prc > 0 && corretora;
+  var canSubmit = ticker.length >= 4 && qty > 0 && prc > 0 && corretora && data.length === 10;
 
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
 
@@ -73,7 +95,7 @@ export default function AddOperacaoScreen(props) {
         custo_emolumentos: custEmolumentos,
         custo_impostos: custImpostos,
         corretora: corretora,
-        data: new Date().toISOString().split('T')[0],
+        data: brToIso(data),
       });
       if (result.error) {
         Alert.alert('Erro', result.error.message);
@@ -102,6 +124,7 @@ export default function AddOperacaoScreen(props) {
               setEmolumentos('');
               setImpostos('');
               setShowCustos(false);
+              setData(todayBr());
               setSubmitted(false);
             },
           },
@@ -176,6 +199,18 @@ export default function AddOperacaoScreen(props) {
           <TextInput value={preco} onChangeText={setPreco} placeholder="34.50" placeholderTextColor={C.dim} keyboardType="decimal-pad" style={styles.input} />
         </View>
       </View>
+
+      {/* Data */}
+      <Text style={styles.label}>DATA *</Text>
+      <TextInput
+        value={data}
+        onChangeText={function(t) { setData(maskDate(t)); }}
+        placeholder="DD/MM/AAAA"
+        placeholderTextColor={C.dim}
+        keyboardType="numeric"
+        maxLength={10}
+        style={styles.input}
+      />
 
       {/* Custos expandíveis */}
       <TouchableOpacity onPress={function() { setShowCustos(!showCustos); }} style={styles.custoToggle}>
