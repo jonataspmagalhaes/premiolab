@@ -483,6 +483,32 @@ function computeMonthlyReturns(history) {
   return returns;
 }
 
+function computeWeeklyReturns(history) {
+  if (!history || history.length < 2) return [];
+  // Group by ISO week (YYYY-WNN)
+  var weeks = {};
+  for (var i = 0; i < history.length; i++) {
+    var pt = history[i];
+    var d = new Date(pt.date + 'T12:00:00');
+    var jan1 = new Date(d.getFullYear(), 0, 1);
+    var dayOfYear = Math.floor((d - jan1) / 86400000) + 1;
+    var weekNum = Math.ceil(dayOfYear / 7);
+    var key = d.getFullYear() + '-W' + (weekNum < 10 ? '0' : '') + weekNum;
+    if (!weeks[key]) weeks[key] = { first: pt.value, last: pt.value, lastDate: pt.date };
+    weeks[key].last = pt.value;
+    weeks[key].lastDate = pt.date;
+  }
+  var keys = Object.keys(weeks).sort();
+  var returns = [];
+  for (var j = 1; j < keys.length; j++) {
+    var prev = weeks[keys[j - 1]].last;
+    var curr = weeks[keys[j]].last;
+    var ret = prev > 0 ? ((curr - prev) / prev) * 100 : 0;
+    returns.push({ week: keys[j], date: weeks[keys[j]].lastDate, pct: ret });
+  }
+  return returns;
+}
+
 function computeCDIAccumulated(history, selicAnual) {
   if (!history || history.length < 2) return [];
   var cdiAnual = (selicAnual || 13.25) - 0.10;
@@ -3052,6 +3078,7 @@ export default function AnaliseScreen() {
   var _searchError = useState(''); var searchError = _searchError[0]; var setSearchError = _searchError[1];
   var _provSub = useState('visao'); var provSub = _provSub[0]; var setProvSub = _provSub[1];
   var _savedRebalTargets = useState(null); var savedRebalTargets = _savedRebalTargets[0]; var setSavedRebalTargets = _savedRebalTargets[1];
+  var _ibovHistory = useState([]); var ibovHistory = _ibovHistory[0]; var setIbovHistory = _ibovHistory[1];
 
   // ── Data loading ──
   var load = async function() {
@@ -3097,6 +3124,20 @@ export default function AnaliseScreen() {
           console.warn('Indicator calc failed:', e);
         });
       }
+
+      // Fetch IBOV history for benchmark comparison (fire-and-forget)
+      fetchPriceHistoryLong(['^BVSP']).then(function(histMap) {
+        var ibov = histMap['^BVSP'];
+        if (ibov && ibov.length > 0) {
+          var pts = [];
+          for (var ib = 0; ib < ibov.length; ib++) {
+            if (ibov[ib].date && ibov[ib].close != null) {
+              pts.push({ date: ibov[ib].date, value: ibov[ib].close });
+            }
+          }
+          setIbovHistory(pts);
+        }
+      }).catch(function(e) { console.warn('IBOV fetch failed:', e); });
     } catch (e) {
       console.warn('AnaliseScreen load error:', e);
     }
@@ -3159,6 +3200,46 @@ export default function AnaliseScreen() {
     worstMonth = monthlyReturns.reduce(function(worst, r) {
       return r.pct < worst.pct ? r : worst;
     }, monthlyReturns[0]);
+  }
+
+  // Weekly returns (for 1M view)
+  var weeklyReturns = computeWeeklyReturns(filteredHistory);
+
+  // Choose weekly or monthly based on period
+  var useWeekly = perfPeriod === '1M';
+  var chartReturns = useWeekly ? weeklyReturns : monthlyReturns;
+
+  // CDI returns (match weekly or monthly)
+  var cdiReturns = {};
+  if (chartReturns.length > 0) {
+    var cdiAnualPerf = (selicAnual || 13.25) - 0.10;
+    if (useWeekly) {
+      var cdiSemanal = (Math.pow(1 + cdiAnualPerf / 100, 1 / 52) - 1) * 100;
+      for (var cwi = 0; cwi < chartReturns.length; cwi++) {
+        cdiReturns[chartReturns[cwi].week || chartReturns[cwi].month] = cdiSemanal;
+      }
+    } else {
+      var cdiMensal = (Math.pow(1 + cdiAnualPerf / 100, 1 / 12) - 1) * 100;
+      for (var cmi = 0; cmi < chartReturns.length; cmi++) {
+        cdiReturns[chartReturns[cmi].month] = cdiMensal;
+      }
+    }
+  }
+
+  // IBOV returns (match weekly or monthly)
+  var ibovReturns = {};
+  if (ibovHistory.length > 0 && chartReturns.length > 0) {
+    if (useWeekly) {
+      var ibovWR = computeWeeklyReturns(ibovHistory);
+      for (var iwi = 0; iwi < ibovWR.length; iwi++) {
+        ibovReturns[ibovWR[iwi].week] = ibovWR[iwi].pct;
+      }
+    } else {
+      var ibovMR = computeMonthlyReturns(ibovHistory);
+      for (var imi = 0; imi < ibovMR.length; imi++) {
+        ibovReturns[ibovMR[imi].month] = ibovMR[imi].pct;
+      }
+    }
   }
 
   // Benchmark data (normalized % returns)
@@ -3933,23 +4014,181 @@ export default function AnaliseScreen() {
                 })}
               </View>
 
-              {/* Chart */}
-              {filteredHistory.length >= 2 ? (
+              {/* Returns Line Chart: Carteira vs CDI vs IBOV */}
+              {chartReturns.length > 0 ? (
                 <Glass padding={12}>
-                  <InteractiveChart
-                    data={filteredHistory}
-                    color={C.accent}
-                    height={140}
-                    showGrid={true}
-                    fontFamily={F.mono}
-                    label="Patrimonio"
-                    onTouchStateChange={function(touching) { setChartTouching(touching); }}
-                  />
+                  {/* Legend row */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 14 }}>
+                    <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>{useWeekly ? 'RETORNO SEMANAL' : 'RETORNO MENSAL'}</Text>
+                    <View style={{ flex: 1 }} />
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <View style={{ width: 12, height: 2.5, backgroundColor: C.accent, borderRadius: 2 }} />
+                      <Text style={{ fontSize: 8, color: C.sub, fontFamily: F.mono }}>Carteira</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <View style={{ width: 12, height: 2.5, backgroundColor: C.rf, borderRadius: 2 }} />
+                      <Text style={{ fontSize: 8, color: C.sub, fontFamily: F.mono }}>CDI</Text>
+                    </View>
+                    {Object.keys(ibovReturns).length > 0 && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <View style={{ width: 12, height: 2.5, backgroundColor: C.etfs, borderRadius: 2 }} />
+                        <Text style={{ fontSize: 8, color: C.sub, fontFamily: F.mono }}>IBOV</Text>
+                      </View>
+                    )}
+                  </View>
+                  {(function() {
+                    var chartH = 150;
+                    var chartW = SCREEN_W - 2 * SIZE.padding - 24 - 40;
+                    var padL = 38;
+                    var padR = 8;
+                    var padT = 8;
+                    var padB = 22;
+                    var plotH = chartH - padT - padB;
+                    var plotW = chartW - padL - padR;
+                    var n = chartReturns.length;
+
+                    // Compute scale from all 3 series
+                    var maxAbs = 1;
+                    for (var mi = 0; mi < n; mi++) {
+                      var rKey = chartReturns[mi].week || chartReturns[mi].month;
+                      var av = Math.abs(chartReturns[mi].pct);
+                      if (av > maxAbs) maxAbs = av;
+                      var cv = cdiReturns[rKey];
+                      if (cv != null && Math.abs(cv) > maxAbs) maxAbs = Math.abs(cv);
+                      var iv = ibovReturns[rKey];
+                      if (iv != null && Math.abs(iv) > maxAbs) maxAbs = Math.abs(iv);
+                    }
+                    maxAbs = Math.ceil(maxAbs) + 1;
+                    if (maxAbs < 3) maxAbs = 3;
+
+                    var zeroY = padT + plotH / 2;
+
+                    // Helper: value → Y position
+                    var valToY = function(v) {
+                      return zeroY - (v / maxAbs) * (plotH / 2);
+                    };
+                    // Helper: index → X position
+                    var idxToX = function(i) {
+                      if (n === 1) return padL + plotW / 2;
+                      return padL + (i / (n - 1)) * plotW;
+                    };
+
+                    var allEls = [];
+
+                    // Grid lines + Y labels
+                    var ySteps = [maxAbs, maxAbs / 2, 0, -maxAbs / 2, -maxAbs];
+                    for (var yi = 0; yi < ySteps.length; yi++) {
+                      var yv = ySteps[yi];
+                      var yp = valToY(yv);
+                      allEls.push(React.createElement(SvgLine, {
+                        key: 'grid-' + yi, x1: padL, y1: yp, x2: padL + plotW, y2: yp,
+                        stroke: yv === 0 ? C.sub + '50' : C.sub + '18', strokeWidth: yv === 0 ? 1 : 0.5,
+                      }));
+                      allEls.push(React.createElement(SvgText, {
+                        key: 'yl-' + yi, x: padL - 4, y: yp + 3,
+                        fontSize: 8, fill: C.dim, fontFamily: F.mono, textAnchor: 'end',
+                      }, (yv >= 0 ? '+' : '') + yv.toFixed(1) + '%'));
+                    }
+
+                    // Build points for each series
+                    var cartPts = [];
+                    var cdiPts = [];
+                    var ibovPts = [];
+                    for (var pi = 0; pi < n; pi++) {
+                      var xp = idxToX(pi);
+                      var rKey = chartReturns[pi].week || chartReturns[pi].month;
+                      cartPts.push({ x: xp, y: valToY(chartReturns[pi].pct), val: chartReturns[pi].pct });
+                      var cdiR = cdiReturns[rKey];
+                      if (cdiR != null) cdiPts.push({ x: xp, y: valToY(cdiR), val: cdiR });
+                      var ibovR = ibovReturns[rKey];
+                      if (ibovR != null) ibovPts.push({ x: xp, y: valToY(ibovR), val: ibovR });
+                    }
+
+                    // Helper: render a line series (area fill + line + dots)
+                    var renderSeries = function(pts, color, key, showArea) {
+                      var els = [];
+                      if (pts.length < 1) return els;
+
+                      // Area fill (subtle gradient from line to zero)
+                      if (showArea && pts.length >= 2) {
+                        var areaPath = 'M' + pts[0].x + ',' + zeroY;
+                        for (var a = 0; a < pts.length; a++) {
+                          areaPath = areaPath + ' L' + pts[a].x + ',' + pts[a].y;
+                        }
+                        areaPath = areaPath + ' L' + pts[pts.length - 1].x + ',' + zeroY + ' Z';
+                        els.push(React.createElement(Path, {
+                          key: key + '-area', d: areaPath,
+                          fill: color, opacity: 0.08,
+                        }));
+                      }
+
+                      // Line
+                      if (pts.length >= 2) {
+                        var linePath = 'M' + pts[0].x + ',' + pts[0].y;
+                        for (var l = 1; l < pts.length; l++) {
+                          linePath = linePath + ' L' + pts[l].x + ',' + pts[l].y;
+                        }
+                        els.push(React.createElement(Path, {
+                          key: key + '-line', d: linePath,
+                          stroke: color, strokeWidth: 2, fill: 'none', opacity: 0.9,
+                        }));
+                      }
+
+                      // Dots
+                      for (var d = 0; d < pts.length; d++) {
+                        els.push(React.createElement(Circle, {
+                          key: key + '-glow-' + d, cx: pts[d].x, cy: pts[d].y,
+                          r: 5, fill: color, opacity: 0.15,
+                        }));
+                        els.push(React.createElement(Circle, {
+                          key: key + '-dot-' + d, cx: pts[d].x, cy: pts[d].y,
+                          r: 3, fill: color, opacity: 1,
+                        }));
+                        // Value label on dot
+                        els.push(React.createElement(SvgText, {
+                          key: key + '-val-' + d, x: pts[d].x, y: pts[d].y - 7,
+                          fontSize: 7, fill: color, fontFamily: F.mono,
+                          textAnchor: 'middle', opacity: 0.8,
+                        }, (pts[d].val >= 0 ? '+' : '') + pts[d].val.toFixed(1) + '%'));
+                      }
+                      return els;
+                    };
+
+                    // Render series (CDI first = behind, then IBOV, then Carteira on top)
+                    var cdiEls = renderSeries(cdiPts, C.rf, 'cdi', false);
+                    var ibovEls = renderSeries(ibovPts, C.etfs, 'ibov', false);
+                    var cartEls = renderSeries(cartPts, C.accent, 'cart', true);
+                    for (var ce = 0; ce < cdiEls.length; ce++) allEls.push(cdiEls[ce]);
+                    for (var ie = 0; ie < ibovEls.length; ie++) allEls.push(ibovEls[ie]);
+                    for (var ca = 0; ca < cartEls.length; ca++) allEls.push(cartEls[ca]);
+
+                    // X-axis labels
+                    for (var xi = 0; xi < n; xi++) {
+                      var showXL = n <= 12 || xi % Math.ceil(n / 8) === 0 || xi === n - 1;
+                      if (showXL) {
+                        var ml;
+                        if (useWeekly && chartReturns[xi].date) {
+                          // Show date for weekly: "12/02"
+                          var dp = chartReturns[xi].date.split('-');
+                          ml = dp[2] + '/' + dp[1];
+                        } else {
+                          var mp = chartReturns[xi].month.split('-');
+                          ml = MONTH_LABELS[parseInt(mp[1])] + '/' + mp[0].substring(2);
+                        }
+                        allEls.push(React.createElement(SvgText, {
+                          key: 'xl-' + xi, x: idxToX(xi), y: chartH - 2,
+                          fontSize: 8, fill: C.dim, fontFamily: F.mono, textAnchor: 'middle',
+                        }, ml));
+                      }
+                    }
+
+                    return React.createElement(Svg, { width: chartW, height: chartH }, allEls);
+                  })()}
                 </Glass>
               ) : (
                 <Glass padding={20}>
                   <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
-                    Adicione operacoes para ver o grafico de patrimonio
+                    Adicione operacoes para ver o retorno mensal
                   </Text>
                 </Glass>
               )}
