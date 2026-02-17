@@ -1,6 +1,6 @@
 /**
  * dividendService.js
- * Auto-sync de dividendos via brapi.dev
+ * Auto-sync de dividendos via brapi.dev + StatusInvest (cross-check)
  * Detecta novos dividendos para tickers na carteira e insere como proventos
  */
 
@@ -9,9 +9,11 @@ import { getPositions, getProventos, addProvento, getOperacoes, updateProfile } 
 var BRAPI_URL = 'https://brapi.dev/api/quote/';
 var BRAPI_TOKEN = 'tEU8wyBixv8hCi7J3NCjsi';
 
-// ══════════ FETCH DIVIDENDS ══════════
+var SI_BASE_URL = 'https://statusinvest.com.br/';
 
-export async function fetchDividends(ticker) {
+// ══════════ FETCH DIVIDENDS BRAPI ══════════
+
+export async function fetchDividendsBrapi(ticker) {
   try {
     var url = BRAPI_URL + ticker + '?dividends=true&token=' + BRAPI_TOKEN;
     var response = await fetch(url, {
@@ -30,9 +32,98 @@ export async function fetchDividends(ticker) {
     var cashDividends = dividendsData.cashDividends || [];
     return cashDividends;
   } catch (err) {
-    console.warn('fetchDividends error for ' + ticker + ':', err.message);
+    console.warn('fetchDividendsBrapi error for ' + ticker + ':', err.message);
     return [];
   }
+}
+
+// Alias para compatibilidade
+export var fetchDividends = fetchDividendsBrapi;
+
+// ══════════ FETCH DIVIDENDS STATUSINVEST ══════════
+
+function parseDateDDMMYYYY(dateStr) {
+  if (!dateStr) return null;
+  var parts = dateStr.split('/');
+  if (parts.length !== 3) return null;
+  return parts[2] + '-' + parts[1] + '-' + parts[0];
+}
+
+export async function fetchDividendsStatusInvest(ticker, categoria) {
+  try {
+    var tipo = (categoria === 'fii') ? 'fii' : 'acao';
+    var url = SI_BASE_URL + tipo + '/companytickerprovents?ticker=' + ticker + '&chartProvType=2';
+
+    var response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+
+    if (!response.ok) return [];
+
+    var json = await response.json();
+    var models = json.assetEarningsModels;
+    if (!models || models.length === 0) return [];
+
+    var result = [];
+    for (var i = 0; i < models.length; i++) {
+      var item = models[i];
+      var paymentDate = parseDateDDMMYYYY(item.pd);
+      var lastDatePrior = parseDateDDMMYYYY(item.ed);
+      var rate = item.v;
+      var label = item.et || '';
+
+      if (!paymentDate || !rate || rate <= 0) continue;
+
+      result.push({
+        paymentDate: paymentDate,
+        rate: rate,
+        label: label.toUpperCase(),
+        lastDatePrior: lastDatePrior,
+      });
+    }
+
+    return result;
+  } catch (err) {
+    console.warn('fetchDividendsStatusInvest error for ' + ticker + ':', err.message);
+    return [];
+  }
+}
+
+// ══════════ MERGE DIVIDENDS ══════════
+
+function mergeDedupKey(paymentDate, rate) {
+  var d = (paymentDate || '').substring(0, 10);
+  var v = Math.round((rate || 0) * 10000);
+  return d + '|' + v;
+}
+
+export function mergeDividends(brapiDivs, statusInvestDivs) {
+  var map = {};
+  var result = [];
+
+  // Brapi como base
+  for (var i = 0; i < brapiDivs.length; i++) {
+    var bd = brapiDivs[i];
+    var bKey = mergeDedupKey(bd.paymentDate, bd.rate);
+    map[bKey] = true;
+    result.push(bd);
+  }
+
+  // StatusInvest: adiciona apenas os que brapi nao tem
+  for (var j = 0; j < statusInvestDivs.length; j++) {
+    var sd = statusInvestDivs[j];
+    var sKey = mergeDedupKey(sd.paymentDate, sd.rate);
+    if (!map[sKey]) {
+      map[sKey] = true;
+      result.push(sd);
+    }
+  }
+
+  return result;
 }
 
 // ══════════ MAP LABEL TO TIPO ══════════
@@ -42,6 +133,9 @@ export function mapLabelToTipo(label) {
   var upper = label.toUpperCase().trim();
   if (upper === 'JCP' || upper.indexOf('JCP') !== -1 || upper.indexOf('JUROS SOBRE CAPITAL') !== -1) {
     return 'jcp';
+  }
+  if (upper === 'RENDIMENTO' || upper.indexOf('RENDIMENTO') !== -1) {
+    return 'rendimento';
   }
   return 'dividendo';
 }
@@ -127,7 +221,7 @@ export async function runDividendSync(userId) {
 
     var inserted = 0;
 
-    // 5. Para cada ticker, buscar dividendos e inserir novos
+    // 5. Para cada ticker, buscar dividendos de AMBAS as fontes e inserir novos
     for (var p = 0; p < positions.length; p++) {
       var pos = positions[p];
       var ticker = pos.ticker;
@@ -135,7 +229,10 @@ export async function runDividendSync(userId) {
 
       if (qty <= 0) continue;
 
-      var dividends = await fetchDividends(ticker);
+      // Buscar de ambas as fontes (independente, cada uma com try/catch proprio)
+      var brapiDivs = await fetchDividendsBrapi(ticker);
+      var siDivs = await fetchDividendsStatusInvest(ticker, pos.categoria);
+      var dividends = mergeDividends(brapiDivs, siDivs);
 
       for (var d = 0; d < dividends.length; d++) {
         var div = dividends[d];
@@ -187,7 +284,7 @@ export async function runDividendSync(userId) {
       }
     }
 
-    // 5. Atualizar data do ultimo sync
+    // 6. Atualizar data do ultimo sync
     var todayStr = now.toISOString().substring(0, 10);
     await updateProfile(userId, { last_dividend_sync: todayStr });
 
