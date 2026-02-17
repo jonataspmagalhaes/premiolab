@@ -437,11 +437,20 @@ export async function getDashboard(userId) {
     var proventosData = proventos.data || [];
     var dividendosMes = 0;
     var dividendosMesAnterior = 0;
+    var dividendosRecebidosMes = 0;
+    var dividendosAReceberMes = 0;
+    var todayDateStr = now.toISOString().substring(0, 10);
     for (var di = 0; di < proventosData.length; di++) {
       var dProv = new Date(proventosData[di].data_pagamento);
       var provVal = proventosData[di].valor_por_cota * proventosData[di].quantidade || 0;
       if (dProv.getMonth() === mesAtual && dProv.getFullYear() === anoAtual) {
         dividendosMes += provVal;
+        var provDateStr = (proventosData[di].data_pagamento || '').substring(0, 10);
+        if (provDateStr <= todayDateStr) {
+          dividendosRecebidosMes += provVal;
+        } else {
+          dividendosAReceberMes += provVal;
+        }
       } else if (dProv.getMonth() === mesAnterior && dProv.getFullYear() === anoMesAnterior) {
         dividendosMesAnterior += provVal;
       }
@@ -699,6 +708,8 @@ export async function getDashboard(userId) {
       dividendosCatMes: dividendosCatMes,
       dividendosCatMesAnt: dividendosCatMesAnt,
       proventosHoje: proventosHoje,
+      dividendosRecebidosMes: dividendosRecebidosMes,
+      dividendosAReceberMes: dividendosAReceberMes,
     };
   } catch (err) {
     console.error('Dashboard error:', err);
@@ -714,6 +725,8 @@ export async function getDashboard(userId) {
       dividendosCatMes: { acao: 0, fii: 0, etf: 0 },
       dividendosCatMesAnt: { acao: 0, fii: 0, etf: 0 },
       proventosHoje: [],
+      dividendosRecebidosMes: 0,
+      dividendosAReceberMes: 0,
     };
   }
 }

@@ -506,6 +506,8 @@ export default function HomeScreen({ navigation }) {
   var rendaTotalMesAnterior = data.rendaTotalMesAnterior || 0;
   var dividendosCatMes = data.dividendosCatMes || { acao: 0, fii: 0, etf: 0 };
   var dividendosCatMesAnt = data.dividendosCatMesAnt || { acao: 0, fii: 0, etf: 0 };
+  var dividendosRecebidosMes = data.dividendosRecebidosMes || 0;
+  var dividendosAReceberMes = data.dividendosAReceberMes || 0;
 
   // Ganhos acumulados por categoria (P&L posicoes)
   var ganhosPorCat = { acao: 0, fii: 0, rf: 0, etf: 0 };
@@ -783,13 +785,29 @@ export default function HomeScreen({ navigation }) {
               color={P.opcao.color}
               size={88}
             />
-            <DonutMini
-              label="Dividendos"
-              value={dividendosMes}
-              prevValue={dividendosMesAnterior}
-              color={P.fii.color}
-              size={88}
-            />
+            <View style={{ alignItems: 'center' }}>
+              <DonutMini
+                label="Dividendos"
+                value={dividendosMes}
+                prevValue={dividendosMesAnterior}
+                color={P.fii.color}
+                size={88}
+              />
+              {dividendosMes > 0 ? (
+                <View style={{ marginTop: 4, alignItems: 'center' }}>
+                  {dividendosRecebidosMes > 0 ? (
+                    <Text style={{ fontSize: 9, color: '#22c55e', fontFamily: F.mono }}>
+                      {'Recebido ' + fmt(dividendosRecebidosMes)}
+                    </Text>
+                  ) : null}
+                  {dividendosAReceberMes > 0 ? (
+                    <Text style={{ fontSize: 9, color: '#f59e0b', fontFamily: F.mono }}>
+                      {'A receber ' + fmt(dividendosAReceberMes)}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
             <DonutMini
               label="Total"
               value={premiosMes + dividendosMes}
