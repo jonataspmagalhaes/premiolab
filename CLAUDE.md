@@ -198,7 +198,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 
 ### Home (HomeScreen)
 - Card de patrimonio com variacao
-- Card de renda mensal (dividendos + premios + RF)
+- Card de renda mensal (dividendos + premios + RF) com donut Dividendos mostrando breakdown "Recebido" (verde) vs "A receber" (amarelo) no mes
 - Alertas inteligentes
 - Timeline de eventos (vencimentos opcoes, vencimentos RF)
 - Grafico de historico patrimonial
