@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { addOperacao, incrementCorretora } from '../../services/database';
+import { addOperacao, incrementCorretora, getIndicators } from '../../services/database';
+import { runDailyCalculation } from '../../services/indicatorService';
 import { Glass, Pill, Badge } from '../../components';
 
 function fmt(v) {
@@ -79,6 +80,17 @@ export default function AddOperacaoScreen(props) {
         setSubmitted(false);
       } else {
         await incrementCorretora(user.id, corretora);
+        // Trigger indicadores na primeira operacao
+        getIndicators(user.id).then(function(indRes) {
+          var indData = (indRes && indRes.data) || [];
+          if (indData.length === 0) {
+            runDailyCalculation(user.id).catch(function(e) {
+              console.warn('First op indicator calc failed:', e);
+            });
+          }
+        }).catch(function(e) {
+          console.warn('First op indicator check failed:', e);
+        });
         Alert.alert('Sucesso!', 'Operação registrada.', [
           {
             text: 'Adicionar outra',
