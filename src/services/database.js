@@ -447,6 +447,16 @@ export async function getDashboard(userId) {
       }
     }
 
+    // ── Proventos pagos hoje ──
+    var todayStr = now.toISOString().substring(0, 10);
+    var proventosHoje = [];
+    for (var phi = 0; phi < proventosData.length; phi++) {
+      var phDate = (proventosData[phi].data_pagamento || '').substring(0, 10);
+      if (phDate === todayStr) {
+        proventosHoje.push(proventosData[phi]);
+      }
+    }
+
     // ── Dividendos por categoria (mes atual e anterior) ──
     var dividendosCatMes = { acao: 0, fii: 0, etf: 0 };
     var dividendosCatMesAnt = { acao: 0, fii: 0, etf: 0 };
@@ -629,7 +639,7 @@ export async function getDashboard(userId) {
       var rfDateStr = (rfData[rd].data_aplicacao || rfData[rd].created_at || '').substring(0, 10);
       if (rfDateStr) allDatesObj[rfDateStr] = true;
     }
-    var todayStr = now.toISOString().substring(0, 10);
+    todayStr = now.toISOString().substring(0, 10);
     allDatesObj[todayStr] = true;
 
     var sortedDates = Object.keys(allDatesObj).sort();
@@ -688,6 +698,7 @@ export async function getDashboard(userId) {
       rendaTotalMesAnterior: rendaTotalMesAnterior,
       dividendosCatMes: dividendosCatMes,
       dividendosCatMesAnt: dividendosCatMesAnt,
+      proventosHoje: proventosHoje,
     };
   } catch (err) {
     console.error('Dashboard error:', err);
@@ -702,6 +713,7 @@ export async function getDashboard(userId) {
       dividendosMesAnterior: 0, premiosMesAnterior: 0, rendaTotalMesAnterior: 0,
       dividendosCatMes: { acao: 0, fii: 0, etf: 0 },
       dividendosCatMesAnt: { acao: 0, fii: 0, etf: 0 },
+      proventosHoje: [],
     };
   }
 }

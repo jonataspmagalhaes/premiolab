@@ -564,8 +564,34 @@ export default function HomeScreen({ navigation }) {
   var topGainers = sorted.filter(function (p) { return (p.change_day || 0) > 0; }).slice(0, 5);
   var topLosers = sorted.filter(function (p) { return (p.change_day || 0) < 0; }).sort(function (a, b) { return (a.change_day || 0) - (b.change_day || 0); }).slice(0, 5);
 
+  // Proventos pagos hoje
+  var proventosHoje = data.proventosHoje || [];
+
   // Alerts
   var alerts = [];
+  if (proventosHoje.length > 0) {
+    var phByTicker = {};
+    var phTotal = 0;
+    for (var phi = 0; phi < proventosHoje.length; phi++) {
+      var phTk = proventosHoje[phi].ticker || '?';
+      var phVal = (proventosHoje[phi].valor_por_cota || 0) * (proventosHoje[phi].quantidade || 0);
+      if (!phByTicker[phTk]) phByTicker[phTk] = 0;
+      phByTicker[phTk] += phVal;
+      phTotal += phVal;
+    }
+    var phTickers = Object.keys(phByTicker);
+    var phDesc = '';
+    for (var phd = 0; phd < phTickers.length; phd++) {
+      if (phd > 0) phDesc += ', ';
+      phDesc += phTickers[phd] + ' R$ ' + fmt2(phByTicker[phTickers[phd]]);
+    }
+    alerts.push({
+      type: 'ok',
+      title: 'Dividendo sendo pago hoje',
+      desc: phDesc + ' · Total ' + fmt(phTotal),
+      badge: 'HOJE',
+    });
+  }
   if (opsVenc7d > 0) {
     alerts.push({
       type: 'critico',

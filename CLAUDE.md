@@ -101,7 +101,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Corretoras**: getUserCorretoras, incrementCorretora
 - **Saldos**: getSaldos
 - **Alertas**: getAlertasConfig, updateAlertasConfig
-- **Dashboard**: getDashboard (endpoint agregado: patrimonio, renda, eventos, historico)
+- **Dashboard**: getDashboard (endpoint agregado: patrimonio, renda, eventos, historico, proventosHoje)
 - **Indicadores**: getIndicators, getIndicatorByTicker, upsertIndicator, upsertIndicatorsBatch
 
 ### priceService.js - Funcoes exportadas
@@ -204,6 +204,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - Grafico de historico patrimonial
 - **Auto-trigger indicadores**: dispara `runDailyCalculation` em background apos 18h BRT em dias uteis
 - **Auto-trigger dividend sync**: dispara `runDividendSync` fire-and-forget apos 18h BRT em dias uteis
+- **Alerta dividendo hoje**: se `proventosHoje` do dashboard tem itens, mostra alerta verde "Dividendo sendo pago hoje" com tickers e total, badge "HOJE"
 
 ### Renda Fixa (RendaFixaScreen)
 - Suporte a CDB, LCI/LCA, Tesouro Selic/IPCA/Pre, Debenture
@@ -220,6 +221,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - Card "INDICADORES TECNICOS" com grid 2x4: HV 20d, RSI 14, SMA 20, EMA 9, Beta, ATR 14, Max DD, BB Width
 - Cores semanticas por indicador (RSI >70 vermelho, <30 verde; Beta >1.2 vermelho, <0.8 verde)
 - Data do ultimo calculo no rodape
+- **Proventos por corretora**: proventos aparecem DENTRO de cada grupo de corretora na secao TRANSACOES, com qty ajustada por corretora (usa `por_corretora` computado dos txns). Separador visual "PROVENTOS (X cotas)" em verde. Secao separada de proventos removida.
 
 ### Analise (AnaliseScreen)
 - Sub-tab **Indicadores** com tabela resumo (Ticker, HV, RSI, Beta, Max DD) + cards detalhados por ativo (14 indicadores)
