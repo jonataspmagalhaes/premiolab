@@ -18,6 +18,39 @@ function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function maskDate(text) {
+  var clean = text.replace(/\D/g, '');
+  if (clean.length <= 2) return clean;
+  if (clean.length <= 4) return clean.slice(0, 2) + '/' + clean.slice(2);
+  return clean.slice(0, 2) + '/' + clean.slice(2, 4) + '/' + clean.slice(4, 8);
+}
+
+function brToIso(brDate) {
+  var parts = brDate.split('/');
+  if (parts.length !== 3) return null;
+  var day = parts[0]; var month = parts[1]; var year = parts[2];
+  if (day.length !== 2 || month.length !== 2 || year.length !== 4) return null;
+  return year + '-' + month + '-' + day;
+}
+
+function isValidDate(brDate) {
+  var iso = brToIso(brDate);
+  if (!iso) return false;
+  var date = new Date(iso + 'T12:00:00');
+  if (isNaN(date.getTime())) return false;
+  var day = parseInt(brDate.split('/')[0]);
+  var month = parseInt(brDate.split('/')[1]);
+  return date.getDate() === day && (date.getMonth() + 1) === month;
+}
+
+function todayBr() {
+  var d = new Date();
+  var dd = String(d.getDate()).padStart(2, '0');
+  var mm = String(d.getMonth() + 1).padStart(2, '0');
+  var yyyy = d.getFullYear();
+  return dd + '/' + mm + '/' + yyyy;
+}
+
 // ═══════════════════════════════════════
 // BLACK-SCHOLES MATH
 // ═══════════════════════════════════════
@@ -451,7 +484,12 @@ function OpCard(props) {
 
   var _showClose = useState(false); var showClose = _showClose[0]; var setShowClose = _showClose[1];
   var _premRecompra = useState(''); var premRecompra = _premRecompra[0]; var setPremRecompra = _premRecompra[1];
+  var _dataFechamento = useState(todayBr()); var dataFechamento = _dataFechamento[0]; var setDataFechamento = _dataFechamento[1];
+  var _qtyFechamento = useState(String(op.quantidade || 0)); var qtyFechamento = _qtyFechamento[0]; var setQtyFechamento = _qtyFechamento[1];
   var _showPayoff = useState(false); var showPayoff = _showPayoff[0]; var setShowPayoff = _showPayoff[1];
+  var dataFechamentoValid = dataFechamento.length === 10 && isValidDate(dataFechamento);
+  var qtyFechamentoVal = parseInt(qtyFechamento) || 0;
+  var qtyFechamentoValid = qtyFechamentoVal > 0 && qtyFechamentoVal <= (op.quantidade || 0);
 
   var tipoLabel = (op.tipo || 'call').toUpperCase();
   var isVenda = op.direcao === 'lancamento' || op.direcao === 'venda';
@@ -544,11 +582,11 @@ function OpCard(props) {
   // Encerramento P&L
   var recompraVal = parseFloat(premRecompra) || 0;
   var closePL = 0;
-  if (recompraVal > 0) {
+  if (recompraVal > 0 && qtyFechamentoVal > 0) {
     if (op.direcao === 'lancamento' || op.direcao === 'venda') {
-      closePL = ((op.premio || 0) - recompraVal) * (op.quantidade || 0);
+      closePL = ((op.premio || 0) - recompraVal) * qtyFechamentoVal;
     } else {
-      closePL = (recompraVal - (op.premio || 0)) * (op.quantidade || 0);
+      closePL = (recompraVal - (op.premio || 0)) * qtyFechamentoVal;
     }
   }
 
@@ -572,6 +610,10 @@ function OpCard(props) {
           <Badge text={(op.quantidade || 0) + 'x'} color={C.accent} />
         </View>
       </View>
+      {/* Corretora */}
+      {op.corretora ? (
+        <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body, marginBottom: 4 }}>{op.corretora}</Text>
+      ) : null}
       {/* Premio: unitario + total */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
         <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>PREMIO</Text>
@@ -695,9 +737,53 @@ function OpCard(props) {
               fontSize: 15, color: C.text, fontFamily: F.body,
             }}
           />
-          {recompraVal > 0 ? (function() {
-            var recompraTotal = recompraVal * (op.quantidade || 0);
-            var closePLPct = premTotal > 0 ? (closePL / premTotal) * 100 : 0;
+          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4, marginTop: 10 }}>QUANTIDADE</Text>
+          <TextInput
+            value={qtyFechamento}
+            onChangeText={function(t) { setQtyFechamento(t.replace(/\D/g, '')); }}
+            placeholder={String(op.quantidade || 0)}
+            placeholderTextColor={C.dim}
+            keyboardType="number-pad"
+            style={[
+              {
+                backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border,
+                borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+                fontSize: 15, color: C.text, fontFamily: F.body,
+              },
+              qtyFechamentoValid && { borderColor: C.green },
+              qtyFechamento.length > 0 && !qtyFechamentoValid && { borderColor: C.red },
+            ]}
+          />
+          {qtyFechamento.length > 0 && !qtyFechamentoValid ? (
+            <Text style={{ fontSize: 10, color: C.red, fontFamily: F.body, marginTop: 2 }}>
+              {qtyFechamentoVal > (op.quantidade || 0) ? 'Máximo: ' + (op.quantidade || 0) : 'Quantidade inválida'}
+            </Text>
+          ) : null}
+          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4, marginTop: 10 }}>DATA DO ENCERRAMENTO</Text>
+          <TextInput
+            value={dataFechamento}
+            onChangeText={function(t) { setDataFechamento(maskDate(t)); }}
+            placeholder="DD/MM/AAAA"
+            placeholderTextColor={C.dim}
+            keyboardType="number-pad"
+            maxLength={10}
+            style={[
+              {
+                backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border,
+                borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+                fontSize: 15, color: C.text, fontFamily: F.body,
+              },
+              dataFechamento.length === 10 && dataFechamentoValid && { borderColor: C.green },
+              dataFechamento.length === 10 && !dataFechamentoValid && { borderColor: C.red },
+            ]}
+          />
+          {dataFechamento.length === 10 && !dataFechamentoValid ? (
+            <Text style={{ fontSize: 10, color: C.red, fontFamily: F.body, marginTop: 2 }}>Data inválida</Text>
+          ) : null}
+          {recompraVal > 0 && qtyFechamentoValid ? (function() {
+            var recompraTotal = recompraVal * qtyFechamentoVal;
+            var premTotalClose = (op.premio || 0) * qtyFechamentoVal;
+            var closePLPct = premTotalClose > 0 ? (closePL / premTotalClose) * 100 : 0;
             return (
               <View style={{ marginTop: 8 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -722,14 +808,14 @@ function OpCard(props) {
           })() : null}
           <TouchableOpacity
             onPress={function() {
-              if (recompraVal <= 0) return;
-              if (onClose) onClose(op.id, recompraVal, closePL);
+              if (recompraVal <= 0 || !dataFechamentoValid || !qtyFechamentoValid) return;
+              if (onClose) onClose(op.id, recompraVal, closePL, brToIso(dataFechamento), qtyFechamentoVal);
             }}
-            disabled={recompraVal <= 0}
+            disabled={recompraVal <= 0 || !dataFechamentoValid || !qtyFechamentoValid}
             style={{
-              backgroundColor: recompraVal > 0 ? C.yellow : C.dim,
+              backgroundColor: recompraVal > 0 && dataFechamentoValid && qtyFechamentoValid ? C.yellow : C.dim,
               borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 8,
-              opacity: recompraVal > 0 ? 1 : 0.4,
+              opacity: recompraVal > 0 && dataFechamentoValid && qtyFechamentoValid ? 1 : 0.4,
             }}
           >
             <Text style={{ fontSize: 13, fontWeight: '700', color: '#000', fontFamily: F.display }}>Confirmar encerramento</Text>
@@ -1448,31 +1534,113 @@ export default function OpcoesScreen() {
     ]);
   };
 
-  var handleClose = async function(id, premFechamento, pl) {
-    var result = await supabase
-      .from('opcoes')
-      .update({ status: 'fechada', premio_fechamento: premFechamento })
-      .eq('id', id);
-    if (result.error) {
-      Alert.alert('Erro', 'Falha ao encerrar opção.');
-      return;
+  var handleClose = async function(id, premFechamento, pl, dataFech, qtyClose) {
+    // Find original option
+    var original = null;
+    for (var fi = 0; fi < opcoes.length; fi++) {
+      if (opcoes[fi].id === id) { original = opcoes[fi]; break; }
     }
-    var updated = [];
-    for (var ci = 0; ci < opcoes.length; ci++) {
-      if (opcoes[ci].id === id) {
-        var copy = {};
-        var keys = Object.keys(opcoes[ci]);
-        for (var ck = 0; ck < keys.length; ck++) { copy[keys[ck]] = opcoes[ci][keys[ck]]; }
-        copy.status = 'fechada';
-        copy.premio_fechamento = premFechamento;
-        updated.push(copy);
-      } else {
-        updated.push(opcoes[ci]);
+    if (!original) return;
+
+    var isPartial = qtyClose < (original.quantidade || 0);
+
+    if (isPartial) {
+      // Partial close: reduce qty on original, insert new record as fechada
+      var remainQty = (original.quantidade || 0) - qtyClose;
+      var resUpdate = await supabase
+        .from('opcoes')
+        .update({ quantidade: remainQty })
+        .eq('id', id);
+      if (resUpdate.error) {
+        console.warn('handleClose partial update error:', resUpdate.error);
+        Alert.alert('Erro', 'Falha ao encerrar opção: ' + (resUpdate.error.message || ''));
+        return;
       }
+      var insertData = {
+        user_id: original.user_id,
+        ativo_base: original.ativo_base,
+        ticker_opcao: original.ticker_opcao,
+        tipo: original.tipo,
+        direcao: original.direcao,
+        strike: original.strike,
+        premio: original.premio,
+        quantidade: qtyClose,
+        vencimento: original.vencimento,
+        corretora: original.corretora,
+        data_abertura: original.data_abertura || null,
+        status: 'fechada',
+        premio_fechamento: premFechamento,
+        data_fechamento: dataFech || null,
+      };
+      var resInsert = await supabase
+        .from('opcoes')
+        .insert(insertData)
+        .select();
+      if (resInsert.error) {
+        console.warn('handleClose partial insert error:', resInsert.error);
+        // Retry without data_fechamento in case column doesn't exist
+        delete insertData.data_fechamento;
+        resInsert = await supabase.from('opcoes').insert(insertData).select();
+        if (resInsert.error) {
+          console.warn('handleClose partial insert retry error:', resInsert.error);
+          Alert.alert('Erro', 'Falha ao registrar encerramento parcial: ' + (resInsert.error.message || ''));
+          return;
+        }
+      }
+      // Update local state
+      var updated = [];
+      for (var ci = 0; ci < opcoes.length; ci++) {
+        if (opcoes[ci].id === id) {
+          var copy = {};
+          var keys = Object.keys(opcoes[ci]);
+          for (var ck = 0; ck < keys.length; ck++) { copy[keys[ck]] = opcoes[ci][keys[ck]]; }
+          copy.quantidade = remainQty;
+          updated.push(copy);
+        } else {
+          updated.push(opcoes[ci]);
+        }
+      }
+      if (resInsert.data && resInsert.data[0]) {
+        updated.push(resInsert.data[0]);
+      }
+      setOpcoes(updated);
+    } else {
+      // Full close
+      var updateData = { status: 'fechada', premio_fechamento: premFechamento, data_fechamento: dataFech || null };
+      var result = await supabase
+        .from('opcoes')
+        .update(updateData)
+        .eq('id', id);
+      if (result.error) {
+        console.warn('handleClose full update error:', result.error);
+        // Retry without data_fechamento in case column doesn't exist
+        delete updateData.data_fechamento;
+        result = await supabase.from('opcoes').update(updateData).eq('id', id);
+        if (result.error) {
+          console.warn('handleClose full retry error:', result.error);
+          Alert.alert('Erro', 'Falha ao encerrar opção: ' + (result.error.message || ''));
+          return;
+        }
+      }
+      var updated2 = [];
+      for (var ci2 = 0; ci2 < opcoes.length; ci2++) {
+        if (opcoes[ci2].id === id) {
+          var copy2 = {};
+          var keys2 = Object.keys(opcoes[ci2]);
+          for (var ck2 = 0; ck2 < keys2.length; ck2++) { copy2[keys2[ck2]] = opcoes[ci2][keys2[ck2]]; }
+          copy2.status = 'fechada';
+          copy2.premio_fechamento = premFechamento;
+          copy2.data_fechamento = dataFech || null;
+          updated2.push(copy2);
+        } else {
+          updated2.push(opcoes[ci2]);
+        }
+      }
+      setOpcoes(updated2);
     }
-    setOpcoes(updated);
     var plText = pl >= 0 ? '+R$ ' + fmt(pl) : '-R$ ' + fmt(Math.abs(pl));
-    Alert.alert('Opção encerrada', 'P&L: ' + plText);
+    var partialText = isPartial ? ' (' + qtyClose + ' de ' + (original.quantidade || 0) + ')' : '';
+    Alert.alert('Opção encerrada' + partialText, 'P&L: ' + plText);
   };
 
   var handleExpiredPo = async function(id) {
@@ -1804,13 +1972,29 @@ export default function OpcoesScreen() {
               <Glass padding={14}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
                   {(function() {
-                    var totalPrem = historico.reduce(function(s, o) { return s + (o.premio || 0) * (o.quantidade || 0); }, 0);
+                    var totalPL = 0;
+                    for (var hi = 0; hi < historico.length; hi++) {
+                      var h = historico[hi];
+                      var hIsVenda = h.direcao === 'lancamento' || h.direcao === 'venda';
+                      if (h.status === 'fechada' && h.premio_fechamento != null) {
+                        if (hIsVenda) {
+                          totalPL = totalPL + ((h.premio || 0) - (h.premio_fechamento || 0)) * (h.quantidade || 0);
+                        } else {
+                          totalPL = totalPL + ((h.premio_fechamento || 0) - (h.premio || 0)) * (h.quantidade || 0);
+                        }
+                      } else {
+                        // Expirou PO, expirada, exercida = full premium
+                        totalPL = totalPL + (h.premio || 0) * (h.quantidade || 0);
+                      }
+                    }
                     var expiradas = historico.filter(function(o) { return o.status === 'expirou_po' || o.status === 'expirada'; }).length;
                     var exercidas = historico.filter(function(o) { return o.status === 'exercida'; }).length;
+                    var fechadas = historico.filter(function(o) { return o.status === 'fechada'; }).length;
                     return [
-                      { l: 'TOTAL RECEBIDO', v: 'R$ ' + fmt(totalPrem), c: C.green },
+                      { l: 'P&L TOTAL', v: (totalPL >= 0 ? '+' : '') + 'R$ ' + fmt(totalPL), c: totalPL >= 0 ? C.green : C.red },
                       { l: 'EXPIROU PO', v: String(expiradas), c: C.acoes },
                       { l: 'EXERCIDAS', v: String(exercidas), c: C.etfs },
+                      { l: 'FECHADAS', v: String(fechadas), c: C.yellow },
                     ];
                   })().map(function(m, i) {
                     return (
@@ -1840,6 +2024,25 @@ export default function OpcoesScreen() {
                   };
                   var stColor = statusMap[statusLabel] || C.dim;
 
+                  // P&L calculation
+                  var isVendaHist = op.direcao === 'lancamento' || op.direcao === 'venda';
+                  var isFechada = op.status === 'fechada';
+                  var histPL = 0;
+                  var histDisplayVal = '';
+                  var histDisplayColor = C.green;
+                  if (isFechada && op.premio_fechamento != null) {
+                    if (isVendaHist) {
+                      histPL = ((op.premio || 0) - (op.premio_fechamento || 0)) * (op.quantidade || 0);
+                    } else {
+                      histPL = ((op.premio_fechamento || 0) - (op.premio || 0)) * (op.quantidade || 0);
+                    }
+                    histDisplayColor = histPL >= 0 ? C.green : C.red;
+                    histDisplayVal = (histPL >= 0 ? '+' : '') + 'R$ ' + fmt(histPL);
+                  } else {
+                    // Expirou PO / expirada = full premium kept
+                    histDisplayVal = '+R$ ' + fmt(premTotal);
+                  }
+
                   return (
                     <View key={op.id || i}
                       style={[styles.histRow, i > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.04)' }]}
@@ -1859,10 +2062,29 @@ export default function OpcoesScreen() {
                             <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{op.corretora}</Text>
                           ) : null}
                         </View>
+                        {isFechada ? (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                              {'Recompra: R$ ' + fmt(op.premio_fechamento || 0) + ' x ' + (op.quantidade || 0)}
+                            </Text>
+                            {op.data_fechamento ? (
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                                {'em ' + new Date(op.data_fechamento + 'T12:00:00').toLocaleDateString('pt-BR')}
+                              </Text>
+                            ) : null}
+                          </View>
+                        ) : null}
                       </View>
-                      <Text style={{ fontSize: 14, fontWeight: '700', color: C.green, fontFamily: F.mono }}>
-                        +R$ {fmt(premTotal)}
-                      </Text>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: histDisplayColor, fontFamily: F.mono }}>
+                          {histDisplayVal}
+                        </Text>
+                        {isFechada ? (
+                          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>P&L</Text>
+                        ) : (
+                          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>Prêmio</Text>
+                        )}
+                      </View>
                     </View>
                   );
                 })}

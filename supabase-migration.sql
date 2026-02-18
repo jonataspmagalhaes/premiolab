@@ -214,6 +214,9 @@ ALTER TABLE opcoes ADD CONSTRAINT opcoes_direcao_check
 -- MIGRATION: data_abertura (data em que a opcao foi aberta/vendida)
 ALTER TABLE opcoes ADD COLUMN IF NOT EXISTS data_abertura DATE DEFAULT NULL;
 
+-- MIGRATION: data_fechamento (data em que a opcao foi encerrada antecipadamente)
+ALTER TABLE opcoes ADD COLUMN IF NOT EXISTS data_fechamento DATE DEFAULT NULL;
+
 -- MIGRATION: exercicio_auto em alertas_config
 ALTER TABLE alertas_config ADD COLUMN IF NOT EXISTS exercicio_auto BOOLEAN DEFAULT FALSE;
 
@@ -254,6 +257,12 @@ CREATE POLICY "indicators_own" ON indicators FOR ALL USING (auth.uid() = user_id
 -- 11. DIVIDEND SYNC
 -- ═══════════════════════════════════════════════════
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_dividend_sync DATE;
+
+-- ═══════════════════════════════════════════════════
+-- 11b. SELIC MANUAL + HISTORICO
+-- ═══════════════════════════════════════════════════
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS selic_manual BOOLEAN DEFAULT false;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS selic_history JSONB DEFAULT '[]'::jsonb;
 
 -- ═══════════════════════════════════════════════════
 -- 12. REBALANCE TARGETS

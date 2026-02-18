@@ -75,7 +75,7 @@ supabase/
 |--------|-----------|
 | `profiles` | id, nome, meta_mensal, selic, last_dividend_sync |
 | `operacoes` | ticker, tipo(compra/venda), categoria(acao/fii/etf), quantidade, preco, custos, corretora, data |
-| `opcoes` | ativo_base, ticker_opcao, tipo(call/put), direcao(venda/compra/lancamento), strike, premio, quantidade, vencimento, data_abertura, status, corretora, premio_fechamento |
+| `opcoes` | ativo_base, ticker_opcao, tipo(call/put), direcao(venda/compra/lancamento), strike, premio, quantidade, vencimento, data_abertura, status, corretora, premio_fechamento, data_fechamento |
 | `proventos` | ticker, tipo_provento, valor_por_cota, quantidade, valor_total, data_pagamento |
 | `renda_fixa` | tipo(cdb/lci_lca/tesouro_*), emissor, taxa, indexador, valor_aplicado, vencimento |
 | `saldos_corretora` | name, saldo, tipo(corretora/banco) |
@@ -159,6 +159,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 | `LoadingScreen` | States.js | Tela de loading |
 | `EmptyState` | States.js | Estado vazio com icone + CTA |
 | `Skeleton*` | States.js | Placeholders de carregamento |
+| `InfoTip` | InfoTip.js | Icone info (ⓘ) com texto expansivel via LayoutAnimation |
 
 ## Theme
 
@@ -192,7 +193,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Cobertura inteligente** (usa `por_corretora` das transacoes, nao do card):
   - CALL vendida: verifica acoes do ativo_base na MESMA corretora (COBERTA/PARCIAL/COBERTA*/DESCOBERTA)
   - PUT vendida (CSP): verifica saldo na MESMA corretora vs strike*qty
-- **Encerramento antecipado**: input de premio recompra + P&L em tempo real + confirmacao
+- **Encerramento antecipado**: painel com premio recompra, quantidade (auto-fill, editavel para encerramento parcial), data de fechamento (auto-fill hoje, editavel). Encerramento parcial reduz qty da original e cria novo registro fechado. Fallback resiliente se coluna `data_fechamento` nao existir no banco
 - **Opcoes vencidas**: detecao automatica, painel no topo com botoes "Expirou PO" / "Foi exercida"
 - **Exercicio automatico**: cria operacao de compra/venda na carteira ao confirmar exercicio
 - **Simulador BS**: inputs editaveis, cenarios what-if (+/-5%, +/-10%)
@@ -201,7 +202,8 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
   - IV inicializado com **HV 20d real** do indicatorService (fallback 35% se sem dados)
   - Badge "HV 20d: XX%" ao lado do spot, IV atualiza ao trocar ticker
 - **HV/IV nos cards**: linha "HV: XX% | IV: YY%" + badge "IV ALTA" (>130% HV) / "IV BAIXA" (<70% HV)
-- **Historico**: resumo total recebido, expiradas PO, exercidas + lista detalhada
+- **Corretora visivel**: label da corretora no card de opcao ativa (abaixo do header)
+- **Historico**: resumo P&L total (considera premio_fechamento para fechadas), contadores expiradas PO/exercidas/fechadas + lista detalhada com P&L real por opcao, detalhes de recompra (preco, qty, data) nas fechadas
 - **Data abertura**: campo data_abertura nas opcoes, premios calculados com D+1 (liquidacao)
 - DTE badge no header de cada card
 
@@ -417,3 +419,70 @@ Grafico de linhas na aba Performance > Todos comparando retorno da carteira vs C
 - Grid com 5 niveis Y (±maxAbs, ±metade, zero) + labels %
 - Zero line mais grossa para separar positivo/negativo
 - IBOV carregado em background (fire-and-forget) via `fetchPriceHistoryLong(['^BVSP'])`
+
+## Tooltips InfoTip (Implementado)
+
+Componente `InfoTip` com icone Ionicons `information-circle-outline` (14px, cor `C.accent`). Toque expande texto inline via `LayoutAnimation`. Texto fontSize 10, cor `C.sub`, fontFamily `F.body`.
+
+### Props
+- `text` (string) — texto explicativo exibido ao expandir
+- `size` (number, default 14) — tamanho do icone
+- `color` (string, default `C.accent`) — cor do icone
+- `style` (object) — estilo adicional no container
+
+### Telas com tooltips
+
+| Tela | Tooltips |
+|------|----------|
+| HomeScreen | Patrimonio Total, Renda do Mes, Alertas |
+| CarteiraScreen | Posicoes (PM) |
+| OpcoesScreen | Summary bar (moneyness/cobertura/DTE), Gregas BS, HV/IV |
+| AnaliseScreen (Todos) | Retorno Mensal/Semanal, Drawdown, Rentabilidade por Ativo |
+| AnaliseScreen (Indicadores) | Tabela resumo (HV, RSI, Beta, Max DD) |
+| AnaliseScreen (Rebalanceamento) | Metas de alocacao |
+| ProventosScreen | Titulo (tipos + sincronizar) |
+| RendaFixaScreen | Titulo (indexadores/tipos) |
+| ConfigSelicScreen | Taxa Selic |
+| ConfigMetaScreen | Meta mensal |
+
+### Arquivos modificados/criados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/components/InfoTip.js` | Criado — componente InfoTip com LayoutAnimation |
+| `src/components/index.js` | Export do InfoTip |
+| `src/screens/home/HomeScreen.js` | 3 tooltips (patrimonio, renda, alertas) |
+| `src/screens/carteira/CarteiraScreen.js` | 1 tooltip (posicoes/PM) |
+| `src/screens/opcoes/OpcoesScreen.js` | 3 tooltips (summary, gregas, HV/IV) |
+| `src/screens/analise/AnaliseScreen.js` | 5 tooltips (retorno, drawdown, rentabilidade, indicadores, rebalanceamento) |
+| `src/screens/proventos/ProventosScreen.js` | 1 tooltip (titulo) |
+| `src/screens/rf/RendaFixaScreen.js` | 1 tooltip (titulo) |
+| `src/screens/mais/config/ConfigSelicScreen.js` | 1 tooltip (taxa selic) |
+| `src/screens/mais/config/ConfigMetaScreen.js` | 1 tooltip (meta mensal) |
+
+## Correcao de Portugues (Implementado)
+
+Revisao geral de textos UI para portugues correto com acentos. Todas as strings visiveis ao usuario foram corrigidas.
+
+### Categorias de correcao
+- **Setores/segmentos** (AnaliseScreen): Petroleo→Petróleo, Mineracao→Mineração, Saude→Saúde, Construcao→Construção, Industria→Indústria, Logistica→Logística, Recebiveis→Recebíveis, Diagnosticos→Diagnósticos, Farmacias→Farmácias, Frigorificos→Frigoríficos, Escritorios→Escritórios, Concessoes→Concessões, etc.
+- **Labels UI**: Amortizacao→Amortização, Bonificacao→Bonificação, Historico→Histórico, Posicao→Posição, Transacoes→Transações, Preco Medio→Preço Médio, Composicao→Composição, Visao Geral→Visão Geral, Premios→Prêmios, Acoes→Ações
+- **Mensagens**: "Essa acao nao pode"→"Essa ação não pode", "ja pagos"→"já pagos", "ja esta"→"já está", "Cotacoes indisponiveis"→"Cotações indisponíveis"
+- **Maps atomicos**: TICKER_SECTORS, FII_REBAL_MAP, FII_SECTORS_SET e mapBrapiSector atualizados em conjunto para manter consistencia de lookups
+
+### Bug fixes incluidos
+- `OpcoesScreen`: null guard `positions || []` em OpCard
+- `AnaliseScreen`: `if (!p) continue` em enrichTickerSectors, `if (!pt || !pt.date)` em computeMonthlyReturns/computeWeeklyReturns
+- `dividendService`: catches silenciosos trocados por `console.warn` com contexto (4 locais StatusInvest)
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/analise/AnaliseScreen.js` | ~40 setores/segmentos + 6 labels + 3 null guards |
+| `src/screens/proventos/ProventosScreen.js` | Amortizacao, Bonificacao, Historico, acao nao pode, ja pagos |
+| `src/screens/proventos/AddProventoScreen.js` | Amortizacao, Bonificacao |
+| `src/screens/proventos/EditProventoScreen.js` | Amortizacao, Bonificacao, Salvar Alteracoes |
+| `src/screens/carteira/AssetDetailScreen.js` | Periodo, Cotacoes, operacao, HISTORICO, POSICAO, Preco Medio, TRANSACOES |
+| `src/screens/mais/HistoricoScreen.js` | Historico |
+| `src/screens/mais/config/ConfigSelicScreen.js` | HISTORICO DE ALTERACOES |
+| `src/services/dividendService.js` | 4 catches silenciosos → console.warn |
+| `src/screens/opcoes/OpcoesScreen.js` | positions null guard |
