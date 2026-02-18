@@ -2124,15 +2124,28 @@ export default function OpcoesScreen() {
                           ) : null}
                         </View>
                         {isFechada ? (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
-                              {'Recompra: R$ ' + fmt(op.premio_fechamento || 0) + ' x ' + (op.quantidade || 0)}
-                            </Text>
-                            {op.data_fechamento ? (
+                          <View style={{ marginTop: 4, gap: 2 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
-                                {'em ' + new Date(op.data_fechamento + 'T12:00:00').toLocaleDateString('pt-BR')}
+                                {'Recompra: R$ ' + fmt(op.premio_fechamento || 0) + ' x ' + (op.quantidade || 0)}
                               </Text>
-                            ) : null}
+                              {op.data_fechamento ? (
+                                <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                                  {'em ' + new Date(op.data_fechamento + 'T12:00:00').toLocaleDateString('pt-BR')}
+                                </Text>
+                              ) : null}
+                            </View>
+                            <View style={{ flexDirection: 'row', gap: 12, marginTop: 2 }}>
+                              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>
+                                {'Recebido: R$ ' + fmt(premTotal)}
+                              </Text>
+                              <Text style={{ fontSize: 10, color: C.red, fontFamily: F.mono }}>
+                                {'Recompra: R$ ' + fmt((op.premio_fechamento || 0) * (op.quantidade || 0))}
+                              </Text>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: histPL >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                                {'Resultado: ' + (histPL >= 0 ? '+' : '') + 'R$ ' + fmt(histPL)}
+                              </Text>
+                            </View>
                           </View>
                         ) : null}
                       </View>
