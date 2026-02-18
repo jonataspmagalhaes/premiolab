@@ -724,6 +724,9 @@ function OpCard(props) {
       {/* Encerramento panel */}
       {showClose ? (
         <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
+          {op.ticker_opcao ? (
+            <Text style={{ fontSize: 11, color: C.opcoes, fontFamily: F.mono, marginBottom: 6 }}>{op.ticker_opcao}</Text>
+          ) : null}
           <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4 }}>PRÊMIO RECOMPRA (R$)</Text>
           <TextInput
             value={premRecompra}
@@ -1640,7 +1643,62 @@ export default function OpcoesScreen() {
     }
     var plText = pl >= 0 ? '+R$ ' + fmt(pl) : '-R$ ' + fmt(Math.abs(pl));
     var partialText = isPartial ? ' (' + qtyClose + ' de ' + (original.quantidade || 0) + ')' : '';
-    Alert.alert('Opção encerrada' + partialText, 'P&L: ' + plText);
+
+    // Check if user has saldo for this corretora and offer to deduct recompra cost
+    var recompraTotal = premFechamento * qtyClose;
+    var corretora = original.corretora;
+    var saldoMatch = null;
+    if (corretora && recompraTotal > 0) {
+      for (var si = 0; si < saldos.length; si++) {
+        if ((saldos[si].corretora || saldos[si].name) === corretora) {
+          saldoMatch = saldos[si];
+          break;
+        }
+      }
+    }
+
+    if (saldoMatch) {
+      var saldoAtual = saldoMatch.saldo || 0;
+      Alert.alert(
+        'Opção encerrada' + partialText,
+        'P&L: ' + plText + '\n\nDescontar R$ ' + fmt(recompraTotal) + ' do saldo livre em ' + corretora + '?\n\nSaldo atual: R$ ' + fmt(saldoAtual),
+        [
+          { text: 'Não', style: 'cancel' },
+          {
+            text: 'Descontar',
+            onPress: async function() {
+              var novoSaldo = saldoAtual - recompraTotal;
+              var saldoName = saldoMatch.corretora || saldoMatch.name;
+              var resS = await supabase
+                .from('saldos_corretora')
+                .update({ saldo: novoSaldo })
+                .eq('id', saldoMatch.id);
+              if (resS.error) {
+                Alert.alert('Erro', 'Falha ao atualizar saldo: ' + (resS.error.message || ''));
+              } else {
+                // Update local saldos state
+                var newSaldos = [];
+                for (var sj = 0; sj < saldos.length; sj++) {
+                  if (saldos[sj].id === saldoMatch.id) {
+                    var sc = {};
+                    var sk = Object.keys(saldos[sj]);
+                    for (var skk = 0; skk < sk.length; skk++) { sc[sk[skk]] = saldos[sj][sk[skk]]; }
+                    sc.saldo = novoSaldo;
+                    newSaldos.push(sc);
+                  } else {
+                    newSaldos.push(saldos[sj]);
+                  }
+                }
+                setSaldos(newSaldos);
+                Alert.alert('Saldo atualizado', corretora + ': R$ ' + fmt(saldoAtual) + ' → R$ ' + fmt(novoSaldo));
+              }
+            },
+          },
+        ]
+      );
+    } else {
+      Alert.alert('Opção encerrada' + partialText, 'P&L: ' + plText);
+    }
   };
 
   var handleExpiredPo = async function(id) {
@@ -1843,6 +1901,9 @@ export default function OpcoesScreen() {
                       </View>
                       <Text style={[styles.opPremio, { color: C.green }]}>+R$ {fmt(expPrem)}</Text>
                     </View>
+                    {expOp.ticker_opcao ? (
+                      <Text style={{ fontSize: 11, color: C.opcoes, fontFamily: F.mono, marginBottom: 4 }}>{expOp.ticker_opcao}</Text>
+                    ) : null}
                     <View style={{ flexDirection: 'row', gap: 12, marginBottom: 8 }}>
                       <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>
                         Venc: {new Date(expOp.vencimento).toLocaleDateString('pt-BR')}

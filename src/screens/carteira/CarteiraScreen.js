@@ -405,8 +405,10 @@ export default function CarteiraScreen(props) {
   var _pLoad = useState(false); var pricesLoading = _pLoad[0]; var setPricesLoading = _pLoad[1];
   var _hist = useState({}); var priceHistory = _hist[0]; var setPriceHistory = _hist[1];
   var _exp = useState(null); var expanded = _exp[0]; var setExpanded = _exp[1];
-  var _dedId = useState(null); var deduzId = _dedId[0]; var setDeduzId = _dedId[1];
-  var _dedVal = useState(''); var deduzVal = _dedVal[0]; var setDeduzVal = _dedVal[1];
+  var _actId = useState(null); var actionId = _actId[0]; var setActionId = _actId[1];
+  var _actMode = useState(null); var actionMode = _actMode[0]; var setActionMode = _actMode[1];
+  var _actVal = useState(''); var actionVal = _actVal[0]; var setActionVal = _actVal[1];
+  var _trDest = useState(null); var transferDest = _trDest[0]; var setTransferDest = _trDest[1];
 
   var load = async function () {
     if (!user) return;
@@ -680,7 +682,32 @@ export default function CarteiraScreen(props) {
           {saldos.length > 0 ? saldos.map(function (s, i) {
             var bc = [C.opcoes, C.acoes, C.fiis, C.etfs, C.rf, C.accent][i % 6];
             var sName = s.corretora || '';
-            var isDeduz = deduzId === s.id;
+            var isActive = actionId === s.id;
+            var curMode = isActive ? actionMode : null;
+
+            var resetAction = function () {
+              setActionId(null);
+              setActionMode(null);
+              setActionVal('');
+              setTransferDest(null);
+            };
+
+            var openMode = function (mode) {
+              if (isActive && actionMode === mode) {
+                resetAction();
+              } else {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setActionId(s.id);
+                setActionMode(mode);
+                setActionVal('');
+                setTransferDest(null);
+              }
+            };
+
+            var parseVal = function () {
+              return parseFloat((actionVal || '').replace(/\./g, '').replace(',', '.')) || 0;
+            };
+
             var handleExcluir = function () {
               Alert.alert(
                 'Excluir saldo',
@@ -696,23 +723,55 @@ export default function CarteiraScreen(props) {
                 ]
               );
             };
-            var handleDeduzir = function () {
-              if (isDeduz) {
-                setDeduzId(null);
-                setDeduzVal('');
-              } else {
-                setDeduzId(s.id);
-                setDeduzVal('');
-              }
-            };
+
             var handleConfirmDeduz = function () {
-              var num = parseFloat((deduzVal || '').replace(/\./g, '').replace(',', '.')) || 0;
+              var num = parseVal();
               if (num <= 0) return;
               var novoSaldo = Math.max(0, (s.saldo || 0) - num);
-              setDeduzId(null);
-              setDeduzVal('');
+              resetAction();
               upsertSaldo(user.id, { corretora: sName, saldo: novoSaldo }).then(function () { load(); });
             };
+
+            var handleConfirmDeposit = function () {
+              var num = parseVal();
+              if (num <= 0) return;
+              var novoSaldo = (s.saldo || 0) + num;
+              resetAction();
+              upsertSaldo(user.id, { corretora: sName, saldo: novoSaldo }).then(function () { load(); });
+            };
+
+            var handleConfirmTransfer = function () {
+              var num = parseVal();
+              if (num <= 0 || !transferDest) return;
+              if (num > (s.saldo || 0)) {
+                Alert.alert('Saldo insuficiente', 'O valor excede o saldo disponível.');
+                return;
+              }
+              var dest = saldos.find(function (x) { return x.id === transferDest; });
+              if (!dest) return;
+              var novoOrigem = (s.saldo || 0) - num;
+              var novoDestino = (dest.saldo || 0) + num;
+              resetAction();
+              Promise.all([
+                upsertSaldo(user.id, { corretora: sName, saldo: novoOrigem }),
+                upsertSaldo(user.id, { corretora: dest.corretora || '', saldo: novoDestino }),
+              ]).then(function () { load(); });
+            };
+
+            var onChangeVal = function (t) {
+              var nums = t.replace(/\D/g, '');
+              if (nums === '') { setActionVal(''); return; }
+              var centavos = parseInt(nums);
+              var reais = (centavos / 100).toFixed(2);
+              var parts = reais.split('.');
+              parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+              setActionVal(parts[0] + ',' + parts[1]);
+            };
+
+            var modeColor = curMode === 'depositar' ? C.green : curMode === 'transferir' ? C.accent : C.yellow;
+
+            var destOptions = saldos.filter(function (x) { return x.id !== s.id; });
+
             return (
               <View key={s.id || i} style={{ marginTop: i > 0 ? 6 : 0 }}>
                 <Glass padding={12}>
@@ -727,64 +786,99 @@ export default function CarteiraScreen(props) {
                     </View>
                     <Text style={[styles.saldoValue, { color: bc }]}>R$ {fmt(s.saldo || 0)}</Text>
                   </View>
-                  {isDeduz ? (
+
+                  {/* Action panel (depositar / deduzir / transferir) */}
+                  {curMode ? (
                     <View style={{ marginTop: 10, gap: 8 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.mono }}>R$</Text>
-                        <TextInput
-                          value={deduzVal}
-                          onChangeText={function (t) {
-                            var nums = t.replace(/\D/g, '');
-                            if (nums === '') { setDeduzVal(''); return; }
-                            var centavos = parseInt(nums);
-                            var reais = (centavos / 100).toFixed(2);
-                            var parts = reais.split('.');
-                            parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-                            setDeduzVal(parts[0] + ',' + parts[1]);
-                          }}
-                          placeholder="0,00"
-                          placeholderTextColor={C.dim}
-                          keyboardType="numeric"
-                          autoFocus
-                          style={{
-                            flex: 1, backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.yellow + '40',
-                            borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8,
-                            fontSize: 16, color: C.text, fontFamily: F.mono,
-                          }}
-                        />
-                      </View>
+                      {curMode === 'transferir' && destOptions.length === 0 ? (
+                        <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
+                          Nenhuma outra conta para transferir
+                        </Text>
+                      ) : (
+                        <View style={{ gap: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.mono }}>R$</Text>
+                            <TextInput
+                              value={actionVal}
+                              onChangeText={onChangeVal}
+                              placeholder="0,00"
+                              placeholderTextColor={C.dim}
+                              keyboardType="numeric"
+                              autoFocus
+                              style={{
+                                flex: 1, backgroundColor: C.cardSolid, borderWidth: 1, borderColor: modeColor + '40',
+                                borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8,
+                                fontSize: 16, color: C.text, fontFamily: F.mono,
+                              }}
+                            />
+                          </View>
+                          {curMode === 'transferir' ? (
+                            <View style={{ gap: 4 }}>
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>DESTINO</Text>
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                {destOptions.map(function (d) {
+                                  var sel = transferDest === d.id;
+                                  return (
+                                    <TouchableOpacity
+                                      key={d.id}
+                                      onPress={function () { setTransferDest(sel ? null : d.id); }}
+                                      activeOpacity={0.7}
+                                      style={{
+                                        paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
+                                        borderWidth: 1,
+                                        borderColor: sel ? C.accent : C.border,
+                                        backgroundColor: sel ? C.accent + '18' : 'transparent',
+                                      }}
+                                    >
+                                      <Text style={{ fontSize: 11, fontFamily: F.body, fontWeight: sel ? '700' : '500', color: sel ? C.accent : C.sub }}>
+                                        {d.corretora || ''}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </View>
+                            </View>
+                          ) : null}
+                        </View>
+                      )}
                       <View style={{ flexDirection: 'row', gap: 8 }}>
                         <TouchableOpacity
-                          onPress={function () { setDeduzId(null); setDeduzVal(''); }}
+                          onPress={resetAction}
                           activeOpacity={0.7}
                           style={{ flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: C.border, alignItems: 'center' }}
                         >
                           <Text style={{ fontSize: 13, fontWeight: '600', color: C.sub, fontFamily: F.body }}>Cancelar</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                          onPress={handleConfirmDeduz}
+                          onPress={curMode === 'depositar' ? handleConfirmDeposit : curMode === 'transferir' ? handleConfirmTransfer : handleConfirmDeduz}
                           activeOpacity={0.7}
-                          style={{ flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: C.yellow + '18', borderWidth: 1, borderColor: C.yellow + '40', alignItems: 'center' }}
+                          style={{
+                            flex: 1, paddingVertical: 8, borderRadius: 8,
+                            backgroundColor: modeColor + '18', borderWidth: 1, borderColor: modeColor + '40',
+                            alignItems: 'center',
+                          }}
                         >
-                          <Text style={{ fontSize: 13, fontWeight: '600', color: C.yellow, fontFamily: F.body }}>Confirmar</Text>
+                          <Text style={{ fontSize: 13, fontWeight: '600', color: modeColor, fontFamily: F.body }}>Confirmar</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
                   ) : (
-                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-                      <TouchableOpacity
-                        onPress={handleDeduzir}
-                        activeOpacity={0.7}
-                        style={{ flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: C.yellow + '40', backgroundColor: C.yellow + '08', alignItems: 'center' }}
-                      >
-                        <Text style={{ fontSize: 13, fontWeight: '600', color: C.yellow, fontFamily: F.body }}>Deduzir</Text>
+                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 10 }}>
+                      <TouchableOpacity onPress={function () { openMode('depositar'); }} activeOpacity={0.7}
+                        style={{ flex: 1, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: C.green + '30', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 10, fontWeight: '600', color: C.green + 'CC', fontFamily: F.mono, letterSpacing: 0.4 }}>Depositar</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={handleExcluir}
-                        activeOpacity={0.7}
-                        style={{ flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: C.red + '40', backgroundColor: C.red + '08', alignItems: 'center' }}
-                      >
-                        <Text style={{ fontSize: 13, fontWeight: '600', color: C.red, fontFamily: F.body }}>Excluir</Text>
+                      <TouchableOpacity onPress={function () { openMode('deduzir'); }} activeOpacity={0.7}
+                        style={{ flex: 1, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: C.yellow + '30', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 10, fontWeight: '600', color: C.yellow + 'CC', fontFamily: F.mono, letterSpacing: 0.4 }}>Deduzir</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={function () { openMode('transferir'); }} activeOpacity={0.7}
+                        style={{ flex: 1, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: C.accent + '30', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 10, fontWeight: '600', color: C.accent + 'CC', fontFamily: F.mono, letterSpacing: 0.4 }}>Transferir</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={handleExcluir} activeOpacity={0.7}
+                        style={{ flex: 1, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: C.red + '30', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 10, fontWeight: '600', color: C.red + 'CC', fontFamily: F.mono, letterSpacing: 0.4 }}>Excluir</Text>
                       </TouchableOpacity>
                     </View>
                   )}
