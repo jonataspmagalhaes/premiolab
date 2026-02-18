@@ -504,7 +504,7 @@ function OpCard(props) {
     var custoExercicio = (op.strike || 0) * (op.quantidade || 0);
     var saldoMatch = null;
     for (var si = 0; si < saldos.length; si++) {
-      if (saldos[si].name === op.corretora) {
+      if (saldos[si].corretora === op.corretora) {
         saldoMatch = saldos[si];
         break;
       }

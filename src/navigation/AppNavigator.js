@@ -34,6 +34,7 @@ import GuiaScreen from '../screens/mais/GuiaScreen';
 import AddProventoScreen from '../screens/proventos/AddProventoScreen';
 import ProventosScreen from '../screens/proventos/ProventosScreen';
 import EditProventoScreen from '../screens/proventos/EditProventoScreen';
+import AddSaldoScreen from '../screens/carteira/AddSaldoScreen';
 
 // SafeArea HOC — protege telas stack contra notch/camera/relogio
 function withSafeArea(Screen) {
@@ -70,6 +71,7 @@ var SafeGuiaScreen = withSafeArea(GuiaScreen);
 var SafeAddProventoScreen = withSafeArea(AddProventoScreen);
 var SafeProventosScreen = withSafeArea(ProventosScreen);
 var SafeEditProventoScreen = withSafeArea(EditProventoScreen);
+var SafeAddSaldoScreen = withSafeArea(AddSaldoScreen);
 
 // Dark Theme
 var PremioLabTheme = Object.assign({}, DefaultTheme, {
@@ -207,6 +209,7 @@ function AppStack() {
       <Stack.Screen name="AddProvento" component={SafeAddProventoScreen} />
       <Stack.Screen name="Proventos" component={SafeProventosScreen} />
       <Stack.Screen name="EditProvento" component={SafeEditProventoScreen} />
+      <Stack.Screen name="AddSaldo" component={SafeAddSaldoScreen} />
     </Stack.Navigator>
   );
 }

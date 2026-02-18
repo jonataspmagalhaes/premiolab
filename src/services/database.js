@@ -272,6 +272,25 @@ export async function getSaldos(userId) {
   return { data: result.data || [], error: result.error };
 }
 
+export async function upsertSaldo(userId, data) {
+  var result = await supabase
+    .from('saldos_corretora')
+    .upsert({
+      user_id: userId,
+      corretora: data.corretora,
+      saldo: data.saldo,
+    }, { onConflict: 'user_id,corretora' });
+  return { error: result.error };
+}
+
+export async function deleteSaldo(id) {
+  var result = await supabase
+    .from('saldos_corretora')
+    .delete()
+    .eq('id', id);
+  return { error: result.error };
+}
+
 // ═══════════ ALERTAS CONFIG ═══════════
 // Schema real: id (bigint PK), user_id, tipo (text), ativo (bool), threshold (numeric), created_at, exercicio_auto (bool)
 // Cada alerta eh uma row com tipo='descobertas', tipo='margem', etc.

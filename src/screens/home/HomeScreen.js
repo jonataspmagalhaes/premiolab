@@ -1044,24 +1044,6 @@ export default function HomeScreen({ navigation }) {
           </GlassCard>
         ) : null}
 
-        {/* SALDOS */}
-        {saldos.length > 0 ? (
-          <GlassCard>
-            <SLabel>SALDO EM CONTA</SLabel>
-            {saldos.map(function (sal, i) {
-              return (
-                <View key={i} style={[st.saldoRow, i > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.04)' }]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#fff', fontFamily: F.display }}>{sal.name}</Text>
-                  </View>
-                  <Text style={{ fontSize: 14, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>
-                    R$ {fmt2(sal.saldo || 0)}
-                  </Text>
-                </View>
-              );
-            })}
-          </GlassCard>
-        ) : null}
 
         <View style={{ height: SIZE.tabBarHeight + 80 }} />
       </ScrollView>
@@ -1075,6 +1057,7 @@ export default function HomeScreen({ navigation }) {
               { label: '⚡ Opção', color: P.opcao.color, screen: 'AddOpcao' },
               { label: '◈ Provento', color: P.fii.color, screen: 'AddProvento' },
               { label: '🏦 Renda Fixa', color: P.rf.color, screen: 'AddRendaFixa' },
+              { label: '💵 Saldo Livre', color: C.accent, screen: 'AddSaldo' },
             ].map(function (item, i) {
               return (
                 <TouchableOpacity key={i} activeOpacity={0.7}
@@ -1135,10 +1118,6 @@ var st = StyleSheet.create({
   },
   heroCents: {
     fontSize: 18, fontWeight: '600', color: 'rgba(255,255,255,0.3)', fontFamily: F.display,
-  },
-  saldoRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', paddingVertical: 12,
   },
   fabWrap: {
     position: 'absolute', bottom: SIZE.tabBarHeight + 16, right: PAD,

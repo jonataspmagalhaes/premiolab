@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, ActivityIndicator, LayoutAnimation,
-  Platform, UIManager, Alert,
+  Platform, UIManager, Alert, TextInput,
 } from 'react-native';
 import Svg, {
   Circle as SvgCircle, Path, Defs, LinearGradient as SvgGrad,
@@ -11,7 +11,7 @@ import Svg, {
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa } from '../../services/database';
+import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa, deleteSaldo, upsertSaldo } from '../../services/database';
 import { enrichPositionsWithPrices, fetchPriceHistory, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
 import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
 import { MiniLineChart } from '../../components/InteractiveChart';
@@ -405,6 +405,8 @@ export default function CarteiraScreen(props) {
   var _pLoad = useState(false); var pricesLoading = _pLoad[0]; var setPricesLoading = _pLoad[1];
   var _hist = useState({}); var priceHistory = _hist[0]; var setPriceHistory = _hist[1];
   var _exp = useState(null); var expanded = _exp[0]; var setExpanded = _exp[1];
+  var _dedId = useState(null); var deduzId = _dedId[0]; var setDeduzId = _dedId[1];
+  var _dedVal = useState(''); var deduzVal = _dedVal[0]; var setDeduzVal = _dedVal[1];
 
   var load = async function () {
     if (!user) return;
@@ -486,17 +488,6 @@ export default function CarteiraScreen(props) {
     return { ticker: p.ticker, weight: val, pnlPct: pnlPct, color: PRODUCT_COLORS[p.categoria] || C.accent,
       categoria: p.categoria, pnl: val - custo };
   });
-
-  // P&L by class
-  var pnlByClass = {};
-  assetList.forEach(function (a) {
-    var cat = a.categoria || 'outro';
-    pnlByClass[cat] = (pnlByClass[cat] || 0) + a.pnl;
-  });
-  var pnlClassList = Object.keys(pnlByClass).map(function (k) {
-    return { label: CAT_NAMES[k] || k, val: pnlByClass[k], color: PRODUCT_COLORS[k] || C.accent };
-  });
-  var maxAbsClassPnl = pnlClassList.reduce(function (m, c) { return Math.max(m, Math.abs(c.val)); }, 1);
 
   // Peso por ativo (% do total)
   var pesoList = assetList.slice().sort(function (a, b) { return b.weight - a.weight; }).map(function (a) {
@@ -612,31 +603,6 @@ export default function CarteiraScreen(props) {
         ) : null}
       </Glass>
 
-      {/* ══════ 2. P&L POR CLASSE — contribuição ══════ */}
-      {pnlClassList.length > 0 ? (
-        <Glass padding={14}>
-          <Text style={styles.sectionTitle2}>P&L POR CLASSE</Text>
-          {pnlClassList.map(function (c, i) {
-            var isPos = c.val >= 0;
-            return (
-              <View key={i} style={styles.hbarRow}>
-                <Text style={styles.hbarLabel}>{c.label}</Text>
-                <View style={styles.hbarTrack}>
-                  <View style={[styles.hbarFill, {
-                    width: clamp(Math.abs(c.val) / maxAbsClassPnl * 100, 2, 100) + '%',
-                    backgroundColor: (isPos ? C.green : C.red) + '40',
-                    borderColor: (isPos ? C.green : C.red) + '80',
-                  }]} />
-                </View>
-                <Text style={[styles.hbarValue, { color: isPos ? C.green : C.red }]}>
-                  {isPos ? '+' : '-'}R$ {Math.abs(c.val).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-                </Text>
-              </View>
-            );
-          })}
-        </Glass>
-      ) : null}
-
       {/* ══════ 6. FILTER PILLS ══════ */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
         <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>POSIÇÕES</Text>
@@ -701,29 +667,137 @@ export default function CarteiraScreen(props) {
       ) : null}
 
       {/* ══════ 12. SALDOS ══════ */}
-      {saldos.length > 0 && filter === 'todos' ? (
+      {filter === 'todos' ? (
         <View>
-          <SectionLabel>SALDO EM CONTA</SectionLabel>
-          {saldos.map(function (s, i) {
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <SectionLabel style={{ marginBottom: 0 }}>SALDO DISPONIVEL</SectionLabel>
+            {totalSaldos > 0 ? (
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>
+                R$ {fmt(totalSaldos)}
+              </Text>
+            ) : null}
+          </View>
+          {saldos.length > 0 ? saldos.map(function (s, i) {
             var bc = [C.opcoes, C.acoes, C.fiis, C.etfs, C.rf, C.accent][i % 6];
+            var sName = s.corretora || '';
+            var isDeduz = deduzId === s.id;
+            var handleExcluir = function () {
+              Alert.alert(
+                'Excluir saldo',
+                'Remover saldo de ' + sName + '?',
+                [
+                  { text: 'Cancelar', style: 'cancel' },
+                  {
+                    text: 'Excluir', style: 'destructive',
+                    onPress: function () {
+                      deleteSaldo(s.id).then(function () { load(); });
+                    },
+                  },
+                ]
+              );
+            };
+            var handleDeduzir = function () {
+              if (isDeduz) {
+                setDeduzId(null);
+                setDeduzVal('');
+              } else {
+                setDeduzId(s.id);
+                setDeduzVal('');
+              }
+            };
+            var handleConfirmDeduz = function () {
+              var num = parseFloat((deduzVal || '').replace(/\./g, '').replace(',', '.')) || 0;
+              if (num <= 0) return;
+              var novoSaldo = Math.max(0, (s.saldo || 0) - num);
+              setDeduzId(null);
+              setDeduzVal('');
+              upsertSaldo(user.id, { corretora: sName, saldo: novoSaldo }).then(function () { load(); });
+            };
             return (
-              <View key={i} style={{ marginTop: i > 0 ? 6 : 0 }}>
+              <View key={s.id || i} style={{ marginTop: i > 0 ? 6 : 0 }}>
                 <Glass padding={12}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                       <View style={[styles.brokerIcon, { backgroundColor: bc + '12', borderColor: bc + '22' }]}>
                         <Text style={[styles.brokerIconText, { color: bc }]}>
-                          {(s.name || 'COR').substring(0, 2).toUpperCase()}
+                          {(sName || 'COR').substring(0, 2).toUpperCase()}
                         </Text>
                       </View>
-                      <Text style={styles.saldoName}>{s.name}</Text>
+                      <Text style={styles.saldoName}>{sName}</Text>
                     </View>
                     <Text style={[styles.saldoValue, { color: bc }]}>R$ {fmt(s.saldo || 0)}</Text>
                   </View>
+                  {isDeduz ? (
+                    <View style={{ marginTop: 10, gap: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.mono }}>R$</Text>
+                        <TextInput
+                          value={deduzVal}
+                          onChangeText={function (t) {
+                            var nums = t.replace(/\D/g, '');
+                            if (nums === '') { setDeduzVal(''); return; }
+                            var centavos = parseInt(nums);
+                            var reais = (centavos / 100).toFixed(2);
+                            var parts = reais.split('.');
+                            parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+                            setDeduzVal(parts[0] + ',' + parts[1]);
+                          }}
+                          placeholder="0,00"
+                          placeholderTextColor={C.dim}
+                          keyboardType="numeric"
+                          autoFocus
+                          style={{
+                            flex: 1, backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.yellow + '40',
+                            borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8,
+                            fontSize: 16, color: C.text, fontFamily: F.mono,
+                          }}
+                        />
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TouchableOpacity
+                          onPress={function () { setDeduzId(null); setDeduzVal(''); }}
+                          activeOpacity={0.7}
+                          style={{ flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: C.border, alignItems: 'center' }}
+                        >
+                          <Text style={{ fontSize: 13, fontWeight: '600', color: C.sub, fontFamily: F.body }}>Cancelar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={handleConfirmDeduz}
+                          activeOpacity={0.7}
+                          style={{ flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: C.yellow + '18', borderWidth: 1, borderColor: C.yellow + '40', alignItems: 'center' }}
+                        >
+                          <Text style={{ fontSize: 13, fontWeight: '600', color: C.yellow, fontFamily: F.body }}>Confirmar</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                      <TouchableOpacity
+                        onPress={handleDeduzir}
+                        activeOpacity={0.7}
+                        style={{ flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: C.yellow + '40', backgroundColor: C.yellow + '08', alignItems: 'center' }}
+                      >
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: C.yellow, fontFamily: F.body }}>Deduzir</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={handleExcluir}
+                        activeOpacity={0.7}
+                        style={{ flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: C.red + '40', backgroundColor: C.red + '08', alignItems: 'center' }}
+                      >
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: C.red, fontFamily: F.body }}>Excluir</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </Glass>
               </View>
             );
-          })}
+          }) : (
+            <Glass padding={16}>
+              <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
+                Nenhum saldo cadastrado
+              </Text>
+            </Glass>
+          )}
         </View>
       ) : null}
 
