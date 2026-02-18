@@ -12,25 +12,36 @@
       "resizeMode": "contain",
       "backgroundColor": "#070a11"
     },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.premiolab.app",
-      "backgroundColor": "#070a11"
+      "bundleIdentifier": "com.premiotrader.app",
+      "backgroundColor": "#070a11",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#070a11"
       },
-      "package": "com.premiolab.app"
+      "package": "com.premiotrader.app"
     },
     "plugins": [
       "expo-font",
       "expo-secure-store",
       "expo-asset"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "73b5eb16-af07-43cd-bc76-159fc4e46da9"
+      }
+    }
   }
 }

@@ -1844,13 +1844,6 @@ function RebalanceTool(props) {
   var classKeys = ['acao', 'fii', 'etf', 'rf'];
   var totalClassPct = classKeys.reduce(function (s, k) { return s + (classTargets[k] || 0); }, 0);
 
-  var totalComprar = 0;
-  var totalManter = 0;
-  tree.forEach(function (cls) {
-    if (cls.ajuste > 50) totalComprar += cls.ajuste;
-    else if (cls.ajuste < -50) totalManter += Math.abs(cls.ajuste);
-  });
-
   // ── Compute aporte suggestions ──
   function computeSuggestions() {
     var aporteVal = parseCurrency(aporteText);
@@ -2609,46 +2602,6 @@ function RebalanceTool(props) {
       <Glass padding={10}>
         {tree.map(function (cls) { return renderClassRow(cls); })}
       </Glass>
-
-      {/* ── SUMMARY CARD ── */}
-      {(totalComprar > 0 || totalManter > 0) ? (
-        <Glass padding={12}>
-          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4, marginBottom: 8 }}>RESUMO</Text>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            {totalComprar > 0 ? (
-              <View style={{ flex: 1, padding: 10, borderRadius: 8, backgroundColor: C.green + '08', borderWidth: 1, borderColor: C.green + '15' }}>
-                <Text style={{ fontSize: 9, color: C.green, fontFamily: F.mono, letterSpacing: 0.3 }}>COMPRAR</Text>
-                <Text style={{ fontSize: 16, fontWeight: '800', color: C.green, fontFamily: F.display, marginTop: 2 }}>
-                  R$ {fmtC(totalComprar)}
-                </Text>
-              </View>
-            ) : null}
-            {totalManter > 0 ? (
-              <View style={{ flex: 1, padding: 10, borderRadius: 8, backgroundColor: C.yellow + '08', borderWidth: 1, borderColor: C.yellow + '15' }}>
-                <Text style={{ fontSize: 9, color: C.yellow, fontFamily: F.mono, letterSpacing: 0.3 }}>MANTER</Text>
-                <Text style={{ fontSize: 16, fontWeight: '800', color: C.yellow, fontFamily: F.display, marginTop: 2 }}>
-                  R$ {fmtC(totalManter)}
-                </Text>
-                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>acima da meta</Text>
-              </View>
-            ) : null}
-          </View>
-          <View style={{ flexDirection: 'row', gap: 14, marginTop: 8 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <View style={{ width: 12, height: 6, borderRadius: 3, backgroundColor: C.accent, opacity: 0.6 }} />
-              <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>Atual</Text>
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <View style={{ width: 12, height: 6, borderRadius: 3, backgroundColor: C.accent, opacity: 0.15 }} />
-              <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>Meta</Text>
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <View style={{ width: 2, height: 8, borderRadius: 1, backgroundColor: C.accent, opacity: 0.9 }} />
-              <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>Alvo</Text>
-            </View>
-          </View>
-        </Glass>
-      ) : null}
 
       {/* ── APORTE + SUGESTOES ── */}
       <Glass padding={14}>
@@ -4121,6 +4074,18 @@ export default function AnaliseScreen() {
   var sortedByPnl = assetList.slice().sort(function(a, b) { return b.pnlPct - a.pnlPct; });
   var maxAbsPnl = sortedByPnl.reduce(function(m, a) { return Math.max(m, Math.abs(a.pnlPct)); }, 1);
 
+  // ── Derived: P&L by class ──
+  var pnlByClass = {};
+  assetList.forEach(function(a) {
+    var cat = a.categoria || 'outro';
+    pnlByClass[cat] = (pnlByClass[cat] || 0) + a.pnl;
+  });
+  var pnlClassList = Object.keys(pnlByClass).map(function(k) {
+    return { label: CAT_NAMES_FULL[k] || k, val: pnlByClass[k], color: PRODUCT_COLORS[k] || C.accent };
+  });
+  pnlClassList.sort(function(a, b) { return Math.abs(b.val) - Math.abs(a.val); });
+  var maxAbsClassPnl = pnlClassList.reduce(function(m, c) { return Math.max(m, Math.abs(c.val)); }, 1);
+
   // ── Derived: Allocation segments (donut) ──
   var allocSegments = Object.keys(alocGrouped).filter(function (k) { return alocGrouped[k] > 0; }).map(function (k) {
     return {
@@ -4957,6 +4922,50 @@ export default function AnaliseScreen() {
                   </Glass>
                 </>
               )}
+
+              {/* P&L por classe */}
+              {pnlClassList.length > 0 && (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>P&L POR CLASSE</Text>
+                    <InfoTip text="Contribuição de cada classe de ativo para o resultado total da carteira." />
+                  </View>
+                  <Glass padding={14}>
+                    {pnlClassList.map(function(c, i) {
+                      var isPos = c.val >= 0;
+                      var barColor = isPos ? C.green : C.red;
+                      var barPct = clamp(Math.abs(c.val) / maxAbsClassPnl * 100, 2, 100);
+                      return (
+                        <View key={i} style={styles.hbarRow}>
+                          <Text style={styles.hbarLabel} numberOfLines={1}>{c.label}</Text>
+                          <View style={styles.hbarTrack}>
+                            <View style={[styles.hbarFill, {
+                              width: barPct + '%',
+                              backgroundColor: barColor + '40',
+                              borderColor: barColor + '80',
+                            }]} />
+                          </View>
+                          <Text style={[styles.plClassValue, { color: barColor }]} numberOfLines={1}>
+                            {isPos ? '+' : '\u2212'}R$ {fmtC(Math.abs(c.val))}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                    <View style={{ borderTopWidth: 1, borderTopColor: C.border, marginTop: 8, paddingTop: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 10, color: C.sub, fontWeight: '700', fontFamily: F.mono }}>TOTAL</Text>
+                      {(function() {
+                        var totalPL = pnlClassList.reduce(function(s, c) { return s + c.val; }, 0);
+                        var isTotalPos = totalPL >= 0;
+                        return (
+                          <Text style={{ fontSize: 12, fontWeight: '800', color: isTotalPos ? C.green : C.red, fontFamily: F.mono }}>
+                            {isTotalPos ? '+' : '\u2212'}R$ {fmtC(Math.abs(totalPL))}
+                          </Text>
+                        );
+                      })()}
+                    </View>
+                  </Glass>
+                </>
+              )}
             </>
           )}
 
@@ -5617,7 +5626,7 @@ export default function AnaliseScreen() {
         </>
       )}
 
-      {/* ═══════════ ALOCACAO / COMPOSICAO ═══════════ */}
+      {/* ═══════════ ALOCAÇÃO / COMPOSIÇÃO ═══════════ */}
       {sub === 'aloc' && (
         <>
           {/* Segmented control: Alocacao / Composicao */}
@@ -5627,14 +5636,14 @@ export default function AnaliseScreen() {
               style={{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center',
                 backgroundColor: allocView === 'aloc' ? C.accent + '20' : 'transparent' }}>
               <Text style={{ fontSize: 12, fontWeight: allocView === 'aloc' ? '700' : '500',
-                color: allocView === 'aloc' ? C.accent : C.sub, fontFamily: F.body }}>Alocacao</Text>
+                color: allocView === 'aloc' ? C.accent : C.sub, fontFamily: F.body }}>Alocação</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={function () { setAllocView('comp'); }}
               style={{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center',
                 backgroundColor: allocView === 'comp' ? C.accent + '20' : 'transparent' }}>
               <Text style={{ fontSize: 12, fontWeight: allocView === 'comp' ? '700' : '500',
-                color: allocView === 'comp' ? C.accent : C.sub, fontFamily: F.body }}>Composicao</Text>
+                color: allocView === 'comp' ? C.accent : C.sub, fontFamily: F.body }}>Composição</Text>
             </TouchableOpacity>
           </View>
 
@@ -5642,18 +5651,18 @@ export default function AnaliseScreen() {
             <EmptyState
               icon={"\u25EB"}
               title="Sem ativos"
-              description="Adicione operacoes para ver a alocacao da carteira"
+              description="Adicione operações para ver a alocação da carteira"
               color={C.accent}
             />
           ) : (
             <>
-              {/* ── VIEW: ALOCACAO ── */}
+              {/* ── VIEW: ALOCAÇÃO ── */}
               {allocView === 'aloc' ? (
                 <>
                   {/* Donut — Alocacao por Classe */}
                   {allocSegments.length > 0 ? (
                     <Glass padding={14}>
-                      <Text style={styles.sectionTitle}>ALOCACAO POR CLASSE</Text>
+                      <Text style={styles.sectionTitle}>ALOCAÇÃO POR CLASSE</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 8 }}>
                         <View style={{ position: 'relative', width: 130, height: 130 }}>
                           <DonutChart segments={allocSegments} size={130} />
@@ -5699,7 +5708,7 @@ export default function AnaliseScreen() {
                   {treemapItems.length > 0 ? (
                     <Glass padding={14}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <Text style={styles.sectionTitle}>TREEMAP</Text>
+                        <Text style={styles.sectionTitle}>MAPA DE CALOR</Text>
                         <TouchableOpacity onPress={function () { setTreemapModal(true); setSelectedTile(null); }}>
                           <Text style={{ fontSize: 10, color: C.accent, fontFamily: F.mono }}>Abrir fullscreen</Text>
                         </TouchableOpacity>
@@ -5748,7 +5757,7 @@ export default function AnaliseScreen() {
                 </>
               ) : null}
 
-              {/* ── VIEW: COMPOSICAO (Two-Level Donut) ── */}
+              {/* ── VIEW: COMPOSIÇÃO (Two-Level Donut) ── */}
               {allocView === 'comp' ? (
                 <>
                   {/* Filter pills */}
@@ -5931,7 +5940,7 @@ export default function AnaliseScreen() {
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' }}>
           <View style={{ paddingTop: 50, paddingHorizontal: 18, paddingBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.display, letterSpacing: 0.6 }}>
-              TREEMAP — EXPOSICAO
+              MAPA DE CALOR — EXPOSIÇÃO
             </Text>
             <TouchableOpacity onPress={function () { setTreemapModal(false); setSelectedTile(null); }}
               style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }}>
@@ -7013,6 +7022,7 @@ var styles = StyleSheet.create({
   hbarTrack: { flex: 1, height: 12, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.03)' },
   hbarFill: { height: 12, borderRadius: 6, borderWidth: 1, minWidth: 4 },
   hbarValue: { width: 55, fontSize: 10, fontWeight: '700', fontFamily: F.mono, textAlign: 'right' },
+  plClassValue: { width: 80, fontSize: 10, fontWeight: '700', fontFamily: F.mono, textAlign: 'right' },
 
   // Rebalance
   rebalHeader: { flexDirection: 'row', alignItems: 'center', paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: C.border, marginBottom: 6 },

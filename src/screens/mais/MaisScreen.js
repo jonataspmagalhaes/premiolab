@@ -3,14 +3,14 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Share, Swi
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOperacoes, getProventos, getOpcoes, getAlertasConfig, updateAlertasConfig } from '../../services/database';
+import { getOperacoes, getProventos, getOpcoes, getAlertasConfig, updateAlertasConfig, getProfile } from '../../services/database';
 import { Glass, Badge } from '../../components';
 
 var SECTIONS = [
   {
     title: 'CONFIGURAÇÕES',
     items: [
-      { icon: '📊', label: 'Taxa Selic', value: '13.25%', color: C.accent, route: 'ConfigSelic' },
+      { icon: '📊', label: 'Taxa Selic', value: '_selic_', color: C.accent, route: 'ConfigSelic' },
       { icon: '🏛', label: 'Corretoras', value: 'Gerenciar', color: C.acoes, route: 'ConfigCorretoras' },
       { icon: '🔔', label: 'Alertas', value: 'Ativados', color: C.green, route: 'ConfigAlertas' },
       { icon: '🎯', label: 'Meta Mensal', value: 'Configurar', color: C.yellow, route: 'ConfigMeta' },
@@ -23,6 +23,7 @@ var SECTIONS = [
       { icon: '💰', label: 'Proventos', value: 'Gerenciar', color: C.fiis, route: 'Proventos' },
       { icon: '🏦', label: 'Renda Fixa', value: 'Gerenciar', color: C.rf, route: 'RendaFixa' },
       { icon: '📤', label: 'Exportar CSV', value: '', color: C.sub, action: 'export_csv' },
+      { icon: '📑', label: 'Calculo IR', value: 'Em breve', color: C.yellow, route: 'IR' },
     ],
   },
   {
@@ -49,12 +50,18 @@ export default function MaisScreen(props) {
   var user = _auth.user;
 
   var _exAuto = useState(false); var exAuto = _exAuto[0]; var setExAuto = _exAuto[1];
+  var _selicVal = useState(null); var selicVal = _selicVal[0]; var setSelicVal = _selicVal[1];
 
   useFocusEffect(useCallback(function() {
     if (!user) return;
     getAlertasConfig(user.id).then(function(result) {
       if (result.data) {
         setExAuto(!!result.data.exercicio_auto);
+      }
+    });
+    getProfile(user.id).then(function(result) {
+      if (result.data && result.data.selic != null) {
+        setSelicVal(result.data.selic);
       }
     });
   }, [user]));
@@ -163,7 +170,7 @@ export default function MaisScreen(props) {
                     </View>
                     <View style={styles.menuRight}>
                       {item.value ? (
-                        <Text style={styles.menuValue}>{item.value}</Text>
+                        <Text style={styles.menuValue}>{item.value === '_selic_' ? (selicVal != null ? selicVal + '%' : '13.25%') : item.value}</Text>
                       ) : null}
                       <Text style={styles.menuChevron}>{'›'}</Text>
                     </View>
