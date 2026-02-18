@@ -12,7 +12,7 @@ import { clearPriceCache } from '../../services/priceService';
 import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { runDividendSync, shouldSyncDividends } from '../../services/dividendService';
 import Svg, { Circle as SvgCircle } from 'react-native-svg';
-import { Badge } from '../../components';
+import { Badge, Logo, Wordmark, InfoTip } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import InteractiveChart from '../../components/InteractiveChart';
 
@@ -639,9 +639,10 @@ export default function HomeScreen({ navigation }) {
       >
         {/* HEADER */}
         <View style={st.header}>
-          <Text style={{ fontSize: 20, fontWeight: '800', color: '#fff', fontFamily: F.display }}>
-            Premio<Text style={{ color: '#0ea5e9' }}>Lab</Text>
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Logo size={52} />
+            <Wordmark fontSize={32} />
+          </View>
           <View style={st.syncBadge}>
             <Text style={{ fontSize: 10, color: '#22c55e', fontWeight: '600', fontFamily: F.mono }}>
               ● SYNC {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
@@ -658,7 +659,10 @@ export default function HomeScreen({ navigation }) {
           />
           <View style={{ padding: 22 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <Text style={st.heroLabel}>PATRIMÔNIO TOTAL</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={st.heroLabel}>PATRIMÔNIO TOTAL</Text>
+                <InfoTip text="Soma de ações, FIIs, ETFs, opções e renda fixa a preços de mercado." />
+              </View>
               {rentabilidadeMes > 0 ? (
                 <Text style={{ fontSize: 12, color: '#22c55e', fontFamily: F.mono, fontWeight: '600' }}>
                   +{rentabilidadeMes.toFixed(2)}% /mês
@@ -772,7 +776,10 @@ export default function HomeScreen({ navigation }) {
 
         {/* RENDA DO MÊS — donuts + meta */}
         <GlassCard glow="rgba(108,92,231,0.10)">
-          <SLabel>RENDA DO MES</SLabel>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+            <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '600' }}>RENDA DO MÊS</Text>
+            <InfoTip text="Prêmios de opções + dividendos/JCP + juros RF recebidos no mês corrente." />
+          </View>
           <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.20)', fontFamily: F.mono, letterSpacing: 0.5, textAlign: 'center', marginTop: -6, marginBottom: 10 }}>
             {new Date().toLocaleString('pt-BR', { month: 'short' }).toUpperCase() + ' ' + new Date().getFullYear() + '  ·  ATUAL vs ANTERIOR'}
           </Text>
@@ -937,11 +944,15 @@ export default function HomeScreen({ navigation }) {
         </GlassCard>
 
         {/* ALERTAS */}
-        <SLabel right={
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '600' }}>ALERTAS</Text>
+            <InfoTip text="Avisos automáticos sobre vencimentos, opções descobertas e eventos da carteira." />
+          </View>
           <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono }}>
             {alerts.length} {alerts.length === 1 ? 'novo' : 'novos'}
           </Text>
-        }>ALERTAS</SLabel>
+        </View>
         {alerts.map(function (a, i) {
           return <AlertRow key={i} type={a.type} title={a.title} desc={a.desc} badge={a.badge} />;
         })}

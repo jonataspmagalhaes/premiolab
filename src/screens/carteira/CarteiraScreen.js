@@ -13,7 +13,7 @@ import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa } from '../../services/database';
 import { enrichPositionsWithPrices, fetchPriceHistory, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
-import { Glass, Badge, Pill, SectionLabel } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
 import { MiniLineChart } from '../../components/InteractiveChart';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
@@ -637,16 +637,11 @@ export default function CarteiraScreen(props) {
         </Glass>
       ) : null}
 
-      {/* ══════ 7. BENCHMARK — comparativo ══════ */}
-      {benchLines.length > 0 ? (
-        <Glass padding={14}>
-          <Text style={styles.sectionTitle2}>VS BENCHMARK</Text>
-          <BenchmarkChart lines={benchLines} height={70} />
-        </Glass>
-      ) : null}
-
       {/* ══════ 6. FILTER PILLS ══════ */}
-      <SectionLabel>POSIÇÕES</SectionLabel>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+        <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>POSIÇÕES</Text>
+        <InfoTip text="Posições agregadas por ticker com preço médio ponderado. PM = custo médio de compra." />
+      </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ gap: 6, paddingBottom: 2 }}>
         {FILTERS.map(function (f) {

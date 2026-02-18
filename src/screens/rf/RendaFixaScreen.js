@@ -9,7 +9,7 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getRendaFixa } from '../../services/database';
 import { supabase } from '../../config/supabase';
-import { Glass, Badge, SectionLabel } from '../../components';
+import { Glass, Badge, SectionLabel, InfoTip } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
 var TIPO_LABELS = {
@@ -111,7 +111,10 @@ export default function RendaFixaScreen(props) {
           <TouchableOpacity onPress={function() { navigation.goBack(); }}>
             <Text style={styles.back}>‹</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>Renda Fixa</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={styles.title}>Renda Fixa</Text>
+            <InfoTip text="CDB, LCI/LCA, Tesouro Direto e debêntures. Indexadores: CDI, IPCA, Selic ou prefixado." />
+          </View>
           <TouchableOpacity onPress={function() { navigation.navigate('AddRendaFixa'); }}>
             <Text style={styles.addIcon}>+</Text>
           </TouchableOpacity>

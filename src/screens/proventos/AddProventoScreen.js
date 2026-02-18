@@ -20,8 +20,8 @@ var TIPOS = [
   { key: 'jcp', label: 'JCP', color: C.acoes },
   { key: 'rendimento', label: 'Rendimento', color: C.etfs },
   { key: 'juros_rf', label: 'Juros RF', color: C.rf },
-  { key: 'amortizacao', label: 'Amortizacao', color: C.yellow },
-  { key: 'bonificacao', label: 'Bonificacao', color: C.opcoes },
+  { key: 'amortizacao', label: 'Amortização', color: C.yellow },
+  { key: 'bonificacao', label: 'Bonificação', color: C.opcoes },
 ];
 
 var CORRETORAS_DEFAULT = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];

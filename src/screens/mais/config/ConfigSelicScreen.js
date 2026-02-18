@@ -1,21 +1,22 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TextInput,
-  TouchableOpacity, Alert, ActivityIndicator,
+  TouchableOpacity, Alert, ActivityIndicator, Switch,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, F, SIZE } from '../../../theme';
 import { useAuth } from '../../../contexts/AuthContext';
 import { updateProfile, getProfile } from '../../../services/database';
-import { Glass, Badge, SectionLabel } from '../../../components';
+import { Glass, Badge, SectionLabel, InfoTip } from '../../../components';
 
 export default function ConfigSelicScreen(props) {
   var navigation = props.navigation;
   var _auth = useAuth(); var user = _auth.user;
   var _selic = useState(''); var selic = _selic[0]; var setSelic = _selic[1];
   var _selicBCB = useState(null); var selicBCB = _selicBCB[0]; var setSelicBCB = _selicBCB[1];
-  var _copom = useState([]); var copom = _copom[0]; var setCopom = _copom[1];
+  var _manual = useState(false); var manual = _manual[0]; var setManual = _manual[1];
+  var _history = useState([]); var history = _history[0]; var setHistory = _history[1];
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
   var _saving = useState(false); var saving = _saving[0]; var setSaving = _saving[1];
   var _lastUpdate = useState(''); var lastUpdate = _lastUpdate[0]; var setLastUpdate = _lastUpdate[1];
@@ -27,19 +28,14 @@ export default function ConfigSelicScreen(props) {
   var load = async function() {
     setLoading(true);
     try {
-      // Buscar Selic atual do BCB + perfil em paralelo
       var profilePromise = getProfile(user.id);
       var selicPromise = fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json')
         .then(function(r) { return r.json(); })
         .catch(function() { return null; });
-      var copomPromise = fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/10?formato=json')
-        .then(function(r) { return r.json(); })
-        .catch(function() { return null; });
 
-      var results = await Promise.all([profilePromise, selicPromise, copomPromise]);
+      var results = await Promise.all([profilePromise, selicPromise]);
       var profile = results[0];
       var selicData = results[1];
-      var copomData = results[2];
 
       // Selic do BCB
       var bcbRate = null;
@@ -50,28 +46,21 @@ export default function ConfigSelicScreen(props) {
       }
 
       // Perfil do usuario
-      var profileSelic = (profile && profile.data) ? profile.data.selic : null;
+      var prof = (profile && profile.data) ? profile.data : null;
+      var isManual = prof && prof.selic_manual === true;
+      setManual(isManual);
 
-      // Se o perfil tem selic, usa; senao usa a do BCB
-      if (profileSelic != null) {
-        setSelic(String(profileSelic));
+      // Historico de alteracoes
+      var hist = (prof && prof.selic_history && Array.isArray(prof.selic_history)) ? prof.selic_history : [];
+      setHistory(hist);
+
+      // Se manual, usa selic do perfil. Se nao, usa BCB.
+      if (isManual && prof && prof.selic != null) {
+        setSelic(String(prof.selic));
       } else if (bcbRate != null) {
         setSelic(String(bcbRate));
       } else {
-        setSelic('14.25');
-      }
-
-      // Historico COPOM do BCB
-      if (copomData && copomData.length > 1) {
-        var hist = [];
-        for (var i = copomData.length - 1; i >= 0; i--) {
-          var taxa = parseFloat(copomData[i].valor);
-          var prevTaxa = i > 0 ? parseFloat(copomData[i - 1].valor) : taxa;
-          var diff = taxa - prevTaxa;
-          var variacao = diff > 0 ? '+' + diff.toFixed(2) : diff === 0 ? '0.00' : diff.toFixed(2);
-          hist.push({ data: copomData[i].data, taxa: taxa, variacao: variacao });
-        }
-        setCopom(hist);
+        setSelic('14.75');
       }
     } catch (e) {
       console.warn('ConfigSelic load error:', e);
@@ -79,22 +68,39 @@ export default function ConfigSelicScreen(props) {
     setLoading(false);
   };
 
+  var toggleManual = function(val) {
+    setManual(val);
+    if (!val && selicBCB != null) {
+      setSelic(String(selicBCB));
+    }
+  };
+
   var save = async function() {
     setSaving(true);
-    var result = await updateProfile(user.id, { selic: parseFloat(selic) || 14.25 });
+    var newRate = parseFloat(selic) || 14.75;
+    var updates = {
+      selic: newRate,
+      selic_manual: manual,
+    };
+
+    // Append to history if rate changed
+    var newHistory = history.slice();
+    var lastHist = newHistory.length > 0 ? newHistory[newHistory.length - 1] : null;
+    if (!lastHist || lastHist.taxa !== newRate) {
+      var today = new Date().toISOString().substring(0, 10);
+      newHistory.push({ data: today, taxa: newRate });
+      updates.selic_history = newHistory;
+    }
+
+    var result = await updateProfile(user.id, updates);
     if (result.error) {
       Alert.alert('Erro', 'Falha ao salvar: ' + (result.error.message || 'tente novamente'));
     } else {
-      Alert.alert('Salvo', 'Taxa Selic atualizada para ' + selic + '%');
+      setHistory(updates.selic_history || newHistory);
+      Alert.alert('Salvo', 'Taxa Selic atualizada para ' + newRate + '%');
       navigation.goBack();
     }
     setSaving(false);
-  };
-
-  var useBCB = function() {
-    if (selicBCB != null) {
-      setSelic(String(selicBCB));
-    }
   };
 
   if (loading) {
@@ -109,52 +115,67 @@ export default function ConfigSelicScreen(props) {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <TouchableOpacity onPress={function() { navigation.goBack(); }}>
-          <Text style={styles.back}>‹</Text>
+          <Text style={styles.back}>{'‹'}</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Taxa Selic</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={styles.title}>Taxa Selic</Text>
+          <InfoTip text="Taxa usada para cálculo de Black-Scholes, benchmark CDI e simulações de renda fixa." />
+        </View>
         <View style={{ width: 32 }} />
       </View>
 
       {/* Taxa BCB */}
       {selicBCB != null && (
         <Glass glow={C.green} padding={14}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View>
-              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8 }}>SELIC OFICIAL (BCB)</Text>
-              <Text style={{ fontSize: 28, fontWeight: '800', color: C.green, fontFamily: F.display, marginTop: 4 }}>
-                {selicBCB.toFixed(2) + '%'}
-              </Text>
-              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, marginTop: 2 }}>
-                {'Atualizado em ' + lastUpdate}
-              </Text>
-            </View>
-            {String(selicBCB) !== selic && (
-              <TouchableOpacity onPress={useBCB} activeOpacity={0.8} style={{
-                backgroundColor: C.green + '18', borderWidth: 1, borderColor: C.green + '40',
-                borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8,
-              }}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: C.green, fontFamily: F.display }}>Usar esta</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8 }}>SELIC OFICIAL (BCB)</Text>
+          <Text style={{ fontSize: 28, fontWeight: '800', color: C.green, fontFamily: F.display, marginTop: 4 }}>
+            {selicBCB.toFixed(2) + '%'}
+          </Text>
+          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, marginTop: 2 }}>
+            {'Atualizado em ' + lastUpdate}
+          </Text>
         </Glass>
       )}
 
-      {/* Input manual */}
-      <Glass glow={C.accent} padding={20}>
+      {/* Toggle taxa manual */}
+      <Glass padding={14}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display }}>Taxa manual</Text>
+            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, marginTop: 2 }}>
+              {manual ? 'Usando taxa personalizada' : 'Usando taxa oficial do BCB'}
+            </Text>
+          </View>
+          <Switch
+            value={manual}
+            onValueChange={toggleManual}
+            trackColor={{ false: C.border, true: C.accent + '60' }}
+            thumbColor={manual ? C.accent : C.dim}
+          />
+        </View>
+      </Glass>
+
+      {/* Input taxa */}
+      <Glass glow={manual ? C.accent : undefined} padding={20} style={!manual ? { opacity: 0.5 } : undefined}>
         <Text style={styles.inputLabel}>SUA TAXA SELIC (% a.a.)</Text>
         <View style={styles.inputRow}>
           <TextInput
             value={selic}
-            onChangeText={setSelic}
+            onChangeText={manual ? setSelic : undefined}
+            editable={manual}
             keyboardType="decimal-pad"
-            style={styles.input}
+            style={[styles.input, !manual && { color: C.sub }]}
           />
           <Text style={styles.suffix}>%</Text>
         </View>
-        {selicBCB != null && String(selicBCB) !== selic && (
+        {manual && selicBCB != null && String(selicBCB) !== selic && (
           <Text style={{ fontSize: 10, color: C.yellow, fontFamily: F.body, marginTop: 4 }}>
-            Diferente da taxa oficial ({selicBCB.toFixed(2) + '%'})
+            {'Diferente da oficial (' + selicBCB.toFixed(2) + '%)'}
+          </Text>
+        )}
+        {!manual && (
+          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, marginTop: 4 }}>
+            Ative a taxa manual para editar
           </Text>
         )}
       </Glass>
@@ -174,22 +195,29 @@ export default function ConfigSelicScreen(props) {
         </LinearGradient>
       </TouchableOpacity>
 
-      {/* Historico COPOM do BCB */}
-      {copom.length > 0 && (
+      {/* Historico de alteracoes */}
+      {history.length > 0 && (
         <>
-          <SectionLabel>HISTORICO COPOM (BCB)</SectionLabel>
+          <SectionLabel>HISTÓRICO DE ALTERAÇÕES</SectionLabel>
           <Glass padding={0}>
-            {copom.map(function(c, i) {
-              var isUp = c.variacao.startsWith('+') && c.variacao !== '+0.00';
-              var isDown = c.variacao.startsWith('-');
+            {history.slice().reverse().map(function(h, i, arr) {
+              var prevRate = i < arr.length - 1 ? arr[i + 1].taxa : null;
+              var diff = prevRate != null ? h.taxa - prevRate : 0;
+              var variacao = diff > 0 ? '+' + diff.toFixed(2) : diff === 0 ? '0.00' : diff.toFixed(2);
+              var isUp = diff > 0;
+              var isDown = diff < 0;
+              var parts = (h.data || '').split('-');
+              var dataFmt = parts.length >= 3 ? parts[2] + '/' + parts[1] + '/' + parts[0] : h.data;
               return (
                 <View key={i} style={[styles.copomRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
-                  <Text style={styles.copomDate}>{c.data}</Text>
-                  <Text style={styles.copomTaxa}>{c.taxa.toFixed(2) + '%'}</Text>
-                  <Badge
-                    text={c.variacao === '0.00' ? '=' : c.variacao}
-                    color={isUp ? C.red : isDown ? C.green : C.dim}
-                  />
+                  <Text style={styles.copomDate}>{dataFmt}</Text>
+                  <Text style={styles.copomTaxa}>{h.taxa.toFixed(2) + '%'}</Text>
+                  {prevRate != null && (
+                    <Badge
+                      text={variacao === '0.00' ? '=' : variacao}
+                      color={isUp ? C.red : isDown ? C.green : C.dim}
+                    />
+                  )}
                 </View>
               );
             })}

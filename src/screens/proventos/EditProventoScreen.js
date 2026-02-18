@@ -21,8 +21,8 @@ var TIPOS = [
   { key: 'jcp', label: 'JCP', color: C.acoes },
   { key: 'rendimento', label: 'Rendimento', color: C.etfs },
   { key: 'juros_rf', label: 'Juros RF', color: C.rf },
-  { key: 'amortizacao', label: 'Amortizacao', color: C.yellow },
-  { key: 'bonificacao', label: 'Bonificacao', color: C.opcoes },
+  { key: 'amortizacao', label: 'Amortização', color: C.yellow },
+  { key: 'bonificacao', label: 'Bonificação', color: C.opcoes },
 ];
 
 var CORRETORAS_DEFAULT = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];
@@ -251,7 +251,7 @@ export default function EditProventoScreen(props) {
         {loading ? (
           <ActivityIndicator color="white" />
         ) : (
-          <Text style={styles.submitText}>Salvar Alteracoes</Text>
+          <Text style={styles.submitText}>Salvar Alterações</Text>
         )}
       </TouchableOpacity>
 

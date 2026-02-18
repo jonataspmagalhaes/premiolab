@@ -93,9 +93,9 @@ export async function fetchDividendsStatusInvest(ticker, categoria) {
               result.push({ paymentDate: pd, rate: rate, label: label.toUpperCase(), lastDatePrior: ed });
             }
           }
-        } catch (e) { /* nao-JSON, ignora */ }
+        } catch (e) { console.warn('StatusInvest endpoint1 JSON parse for ' + ticker + ':', e.message); }
       }
-    } catch (e) { /* ignora erro no endpoint 1 */ }
+    } catch (e) { console.warn('StatusInvest endpoint1 fetch for ' + ticker + ':', e.message); }
 
     // Endpoint 2: companytickerproventsresult (tabela — inclui proventos recentes/futuros)
     try {
@@ -119,9 +119,9 @@ export async function fetchDividendsStatusInvest(ticker, categoria) {
               result.push({ paymentDate: pd2, rate: rate2, label: label2.toUpperCase(), lastDatePrior: ed2 });
             }
           }
-        } catch (e) { /* nao-JSON, ignora */ }
+        } catch (e) { console.warn('StatusInvest endpoint2 JSON parse for ' + ticker + ':', e.message); }
       }
-    } catch (e) { /* ignora erro no endpoint 2 */ }
+    } catch (e) { console.warn('StatusInvest endpoint2 fetch for ' + ticker + ':', e.message); }
 
     return { data: result, error: null };
   } catch (err) {

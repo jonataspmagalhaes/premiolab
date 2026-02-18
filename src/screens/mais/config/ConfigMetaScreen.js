@@ -7,7 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { C, F, SIZE } from '../../../theme';
 import { useAuth } from '../../../contexts/AuthContext';
 import { getProfile, updateProfile } from '../../../services/database';
-import { Glass, Pill, SectionLabel } from '../../../components';
+import { Glass, Pill, SectionLabel, InfoTip } from '../../../components';
 
 var QUICK = [3000, 5000, 6000, 8000, 10000, 15000];
 
@@ -44,7 +44,10 @@ export default function ConfigMetaScreen(props) {
         <TouchableOpacity onPress={function() { navigation.goBack(); }}>
           <Text style={styles.back}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Meta Mensal</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={styles.title}>Meta Mensal</Text>
+          <InfoTip text="Meta de renda passiva mensal (prêmios + dividendos + RF). Usada no gauge da Home." />
+        </View>
         <View style={{ width: 32 }} />
       </View>
 

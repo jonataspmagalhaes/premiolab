@@ -27,7 +27,7 @@ import {
   calcATR, calcBollingerBands, calcMaxDrawdown,
 } from '../../services/indicatorService';
 import { fetchPriceHistoryLong, fetchTickerProfile } from '../../services/priceService';
-import { Glass, Badge, Pill, SectionLabel } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import InteractiveChart from '../../components/InteractiveChart';
 
@@ -64,7 +64,7 @@ var MONTH_LABELS = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 
 
 var CAT_COLORS = { acao: C.acoes, fii: C.fiis, etf: C.etfs, rf: C.rf };
 var CAT_LABELS = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs' };
-var CAT_NAMES_FULL = { acao: 'Acoes', fii: 'FIIs', etf: 'ETFs', rf: 'RF' };
+var CAT_NAMES_FULL = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs', rf: 'RF' };
 var SCREEN_W = Dimensions.get('window').width;
 var SCREEN_H = Dimensions.get('window').height;
 
@@ -78,75 +78,75 @@ var TICKER_SECTORS = {
   IRBR3: { setor: 'Financeiro', segmento: 'Seguros' }, PSSA3: { setor: 'Financeiro', segmento: 'Seguros' },
   ITSA4: { setor: 'Financeiro', segmento: 'Holding' }, CXSE3: { setor: 'Financeiro', segmento: 'Seguros' },
   CIEL3: { setor: 'Financeiro', segmento: 'Pagamentos' }, ABCB4: { setor: 'Financeiro', segmento: 'Bancos' },
-  // Petroleo e Gas
-  PETR4: { setor: 'Petroleo', segmento: 'Expl. e Refino' }, PETR3: { setor: 'Petroleo', segmento: 'Expl. e Refino' },
-  PRIO3: { setor: 'Petroleo', segmento: 'Junior Oils' }, RECV3: { setor: 'Petroleo', segmento: 'Junior Oils' },
-  RRRP3: { setor: 'Petroleo', segmento: 'Junior Oils' }, CSAN3: { setor: 'Petroleo', segmento: 'Distribuicao' },
-  UGPA3: { setor: 'Petroleo', segmento: 'Distribuicao' }, VBBR3: { setor: 'Petroleo', segmento: 'Distribuicao' },
-  RAIZ4: { setor: 'Petroleo', segmento: 'Distribuicao' },
-  // Mineracao / Siderurgia
-  VALE3: { setor: 'Mineracao', segmento: 'Mineracao' }, CMIN3: { setor: 'Mineracao', segmento: 'Mineracao' },
+  // Petróleo e Gás
+  PETR4: { setor: 'Petróleo', segmento: 'Expl. e Refino' }, PETR3: { setor: 'Petróleo', segmento: 'Expl. e Refino' },
+  PRIO3: { setor: 'Petróleo', segmento: 'Junior Oils' }, RECV3: { setor: 'Petróleo', segmento: 'Junior Oils' },
+  RRRP3: { setor: 'Petróleo', segmento: 'Junior Oils' }, CSAN3: { setor: 'Petróleo', segmento: 'Distribuição' },
+  UGPA3: { setor: 'Petróleo', segmento: 'Distribuição' }, VBBR3: { setor: 'Petróleo', segmento: 'Distribuição' },
+  RAIZ4: { setor: 'Petróleo', segmento: 'Distribuição' },
+  // Mineração / Siderurgia
+  VALE3: { setor: 'Mineração', segmento: 'Mineração' }, CMIN3: { setor: 'Mineração', segmento: 'Mineração' },
   CSNA3: { setor: 'Siderurgia', segmento: 'Siderurgia' }, GGBR4: { setor: 'Siderurgia', segmento: 'Siderurgia' },
   USIM5: { setor: 'Siderurgia', segmento: 'Siderurgia' }, GOAU4: { setor: 'Siderurgia', segmento: 'Siderurgia' },
-  BRAP4: { setor: 'Mineracao', segmento: 'Holding' },
+  BRAP4: { setor: 'Mineração', segmento: 'Holding' },
   // Energia
-  ELET3: { setor: 'Energia', segmento: 'Geracao' }, ELET6: { setor: 'Energia', segmento: 'Geracao' },
-  ENGI11: { setor: 'Energia', segmento: 'Geracao' }, CPFE3: { setor: 'Energia', segmento: 'Distribuicao' },
-  TAEE11: { setor: 'Energia', segmento: 'Transmissao' }, CMIG4: { setor: 'Energia', segmento: 'Geracao' },
-  CMIG3: { setor: 'Energia', segmento: 'Geracao' }, AURE3: { setor: 'Energia', segmento: 'Renovavel' },
-  EGIE3: { setor: 'Energia', segmento: 'Geracao' }, CPLE6: { setor: 'Energia', segmento: 'Distribuicao' },
-  CPLE3: { setor: 'Energia', segmento: 'Distribuicao' }, EQTL3: { setor: 'Energia', segmento: 'Transmissao' },
-  ENEV3: { setor: 'Energia', segmento: 'Geracao' }, NEOE3: { setor: 'Energia', segmento: 'Distribuicao' },
-  TRPL4: { setor: 'Energia', segmento: 'Transmissao' }, AESB3: { setor: 'Energia', segmento: 'Geracao' },
+  ELET3: { setor: 'Energia', segmento: 'Geração' }, ELET6: { setor: 'Energia', segmento: 'Geração' },
+  ENGI11: { setor: 'Energia', segmento: 'Geração' }, CPFE3: { setor: 'Energia', segmento: 'Distribuição' },
+  TAEE11: { setor: 'Energia', segmento: 'Transmissão' }, CMIG4: { setor: 'Energia', segmento: 'Geração' },
+  CMIG3: { setor: 'Energia', segmento: 'Geração' }, AURE3: { setor: 'Energia', segmento: 'Renovável' },
+  EGIE3: { setor: 'Energia', segmento: 'Geração' }, CPLE6: { setor: 'Energia', segmento: 'Distribuição' },
+  CPLE3: { setor: 'Energia', segmento: 'Distribuição' }, EQTL3: { setor: 'Energia', segmento: 'Transmissão' },
+  ENEV3: { setor: 'Energia', segmento: 'Geração' }, NEOE3: { setor: 'Energia', segmento: 'Distribuição' },
+  TRPL4: { setor: 'Energia', segmento: 'Transmissão' }, AESB3: { setor: 'Energia', segmento: 'Geração' },
   // Consumo
-  ABEV3: { setor: 'Consumo', segmento: 'Bebidas' }, JBSS3: { setor: 'Consumo', segmento: 'Frigorificos' },
-  MRFG3: { setor: 'Consumo', segmento: 'Frigorificos' }, BRFS3: { setor: 'Consumo', segmento: 'Frigorificos' },
-  NTCO3: { setor: 'Consumo', segmento: 'Cosmeticos' }, BEEF3: { setor: 'Consumo', segmento: 'Frigorificos' },
-  MDIA3: { setor: 'Consumo', segmento: 'Alimentos' }, SMTO3: { setor: 'Consumo', segmento: 'Acucar' },
-  SLCE3: { setor: 'Consumo', segmento: 'Agronegocio' },
+  ABEV3: { setor: 'Consumo', segmento: 'Bebidas' }, JBSS3: { setor: 'Consumo', segmento: 'Frigoríficos' },
+  MRFG3: { setor: 'Consumo', segmento: 'Frigoríficos' }, BRFS3: { setor: 'Consumo', segmento: 'Frigoríficos' },
+  NTCO3: { setor: 'Consumo', segmento: 'Cosméticos' }, BEEF3: { setor: 'Consumo', segmento: 'Frigoríficos' },
+  MDIA3: { setor: 'Consumo', segmento: 'Alimentos' }, SMTO3: { setor: 'Consumo', segmento: 'Açúcar' },
+  SLCE3: { setor: 'Consumo', segmento: 'Agronegócio' },
   // Varejo
   MGLU3: { setor: 'Varejo', segmento: 'E-commerce' }, LREN3: { setor: 'Varejo', segmento: 'Moda' },
   ARZZ3: { setor: 'Varejo', segmento: 'Moda' }, PETZ3: { setor: 'Varejo', segmento: 'Especializado' },
-  RENT3: { setor: 'Varejo', segmento: 'Locacao' }, ALPA4: { setor: 'Varejo', segmento: 'Moda' },
+  RENT3: { setor: 'Varejo', segmento: 'Locação' }, ALPA4: { setor: 'Varejo', segmento: 'Moda' },
   ASAI3: { setor: 'Varejo', segmento: 'Supermercados' }, CRFB3: { setor: 'Varejo', segmento: 'Supermercados' },
   PCAR3: { setor: 'Varejo', segmento: 'Supermercados' }, VIVA3: { setor: 'Varejo', segmento: 'Joias' },
-  MULT3: { setor: 'Varejo', segmento: 'Shoppings' }, MOVI3: { setor: 'Varejo', segmento: 'Locacao' },
+  MULT3: { setor: 'Varejo', segmento: 'Shoppings' }, MOVI3: { setor: 'Varejo', segmento: 'Locação' },
   SOMA3: { setor: 'Varejo', segmento: 'Moda' }, IGTI11: { setor: 'Varejo', segmento: 'Shoppings' },
-  // Saude
-  HAPV3: { setor: 'Saude', segmento: 'Planos' }, RDOR3: { setor: 'Saude', segmento: 'Hospitais' },
-  FLRY3: { setor: 'Saude', segmento: 'Diagnosticos' }, RADL3: { setor: 'Saude', segmento: 'Farmacias' },
-  HYPE3: { setor: 'Saude', segmento: 'Farmaceutica' }, ONCO3: { setor: 'Saude', segmento: 'Hospitais' },
+  // Saúde
+  HAPV3: { setor: 'Saúde', segmento: 'Planos' }, RDOR3: { setor: 'Saúde', segmento: 'Hospitais' },
+  FLRY3: { setor: 'Saúde', segmento: 'Diagnósticos' }, RADL3: { setor: 'Saúde', segmento: 'Farmácias' },
+  HYPE3: { setor: 'Saúde', segmento: 'Farmacêutica' }, ONCO3: { setor: 'Saúde', segmento: 'Hospitais' },
   // Tecnologia
   TOTS3: { setor: 'Tecnologia', segmento: 'Software' }, LWSA3: { setor: 'Tecnologia', segmento: 'Internet' },
   CASH3: { setor: 'Tecnologia', segmento: 'Fintech' }, PAGS3: { setor: 'Tecnologia', segmento: 'Pagamentos' },
   // Telecom
   VIVT3: { setor: 'Telecom', segmento: 'Telecom' }, TIMS3: { setor: 'Telecom', segmento: 'Telecom' },
-  // Industria
-  WEGE3: { setor: 'Industria', segmento: 'Motores' }, EMBR3: { setor: 'Industria', segmento: 'Aeronautica' },
-  POMO4: { setor: 'Industria', segmento: 'Onibus' }, RAPT4: { setor: 'Industria', segmento: 'Autopecas' },
-  TUPY3: { setor: 'Industria', segmento: 'Autopecas' }, DXCO3: { setor: 'Industria', segmento: 'Materiais' },
-  GGPS3: { setor: 'Industria', segmento: 'Servicos' }, LEVE3: { setor: 'Industria', segmento: 'Autopecas' },
+  // Indústria
+  WEGE3: { setor: 'Indústria', segmento: 'Motores' }, EMBR3: { setor: 'Indústria', segmento: 'Aeronáutica' },
+  POMO4: { setor: 'Indústria', segmento: 'Ônibus' }, RAPT4: { setor: 'Indústria', segmento: 'Autopeças' },
+  TUPY3: { setor: 'Indústria', segmento: 'Autopeças' }, DXCO3: { setor: 'Indústria', segmento: 'Materiais' },
+  GGPS3: { setor: 'Indústria', segmento: 'Serviços' }, LEVE3: { setor: 'Indústria', segmento: 'Autopeças' },
   // Papel e Celulose
   SUZB3: { setor: 'Papel/Celulose', segmento: 'Celulose' }, KLBN11: { setor: 'Papel/Celulose', segmento: 'Celulose' },
   // Transporte
-  CCRO3: { setor: 'Transporte', segmento: 'Concessoes' }, AZUL4: { setor: 'Transporte', segmento: 'Aereo' },
-  GOLL4: { setor: 'Transporte', segmento: 'Aereo' }, RAIL3: { setor: 'Transporte', segmento: 'Ferroviario' },
-  STBP3: { setor: 'Transporte', segmento: 'Portos' }, ECOR3: { setor: 'Transporte', segmento: 'Concessoes' },
-  // Construcao
-  CYRE3: { setor: 'Construcao', segmento: 'Incorporacao' }, EZTC3: { setor: 'Construcao', segmento: 'Incorporacao' },
-  MRVE3: { setor: 'Construcao', segmento: 'Incorporacao' }, TRIS3: { setor: 'Construcao', segmento: 'Incorporacao' },
-  DIRR3: { setor: 'Construcao', segmento: 'Incorporacao' }, EVEN3: { setor: 'Construcao', segmento: 'Incorporacao' },
+  CCRO3: { setor: 'Transporte', segmento: 'Concessões' }, AZUL4: { setor: 'Transporte', segmento: 'Aéreo' },
+  GOLL4: { setor: 'Transporte', segmento: 'Aéreo' }, RAIL3: { setor: 'Transporte', segmento: 'Ferroviário' },
+  STBP3: { setor: 'Transporte', segmento: 'Portos' }, ECOR3: { setor: 'Transporte', segmento: 'Concessões' },
+  // Construção
+  CYRE3: { setor: 'Construção', segmento: 'Incorporação' }, EZTC3: { setor: 'Construção', segmento: 'Incorporação' },
+  MRVE3: { setor: 'Construção', segmento: 'Incorporação' }, TRIS3: { setor: 'Construção', segmento: 'Incorporação' },
+  DIRR3: { setor: 'Construção', segmento: 'Incorporação' }, EVEN3: { setor: 'Construção', segmento: 'Incorporação' },
   // Saneamento
   SBSP3: { setor: 'Saneamento', segmento: 'Saneamento' }, SAPR11: { setor: 'Saneamento', segmento: 'Saneamento' },
-  // FIIs — Tijolo (Logistica)
-  HGLG11: { setor: 'Logistica', segmento: 'Galpoes' }, XPLG11: { setor: 'Logistica', segmento: 'Galpoes' },
-  BTLG11: { setor: 'Logistica', segmento: 'Galpoes' }, GGRC11: { setor: 'Logistica', segmento: 'Galpoes' },
-  LVBI11: { setor: 'Logistica', segmento: 'Galpoes' }, VILG11: { setor: 'Logistica', segmento: 'Galpoes' },
-  BRCO11: { setor: 'Logistica', segmento: 'Galpoes' }, GALG11: { setor: 'Logistica', segmento: 'Galpoes' },
+  // FIIs — Tijolo (Logística)
+  HGLG11: { setor: 'Logística', segmento: 'Galpões' }, XPLG11: { setor: 'Logística', segmento: 'Galpões' },
+  BTLG11: { setor: 'Logística', segmento: 'Galpões' }, GGRC11: { setor: 'Logística', segmento: 'Galpões' },
+  LVBI11: { setor: 'Logística', segmento: 'Galpões' }, VILG11: { setor: 'Logística', segmento: 'Galpões' },
+  BRCO11: { setor: 'Logística', segmento: 'Galpões' }, GALG11: { setor: 'Logística', segmento: 'Galpões' },
   // FIIs — Tijolo (Lajes/Shopping/Urbana)
-  HGRE11: { setor: 'Lajes Corp.', segmento: 'Escritorios' },
-  BRCR11: { setor: 'Lajes Corp.', segmento: 'Escritorios' }, PVBI11: { setor: 'Lajes Corp.', segmento: 'Escritorios' },
-  VINO11: { setor: 'Lajes Corp.', segmento: 'Escritorios' }, RBRP11: { setor: 'Lajes Corp.', segmento: 'Escritorios' },
+  HGRE11: { setor: 'Lajes Corp.', segmento: 'Escritórios' },
+  BRCR11: { setor: 'Lajes Corp.', segmento: 'Escritórios' }, PVBI11: { setor: 'Lajes Corp.', segmento: 'Escritórios' },
+  VINO11: { setor: 'Lajes Corp.', segmento: 'Escritórios' }, RBRP11: { setor: 'Lajes Corp.', segmento: 'Escritórios' },
   XPML11: { setor: 'Shopping', segmento: 'Shopping' }, VISC11: { setor: 'Shopping', segmento: 'Shopping' },
   HSML11: { setor: 'Shopping', segmento: 'Shopping' }, HGBS11: { setor: 'Shopping', segmento: 'Shopping' },
   TRXF11: { setor: 'Renda Urbana', segmento: 'Renda Urbana' }, HGRU11: { setor: 'Renda Urbana', segmento: 'Renda Urbana' },
@@ -154,15 +154,15 @@ var TICKER_SECTORS = {
   XPCA11: { setor: 'Agro', segmento: 'Agro' }, KNCA11: { setor: 'Agro', segmento: 'Agro' },
   RZTR11: { setor: 'Agro', segmento: 'Agro' }, BTAL11: { setor: 'Agro', segmento: 'Agro' },
   RURA11: { setor: 'Agro', segmento: 'Agro' }, TGAR11: { setor: 'Agro', segmento: 'Agro' },
-  // FIIs — Papel (CRI/Recebiveis)
-  KNCR11: { setor: 'Papel/CRI', segmento: 'Recebiveis' }, KNIP11: { setor: 'Papel/CRI', segmento: 'Recebiveis' },
-  MXRF11: { setor: 'Papel/CRI', segmento: 'Recebiveis' }, IRDM11: { setor: 'Papel/CRI', segmento: 'Recebiveis' },
-  RECR11: { setor: 'Papel/CRI', segmento: 'Recebiveis' }, RBRR11: { setor: 'Papel/CRI', segmento: 'Recebiveis' },
-  VGIR11: { setor: 'Papel/CRI', segmento: 'Recebiveis' }, CPTS11: { setor: 'Papel/CRI', segmento: 'Recebiveis' },
-  VRTA11: { setor: 'Papel/CRI', segmento: 'Recebiveis' }, HABT11: { setor: 'Papel/CRI', segmento: 'Recebiveis' },
-  DEVA11: { setor: 'Papel/CRI', segmento: 'Recebiveis' }, AFHI11: { setor: 'Papel/CRI', segmento: 'Recebiveis' },
-  SNCI11: { setor: 'Papel/CRI', segmento: 'Recebiveis' },
-  // FIIs — Hibrido (Fundo de Fundos)
+  // FIIs — Papel (CRI/Recebíveis)
+  KNCR11: { setor: 'Papel/CRI', segmento: 'Recebíveis' }, KNIP11: { setor: 'Papel/CRI', segmento: 'Recebíveis' },
+  MXRF11: { setor: 'Papel/CRI', segmento: 'Recebíveis' }, IRDM11: { setor: 'Papel/CRI', segmento: 'Recebíveis' },
+  RECR11: { setor: 'Papel/CRI', segmento: 'Recebíveis' }, RBRR11: { setor: 'Papel/CRI', segmento: 'Recebíveis' },
+  VGIR11: { setor: 'Papel/CRI', segmento: 'Recebíveis' }, CPTS11: { setor: 'Papel/CRI', segmento: 'Recebíveis' },
+  VRTA11: { setor: 'Papel/CRI', segmento: 'Recebíveis' }, HABT11: { setor: 'Papel/CRI', segmento: 'Recebíveis' },
+  DEVA11: { setor: 'Papel/CRI', segmento: 'Recebíveis' }, AFHI11: { setor: 'Papel/CRI', segmento: 'Recebíveis' },
+  SNCI11: { setor: 'Papel/CRI', segmento: 'Recebíveis' },
+  // FIIs — Híbrido (Fundo de Fundos)
   RBRF11: { setor: 'Fundo de Fundos', segmento: 'FoF' }, BCFF11: { setor: 'Fundo de Fundos', segmento: 'FoF' },
   HFOF11: { setor: 'Fundo de Fundos', segmento: 'FoF' }, MGFF11: { setor: 'Fundo de Fundos', segmento: 'FoF' },
   // ETFs — Renda Variavel Brasil
@@ -197,12 +197,12 @@ var RF_SECTOR_MAP = {
 
 // FII: map detailed sectors to broad rebal categories
 var FII_REBAL_MAP = {
-  'Logistica': 'Tijolo', 'Lajes Corp.': 'Tijolo', 'Shopping': 'Tijolo',
+  'Logística': 'Tijolo', 'Lajes Corp.': 'Tijolo', 'Shopping': 'Tijolo',
   'Agro': 'Tijolo', 'Renda Urbana': 'Tijolo',
   'Papel/CRI': 'Papel',
-  'Fundo de Fundos': 'Hibrido',
+  'Fundo de Fundos': 'Híbrido',
 };
-var FII_SECTORS_SET = { 'Logistica': 1, 'Lajes Corp.': 1, 'Shopping': 1, 'Papel/CRI': 1, 'Agro': 1, 'Renda Urbana': 1, 'Fundo de Fundos': 1 };
+var FII_SECTORS_SET = { 'Logística': 1, 'Lajes Corp.': 1, 'Shopping': 1, 'Papel/CRI': 1, 'Agro': 1, 'Renda Urbana': 1, 'Fundo de Fundos': 1 };
 var ETF_SECTORS_SET = { 'RV Brasil': 1, 'Small Caps': 1, 'Dividendos': 1, 'Internacional': 1, 'Cripto': 1, 'RF ETF': 1, 'Setorial': 1 };
 
 // Market Cap classification (BRL thresholds)
@@ -260,43 +260,43 @@ function mapBrapiSector(sector, industry) {
   // Refine by industry first (more specific)
   if (industry) {
     if (industry.indexOf('Steel') >= 0) return { setor: 'Siderurgia', segmento: 'Siderurgia' };
-    if (industry.indexOf('Mining') >= 0 || industry.indexOf('Gold') >= 0) return { setor: 'Mineracao', segmento: 'Mineracao' };
-    if (industry.indexOf('Oil') >= 0 || industry.indexOf('Gas') >= 0) return { setor: 'Petroleo', segmento: 'Petroleo' };
+    if (industry.indexOf('Mining') >= 0 || industry.indexOf('Gold') >= 0) return { setor: 'Mineração', segmento: 'Mineração' };
+    if (industry.indexOf('Oil') >= 0 || industry.indexOf('Gas') >= 0) return { setor: 'Petróleo', segmento: 'Petróleo' };
     if (industry.indexOf('Pulp') >= 0 || industry.indexOf('Paper') >= 0 || industry.indexOf('Lumber') >= 0) return { setor: 'Papel/Celulose', segmento: 'Celulose' };
-    if (industry.indexOf('Airlines') >= 0 || industry.indexOf('Airport') >= 0) return { setor: 'Transporte', segmento: 'Aereo' };
-    if (industry.indexOf('Railroads') >= 0 || industry.indexOf('Trucking') >= 0) return { setor: 'Transporte', segmento: 'Ferroviario' };
+    if (industry.indexOf('Airlines') >= 0 || industry.indexOf('Airport') >= 0) return { setor: 'Transporte', segmento: 'Aéreo' };
+    if (industry.indexOf('Railroads') >= 0 || industry.indexOf('Trucking') >= 0) return { setor: 'Transporte', segmento: 'Ferroviário' };
     if (industry.indexOf('Marine') >= 0 || industry.indexOf('Shipping') >= 0) return { setor: 'Transporte', segmento: 'Portos' };
     if (industry.indexOf('Electric') >= 0 || industry.indexOf('Utilities') >= 0 || industry.indexOf('Renewable') >= 0 || industry.indexOf('Solar') >= 0) return { setor: 'Energia', segmento: 'Energia' };
     if (industry.indexOf('Water') >= 0) return { setor: 'Saneamento', segmento: 'Saneamento' };
     if (industry.indexOf('Bank') >= 0) return { setor: 'Financeiro', segmento: 'Bancos' };
     if (industry.indexOf('Insurance') >= 0) return { setor: 'Financeiro', segmento: 'Seguros' };
     if (industry.indexOf('Capital Markets') >= 0 || industry.indexOf('Financial Data') >= 0) return { setor: 'Financeiro', segmento: 'Investimentos' };
-    if (industry.indexOf('Pharmaceutical') >= 0 || industry.indexOf('Drug') >= 0) return { setor: 'Saude', segmento: 'Farmaceutica' };
-    if (industry.indexOf('Medical') >= 0 || industry.indexOf('Health') >= 0) return { setor: 'Saude', segmento: 'Saude' };
-    if (industry.indexOf('Residential Construction') >= 0 || industry.indexOf('Real Estate') >= 0) return { setor: 'Construcao', segmento: 'Incorporacao' };
+    if (industry.indexOf('Pharmaceutical') >= 0 || industry.indexOf('Drug') >= 0) return { setor: 'Saúde', segmento: 'Farmacêutica' };
+    if (industry.indexOf('Medical') >= 0 || industry.indexOf('Health') >= 0) return { setor: 'Saúde', segmento: 'Saúde' };
+    if (industry.indexOf('Residential Construction') >= 0 || industry.indexOf('Real Estate') >= 0) return { setor: 'Construção', segmento: 'Incorporação' };
     if (industry.indexOf('Packaged Foods') >= 0 || industry.indexOf('Farm') >= 0 || industry.indexOf('Beverages') >= 0) return { setor: 'Consumo', segmento: 'Alimentos' };
-    if (industry.indexOf('Meat') >= 0) return { setor: 'Consumo', segmento: 'Frigorificos' };
+    if (industry.indexOf('Meat') >= 0) return { setor: 'Consumo', segmento: 'Frigoríficos' };
     if (industry.indexOf('Tobacco') >= 0 || industry.indexOf('Household') >= 0 || industry.indexOf('Personal') >= 0) return { setor: 'Consumo', segmento: 'Consumo' };
     if (industry.indexOf('Apparel') >= 0 || industry.indexOf('Luxury') >= 0 || industry.indexOf('Footwear') >= 0) return { setor: 'Varejo', segmento: 'Moda' };
     if (industry.indexOf('Grocery') >= 0 || industry.indexOf('Discount') >= 0 || industry.indexOf('Department') >= 0) return { setor: 'Varejo', segmento: 'Supermercados' };
     if (industry.indexOf('Retail') >= 0 || industry.indexOf('Specialty') >= 0) return { setor: 'Varejo', segmento: 'Varejo' };
-    if (industry.indexOf('Rental') >= 0 || industry.indexOf('Leasing') >= 0) return { setor: 'Varejo', segmento: 'Locacao' };
+    if (industry.indexOf('Rental') >= 0 || industry.indexOf('Leasing') >= 0) return { setor: 'Varejo', segmento: 'Locação' };
     if (industry.indexOf('Telecom') >= 0) return { setor: 'Telecom', segmento: 'Telecom' };
     if (industry.indexOf('Software') >= 0 || industry.indexOf('Internet') >= 0 || industry.indexOf('Electronic') >= 0) return { setor: 'Tecnologia', segmento: 'Tecnologia' };
   }
   // Fallback by sector
   var SECTOR_MAP = {
     'Financial Services': { setor: 'Financeiro', segmento: 'Financeiro' },
-    'Energy': { setor: 'Petroleo', segmento: 'Petroleo' },
-    'Basic Materials': { setor: 'Mineracao', segmento: 'Materiais' },
+    'Energy': { setor: 'Petróleo', segmento: 'Petróleo' },
+    'Basic Materials': { setor: 'Mineração', segmento: 'Materiais' },
     'Consumer Cyclical': { setor: 'Varejo', segmento: 'Varejo' },
     'Consumer Defensive': { setor: 'Consumo', segmento: 'Consumo' },
-    'Healthcare': { setor: 'Saude', segmento: 'Saude' },
+    'Healthcare': { setor: 'Saúde', segmento: 'Saúde' },
     'Technology': { setor: 'Tecnologia', segmento: 'Tecnologia' },
     'Communication Services': { setor: 'Telecom', segmento: 'Telecom' },
     'Utilities': { setor: 'Energia', segmento: 'Energia' },
-    'Industrials': { setor: 'Industria', segmento: 'Industria' },
-    'Real Estate': { setor: 'Construcao', segmento: 'Construcao' },
+    'Industrials': { setor: 'Indústria', segmento: 'Indústria' },
+    'Real Estate': { setor: 'Construção', segmento: 'Construção' },
   };
   return SECTOR_MAP[sector] || null;
 }
@@ -317,6 +317,7 @@ async function enrichTickerSectors(tickers) {
     for (var k = 0; k < keys.length; k++) {
       var sym = keys[k];
       var p = profiles[sym];
+      if (!p) continue;
       var mapped = mapBrapiSector(p.sector, p.industry);
       if (mapped) {
         TICKER_SECTORS[sym] = mapped;
@@ -371,9 +372,9 @@ var RF_IDX_COLORS = { prefixado: C.green, cdi: C.accent, ipca: C.fiis, selic: C.
 var RF_ISENTOS = { lci_lca: true, debenture: true };
 
 var PROV_SUBS = [
-  { k: 'visao', l: 'Visao Geral' },
+  { k: 'visao', l: 'Visão Geral' },
   { k: 'proventos', l: 'Proventos' },
-  { k: 'premios', l: 'Premios' },
+  { k: 'premios', l: 'Prêmios' },
 ];
 
 // ═══════════ HELPERS ═══════════
@@ -468,6 +469,7 @@ function computeMonthlyReturns(history) {
   if (!history || history.length < 2) return [];
   var months = {};
   history.forEach(function(pt) {
+    if (!pt || !pt.date) return;
     var key = pt.date.substring(0, 7);
     if (!months[key]) months[key] = { first: pt.value, last: pt.value };
     months[key].last = pt.value;
@@ -489,6 +491,7 @@ function computeWeeklyReturns(history) {
   var weeks = {};
   for (var i = 0; i < history.length; i++) {
     var pt = history[i];
+    if (!pt || !pt.date) continue;
     var d = new Date(pt.date + 'T12:00:00');
     var jan1 = new Date(d.getFullYear(), 0, 1);
     var dayOfYear = Math.floor((d - jan1) / 86400000) + 1;
@@ -507,6 +510,21 @@ function computeWeeklyReturns(history) {
     returns.push({ week: keys[j], date: weeks[keys[j]].lastDate, pct: ret });
   }
   return returns;
+}
+
+function addProvToCorretora(map, corretora, prov, qty, valor, isPago) {
+  if (!map[corretora]) map[corretora] = { items: [], totalPago: 0, totalPendente: 0 };
+  map[corretora].items.push({
+    ticker: prov.ticker,
+    tipo: prov.tipo_provento,
+    dataPagamento: prov.data_pagamento,
+    valorPorCota: prov.valor_por_cota,
+    quantidade: qty,
+    valorTotal: valor || 0,
+    isPago: isPago,
+  });
+  if (isPago) map[corretora].totalPago += (valor || 0);
+  else map[corretora].totalPendente += (valor || 0);
 }
 
 function computeCDIAccumulated(history, selicAnual) {
@@ -1549,21 +1567,21 @@ function RebalanceTool(props) {
       desc: 'Prioriza renda fixa e FIIs de papel. Menor exposicao a acoes.',
       classes: { acao: 15, fii: 15, etf: 10, rf: 60 },
       acaoCaps: { 'Large Cap': 60, 'Mid Cap': 25, 'Small Cap': 10, 'Micro Cap': 5 },
-      fiiSectors: { 'Tijolo': 30, 'Papel': 55, 'Hibrido': 15 },
+      fiiSectors: { 'Tijolo': 30, 'Papel': 55, 'Híbrido': 15 },
     },
     moderado: {
       label: 'Moderado', emoji: '⚖️',
       desc: 'Equilibrio entre renda variavel e fixa. Diversificacao ampla.',
       classes: { acao: 30, fii: 25, etf: 20, rf: 25 },
       acaoCaps: { 'Large Cap': 45, 'Mid Cap': 30, 'Small Cap': 20, 'Micro Cap': 5 },
-      fiiSectors: { 'Tijolo': 45, 'Papel': 40, 'Hibrido': 15 },
+      fiiSectors: { 'Tijolo': 45, 'Papel': 40, 'Híbrido': 15 },
     },
     arrojado: {
       label: 'Arrojado', emoji: '🚀',
       desc: 'Foco em acoes e ETFs para crescimento. Pouca renda fixa.',
       classes: { acao: 45, fii: 25, etf: 25, rf: 5 },
       acaoCaps: { 'Large Cap': 30, 'Mid Cap': 30, 'Small Cap': 25, 'Micro Cap': 15 },
-      fiiSectors: { 'Tijolo': 55, 'Papel': 30, 'Hibrido': 15 },
+      fiiSectors: { 'Tijolo': 55, 'Papel': 30, 'Híbrido': 15 },
     },
   };
 
@@ -2448,7 +2466,10 @@ function RebalanceTool(props) {
       {/* ── HEADER CARD ── */}
       <Glass glow padding={14}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <Text style={styles.sectionTitle}>REBALANCEAMENTO</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={styles.sectionTitle}>REBALANCEAMENTO</Text>
+            <InfoTip text="Defina metas de alocação por classe, setor e ativo. O sistema calcula os ajustes necessários para equilibrar a carteira." />
+          </View>
           <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
             <TouchableOpacity onPress={function () {
               LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -2661,7 +2682,7 @@ function RebalanceTool(props) {
             {suggestions.items.length === 0 ? (
               <View style={{ padding: 12, borderRadius: 8, backgroundColor: C.green + '08' }}>
                 <Text style={{ fontSize: 12, color: C.green, fontFamily: F.body, fontWeight: '600' }}>
-                  Carteira ja esta alinhada com as metas!
+                  Carteira já está alinhada com as metas!
                 </Text>
                 <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 4 }}>
                   Nenhuma compra necessaria para atingir os alvos.
@@ -2725,6 +2746,264 @@ function RebalanceTool(props) {
 
 // ═══════════ INLINE SVG: Proventos Bar Chart ═══════════
 
+// ═══════════ INLINE SVG: Proventos Monthly Bar Chart (with ticker detail) ═══════════
+
+function ProvMonthlyBarChart(props) {
+  var data = props.data || [];
+  var maxVal = props.maxVal || 1;
+  var color = props.color || C.fiis;
+  var height = props.height || 200;
+  var selected = props.selected != null ? props.selected : -1;
+  var onSelect = props.onSelect || function() {};
+  var _w = useState(0); var w = _w[0]; var setW = _w[1];
+
+  if (data.length === 0 || w === 0) {
+    return <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }} style={{ height: 1 }} />;
+  }
+
+  var padL = 38;
+  var padR = 6;
+  var padTop = 18;
+  var padBot = 32;
+  var chartW = w - padL - padR;
+  var chartH = height - padTop - padBot;
+  var barGap = 4;
+  var barW = (chartW - barGap * (data.length - 1)) / data.length;
+  if (barW > 32) barW = 32;
+  var totalBarsW = data.length * barW + (data.length - 1) * barGap;
+  var offsetX = padL + (chartW - totalBarsW) / 2;
+  var slotW = data.length > 0 ? chartW / data.length : 0;
+
+  function handleTouch(e) {
+    if (chartW <= 0 || data.length === 0) return;
+    var x = e.nativeEvent.locationX - padL;
+    var idx = Math.floor(x / slotW);
+    if (idx < 0) idx = 0;
+    if (idx >= data.length) idx = data.length - 1;
+    onSelect(idx === selected ? -1 : idx);
+  }
+
+  // Y-axis grid
+  var gridLevels = [0, maxVal * 0.5, maxVal];
+
+  // Selected bar ticker tooltip
+  var selD = selected >= 0 && selected < data.length ? data[selected] : null;
+  var selTickers = selD && selD.tickers ? selD.tickers : [];
+  var maxTip = 5; // max tickers shown in tooltip
+
+  return (
+    <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }}>
+      <TouchableOpacity activeOpacity={1} onPress={handleTouch}>
+        <Svg width={w} height={height}>
+          {/* Grid lines + Y labels */}
+          {gridLevels.map(function(gv, gi) {
+            var gy = padTop + chartH - (maxVal > 0 ? (gv / maxVal) * chartH : 0);
+            return (
+              <G key={'g' + gi}>
+                <SvgLine x1={padL} y1={gy} x2={w - padR} y2={gy}
+                  stroke={C.border} strokeWidth={0.5} strokeDasharray="3,3" />
+                <SvgText x={padL - 4} y={gy + 3} fill={C.dim}
+                  fontSize={8} fontFamily={F.mono} textAnchor="end">
+                  {fmtC(gv)}
+                </SvgText>
+              </G>
+            );
+          })}
+          {/* Bars */}
+          {data.map(function(d, i) {
+            var isSelected = i === selected;
+            var bx = offsetX + i * (barW + barGap);
+            var bh = maxVal > 0 ? (d.value / maxVal) * chartH : 0;
+            bh = Math.max(bh, 1);
+            var by = padTop + chartH - bh;
+            var barOpacity = selected === -1 ? 0.7 : (isSelected ? 1 : 0.3);
+            return (
+              <G key={'b' + i}>
+                <SvgRect x={bx} y={by} width={barW} height={bh}
+                  rx={3} fill={color} opacity={barOpacity} />
+                {/* Value on top */}
+                {d.value > 0 && (selected === -1 || isSelected) ? (
+                  <SvgText x={bx + barW / 2} y={by - 4} fill={C.green}
+                    fontSize={7} fontFamily={F.mono} fontWeight="600" textAnchor="middle">
+                    {d.value >= 1000 ? (d.value / 1000).toFixed(1) + 'k' : fmt(d.value)}
+                  </SvgText>
+                ) : null}
+                {/* Month label */}
+                <SvgText x={bx + barW / 2} y={height - padBot + 12}
+                  fill={isSelected ? C.text : C.sub}
+                  fontSize={8} fontFamily={F.mono} textAnchor="middle"
+                  fontWeight={isSelected ? '600' : '400'}>
+                  {d.month}
+                </SvgText>
+              </G>
+            );
+          })}
+
+          {/* Ticker detail tooltip next to selected bar */}
+          {selD && selTickers.length > 0 ? (function() {
+            var tipLineH = 16;
+            var tipCount = Math.min(selTickers.length, maxTip);
+            var tipH = tipLineH * tipCount + 10;
+            var tipW = 130;
+            var selBx = offsetX + selected * (barW + barGap);
+            var selBy = padTop + chartH - (maxVal > 0 ? (selD.value / maxVal) * chartH : 0);
+            // Position tooltip to the right of bar, or left if near edge
+            var tipX = selBx + barW + 6;
+            if (tipX + tipW > w - padR) tipX = selBx - tipW - 6;
+            if (tipX < padL) tipX = padL;
+            var tipY = selBy - tipH / 2;
+            if (tipY < 2) tipY = 2;
+            if (tipY + tipH > height - padBot) tipY = height - padBot - tipH;
+
+            var tipEls = [];
+            tipEls.push(
+              <SvgRect key="tip-bg" x={tipX} y={tipY} width={tipW} height={tipH}
+                rx={6} fill={C.surface} opacity={0.95} />
+            );
+            for (var ti = 0; ti < tipCount; ti++) {
+              var tk = selTickers[ti];
+              tipEls.push(
+                <SvgText key={'tt-' + ti} x={tipX + 8} y={tipY + 14 + ti * tipLineH}
+                  fill={C.text} fontSize={10} fontFamily={F.mono} fontWeight="500">
+                  {tk.ticker}
+                </SvgText>
+              );
+              tipEls.push(
+                <SvgText key={'tv-' + ti} x={tipX + tipW - 8} y={tipY + 14 + ti * tipLineH}
+                  fill={C.green} fontSize={10} fontFamily={F.mono} fontWeight="600" textAnchor="end">
+                  {'R$ ' + fmt(tk.value)}
+                </SvgText>
+              );
+            }
+            if (selTickers.length > maxTip) {
+              tipEls.push(
+                <SvgText key="tt-more" x={tipX + tipW / 2} y={tipY + tipH - 2}
+                  fill={C.dim} fontSize={8} fontFamily={F.mono} textAnchor="middle">
+                  {'+' + (selTickers.length - maxTip) + ' mais'}
+                </SvgText>
+              );
+            }
+            return tipEls;
+          })() : null}
+        </Svg>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ═══════════ INLINE SVG: Annual Bar Chart (with Y-axis + selection) ═══════════
+
+function AnnualBarChart(props) {
+  var data = props.data || [];
+  var maxVal = props.maxVal || 1;
+  var color = props.color || C.accent;
+  var height = props.height || 180;
+  var selected = props.selected != null ? props.selected : -1;
+  var onSelect = props.onSelect || function() {};
+  var _w = useState(0); var w = _w[0]; var setW = _w[1];
+
+  if (data.length === 0 || w === 0) {
+    return <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }} style={{ height: 1 }} />;
+  }
+
+  var padL = 42;
+  var padR = 10;
+  var padTop = 22;
+  var padBot = 32;
+  var chartW = w - padL - padR;
+  var chartH = height - padTop - padBot;
+  var barGap = data.length > 6 ? 6 : 10;
+  var barW = (chartW - barGap * (data.length - 1)) / data.length;
+  if (barW > 48) barW = 48;
+  var totalBarsW = data.length * barW + (data.length - 1) * barGap;
+  var offsetX = padL + (chartW - totalBarsW) / 2;
+  var slotW = data.length > 0 ? chartW / data.length : 0;
+
+  function handleTouch(e) {
+    if (chartW <= 0 || data.length === 0) return;
+    var x = e.nativeEvent.locationX - padL;
+    var idx = Math.floor(x / slotW);
+    if (idx < 0) idx = 0;
+    if (idx >= data.length) idx = data.length - 1;
+    onSelect(idx === selected ? -1 : idx);
+  }
+
+  // Y-axis grid (4 levels)
+  var gridLevels = [0, maxVal * 0.25, maxVal * 0.5, maxVal * 0.75, maxVal];
+
+  return (
+    <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }}>
+      <TouchableOpacity activeOpacity={1} onPress={handleTouch}>
+        <Svg width={w} height={height}>
+          {/* Grid lines + Y labels */}
+          {gridLevels.map(function(gv, gi) {
+            var gy = padTop + chartH - (maxVal > 0 ? (gv / maxVal) * chartH : 0);
+            return (
+              <G key={'ag' + gi}>
+                <SvgLine x1={padL} y1={gy} x2={w - padR} y2={gy}
+                  stroke={C.border} strokeWidth={0.5} strokeDasharray="3,3" />
+                <SvgText x={padL - 4} y={gy + 3} fill={C.dim}
+                  fontSize={8} fontFamily={F.mono} textAnchor="end">
+                  {gv >= 1000 ? (gv / 1000).toFixed(0) + 'k' : fmtC(gv)}
+                </SvgText>
+              </G>
+            );
+          })}
+          {/* Bars */}
+          {data.map(function(d, i) {
+            var isSelected = i === selected;
+            var bx = offsetX + i * (barW + barGap);
+            var bh = maxVal > 0 ? (d.value / maxVal) * chartH : 0;
+            bh = Math.max(bh, 1);
+            var by = padTop + chartH - bh;
+            var barOpacity = selected === -1 ? 0.7 : (isSelected ? 1 : 0.3);
+
+            // Tooltip
+            var tipH = 16;
+            var tipW = 78;
+            var tipY = by - tipH - 4;
+            if (tipY < 0) tipY = 0;
+
+            return (
+              <G key={'ab' + i}>
+                <SvgRect x={bx} y={by} width={barW} height={bh}
+                  rx={4} fill={color} opacity={barOpacity} />
+                {/* Value on top (hide when selected to avoid overlap with tooltip) */}
+                {d.value > 0 && selected === -1 ? (
+                  <SvgText x={bx + barW / 2} y={by - 4} fill={C.green}
+                    fontSize={8} fontFamily={F.mono} fontWeight="700" textAnchor="middle">
+                    {d.value >= 1000 ? (d.value / 1000).toFixed(1) + 'k' : fmt(d.value)}
+                  </SvgText>
+                ) : null}
+                {/* Selected tooltip */}
+                {isSelected && d.value > 0 ? (
+                  <G>
+                    <SvgRect x={bx + barW / 2 - tipW / 2} y={tipY}
+                      width={tipW} height={tipH + 2} rx={5} fill={C.surface} opacity={0.95} />
+                    <SvgText x={bx + barW / 2} y={tipY + 12} fill={C.green}
+                      fontSize={11} fontFamily={F.mono} fontWeight="700" textAnchor="middle">
+                      {'R$ ' + fmt(d.value)}
+                    </SvgText>
+                  </G>
+                ) : null}
+                {/* Year label */}
+                <SvgText x={bx + barW / 2} y={height - padBot + 14}
+                  fill={isSelected ? C.text : C.sub}
+                  fontSize={9} fontFamily={F.mono} textAnchor="middle"
+                  fontWeight={isSelected ? '700' : '400'}>
+                  {d.month}
+                </SvgText>
+              </G>
+            );
+          })}
+        </Svg>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ═══════════ INLINE SVG: Simple Vertical Bar Chart (generic) ═══════════
+
 function ProvVertBarChart(props) {
   var data = props.data || [];
   var maxVal = props.maxVal || 1;
@@ -2786,6 +3065,188 @@ function ProvVertBarChart(props) {
           );
         })}
       </Svg>
+    </View>
+  );
+}
+
+// ═══════════ INLINE SVG: Premio vs Recompra Line Chart ═══════════
+
+function PremioVsRecompraChart(props) {
+  var data = props.data || [];
+  var _w = useState(0); var w = _w[0]; var setW = _w[1];
+
+  var chartH = 180;
+  var topPad = 24;
+  var botPad = 28;
+  var leftPad = 42;
+  var rightPad = 8;
+
+  var maxVal = 1;
+  for (var mi = 0; mi < data.length; mi++) {
+    if (data[mi].total > maxVal) maxVal = data[mi].total;
+    if ((data[mi].recompra || 0) > maxVal) maxVal = data[mi].recompra;
+  }
+
+  var sum12Receb = 0;
+  var sum12Recomp = 0;
+  for (var si = 0; si < data.length; si++) {
+    sum12Receb += data[si].total || 0;
+    sum12Recomp += data[si].recompra || 0;
+  }
+  var sum12Liq = sum12Receb - sum12Recomp;
+
+  if (data.length === 0) return null;
+
+  if (w === 0) {
+    return <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }} style={{ height: chartH }} />;
+  }
+
+  var drawH = chartH - topPad - botPad;
+  var drawW = w - leftPad - rightPad;
+  var n = data.length;
+
+  var valToY = function(v) {
+    return topPad + drawH - (v / maxVal) * drawH;
+  };
+  var idxToX = function(i) {
+    return leftPad + (n > 1 ? (i / (n - 1)) * drawW : drawW / 2);
+  };
+
+  // Grid lines
+  var gridVals = [0, maxVal * 0.5, maxVal];
+  var allEls = [];
+  for (var gi = 0; gi < gridVals.length; gi++) {
+    var gy = valToY(gridVals[gi]);
+    allEls.push(React.createElement(SvgLine, {
+      key: 'prg-' + gi, x1: leftPad, y1: gy, x2: w - rightPad, y2: gy,
+      stroke: C.border, strokeWidth: 0.5, strokeDasharray: '3,3',
+    }));
+    allEls.push(React.createElement(SvgText, {
+      key: 'prgl-' + gi, x: leftPad - 4, y: gy + 3,
+      fill: C.dim, fontSize: 8, fontFamily: F.mono, textAnchor: 'end',
+    }, fmtC(gridVals[gi])));
+  }
+
+  // Build points
+  var recebPts = [];
+  var recompPts = [];
+  for (var pi = 0; pi < n; pi++) {
+    var xp = idxToX(pi);
+    recebPts.push({ x: xp, y: valToY(data[pi].total || 0), val: data[pi].total || 0 });
+    recompPts.push({ x: xp, y: valToY(data[pi].recompra || 0), val: data[pi].recompra || 0 });
+  }
+
+  // Render series helper
+  var renderSeries = function(pts, color, key, showArea) {
+    var els = [];
+    if (pts.length < 1) return els;
+
+    // Area fill
+    if (showArea && pts.length >= 2) {
+      var baseY = valToY(0);
+      var areaPath = 'M' + pts[0].x + ',' + baseY;
+      for (var a = 0; a < pts.length; a++) {
+        areaPath = areaPath + ' L' + pts[a].x + ',' + pts[a].y;
+      }
+      areaPath = areaPath + ' L' + pts[pts.length - 1].x + ',' + baseY + ' Z';
+      els.push(React.createElement(Path, {
+        key: key + '-area', d: areaPath,
+        fill: color, opacity: 0.08,
+      }));
+    }
+
+    // Line
+    if (pts.length >= 2) {
+      var linePath = 'M' + pts[0].x + ',' + pts[0].y;
+      for (var l = 1; l < pts.length; l++) {
+        linePath = linePath + ' L' + pts[l].x + ',' + pts[l].y;
+      }
+      els.push(React.createElement(Path, {
+        key: key + '-line', d: linePath,
+        stroke: color, strokeWidth: 2, fill: 'none', opacity: 0.9,
+      }));
+    }
+
+    // Dots + values (only if > 0)
+    for (var d = 0; d < pts.length; d++) {
+      if (pts[d].val > 0) {
+        els.push(React.createElement(Circle, {
+          key: key + '-glow-' + d, cx: pts[d].x, cy: pts[d].y,
+          r: 5, fill: color, opacity: 0.15,
+        }));
+        els.push(React.createElement(Circle, {
+          key: key + '-dot-' + d, cx: pts[d].x, cy: pts[d].y,
+          r: 3, fill: color, opacity: 1,
+        }));
+        els.push(React.createElement(SvgText, {
+          key: key + '-val-' + d, x: pts[d].x, y: pts[d].y - 7,
+          fontSize: 7, fill: color, fontFamily: F.mono,
+          textAnchor: 'middle', opacity: 0.8,
+        }, fmtC(pts[d].val)));
+      }
+    }
+    return els;
+  };
+
+  // Render recompra behind, recebido on top
+  var recompEls = renderSeries(recompPts, C.red, 'recomp', false);
+  var recebEls = renderSeries(recebPts, C.green, 'receb', true);
+  for (var re = 0; re < recompEls.length; re++) allEls.push(recompEls[re]);
+  for (var rc = 0; rc < recebEls.length; rc++) allEls.push(recebEls[rc]);
+
+  // X-axis labels
+  for (var xi = 0; xi < n; xi++) {
+    var showXL = n <= 12 || xi % Math.ceil(n / 8) === 0 || xi === n - 1;
+    if (showXL) {
+      var monthParts = (data[xi].month || '').split('/');
+      allEls.push(React.createElement(SvgText, {
+        key: 'prx-' + xi, x: idxToX(xi), y: chartH - 6,
+        fontSize: 8, fill: C.dim, fontFamily: F.mono, textAnchor: 'middle',
+      }, monthParts[0] || ''));
+    }
+  }
+
+  return (
+    <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }}>
+      <Svg width={w} height={chartH}>{allEls}</Svg>
+
+      {/* Legend */}
+      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 14, marginTop: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.green }} />
+          <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body }}>Recebido</Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.red }} />
+          <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body }}>Recompra</Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.accent }} />
+          <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body }}>Liquido</Text>
+        </View>
+      </View>
+
+      {/* KPIs */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingHorizontal: 4 }}>
+        <View style={{ alignItems: 'center', flex: 1 }}>
+          <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>RECEBIDO 12M</Text>
+          <Text style={{ fontSize: 13, color: C.green, fontFamily: F.mono, fontWeight: '600' }}>
+            {'R$ ' + fmt(sum12Receb)}
+          </Text>
+        </View>
+        <View style={{ alignItems: 'center', flex: 1 }}>
+          <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>RECOMPRA 12M</Text>
+          <Text style={{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '600' }}>
+            {'R$ ' + fmt(sum12Recomp)}
+          </Text>
+        </View>
+        <View style={{ alignItems: 'center', flex: 1 }}>
+          <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>LIQUIDO 12M</Text>
+          <Text style={{ fontSize: 13, color: sum12Liq >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600' }}>
+            {'R$ ' + fmt(sum12Liq)}
+          </Text>
+        </View>
+      </View>
     </View>
   );
 }
@@ -2879,14 +3340,18 @@ function PremiosBarChart(props) {
               // Build tooltip lines
               var tipLines = [];
               if (isSelected) {
-                tipLines.push({ label: 'Total', value: d.total || 0, color: C.text });
+                tipLines.push({ label: 'Receb', value: d.total || 0, color: C.green });
                 if (showCall) tipLines.push({ label: 'C', value: d.call || 0, color: C.acoes });
-                if (showPut) tipLines.push({ label: 'P', value: d.put || 0, color: C.green });
+                if (showPut) tipLines.push({ label: 'P', value: d.put || 0, color: C.opcoes });
+                if ((d.recompra || 0) > 0) {
+                  tipLines.push({ label: 'Recomp', value: d.recompra, color: C.red });
+                  tipLines.push({ label: 'Liq', value: (d.total || 0) - d.recompra, color: ((d.total || 0) - d.recompra) >= 0 ? C.green : C.red });
+                }
               }
 
               // Tooltip height
               var tipH = tipLines.length > 1 ? 12 * tipLines.length + 4 : 16;
-              var tipW = 72;
+              var tipW = tipLines.length > 3 ? 82 : 72;
               var tipY = totalB.y - tipH - 4;
               if (tipY < 0) tipY = 0;
 
@@ -3036,7 +3501,7 @@ function CombinedBarChart(props) {
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: C.opcoes, opacity: 0.7 }} />
-          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>Premios</Text>
+          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>Prêmios</Text>
         </View>
       </View>
     </View>
@@ -3059,6 +3524,8 @@ export default function AnaliseScreen() {
   var _profile = useState(null); var profile = _profile[0]; var setProfile = _profile[1];
   var _perfPeriod = useState('Tudo'); var perfPeriod = _perfPeriod[0]; var setPerfPeriod = _perfPeriod[1];
   var _provFilter = useState('todos'); var provFilter = _provFilter[0]; var setProvFilter = _provFilter[1];
+  var _provMonthSel = useState(-1); var provMonthSel = _provMonthSel[0]; var setProvMonthSel = _provMonthSel[1];
+  var _provYearSel = useState(-1); var provYearSel = _provYearSel[0]; var setProvYearSel = _provYearSel[1];
   var _chartTouching = useState(false); var chartTouching = _chartTouching[0]; var setChartTouching = _chartTouching[1];
   var _perfSub = useState('todos'); var perfSub = _perfSub[0]; var setPerfSub = _perfSub[1];
   var _rendaFixa = useState([]); var rendaFixa = _rendaFixa[0]; var setRendaFixa = _rendaFixa[1];
@@ -3251,6 +3718,20 @@ export default function AnaliseScreen() {
       return { date: pt.date, value: base > 0 ? ((pt.value - base) / base) * 100 : 0 };
     });
     cdiBenchData = computeCDIAccumulated(filteredHistory, selicAnual);
+  }
+
+  // Drawdown series from filteredHistory
+  var drawdownData = [];
+  var maxDD = 0;
+  if (filteredHistory.length >= 2) {
+    var peak = filteredHistory[0].value;
+    for (var ddi = 0; ddi < filteredHistory.length; ddi++) {
+      var ddv = filteredHistory[ddi].value;
+      if (ddv > peak) peak = ddv;
+      var dd = peak > 0 ? ((ddv - peak) / peak) * 100 : 0;
+      drawdownData.push({ date: filteredHistory[ddi].date, dd: dd });
+      if (Math.abs(dd) > maxDD) maxDD = Math.abs(dd);
+    }
   }
 
   // ── Derived: Category Performance (Acao/FII/ETF) ──
@@ -3529,7 +4010,7 @@ export default function AnaliseScreen() {
           var dReceb = new Date(dataRef);
           dReceb.setDate(dReceb.getDate() + 1);
           var opMonth = dReceb.getFullYear() + '-' + String(dReceb.getMonth() + 1).padStart(2, '0');
-          if (!opcPremByMonth[opMonth]) opcPremByMonth[opMonth] = { total: 0, call: 0, put: 0 };
+          if (!opcPremByMonth[opMonth]) opcPremByMonth[opMonth] = { total: 0, call: 0, put: 0, recompra: 0 };
           opcPremByMonth[opMonth].total += premioTotal;
           opcPremByMonth[opMonth][tipo] += premioTotal;
         }
@@ -3553,6 +4034,16 @@ export default function AnaliseScreen() {
           var plOp = premioTotal - premioFech;
           opcPLTotal += plOp;
           opcTotalPremiosFechamento += premioFech;
+          // Register recompra in the closing month (regime de caixa)
+          if (premioFech > 0) {
+            var dataFech = op.updated_at || op.vencimento || '';
+            if (dataFech) {
+              var dFech = new Date(dataFech);
+              var fechMonth = dFech.getFullYear() + '-' + String(dFech.getMonth() + 1).padStart(2, '0');
+              if (!opcPremByMonth[fechMonth]) opcPremByMonth[fechMonth] = { total: 0, call: 0, put: 0, recompra: 0 };
+              opcPremByMonth[fechMonth].recompra += premioFech;
+            }
+          }
           opcByBase[base2].premioRecebido += premioTotal;
           opcByBase[base2].pl += plOp;
           if (plOp >= 0) opcWins++; else opcLosses++;
@@ -3597,8 +4088,8 @@ export default function AnaliseScreen() {
       var omd = new Date(nowOpc.getFullYear(), nowOpc.getMonth() - omi, 1);
       var omk = omd.getFullYear() + '-' + String(omd.getMonth() + 1).padStart(2, '0');
       var oml = MONTH_LABELS[omd.getMonth() + 1] + '/' + String(omd.getFullYear()).substring(2);
-      var omData = opcPremByMonth[omk] || { total: 0, call: 0, put: 0 };
-      opcMonthlyPremiums.push({ month: oml, total: omData.total, call: omData.call, put: omData.put });
+      var omData = opcPremByMonth[omk] || { total: 0, call: 0, put: 0, recompra: 0 };
+      opcMonthlyPremiums.push({ month: oml, total: omData.total, call: omData.call, put: omData.put, recompra: omData.recompra || 0 });
     }
   }
 
@@ -3712,18 +4203,83 @@ export default function AnaliseScreen() {
     provsByMonth[pdate].push(p);
   });
 
-  // Bar chart data: last 12 months (vertical)
+  // ── Current month proventos by corretora ──
+  var currentMonth = now.toISOString().substring(0, 7);
+  var posCorretMap = {};
+  for (var pci = 0; pci < positions.length; pci++) {
+    var posTk = (positions[pci].ticker || '').toUpperCase().trim();
+    if (positions[pci].por_corretora) {
+      posCorretMap[posTk] = positions[pci].por_corretora;
+    }
+  }
+  var provMesAtual = filteredProventos.filter(function(p) {
+    return (p.data_pagamento || '').substring(0, 7) === currentMonth;
+  });
+  var corretoraMap = {};
+  for (var pmi = 0; pmi < provMesAtual.length; pmi++) {
+    var prov = provMesAtual[pmi];
+    var provTk = (prov.ticker || '').toUpperCase().trim();
+    var isPago = (prov.data_pagamento || '') <= todayProvStr;
+    if (prov.corretora) {
+      addProvToCorretora(corretoraMap, prov.corretora, prov, prov.quantidade || 0, prov.valor_total || 0, isPago);
+    } else {
+      var tkCorr = posCorretMap[provTk];
+      if (tkCorr) {
+        var corrKeysArr = Object.keys(tkCorr);
+        var totalQtyCorr = 0;
+        for (var cki = 0; cki < corrKeysArr.length; cki++) {
+          totalQtyCorr += (tkCorr[corrKeysArr[cki]] || 0);
+        }
+        if (totalQtyCorr > 0 && corrKeysArr.length > 0) {
+          for (var ckj = 0; ckj < corrKeysArr.length; ckj++) {
+            var corrQty = tkCorr[corrKeysArr[ckj]] || 0;
+            if (corrQty <= 0) continue;
+            var ratio = corrQty / totalQtyCorr;
+            var corrValor = (prov.valor_total || 0) * ratio;
+            addProvToCorretora(corretoraMap, corrKeysArr[ckj], prov, Math.round(corrQty), corrValor, isPago);
+          }
+        } else {
+          addProvToCorretora(corretoraMap, 'Sem corretora', prov, prov.quantidade || 0, prov.valor_total || 0, isPago);
+        }
+      } else {
+        addProvToCorretora(corretoraMap, 'Sem corretora', prov, prov.quantidade || 0, prov.valor_total || 0, isPago);
+      }
+    }
+  }
+  var totalMesPago = 0;
+  var totalMesPendente = 0;
+  var corrKeysTotal = Object.keys(corretoraMap);
+  for (var tmi = 0; tmi < corrKeysTotal.length; tmi++) {
+    totalMesPago += corretoraMap[corrKeysTotal[tmi]].totalPago;
+    totalMesPendente += corretoraMap[corrKeysTotal[tmi]].totalPendente;
+  }
+  var currentMonthLabel = MONTH_LABELS[now.getMonth() + 1].toUpperCase() + ' ' + now.getFullYear();
+
+  // Bar chart data: last 12 months (vertical) with ticker breakdown
   var last12 = [];
   for (var mi = 11; mi >= 0; mi--) {
     var md = new Date(now.getFullYear(), now.getMonth() - mi, 1);
     var mKey = md.getFullYear() + '-' + String(md.getMonth() + 1).padStart(2, '0');
     var mLabel = MONTH_LABELS[md.getMonth() + 1];
     var mTotal = 0;
+    var mTickers = {};
     filteredProventos.forEach(function(p) {
       var pk = (p.data_pagamento || '').substring(0, 7);
-      if (pk === mKey) mTotal += (p.valor_total || 0);
+      if (pk === mKey) {
+        var vt = p.valor_total || 0;
+        mTotal += vt;
+        var tk = (p.ticker || '').toUpperCase().trim();
+        if (tk) {
+          if (!mTickers[tk]) mTickers[tk] = 0;
+          mTickers[tk] += vt;
+        }
+      }
     });
-    last12.push({ month: mLabel, value: mTotal });
+    // Sort tickers by value desc
+    var mTickerList = Object.keys(mTickers).map(function(tk) {
+      return { ticker: tk, value: mTickers[tk] };
+    }).sort(function(a, b) { return b.value - a.value; });
+    last12.push({ month: mLabel, value: mTotal, tickers: mTickerList });
   }
   var maxProvMonth = last12.reduce(function(m, d) { return Math.max(m, d.value); }, 1);
 
@@ -3948,7 +4504,6 @@ export default function AnaliseScreen() {
           { k: 'aloc', l: 'Aloc / Comp' },
           { k: 'prov', l: 'Prov/Prem' },
           { k: 'ind', l: 'Indicadores' },
-          { k: 'ir', l: 'IR' },
         ].map(function(t) {
           return (
             <Pill key={t.k} active={sub === t.k} color={C.accent}
@@ -3983,7 +4538,7 @@ export default function AnaliseScreen() {
               <Glass glow={C.accent} padding={16}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                   <View>
-                    <Text style={styles.heroLabel}>PATRIMONIO TOTAL</Text>
+                    <Text style={styles.heroLabel}>PATRIMÔNIO TOTAL</Text>
                     <Text style={styles.heroValue}>R$ {fmt(totalPatrimonio)}</Text>
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
@@ -3996,6 +4551,31 @@ export default function AnaliseScreen() {
                     </Text>
                   </View>
                 </View>
+                {(function() {
+                  var investidoTotal = totalCusto + rfTotalAloc;
+                  var plAbs = totalPatrimonio - investidoTotal;
+                  var plPct = investidoTotal > 0 ? ((totalPatrimonio - investidoTotal) / investidoTotal) * 100 : 0;
+                  if (investidoTotal <= 0) return null;
+                  return React.createElement(View, { style: { marginTop: 16, borderTopWidth: 1, borderTopColor: C.sub + '15', paddingTop: 14 } }, [
+                    React.createElement(View, { key: 'inv-row', style: { flexDirection: 'row', justifyContent: 'space-between' } }, [
+                      React.createElement(View, { key: 'inv-l' }, [
+                        React.createElement(Text, { key: 'inv-lab', style: { fontSize: 9, color: C.sub, fontFamily: F.body, letterSpacing: 0.5 } }, 'INVESTIDO'),
+                        React.createElement(Text, { key: 'inv-val', style: { fontSize: 13, color: C.dim, fontFamily: F.mono, marginTop: 4 } }, 'R$ ' + fmt(investidoTotal)),
+                      ]),
+                      React.createElement(View, { key: 'inv-m', style: { alignItems: 'center' } }, [
+                        React.createElement(Text, { key: 'inv-lab2', style: { fontSize: 9, color: C.sub, fontFamily: F.body, letterSpacing: 0.5 } }, 'ATUAL'),
+                        React.createElement(Text, { key: 'inv-val2', style: { fontSize: 13, color: C.text, fontFamily: F.mono, marginTop: 4 } }, 'R$ ' + fmt(totalPatrimonio)),
+                      ]),
+                      React.createElement(View, { key: 'inv-r', style: { alignItems: 'flex-end' } }, [
+                        React.createElement(Text, { key: 'inv-lab3', style: { fontSize: 9, color: C.sub, fontFamily: F.body, letterSpacing: 0.5 } }, 'P&L'),
+                        React.createElement(Text, { key: 'inv-val3', style: { fontSize: 13, color: plAbs >= 0 ? C.green : C.red, fontFamily: F.mono, marginTop: 4 } },
+                          (plAbs >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(plAbs))),
+                        React.createElement(Text, { key: 'inv-pct', style: { fontSize: 9, color: plPct >= 0 ? C.green : C.red, fontFamily: F.mono, marginTop: 1, opacity: 0.7 } },
+                          (plPct >= 0 ? '+' : '') + plPct.toFixed(1) + '%'),
+                      ]),
+                    ]),
+                  ]);
+                })()}
               </Glass>
 
               {/* Period pills */}
@@ -4020,6 +4600,7 @@ export default function AnaliseScreen() {
                   {/* Legend row */}
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 14 }}>
                     <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>{useWeekly ? 'RETORNO SEMANAL' : 'RETORNO MENSAL'}</Text>
+                    <InfoTip text="Retorno percentual por período comparando carteira vs CDI vs IBOV. Carteira usa snapshots de patrimônio." size={12} />
                     <View style={{ flex: 1 }} />
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                       <View style={{ width: 12, height: 2.5, backgroundColor: C.accent, borderRadius: 2 }} />
@@ -4193,6 +4774,118 @@ export default function AnaliseScreen() {
                 </Glass>
               )}
 
+              {/* Drawdown Chart */}
+              {drawdownData.length >= 2 && (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>DRAWDOWN</Text>
+                    <InfoTip text="Maior queda percentual do patrimônio desde o pico histórico. Mede o risco de perdas da carteira." />
+                  </View>
+                  <Glass padding={12}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 10 }}>
+                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>QUEDA PICO-A-VALE</Text>
+                      <View style={{ flex: 1 }} />
+                      <Text style={{ fontSize: 10, color: C.red, fontFamily: F.mono }}>
+                        Max: {maxDD > 0 ? '-' : ''}{maxDD.toFixed(1)}%
+                      </Text>
+                    </View>
+                    {(function() {
+                      var chartH = 120;
+                      var chartW = SCREEN_W - 2 * SIZE.padding - 24 - 40;
+                      var padL = 38;
+                      var padR = 8;
+                      var padT = 8;
+                      var padB = 22;
+                      var plotH = chartH - padT - padB;
+                      var plotW = chartW - padL - padR;
+                      var n = drawdownData.length;
+
+                      var ddMax = Math.max(maxDD, 1);
+                      ddMax = Math.ceil(ddMax) + 1;
+
+                      var valToY = function(v) {
+                        return padT + (Math.abs(v) / ddMax) * plotH;
+                      };
+                      var idxToX = function(i) {
+                        if (n === 1) return padL + plotW / 2;
+                        return padL + (i / (n - 1)) * plotW;
+                      };
+
+                      var els = [];
+
+                      // Grid lines + Y labels (0%, -half, -max)
+                      var ySteps = [0, -ddMax / 2, -ddMax];
+                      for (var yi = 0; yi < ySteps.length; yi++) {
+                        var yp = valToY(ySteps[yi]);
+                        els.push(React.createElement(SvgLine, {
+                          key: 'ddg-' + yi, x1: padL, y1: yp, x2: padL + plotW, y2: yp,
+                          stroke: ySteps[yi] === 0 ? C.sub + '50' : C.sub + '18', strokeWidth: ySteps[yi] === 0 ? 1 : 0.5,
+                        }));
+                        els.push(React.createElement(SvgText, {
+                          key: 'ddyl-' + yi, x: padL - 4, y: yp + 3,
+                          fontSize: 8, fill: C.dim, fontFamily: F.mono, textAnchor: 'end',
+                        }, ySteps[yi] === 0 ? '0%' : ySteps[yi].toFixed(1) + '%'));
+                      }
+
+                      // Area fill
+                      var areaPath = 'M' + idxToX(0) + ',' + padT;
+                      for (var ai = 0; ai < n; ai++) {
+                        areaPath = areaPath + ' L' + idxToX(ai) + ',' + valToY(drawdownData[ai].dd);
+                      }
+                      areaPath = areaPath + ' L' + idxToX(n - 1) + ',' + padT + ' Z';
+                      els.push(React.createElement(Path, {
+                        key: 'dd-area', d: areaPath,
+                        fill: C.red, opacity: 0.12,
+                      }));
+
+                      // Line
+                      var linePath = 'M' + idxToX(0) + ',' + valToY(drawdownData[0].dd);
+                      for (var li = 1; li < n; li++) {
+                        linePath = linePath + ' L' + idxToX(li) + ',' + valToY(drawdownData[li].dd);
+                      }
+                      els.push(React.createElement(Path, {
+                        key: 'dd-line', d: linePath,
+                        stroke: C.red, strokeWidth: 1.8, fill: 'none', opacity: 0.85,
+                      }));
+
+                      // Max drawdown marker
+                      var maxDDIdx = 0;
+                      for (var mdi = 1; mdi < n; mdi++) {
+                        if (drawdownData[mdi].dd < drawdownData[maxDDIdx].dd) maxDDIdx = mdi;
+                      }
+                      els.push(React.createElement(Circle, {
+                        key: 'dd-maxglow', cx: idxToX(maxDDIdx), cy: valToY(drawdownData[maxDDIdx].dd),
+                        r: 6, fill: C.red, opacity: 0.2,
+                      }));
+                      els.push(React.createElement(Circle, {
+                        key: 'dd-maxdot', cx: idxToX(maxDDIdx), cy: valToY(drawdownData[maxDDIdx].dd),
+                        r: 3, fill: C.red, opacity: 1,
+                      }));
+                      els.push(React.createElement(SvgText, {
+                        key: 'dd-maxlbl', x: idxToX(maxDDIdx), y: valToY(drawdownData[maxDDIdx].dd) + 12,
+                        fontSize: 8, fill: C.red, fontFamily: F.mono, textAnchor: 'middle',
+                      }, drawdownData[maxDDIdx].dd.toFixed(1) + '%'));
+
+                      // X-axis labels
+                      var xCount = Math.min(5, n);
+                      for (var xi = 0; xi < n; xi++) {
+                        var showX = n <= 5 || xi === 0 || xi === n - 1 || (xCount > 2 && xi % Math.ceil(n / xCount) === 0);
+                        if (showX) {
+                          var dp = drawdownData[xi].date.split('-');
+                          var xLabel = dp[2] + '/' + dp[1];
+                          els.push(React.createElement(SvgText, {
+                            key: 'ddxl-' + xi, x: idxToX(xi), y: chartH - 2,
+                            fontSize: 8, fill: C.dim, fontFamily: F.mono, textAnchor: 'middle',
+                          }, xLabel));
+                        }
+                      }
+
+                      return React.createElement(Svg, { width: chartW, height: chartH }, els);
+                    })()}
+                  </Glass>
+                </>
+              )}
+
               {/* KPI Row */}
               <View style={styles.kpiRow}>
                 <Glass padding={10} style={{ flex: 1 }}>
@@ -4249,20 +4942,13 @@ export default function AnaliseScreen() {
                 </Glass>
               </View>
 
-              {/* Benchmark: Carteira vs CDI */}
-              {portBenchData.length >= 2 && (
-                <>
-                  <SectionLabel>BENCHMARK</SectionLabel>
-                  <Glass padding={12}>
-                    <BenchmarkChart portData={portBenchData} cdiData={cdiBenchData} />
-                  </Glass>
-                </>
-              )}
-
               {/* Rentabilidade por ativo */}
               {sortedByPnl.length > 0 && (
                 <>
-                  <SectionLabel>RENTABILIDADE POR ATIVO</SectionLabel>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>RENTABILIDADE POR ATIVO</Text>
+                    <InfoTip text="P&L percentual de cada ativo baseado no preço médio de compra vs preço atual de mercado." />
+                  </View>
                   <Glass padding={14}>
                     {sortedByPnl.map(function (a, i) {
                       return <HBar key={i} label={a.ticker} value={a.pnlPct} maxValue={maxAbsPnl}
@@ -5079,7 +5765,7 @@ export default function AnaliseScreen() {
 
                   {/* Two-Level Donut */}
                   <Glass padding={14}>
-                    <Text style={styles.sectionTitle}>COMPOSICAO DA CARTEIRA</Text>
+                    <Text style={styles.sectionTitle}>COMPOSIÇÃO DA CARTEIRA</Text>
                     <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginBottom: 8, marginTop: 2 }}>
                       {'Toque em um segmento para ver detalhes'}
                     </Text>
@@ -5350,7 +6036,7 @@ export default function AnaliseScreen() {
 
               {/* Composicao da Renda */}
               <Glass padding={14}>
-                <Text style={styles.sectionTitle}>COMPOSICAO DA RENDA</Text>
+                <Text style={styles.sectionTitle}>COMPOSIÇÃO DA RENDA</Text>
                 {rendaPassivaTotal > 0 ? (
                   <>
                     <View style={{ height: 20, borderRadius: 10, overflow: 'hidden', flexDirection: 'row', marginTop: 8 }}>
@@ -5372,7 +6058,7 @@ export default function AnaliseScreen() {
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: C.opcoes }} />
-                        <Text style={{ fontSize: 11, color: C.text, fontFamily: F.body }}>Premios</Text>
+                        <Text style={{ fontSize: 11, color: C.text, fontFamily: F.body }}>Prêmios</Text>
                         <Text style={{ fontSize: 11, fontWeight: '700', color: C.opcoes, fontFamily: F.mono }}>
                           {(opcTotalPremiosRecebidos / rendaPassivaTotal * 100).toFixed(0) + '%'}
                         </Text>
@@ -5413,7 +6099,7 @@ export default function AnaliseScreen() {
               {/* Combined annual chart */}
               {combinedAnnualData.length >= 1 && (
                 <Glass padding={12}>
-                  <Text style={styles.sectionTitle}>EVOLUCAO ANUAL</Text>
+                  <Text style={styles.sectionTitle}>EVOLUÇÃO ANUAL</Text>
                   <CombinedBarChart data={combinedAnnualData} maxVal={maxCombinedYear} height={160} />
                 </Glass>
               )}
@@ -5473,16 +6159,18 @@ export default function AnaliseScreen() {
               {maxProvMonth > 0 && (
                 <Glass padding={12}>
                   <Text style={styles.sectionTitle}>PROVENTOS MENSAIS (12M)</Text>
-                  <ProvVertBarChart data={last12} maxVal={maxProvMonth} color={C.fiis} height={180} />
+                  <ProvMonthlyBarChart data={last12} maxVal={maxProvMonth} color={C.fiis} height={200}
+                    selected={provMonthSel} onSelect={function(i) { setProvMonthSel(i); }} />
                 </Glass>
               )}
 
               {/* Annual vertical bar chart */}
               {annualData.length >= 1 && (
                 <Glass padding={12}>
-                  <Text style={styles.sectionTitle}>EVOLUCAO ANUAL</Text>
-                  <ProvVertBarChart data={annualData} maxVal={maxProvYear} color={C.accent} height={160} />
-                  {annualData.length >= 2 && (
+                  <Text style={styles.sectionTitle}>EVOLUÇÃO ANUAL</Text>
+                  <AnnualBarChart data={annualData} maxVal={maxProvYear} color={C.accent} height={180}
+                    selected={provYearSel} onSelect={function(i) { setProvYearSel(i); }} />
+                  {annualData.length >= 2 && provYearSel === -1 && (
                     <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 8, gap: 6 }}>
                       <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
                         {annualData[annualData.length - 2].month + ': R$ ' + fmt(annualData[annualData.length - 2].value)}
@@ -5498,6 +6186,18 @@ export default function AnaliseScreen() {
                       )}
                     </View>
                   )}
+                  {provYearSel >= 0 && provYearSel < annualData.length && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 8, gap: 8 }}>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>
+                        {annualData[provYearSel].month + ': R$ ' + fmt(annualData[provYearSel].value)}
+                      </Text>
+                      {provYearSel > 0 && annualData[provYearSel - 1].value > 0 ? (
+                        <Text style={{ fontSize: 10, fontWeight: '600', color: annualData[provYearSel].value >= annualData[provYearSel - 1].value ? C.green : C.red, fontFamily: F.mono }}>
+                          {'(' + (((annualData[provYearSel].value / annualData[provYearSel - 1].value) - 1) * 100).toFixed(0) + '% vs ' + annualData[provYearSel - 1].month + ')'}
+                        </Text>
+                      ) : null}
+                    </View>
+                  )}
                 </Glass>
               )}
 
@@ -5508,7 +6208,7 @@ export default function AnaliseScreen() {
                   {Object.keys(provsByTipo).sort(function(a, b) { return provsByTipo[b].total - provsByTipo[a].total; }).map(function(tipo) {
                     var info = provsByTipo[tipo];
                     var pct = totalProvs > 0 ? (info.total / totalProvs * 100) : 0;
-                    var tipoLabel = tipo === 'dividendo' ? 'Dividendo' : tipo === 'jcp' ? 'JCP' : tipo === 'rendimento' ? 'Rendimento' : tipo === 'juros_rf' ? 'Juros RF' : tipo === 'amortizacao' ? 'Amortizacao' : tipo === 'bonificacao' ? 'Bonificacao' : tipo;
+                    var tipoLabel = tipo === 'dividendo' ? 'Dividendo' : tipo === 'jcp' ? 'JCP' : tipo === 'rendimento' ? 'Rendimento' : tipo === 'juros_rf' ? 'Juros RF' : tipo === 'amortizacao' ? 'Amortização' : tipo === 'bonificacao' ? 'Bonificação' : tipo;
                     return (
                       <View key={tipo} style={{ marginTop: 8 }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -5552,7 +6252,7 @@ export default function AnaliseScreen() {
                   {Object.keys(provsByCat).sort(function(a, b) { return provsByCat[b] - provsByCat[a]; }).map(function(cat) {
                     var catVal = provsByCat[cat];
                     var catPct = proventos12m > 0 ? (catVal / proventos12m * 100) : 0;
-                    var catLabel = cat === 'acao' ? 'Acoes' : cat === 'fii' ? 'FIIs' : cat === 'etf' ? 'ETFs' : cat;
+                    var catLabel = cat === 'acao' ? 'Ações' : cat === 'fii' ? 'FIIs' : cat === 'etf' ? 'ETFs' : cat;
                     var catColor = CAT_COLORS[cat] || C.accent;
                     return (
                       <View key={cat} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
@@ -5610,48 +6310,88 @@ export default function AnaliseScreen() {
                 </Glass>
               )}
 
-              {/* Monthly detail list */}
-              {Object.keys(provsByMonth).length === 0 ? (
+              {/* Current month proventos by corretora */}
+              {provMesAtual.length === 0 ? (
                 <EmptyState
                   icon={"\u25C9"}
                   title="Sem proventos"
-                  description="Os proventos recebidos aparecerao aqui agrupados por mes"
+                  description={"Sem proventos previstos para " + currentMonthLabel}
                   color={C.fiis}
                 />
               ) : (
-                Object.keys(provsByMonth)
-                  .sort(function(a, b) { return b.localeCompare(a); })
-                  .slice(0, 12)
-                  .map(function(month) {
-                    var items = provsByMonth[month];
-                    var total = items.reduce(function(s, p) { return s + (p.valor_total || 0); }, 0);
-                    var parts = month.split('-');
-                    var label = MONTH_LABELS[parseInt(parts[1])] + '/' + parts[0];
+                <>
+                  {/* Header resumo mes */}
+                  <Glass glow={C.green} padding={14}>
+                    <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5, textAlign: 'center', marginBottom: 6 }}>{currentMonthLabel}</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-around', gap: 12 }}>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>TOTAL MES</Text>
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: C.green, fontFamily: F.display, marginTop: 2 }}>
+                          {'R$ ' + fmt(totalMesPago + totalMesPendente)}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>RECEBIDO</Text>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: C.green, fontFamily: F.mono, marginTop: 2 }}>
+                          {'R$ ' + fmt(totalMesPago)}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>PENDENTE</Text>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: C.yellow, fontFamily: F.mono, marginTop: 2 }}>
+                          {'R$ ' + fmt(totalMesPendente)}
+                        </Text>
+                      </View>
+                    </View>
+                  </Glass>
+
+                  {/* Cards por corretora */}
+                  {Object.keys(corretoraMap).sort().map(function(corretora) {
+                    var corrData = corretoraMap[corretora];
+                    var corrTotal = corrData.totalPago + corrData.totalPendente;
+                    var sortedItems = corrData.items.slice().sort(function(a, b) {
+                      return (a.dataPagamento || '').localeCompare(b.dataPagamento || '');
+                    });
                     return (
-                      <Glass key={month} padding={0}>
-                        <View style={styles.monthHeader}>
-                          <Text style={styles.monthLabel}>{label}</Text>
-                          <Text style={[styles.monthTotal, { color: C.green }]}>
-                            {'+R$ ' + fmt(total)}
+                      <Glass key={corretora} padding={0}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, paddingBottom: 8 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display }}>{corretora}</Text>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>
+                            {'R$ ' + fmt(corrTotal)}
                           </Text>
                         </View>
-                        {items.map(function(p, i) {
-                          var tipoColor = TIPO_COLORS_PROV[p.tipo_provento] || C.fiis;
+                        {sortedItems.map(function(item, idx) {
+                          var tipoColor = TIPO_COLORS_PROV[item.tipo] || C.fiis;
+                          var tipoLabel = item.tipo === 'dividendo' ? 'DIV' : item.tipo === 'jcp' ? 'JCP' : item.tipo === 'rendimento' ? 'REND' : item.tipo === 'juros_rf' ? 'RF' : item.tipo === 'amortizacao' ? 'AMORT' : item.tipo === 'bonificacao' ? 'BONIF' : (item.tipo || 'DIV').toUpperCase();
+                          var dataParts = (item.dataPagamento || '').split('-');
+                          var dataLabel = dataParts.length >= 3 ? dataParts[2] + '/' + dataParts[1] : item.dataPagamento;
                           return (
-                            <View key={i} style={[styles.provRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                <Text style={{ fontSize: 10, color: C.text, fontFamily: F.body }}>{p.ticker}</Text>
-                                <Badge text={p.tipo_provento || 'DIV'} color={tipoColor} />
+                            <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                                <Text style={{ fontSize: 11, fontWeight: '600', color: C.text, fontFamily: F.body }}>{item.ticker}</Text>
+                                <Badge text={tipoLabel} color={tipoColor} />
+                                <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>{dataLabel}</Text>
                               </View>
-                              <Text style={{ fontSize: 10, fontWeight: '600', color: C.green, fontFamily: F.mono }}>
-                                {'+R$ ' + fmt(p.valor_total || 0)}
-                              </Text>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>
+                                  {'R$ ' + fmt(item.valorPorCota) + ' x ' + item.quantidade}
+                                </Text>
+                                <Text style={{ fontSize: 11, fontWeight: '600', color: C.green, fontFamily: F.mono }}>
+                                  {'R$ ' + fmt(item.valorTotal)}
+                                </Text>
+                                <Badge text={item.isPago ? 'PAGO' : 'PENDENTE'} color={item.isPago ? C.green : C.yellow} />
+                              </View>
                             </View>
                           );
                         })}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border }}>
+                          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{'PAGO: R$ ' + fmt(corrData.totalPago)}</Text>
+                          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{'PENDENTE: R$ ' + fmt(corrData.totalPendente)}</Text>
+                        </View>
                       </Glass>
                     );
-                  })
+                  })}
+                </>
               )}
             </>
           )}
@@ -5723,26 +6463,51 @@ export default function AnaliseScreen() {
                       </View>
                       <PremiosBarChart data={opcMonthlyPremiums} showCall={opcShowCall} showPut={opcShowPut}
                         selected={opcPremSelected} onSelect={function(i) { setOpcPremSelected(i); }} />
-                      {opcPremSelected >= 0 && opcPremSelected < opcMonthlyPremiums.length && (
-                        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12, marginTop: 6 }}>
-                          <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono }}>
-                            {opcMonthlyPremiums[opcPremSelected].month + ': R$ ' + fmt(opcMonthlyPremiums[opcPremSelected].total)}
-                          </Text>
-                          <Text style={{ fontSize: 10, color: C.acoes, fontFamily: F.mono }}>
-                            {'C: R$ ' + fmt(opcMonthlyPremiums[opcPremSelected].call)}
-                          </Text>
-                          <Text style={{ fontSize: 10, color: C.opcoes, fontFamily: F.mono }}>
-                            {'P: R$ ' + fmt(opcMonthlyPremiums[opcPremSelected].put)}
-                          </Text>
-                        </View>
-                      )}
+                      {opcPremSelected >= 0 && opcPremSelected < opcMonthlyPremiums.length && (function() {
+                        var selM = opcMonthlyPremiums[opcPremSelected];
+                        var selRecomp = selM.recompra || 0;
+                        var selLiq = selM.total - selRecomp;
+                        return (
+                          <View style={{ marginTop: 6 }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12 }}>
+                              <Text style={{ fontSize: 10, color: C.green, fontFamily: F.mono }}>
+                                {selM.month + ': R$ ' + fmt(selM.total)}
+                              </Text>
+                              <Text style={{ fontSize: 10, color: C.acoes, fontFamily: F.mono }}>
+                                {'C: R$ ' + fmt(selM.call)}
+                              </Text>
+                              <Text style={{ fontSize: 10, color: C.opcoes, fontFamily: F.mono }}>
+                                {'P: R$ ' + fmt(selM.put)}
+                              </Text>
+                            </View>
+                            {selRecomp > 0 ? (
+                              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12, marginTop: 2 }}>
+                                <Text style={{ fontSize: 10, color: C.red, fontFamily: F.mono }}>
+                                  {'Recompra: R$ ' + fmt(selRecomp)}
+                                </Text>
+                                <Text style={{ fontSize: 10, color: selLiq >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600' }}>
+                                  {'Liq: R$ ' + fmt(selLiq)}
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        );
+                      })()}
+                    </Glass>
+                  )}
+
+                  {/* Premio vs Recompra line chart */}
+                  {maxPremMonth > 1 && (
+                    <Glass padding={12}>
+                      <Text style={styles.sectionTitle}>PREMIO vs RECOMPRA (12M)</Text>
+                      <PremioVsRecompraChart data={opcMonthlyPremiums} />
                     </Glass>
                   )}
 
                   {/* Annual premios chart */}
                   {premAnnualData.length >= 1 && (
                     <Glass padding={12}>
-                      <Text style={styles.sectionTitle}>EVOLUCAO ANUAL</Text>
+                      <Text style={styles.sectionTitle}>EVOLUÇÃO ANUAL</Text>
                       <ProvVertBarChart data={premAnnualData} maxVal={maxPremYear} color={C.opcoes} height={160} />
                     </Glass>
                   )}
@@ -6051,6 +6816,9 @@ export default function AnaliseScreen() {
               </TouchableOpacity>
 
               {/* Table header */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <InfoTip text="HV: volatilidade histórica 20 dias (%). RSI: força relativa 14 dias (>70 sobrecomprado, <30 sobrevendido). Beta: sensibilidade ao IBOV (>1 mais volátil). Max DD: maior queda pico-a-vale." />
+              </View>
               <Glass padding={0}>
                 <View style={styles.indTableHeader}>
                   <Text style={[styles.indTableCol, { flex: 1.2 }]}>Ticker</Text>
@@ -6140,150 +6908,7 @@ export default function AnaliseScreen() {
         </>
       )}
 
-      {/* ═══════════ IR ═══════════ */}
-      {sub === 'ir' && (
-        <>
-          {irTaxData.length === 0 ? (
-            <EmptyState
-              icon="\u25C9"
-              title="Sem vendas registradas"
-              description="O calculo de IR sera feito automaticamente quando voce registrar vendas de ativos"
-              color={C.accent}
-            />
-          ) : (
-            <>
-              {/* Summary */}
-              <Glass glow={C.accent} padding={14}>
-                <View style={styles.irSummaryRow}>
-                  <View style={styles.irSummaryItem}>
-                    <Text style={styles.irSummaryLabel}>GANHOS</Text>
-                    <Text style={[styles.irSummaryValue, { color: C.green }]}>
-                      R$ {fmt(irTotalGanhos)}
-                    </Text>
-                  </View>
-                  <View style={styles.irSummaryItem}>
-                    <Text style={styles.irSummaryLabel}>PERDAS</Text>
-                    <Text style={[styles.irSummaryValue, { color: C.red }]}>
-                      R$ {fmt(irTotalPerdas)}
-                    </Text>
-                  </View>
-                  <View style={styles.irSummaryItem}>
-                    <Text style={styles.irSummaryLabel}>SALDO</Text>
-                    <Text style={[styles.irSummaryValue, { color: irSaldoLiquido >= 0 ? C.green : C.red }]}>
-                      R$ {fmt(irSaldoLiquido)}
-                    </Text>
-                  </View>
-                </View>
-              </Glass>
-
-              {/* Imposto total */}
-              {irTotalImposto > 0 && (
-                <Glass glow={C.yellow} padding={14}>
-                  <View style={{ alignItems: 'center' }}>
-                    <Text style={styles.irSummaryLabel}>IMPOSTO TOTAL ESTIMADO</Text>
-                    <Text style={[styles.irSummaryValue, { color: C.yellow, fontSize: 22 }]}>
-                      R$ {fmt(irTotalImposto)}
-                    </Text>
-                  </View>
-                </Glass>
-              )}
-
-              {/* Alerta 20k */}
-              {hasAlerta20k && (
-                <View style={styles.irAlert}>
-                  <Text style={styles.irAlertText}>
-                    Vendas de acoes acima de R$ 20.000 em algum mes — ganhos tributaveis a 15%
-                  </Text>
-                </View>
-              )}
-
-              {/* Monthly breakdown */}
-              <SectionLabel>DETALHAMENTO MENSAL</SectionLabel>
-              {irTaxData.slice().reverse().map(function(m) {
-                var parts = m.month.split('-');
-                var label = MONTH_LABELS[parseInt(parts[1])] + '/' + parts[0];
-                var vendasTotal = m.vendasAcoes + m.vendasFII + m.vendasETF;
-                return (
-                  <Glass key={m.month} padding={0}>
-                    <View style={styles.irMonthHeader}>
-                      <Text style={styles.irMonthLabel}>{label}</Text>
-                      {m.impostoTotal > 0 ? (
-                        <Badge text={'DARF R$ ' + fmt(m.impostoTotal)} color={C.yellow} />
-                      ) : (
-                        <Badge text="Isento" color={C.green} />
-                      )}
-                    </View>
-
-                    {/* Vendas */}
-                    <View style={styles.irRow}>
-                      <Text style={styles.irRowLabel}>Vendas totais</Text>
-                      <Text style={styles.irRowValue}>R$ {fmt(vendasTotal)}</Text>
-                    </View>
-
-                    {m.vendasAcoes > 0 && (
-                      <View style={styles.irRow}>
-                        <Text style={styles.irRowLabel}>  Acoes {m.alertaAcoes20k ? '(>20k)' : '(<20k)'}</Text>
-                        <Text style={styles.irRowValue}>R$ {fmt(m.vendasAcoes)}</Text>
-                      </View>
-                    )}
-                    {m.vendasFII > 0 && (
-                      <View style={styles.irRow}>
-                        <Text style={styles.irRowLabel}>  FIIs</Text>
-                        <Text style={styles.irRowValue}>R$ {fmt(m.vendasFII)}</Text>
-                      </View>
-                    )}
-                    {m.vendasETF > 0 && (
-                      <View style={styles.irRow}>
-                        <Text style={styles.irRowLabel}>  ETFs</Text>
-                        <Text style={styles.irRowValue}>R$ {fmt(m.vendasETF)}</Text>
-                      </View>
-                    )}
-
-                    {/* Ganhos/Perdas */}
-                    <View style={[styles.irRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
-                      <Text style={styles.irRowLabel}>Ganhos realizados</Text>
-                      <Text style={[styles.irRowValue, { color: C.green }]}>
-                        +R$ {fmt(m.ganhoAcoes + m.ganhoFII + m.ganhoETF)}
-                      </Text>
-                    </View>
-                    {(m.perdaAcoes + m.perdaFII + m.perdaETF) > 0 && (
-                      <View style={styles.irRow}>
-                        <Text style={styles.irRowLabel}>Perdas realizadas</Text>
-                        <Text style={[styles.irRowValue, { color: C.red }]}>
-                          -R$ {fmt(m.perdaAcoes + m.perdaFII + m.perdaETF)}
-                        </Text>
-                      </View>
-                    )}
-
-                    {/* Prejuizo acumulado */}
-                    {(m.prejAcumAcoes + m.prejAcumFII + m.prejAcumETF) > 0 && (
-                      <View style={styles.irRow}>
-                        <Text style={styles.irRowLabel}>Prejuizo acumulado</Text>
-                        <Text style={[styles.irRowValue, { color: C.sub }]}>
-                          R$ {fmt(m.prejAcumAcoes + m.prejAcumFII + m.prejAcumETF)}
-                        </Text>
-                      </View>
-                    )}
-
-                    {/* DARF footer */}
-                    {m.impostoTotal > 0 ? (
-                      <View style={styles.irDarfRow}>
-                        <Text style={styles.irDarfLabel}>DARF estimado</Text>
-                        <Text style={styles.irDarfValue}>R$ {fmt(m.impostoTotal)}</Text>
-                      </View>
-                    ) : (
-                      <View style={[styles.irDarfRow, { backgroundColor: C.green + '08' }]}>
-                        <Text style={[styles.irDarfLabel, { color: C.green }]}>Isento</Text>
-                        <Text style={[styles.irDarfValue, { color: C.green }]}>R$ 0,00</Text>
-                      </View>
-                    )}
-                  </Glass>
-                );
-              })}
-            </>
-          )}
-        </>
-      )}
+      {/* IR removido — movido para Mais > Calculo IR (futura implementacao) */}
 
       <View style={{ height: SIZE.tabBarHeight + 20 }} />
     </ScrollView>

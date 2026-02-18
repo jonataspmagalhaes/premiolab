@@ -133,7 +133,7 @@ export default function HistoricoScreen(props) {
         <TouchableOpacity onPress={function() { navigation.goBack(); }}>
           <Text style={styles.back}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Historico</Text>
+        <Text style={styles.title}>Histórico</Text>
         <View style={{ width: 32 }} />
       </View>
 

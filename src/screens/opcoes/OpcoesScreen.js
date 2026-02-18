@@ -7,11 +7,11 @@ import Svg, { Line, Rect, Path, Text as SvgText } from 'react-native-svg';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators } from '../../services/database';
+import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators, getProfile } from '../../services/database';
 import { enrichPositionsWithPrices, clearPriceCache, fetchPrices } from '../../services/priceService';
 import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { supabase } from '../../config/supabase';
-import { Glass, Badge, Pill, SectionLabel } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
 function fmt(v) {
@@ -120,13 +120,13 @@ function bsIV(s, k, t, r, marketPrice, tipo) {
 // ═══════════════════════════════════════
 // CALC GREEKS FOR AN OPTION
 // ═══════════════════════════════════════
-function calcGreeks(op, spot) {
+function calcGreeks(op, spot, selicRate) {
   var s = spot || op.strike || 0;
   var k = op.strike || 0;
   var p = op.premio || 0;
   var daysLeft = Math.max(1, Math.ceil((new Date(op.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
   var t = daysLeft / 365;
-  var r = 0.1325; // Selic ~13.25%
+  var r = (selicRate || 13.25) / 100;
   var tipo = (op.tipo || 'call').toLowerCase();
 
   if (s <= 0 || k <= 0) return { delta: 0, gamma: 0, theta: 0, vega: 0, iv: 0, daysLeft: daysLeft };
@@ -441,9 +441,10 @@ function PayoffChart(props) {
 // ═══════════════════════════════════════
 function OpCard(props) {
   var op = props.op;
-  var positions = props.positions;
+  var positions = props.positions || [];
   var saldos = props.saldos || [];
   var indicatorsMap = props.indicators || {};
+  var cardSelicRate = props.selicRate || 13.25;
   var onEdit = props.onEdit;
   var onDelete = props.onDelete;
   var onClose = props.onClose;
@@ -484,19 +485,19 @@ function OpCard(props) {
     if (qtyCorretora >= (op.quantidade || 0)) {
       cobertura = 'COBERTA';
       coberturaColor = C.green;
-      coberturaDetail = qtyCorretora + ' ações em ' + op.corretora;
+      coberturaDetail = qtyCorretora + ' ações ' + op.corretora;
     } else if (qtyCorretora > 0) {
       cobertura = 'PARCIAL';
       coberturaColor = C.yellow;
-      coberturaDetail = 'Tem ' + qtyCorretora + '/' + (op.quantidade || 0) + ' em ' + op.corretora;
+      coberturaDetail = 'Tem ' + qtyCorretora + '/' + (op.quantidade || 0) + ' ' + op.corretora;
     } else if (qtyTotal >= (op.quantidade || 0)) {
       cobertura = 'COBERTA*';
       coberturaColor = C.yellow;
-      coberturaDetail = qtyTotal + ' ações em outra corretora';
+      coberturaDetail = qtyTotal + ' ações outra corretora';
     } else {
       cobertura = 'DESCOBERTA';
       coberturaColor = C.red;
-      coberturaDetail = 'Sem ' + op.ativo_base + ' em ' + (op.corretora || 'nenhuma corretora');
+      coberturaDetail = 'Sem ' + op.ativo_base + ' ' + (op.corretora || 'nenhuma corretora');
     }
   } else if (tipoLabel === 'PUT' && isVenda) {
     // PUT vendida (CSP): precisa ter saldo >= strike * qty na mesma corretora
@@ -513,15 +514,15 @@ function OpCard(props) {
     if (saldoMatch && saldoVal >= custoExercicio) {
       cobertura = 'CSP';
       coberturaColor = C.green;
-      coberturaDetail = 'Saldo R$ ' + fmt(saldoVal) + ' em ' + op.corretora + ' (precisa R$ ' + fmt(custoExercicio) + ')';
+      coberturaDetail = 'Saldo R$ ' + fmt(saldoVal) + ' ' + op.corretora + ' (precisa R$ ' + fmt(custoExercicio) + ')';
     } else if (saldoMatch) {
       cobertura = 'CSP PARCIAL';
       coberturaColor = C.yellow;
-      coberturaDetail = 'Saldo R$ ' + fmt(saldoVal) + '/' + fmt(custoExercicio) + ' em ' + op.corretora;
+      coberturaDetail = 'Saldo R$ ' + fmt(saldoVal) + '/' + fmt(custoExercicio) + ' ' + op.corretora;
     } else {
       cobertura = 'DESCOBERTA';
       coberturaColor = C.red;
-      coberturaDetail = 'Sem saldo em ' + (op.corretora || 'nenhuma corretora') + ' (precisa R$ ' + fmt(custoExercicio) + ')';
+      coberturaDetail = 'Sem saldo ' + (op.corretora || 'nenhuma corretora') + ' (precisa R$ ' + fmt(custoExercicio) + ')';
     }
   } else if (isVenda) {
     cobertura = 'VENDA';
@@ -535,7 +536,7 @@ function OpCard(props) {
   var spotPrice = 0;
   var matchPos = positions.find(function(p) { return p.ticker === op.ativo_base; });
   if (matchPos) spotPrice = matchPos.preco_atual || matchPos.pm || 0;
-  var greeks = calcGreeks(op, spotPrice);
+  var greeks = calcGreeks(op, spotPrice, cardSelicRate);
 
   // Moneyness
   var moneyness = getMoneyness(op.tipo, op.direcao, op.strike, spotPrice);
@@ -560,7 +561,7 @@ function OpCard(props) {
       borderColor: coberturaColor + '12',
       borderWidth: 1,
     }}>
-      {/* Header: ticker + type + cobertura + moneyness + premium */}
+      {/* Header: ticker + type + cobertura + moneyness + qty + premium */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
           <Text style={styles.opTicker}>{op.ativo_base}</Text>
@@ -568,8 +569,18 @@ function OpCard(props) {
           <Badge text={cobertura} color={coberturaColor} />
           {moneyness ? <Badge text={moneyness.label} color={moneyness.color} /> : null}
           <Badge text={daysLeft + 'd'} color={dayColor} />
+          <Badge text={(op.quantidade || 0) + 'x'} color={C.accent} />
         </View>
-        <Text style={[styles.opPremio, { color: C.green }]}>+R$ {fmt(premTotal)}</Text>
+      </View>
+      {/* Premio: unitario + total */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>PREMIO</Text>
+        <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>
+          {'R$ ' + fmt(op.premio || 0) + ' x ' + (op.quantidade || 0)}
+        </Text>
+        <Text style={{ fontSize: 13, fontWeight: '800', color: C.green, fontFamily: F.display }}>
+          {'= R$ ' + fmt(premTotal)}
+        </Text>
       </View>
 
       {/* Option code + moneyness text + cobertura detail */}
@@ -627,6 +638,7 @@ function OpCard(props) {
               {'IV: ' + iv.toFixed(0) + '%'}
             </Text>
             {ivLabel ? <Badge text={ivLabel} color={ivColor} /> : null}
+            <InfoTip text="HV = volatilidade histórica 20d. IV = volatilidade implícita. IV > 130% HV = prêmio caro." size={12} />
           </View>
         );
       })()}
@@ -683,14 +695,31 @@ function OpCard(props) {
               fontSize: 15, color: C.text, fontFamily: F.body,
             }}
           />
-          {recompraVal > 0 ? (
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-              <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>P&L DO ENCERRAMENTO</Text>
-              <Text style={{ fontSize: 16, fontWeight: '800', color: closePL >= 0 ? C.green : C.red, fontFamily: F.display }}>
-                {closePL >= 0 ? '+' : ''}R$ {fmt(closePL)}
-              </Text>
-            </View>
-          ) : null}
+          {recompraVal > 0 ? (function() {
+            var recompraTotal = recompraVal * (op.quantidade || 0);
+            var closePLPct = premTotal > 0 ? (closePL / premTotal) * 100 : 0;
+            return (
+              <View style={{ marginTop: 8 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>RECOMPRA TOTAL</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.red, fontFamily: F.mono }}>
+                    {'R$ ' + fmt(recompraTotal)}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>P&L DO ENCERRAMENTO</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '800', color: closePL >= 0 ? C.green : C.red, fontFamily: F.display }}>
+                      {(closePL >= 0 ? '+' : '') + 'R$ ' + fmt(closePL)}
+                    </Text>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: closePL >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                      {'(' + (closePLPct >= 0 ? '+' : '') + closePLPct.toFixed(1) + '%)'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            );
+          })() : null}
           <TouchableOpacity
             onPress={function() {
               if (recompraVal <= 0) return;
@@ -714,7 +743,8 @@ function OpCard(props) {
 // ═══════════════════════════════════════
 // SIMULADOR BLACK-SCHOLES
 // ═══════════════════════════════════════
-function SimuladorBS() {
+function SimuladorBS(props) {
+  var simSelicRate = props.selicRate || 13.25;
   var s1 = useState('CALL'); var tipo = s1[0]; var setTipo = s1[1];
   var s2 = useState('venda'); var direcao = s2[0]; var setDirecao = s2[1];
   var s3 = useState('34.30'); var spot = s3[0]; var setSpot = s3[1];
@@ -730,7 +760,7 @@ function SimuladorBS() {
   var qVal = parseInt(qty) || 0;
   var dVal = parseInt(dte) || 0;
   var t = dVal / 365;
-  var r = 0.1325;
+  var r = simSelicRate / 100;
   var tipoLower = tipo.toLowerCase();
 
   // Use input IV or calculate from premium
@@ -813,7 +843,10 @@ function SimuladorBS() {
 
       {/* Gregas */}
       <Glass glow={C.opcoes} padding={14}>
-        <SectionLabel>GREGAS (BLACK-SCHOLES)</SectionLabel>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+          <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>GREGAS (BLACK-SCHOLES)</Text>
+          <InfoTip text="Delta: sensibilidade ao preço. Gamma: aceleração do delta. Theta: perda temporal/dia. Vega: sensibilidade à volatilidade." />
+        </View>
         <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: 8 }}>
           {[
             { l: 'Delta', v: greeks.delta.toFixed(3), c: Math.abs(greeks.delta) > 0.5 ? C.green : C.sub },
@@ -901,6 +934,7 @@ function SimuladorBS() {
 function CadeiaSintetica(props) {
   var positions = props.positions || [];
   var indicatorsMap = props.indicators || {};
+  var chainSelicRate = props.selicRate || 13.25;
 
   // Unique tickers with spot prices
   var tickers = [];
@@ -954,7 +988,7 @@ function CadeiaSintetica(props) {
   var ivVal = (parseFloat(chainIV) || 35) / 100;
   var dteVal = parseInt(chainDTE) || 21;
   var tYears = dteVal / 365;
-  var r = 0.1325;
+  var r = chainSelicRate / 100;
 
   // Generate strikes
   var strikeStep;
@@ -1035,7 +1069,7 @@ function CadeiaSintetica(props) {
           <View style={{ flex: 1 }}>
             <Text style={styles.simFieldLabel}>Taxa</Text>
             <View style={[styles.simFieldInput, { backgroundColor: 'rgba(255,255,255,0.01)' }]}>
-              <Text style={[styles.simFieldText, { color: C.dim }]}>13.25</Text>
+              <Text style={[styles.simFieldText, { color: C.dim }]}>{chainSelicRate.toFixed(2)}</Text>
               <Text style={styles.simFieldSuffix}>%</Text>
             </View>
           </View>
@@ -1169,6 +1203,7 @@ export default function OpcoesScreen() {
   var s8 = useState([]); var saldos = s8[0]; var setSaldos = s8[1];
   var s9 = useState(false); var exercicioAuto = s9[0]; var setExercicioAuto = s9[1];
   var s10 = useState({}); var indicators = s10[0]; var setIndicators = s10[1];
+  var _selicSt = useState(13.25); var selicRate = _selicSt[0]; var setSelicRate = _selicSt[1];
 
   var load = async function() {
     if (!user) return;
@@ -1177,7 +1212,11 @@ export default function OpcoesScreen() {
       getPositions(user.id),
       getSaldos(user.id),
       getIndicators(user.id),
+      getProfile(user.id),
     ]);
+
+    var prof = results[4] && results[4].data ? results[4].data : null;
+    if (prof && prof.selic) setSelicRate(prof.selic);
 
     // Build indicators map by ticker
     var indData = results[3].data || [];
@@ -1542,7 +1581,7 @@ export default function OpcoesScreen() {
     var spotPrice = 0;
     var matchPos = positions.find(function(p) { return p.ticker === op.ativo_base; });
     if (matchPos) spotPrice = matchPos.preco_atual || matchPos.pm || 0;
-    var greeks = calcGreeks(op, spotPrice);
+    var greeks = calcGreeks(op, spotPrice, selicRate);
     thetaDiaTotal += greeks.theta * (op.quantidade || 1);
   });
 
@@ -1564,6 +1603,9 @@ export default function OpcoesScreen() {
     >
       {/* SUMMARY BAR */}
       <Glass glow={C.opcoes} padding={16}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 }}>
+          <InfoTip text="Moneyness: ITM/ATM/OTM indica se a opção está no/perto/fora do dinheiro. Cobertura: verifica se há ações suficientes na mesma corretora. DTE: dias até o vencimento." />
+        </View>
         <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
           {[
             { l: 'PRÊMIO MÊS', v: 'R$ ' + fmt(premioMes), c: C.opcoes },
@@ -1687,7 +1729,7 @@ export default function OpcoesScreen() {
               {/* Option cards */}
               {ativas.map(function(op, i) {
                 return (
-                  <OpCard key={op.id || i} op={op} positions={positions} saldos={saldos} indicators={indicators}
+                  <OpCard key={op.id || i} op={op} positions={positions} saldos={saldos} indicators={indicators} selicRate={selicRate}
                     onEdit={function() { navigation.navigate('EditOpcao', { opcao: op }); }}
                     onDelete={function() { handleDelete(op.id); }}
                     onClose={handleClose}
@@ -1742,10 +1784,10 @@ export default function OpcoesScreen() {
       )}
 
       {/* SIMULADOR TAB */}
-      {sub === 'sim' && <SimuladorBS />}
+      {sub === 'sim' && <SimuladorBS selicRate={selicRate} />}
 
       {/* CADEIA TAB */}
-      {sub === 'cadeia' && <CadeiaSintetica positions={positions} indicators={indicators} />}
+      {sub === 'cadeia' && <CadeiaSintetica positions={positions} indicators={indicators} selicRate={selicRate} />}
 
       {/* HISTORICO TAB */}
       {sub === 'hist' && (

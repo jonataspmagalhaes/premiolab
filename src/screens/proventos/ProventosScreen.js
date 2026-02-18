@@ -6,9 +6,9 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getProventos, deleteProvento } from '../../services/database';
+import { getProventos, deleteProvento, getProfile } from '../../services/database';
 import { runDividendSync } from '../../services/dividendService';
-import { Glass, Badge, Pill, SectionLabel } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
 var TIPO_LABELS = {
@@ -16,8 +16,8 @@ var TIPO_LABELS = {
   jcp: 'JCP',
   rendimento: 'Rendimento',
   juros_rf: 'Juros RF',
-  amortizacao: 'Amortizacao',
-  bonificacao: 'Bonificacao',
+  amortizacao: 'Amortização',
+  bonificacao: 'Bonificação',
 };
 
 var TIPO_COLORS = {
@@ -42,8 +42,8 @@ var FILTERS = [
   { key: 'jcp', label: 'JCP' },
   { key: 'rendimento', label: 'Rendimento' },
   { key: 'juros_rf', label: 'Juros RF' },
-  { key: 'amortizacao', label: 'Amortizacao' },
-  { key: 'bonificacao', label: 'Bonificacao' },
+  { key: 'amortizacao', label: 'Amortização' },
+  { key: 'bonificacao', label: 'Bonificação' },
 ];
 
 function isoToBr(iso) {
@@ -71,11 +71,17 @@ export default function ProventosScreen(props) {
   var _filter = useState('todos'); var filter = _filter[0]; var setFilter = _filter[1];
   var _tab = useState('pendente'); var tab = _tab[0]; var setTab = _tab[1];
   var _syncing = useState(false); var syncing = _syncing[0]; var setSyncing = _syncing[1];
+  var _lastSync = useState(null); var lastSync = _lastSync[0]; var setLastSync = _lastSync[1];
 
   var load = async function() {
     if (!user) return;
-    var result = await getProventos(user.id);
-    setItems(result.data || []);
+    var results = await Promise.all([
+      getProventos(user.id),
+      getProfile(user.id),
+    ]);
+    setItems(results[0].data || []);
+    var prof = results[1] && results[1].data ? results[1].data : null;
+    if (prof && prof.last_dividend_sync) setLastSync(prof.last_dividend_sync);
     setLoading(false);
   };
 
@@ -92,6 +98,7 @@ export default function ProventosScreen(props) {
     setSyncing(true);
     try {
       var result = await runDividendSync(user.id);
+      setLastSync(new Date().toISOString().substring(0, 10));
       if (result.inserted > 0) {
         Alert.alert('Sincronizado', result.inserted + ' provento' + (result.inserted > 1 ? 's' : '') + ' importado' + (result.inserted > 1 ? 's' : '') + '.\n\n' + (result.checked || 0) + ' ticker' + (result.checked > 1 ? 's' : '') + ' verificado' + (result.checked > 1 ? 's' : '') + '.');
         await load();
@@ -107,7 +114,7 @@ export default function ProventosScreen(props) {
   var handleDelete = function(id) {
     Alert.alert(
       'Excluir provento?',
-      'Essa acao nao pode ser desfeita.',
+      'Essa ação não pode ser desfeita.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -193,20 +200,30 @@ export default function ProventosScreen(props) {
         <TouchableOpacity onPress={function() { navigation.goBack(); }}>
           <Text style={styles.back}>{'‹'}</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Proventos</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={styles.title}>Proventos</Text>
+          <InfoTip text="Dividendos, JCP, rendimentos de FIIs e amortizações. Sincronizar importa automaticamente de brapi + StatusInvest." />
+        </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-          <TouchableOpacity onPress={handleSync} disabled={syncing} style={{ opacity: syncing ? 0.4 : 1 }}>
-            <Text style={{ fontSize: 13, color: C.accent, fontWeight: '700', fontFamily: F.mono }}>
-              {syncing ? 'Sincronizando...' : 'Sincronizar'}
-            </Text>
-          </TouchableOpacity>
+          <View style={{ alignItems: 'center' }}>
+            <TouchableOpacity onPress={handleSync} disabled={syncing} style={{ opacity: syncing ? 0.4 : 1 }}>
+              <Text style={{ fontSize: 13, color: C.accent, fontWeight: '700', fontFamily: F.mono }}>
+                {syncing ? 'Sincronizando...' : 'Sincronizar'}
+              </Text>
+            </TouchableOpacity>
+            {lastSync ? (
+              <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>
+                {(function() { var p = (lastSync || '').split('-'); return p.length >= 3 ? p[2] + '/' + p[1] + '/' + p[0] : lastSync; })()}
+              </Text>
+            ) : null}
+          </View>
           <TouchableOpacity onPress={function() { navigation.navigate('AddProvento'); }}>
             <Text style={styles.addIcon}>+</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Tabs: A receber / Historico */}
+      {/* Tabs: A receber / Histórico */}
       <View style={styles.tabRow}>
         <TouchableOpacity
           style={[styles.tabBtn, isPendente && styles.tabBtnActive]}
@@ -221,7 +238,7 @@ export default function ProventosScreen(props) {
           onPress={function() { setTab('historico'); }}
         >
           <Text style={[styles.tabText, !isPendente && styles.tabTextActive]}>
-            {'Historico (' + historico.length + ')'}
+            {'Histórico (' + historico.length + ')'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -261,7 +278,7 @@ export default function ProventosScreen(props) {
           title={isPendente ? 'Nenhum provento pendente' : 'Nenhum provento no historico'}
           description={isPendente
             ? 'Proventos a receber aparecerao aqui apos a sincronizacao.'
-            : 'Proventos ja pagos aparecem aqui para consulta.'}
+            : 'Proventos já pagos aparecem aqui para consulta.'}
           cta={isPendente ? 'Sincronizar' : 'Registrar Provento'}
           onCta={isPendente ? handleSync : function() { navigation.navigate('AddProvento'); }}
           color={isPendente ? C.yellow : C.fiis}

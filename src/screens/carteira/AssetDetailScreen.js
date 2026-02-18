@@ -116,7 +116,7 @@ var PERIODO_OPTIONS = [
   { key: '30d', label: '30 dias' },
   { key: '90d', label: '90 dias' },
   { key: '1a', label: '1 ano' },
-  { key: 'custom', label: 'Periodo' },
+  { key: 'custom', label: 'Período' },
 ];
 
 export default function AssetDetailScreen(props) {
@@ -163,7 +163,7 @@ export default function AssetDetailScreen(props) {
         setPriceData(priceResult[ticker]);
       }
     } catch (e) {
-      setPriceError('Cotacoes indisponiveis');
+      setPriceError('Cotações indisponíveis');
     }
 
     try {
@@ -195,8 +195,8 @@ export default function AssetDetailScreen(props) {
 
   var handleDelete = function(id, idx) {
     Alert.alert(
-      'Excluir operacao?',
-      'Essa acao nao pode ser desfeita.',
+      'Excluir operação?',
+      'Essa ação não pode ser desfeita.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -518,7 +518,7 @@ export default function AssetDetailScreen(props) {
         {/* ══════ CHART 30 DIAS ══════ */}
         {historyData.length >= 2 ? (
           <Glass padding={14}>
-            <SectionLabel>HISTORICO 30 DIAS</SectionLabel>
+            <SectionLabel>HISTÓRICO 30 DIAS</SectionLabel>
             <View style={{ marginTop: 4 }}>
               <InteractiveChart
                 data={historyData}
@@ -566,11 +566,11 @@ export default function AssetDetailScreen(props) {
 
         {/* ══════ POSICAO ══════ */}
         <Glass glow={C.acoes} padding={14}>
-          <SectionLabel>POSICAO</SectionLabel>
+          <SectionLabel>POSIÇÃO</SectionLabel>
           <View style={styles.posGrid}>
             {[
               { l: 'Quantidade', v: String(position.qty) },
-              { l: 'Preco Medio', v: 'R$ ' + fmt(pm) },
+              { l: 'Preço Médio', v: 'R$ ' + fmt(pm) },
               { l: 'Custo Total', v: 'R$ ' + fmt(position.custo) },
               { l: 'Proventos', v: 'R$ ' + fmt(totalProvs) },
               valorAtual != null ? { l: 'Valor Atual', v: 'R$ ' + fmt(valorAtual) } : null,
@@ -637,7 +637,7 @@ export default function AssetDetailScreen(props) {
         </View>
 
         {/* ══════ TRANSACOES AGRUPADAS POR CORRETORA ══════ */}
-        <SectionLabel>{filteredTxns.length + ' TRANSACOES'}</SectionLabel>
+        <SectionLabel>{filteredTxns.length + ' TRANSAÇÕES'}</SectionLabel>
         <Glass padding={0}>
           {filteredTxns.length === 0 ? (
             <Text style={styles.emptyText}>Nenhuma transacao</Text>
