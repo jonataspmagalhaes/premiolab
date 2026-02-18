@@ -186,6 +186,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Multi-corretora**: posicoes agregadas por ticker, campo `por_corretora` com qty por corretora
 - Cards de RF com botoes Editar/Excluir
 - Corretora removida do header do card (mostrada no expandido com qty por corretora)
+- **Saldo livre — 4 acoes discretas**: Depositar (verde, soma ao saldo), Deduzir (amarelo, subtrai), Transferir (roxo, move entre contas com picker de destino), Excluir (vermelho). Botoes compactos fontSize 10, sem fill, apenas borderColor sutil
 
 ### Opcoes (OpcoesScreen)
 - **Black-Scholes completo**: pricing, gregas (delta, gamma, theta, vega), IV implicita
@@ -193,8 +194,8 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Cobertura inteligente** (usa `por_corretora` das transacoes, nao do card):
   - CALL vendida: verifica acoes do ativo_base na MESMA corretora (COBERTA/PARCIAL/COBERTA*/DESCOBERTA)
   - PUT vendida (CSP): verifica saldo na MESMA corretora vs strike*qty
-- **Encerramento antecipado**: painel com premio recompra, quantidade (auto-fill, editavel para encerramento parcial), data de fechamento (auto-fill hoje, editavel). Encerramento parcial reduz qty da original e cria novo registro fechado. Fallback resiliente se coluna `data_fechamento` nao existir no banco
-- **Opcoes vencidas**: detecao automatica, painel no topo com botoes "Expirou PO" / "Foi exercida"
+- **Encerramento antecipado**: painel com premio recompra, quantidade (auto-fill, editavel para encerramento parcial), data de fechamento (auto-fill hoje, editavel). Encerramento parcial reduz qty da original e cria novo registro fechado. Fallback resiliente se coluna `data_fechamento` nao existir no banco. Exibe `ticker_opcao` no topo do painel. Ao confirmar, oferece descontar custo de recompra do saldo livre da mesma corretora
+- **Opcoes vencidas**: detecao automatica, painel no topo com botoes "Expirou PO" / "Foi exercida". Exibe `ticker_opcao` no card
 - **Exercicio automatico**: cria operacao de compra/venda na carteira ao confirmar exercicio
 - **Simulador BS**: inputs editaveis, cenarios what-if (+/-5%, +/-10%)
 - **Payoff Chart**: grafico SVG de P&L no vencimento com breakeven, spot, zonas lucro/prejuizo, touch interativo
