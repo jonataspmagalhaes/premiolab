@@ -204,7 +204,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
   - Badge "HV 20d: XX%" ao lado do spot, IV atualiza ao trocar ticker
 - **HV/IV nos cards**: linha "HV: XX% | IV: YY%" + badge "IV ALTA" (>130% HV) / "IV BAIXA" (<70% HV)
 - **Corretora visivel**: label da corretora no card de opcao ativa (abaixo do header)
-- **Historico**: resumo P&L total (considera premio_fechamento para fechadas), contadores expiradas PO/exercidas/fechadas + lista detalhada com P&L real por opcao, detalhes de recompra (preco, qty, data) nas fechadas
+- **Historico**: resumo P&L total (considera premio_fechamento para fechadas), contadores expiradas PO/exercidas/fechadas + lista detalhada com P&L real por opcao, detalhes de recompra (preco, qty, data) nas fechadas. Cards fechadas mostram linha resumo: Recebido (premio total), Recompra (custo total), Resultado (P&L com cor verde/vermelha)
 - **Data abertura**: campo data_abertura nas opcoes, premios calculados com D+1 (liquidacao)
 - DTE badge no header de cada card
 
