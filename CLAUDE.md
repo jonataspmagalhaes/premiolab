@@ -353,7 +353,7 @@ Chave composta: `ticker (upper) + data_pagamento (YYYY-MM-DD) + round(valor_por_
 Trigger automatico fire-and-forget na Home apos 18h BRT via `shouldSyncDividends()`. Sync manual via botao "Sincronizar" na tela de Proventos.
 
 ### Limitacoes
-- **Quantidade**: usa qty ATUAL da posicao, nao historica na data-ex
+- **Quantidade**: usa posicao HISTORICA na data-com via `positionAtDate()` (reconstroi qty a partir das operacoes). Pula dividendos com data-com futura ou sem posicao na data-ex
 - **Corretora**: auto-sync nao preenche campo corretora
 - **Escopo**: filtra dividendos dos ultimos 12 meses com paymentDate valido
 - **StatusInvest**: pode ter rate limiting sem aviso; User-Agent necessario

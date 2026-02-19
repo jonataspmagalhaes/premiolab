@@ -3027,180 +3027,796 @@ function ProvVertBarChart(props) {
 function PremioVsRecompraChart(props) {
   var data = props.data || [];
   var _w = useState(0); var w = _w[0]; var setW = _w[1];
-
-  var chartH = 180;
-  var topPad = 24;
-  var botPad = 28;
-  var leftPad = 42;
-  var rightPad = 8;
-
-  var maxVal = 1;
-  for (var mi = 0; mi < data.length; mi++) {
-    if (data[mi].total > maxVal) maxVal = data[mi].total;
-    if ((data[mi].recompra || 0) > maxVal) maxVal = data[mi].recompra;
-  }
-
-  var sum12Receb = 0;
-  var sum12Recomp = 0;
-  for (var si = 0; si < data.length; si++) {
-    sum12Receb += data[si].total || 0;
-    sum12Recomp += data[si].recompra || 0;
-  }
-  var sum12Liq = sum12Receb - sum12Recomp;
+  var _selPut = useState(-1); var selPut = _selPut[0]; var setSelPut = _selPut[1];
+  var _selCall = useState(-1); var selCall = _selCall[0]; var setSelCall = _selCall[1];
+  var _selPL = useState(-1); var selPL = _selPL[0]; var setSelPL = _selPL[1];
+  var _selPrem = useState(-1); var selPrem = _selPrem[0]; var setSelPrem = _selPrem[1];
+  var _selRec = useState(-1); var selRec = _selRec[0]; var setSelRec = _selRec[1];
+  var _selExerc = useState(-1); var selExerc = _selExerc[0]; var setSelExerc = _selExerc[1];
 
   if (data.length === 0) return null;
 
+  var n = data.length;
+  var subH = 150;
+  var topPad = 22;
+  var botPad = 24;
+  var leftPad = 42;
+  var rightPad = 8;
+
   if (w === 0) {
-    return <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }} style={{ height: chartH }} />;
+    return <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }} style={{ height: 1 }} />;
+  }
+
+  var drawH = subH - topPad - botPad;
+  var drawW = w - leftPad - rightPad;
+
+  // ── Helper: build a sub-chart ──
+  function buildSubChart(prefix, series, sel, tipLines, titleLabel) {
+    // Compute range
+    var maxV = 1;
+    var minV = 0;
+    for (var si = 0; si < series.length; si++) {
+      var s = series[si];
+      for (var di = 0; di < n; di++) {
+        var v = s.vals[di];
+        if (v > maxV) maxV = v;
+        if (v < minV) minV = v;
+      }
+    }
+    var range = maxV - minV;
+    if (range === 0) range = 1;
+
+    var vToY = function(v) { return topPad + drawH - ((v - minV) / range) * drawH; };
+    var iToX = function(i) { return leftPad + (n > 1 ? (i / (n - 1)) * drawW : drawW / 2); };
+
+    var els = [];
+
+    // Grid
+    var gridVals = [];
+    if (minV < 0) {
+      gridVals = [minV, 0, maxV];
+    } else {
+      gridVals = [0, maxV * 0.5, maxV];
+    }
+    for (var gi = 0; gi < gridVals.length; gi++) {
+      var gy = vToY(gridVals[gi]);
+      var isZero = gridVals[gi] === 0 && minV < 0;
+      els.push(React.createElement(SvgLine, {
+        key: prefix + 'g' + gi, x1: leftPad, y1: gy, x2: w - rightPad, y2: gy,
+        stroke: isZero ? C.sub : C.border, strokeWidth: isZero ? 0.8 : 0.5, strokeDasharray: isZero ? '' : '3,3',
+      }));
+      els.push(React.createElement(SvgText, {
+        key: prefix + 'gl' + gi, x: leftPad - 4, y: gy + 3,
+        fill: C.dim, fontSize: 7, fontFamily: F.mono, textAnchor: 'end',
+      }, fmtC(gridVals[gi])));
+    }
+
+    // Series
+    for (var si2 = 0; si2 < series.length; si2++) {
+      var s2 = series[si2];
+      var pts = [];
+      for (var pi = 0; pi < n; pi++) {
+        pts.push({ x: iToX(pi), y: vToY(s2.vals[pi]), val: s2.vals[pi] });
+      }
+
+      // Area fill
+      if (s2.area && pts.length >= 2) {
+        var baseY = vToY(0);
+        var ap = 'M' + pts[0].x + ',' + baseY;
+        for (var a = 0; a < pts.length; a++) ap = ap + ' L' + pts[a].x + ',' + pts[a].y;
+        ap = ap + ' L' + pts[pts.length - 1].x + ',' + baseY + ' Z';
+        els.push(React.createElement(Path, { key: prefix + 's' + si2 + 'a', d: ap, fill: s2.color, opacity: 0.1 }));
+      }
+
+      // Line
+      if (pts.length >= 2) {
+        var lp = 'M' + pts[0].x + ',' + pts[0].y;
+        for (var l = 1; l < pts.length; l++) lp = lp + ' L' + pts[l].x + ',' + pts[l].y;
+        els.push(React.createElement(Path, {
+          key: prefix + 's' + si2 + 'l', d: lp,
+          stroke: s2.color, strokeWidth: 3, fill: 'none', opacity: 0.9,
+        }));
+      }
+
+      // Dots
+      for (var d = 0; d < pts.length; d++) {
+        if (pts[d].val !== 0) {
+          var isSel = d === sel;
+          els.push(React.createElement(Circle, {
+            key: prefix + 's' + si2 + 'dg' + d, cx: pts[d].x, cy: pts[d].y,
+            r: isSel ? 6 : 3.5, fill: s2.color, opacity: isSel ? 0.25 : 0.15,
+          }));
+          els.push(React.createElement(Circle, {
+            key: prefix + 's' + si2 + 'dd' + d, cx: pts[d].x, cy: pts[d].y,
+            r: isSel ? 4 : 2, fill: s2.color, opacity: 1,
+          }));
+        }
+      }
+    }
+
+    // Vertical line on selection (tooltip rendered as native View outside SVG)
+    if (sel >= 0 && sel < n) {
+      var selX = iToX(sel);
+      els.push(React.createElement(SvgLine, {
+        key: prefix + 'vl', x1: selX, y1: topPad, x2: selX, y2: topPad + drawH,
+        stroke: C.text, strokeWidth: 0.8, opacity: 0.35, strokeDasharray: '4,3',
+      }));
+    }
+
+    // X-axis labels
+    for (var xi = 0; xi < n; xi++) {
+      var showXL = n <= 12 || xi % Math.ceil(n / 8) === 0 || xi === n - 1;
+      if (showXL) {
+        var xSel = xi === sel;
+        var mp = (data[xi].month || '').split('/');
+        els.push(React.createElement(SvgText, {
+          key: prefix + 'x' + xi, x: iToX(xi), y: subH - 4,
+          fontSize: 7, fill: xSel ? C.text : C.dim, fontFamily: F.mono, textAnchor: 'middle',
+          fontWeight: xSel ? '600' : '400',
+        }, mp[0] || ''));
+      }
+    }
+
+    return els;
+  }
+
+  // ── Data extraction ──
+  var putVals = []; var putRecompVals = [];
+  var callVals = []; var callRecompVals = [];
+  var plPutVals = []; var plCallVals = [];
+  var sumPutPrem = 0; var sumPutRecomp = 0;
+  var sumCallPrem = 0; var sumCallRecomp = 0;
+  for (var i = 0; i < n; i++) {
+    var d = data[i];
+    var pv = d.put || 0;
+    var prp = d.recompra_put || 0;
+    var cv = d.call || 0;
+    var prc = d.recompra_call || 0;
+    putVals.push(pv); putRecompVals.push(prp);
+    callVals.push(cv); callRecompVals.push(prc);
+    plPutVals.push(pv - prp); plCallVals.push(cv - prc);
+    sumPutPrem += pv; sumPutRecomp += prp;
+    sumCallPrem += cv; sumCallRecomp += prc;
+  }
+  var sumPutPL = sumPutPrem - sumPutRecomp;
+  var sumCallPL = sumCallPrem - sumCallRecomp;
+
+  // ── Touch handlers ──
+  function makeTouch(sel, setSel) {
+    return function(e) {
+      if (drawW <= 0 || n === 0) return;
+      var x = e.nativeEvent.locationX - leftPad;
+      var step = n > 1 ? drawW / (n - 1) : drawW;
+      var idx = Math.round(x / step);
+      if (idx < 0) idx = 0;
+      if (idx >= n) idx = n - 1;
+      setSel(idx === sel ? -1 : idx);
+    };
+  }
+
+  // ── Build 3 charts ──
+  var putEls = buildSubChart('put_', [
+    { vals: putVals, color: C.green, area: true },
+    { vals: putRecompVals, color: C.red, area: false },
+  ], selPut, function(idx) {
+    var prem = putVals[idx]; var rec = putRecompVals[idx]; var pl = prem - rec;
+    var lines = [{ text: 'Prêmio R$ ' + fmt(prem), color: C.green }];
+    lines.push({ text: 'Recompra R$ ' + fmt(rec), color: C.red });
+    lines.push({ text: 'P&L R$ ' + fmt(pl), color: pl >= 0 ? C.green : C.red });
+    return lines;
+  });
+
+  var callEls = buildSubChart('call_', [
+    { vals: callVals, color: C.green, area: true },
+    { vals: callRecompVals, color: C.red, area: false },
+  ], selCall, function(idx) {
+    var prem = callVals[idx]; var rec = callRecompVals[idx]; var pl = prem - rec;
+    var lines = [{ text: 'Prêmio R$ ' + fmt(prem), color: C.green }];
+    lines.push({ text: 'Recompra R$ ' + fmt(rec), color: C.red });
+    lines.push({ text: 'P&L R$ ' + fmt(pl), color: pl >= 0 ? C.green : C.red });
+    return lines;
+  });
+
+  var plEls = buildSubChart('pl_', [
+    { vals: plPutVals, color: C.opcoes, area: true },
+    { vals: plCallVals, color: C.acoes, area: false },
+  ], selPL, function(idx) {
+    var pp = plPutVals[idx]; var pc = plCallVals[idx];
+    return [
+      { text: 'PUT R$ ' + fmt(pp), color: pp >= 0 ? C.green : C.red },
+      { text: 'CALL R$ ' + fmt(pc), color: pc >= 0 ? C.green : C.red },
+    ];
+  });
+
+  // ── Render helper: legend row ──
+  function legendRow(items) {
+    return (
+      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 14, marginTop: 4 }}>
+        {items.map(function(item, idx) {
+          return (
+            <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: item.color }} />
+              <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>{item.label}</Text>
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
+
+  // ── Render helper: KPI row ──
+  function kpiRow(items) {
+    return (
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, paddingHorizontal: 4 }}>
+        {items.map(function(item, idx) {
+          var prefix = item.prefix != null ? item.prefix : 'R$ ';
+          var display = item.prefix === '' ? String(Math.round(item.val)) : fmt(item.val);
+          return (
+            <View key={idx} style={{ alignItems: 'center', flex: 1 }}>
+              <Text style={{ fontSize: 8, color: C.sub, fontFamily: F.body }}>{item.label}</Text>
+              <Text style={{ fontSize: 12, color: item.color, fontFamily: F.mono, fontWeight: '600' }}>
+                {prefix + display}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
+
+  // ── Render helper: info bar (native View, shown when point selected) ──
+  function infoBar(sel, items, monthLabel) {
+    if (sel < 0 || sel >= n) return null;
+    return (
+      <View style={{ backgroundColor: C.surface, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, marginBottom: 6, borderWidth: 0.5, borderColor: C.border }}>
+        <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body, textAlign: 'center', marginBottom: 3 }}>
+          {monthLabel}
+        </Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+          {items.map(function(item, idx) {
+            var prefix = item.prefix != null ? item.prefix : 'R$ ';
+            var display = item.prefix === '' ? String(Math.round(item.val)) : fmt(item.val);
+            return (
+              <View key={idx} style={{ alignItems: 'center' }}>
+                <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>{item.label}</Text>
+                <Text style={{ fontSize: 14, color: item.color, fontFamily: F.mono, fontWeight: '700' }}>
+                  {prefix + display}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      </View>
+    );
+  }
+
+  // ── Info bar data for each chart ──
+  var putInfoItems = null;
+  var putMonthLabel = '';
+  if (selPut >= 0 && selPut < n) {
+    var piPrem = putVals[selPut]; var piRec = putRecompVals[selPut]; var piPL = piPrem - piRec;
+    putMonthLabel = data[selPut].month || '';
+    putInfoItems = [
+      { label: 'Prêmio', val: piPrem, color: C.green },
+      { label: 'Recompra', val: piRec, color: C.red },
+      { label: 'P&L', val: piPL, color: piPL >= 0 ? C.green : C.red },
+    ];
+  }
+
+  var callInfoItems = null;
+  var callMonthLabel = '';
+  if (selCall >= 0 && selCall < n) {
+    var ciPrem = callVals[selCall]; var ciRec = callRecompVals[selCall]; var ciPL = ciPrem - ciRec;
+    callMonthLabel = data[selCall].month || '';
+    callInfoItems = [
+      { label: 'Prêmio', val: ciPrem, color: C.green },
+      { label: 'Recompra', val: ciRec, color: C.red },
+      { label: 'P&L', val: ciPL, color: ciPL >= 0 ? C.green : C.red },
+    ];
+  }
+
+  var plInfoItems = null;
+  var plMonthLabel = '';
+  if (selPL >= 0 && selPL < n) {
+    var liPut = plPutVals[selPL]; var liCall = plCallVals[selPL];
+    plMonthLabel = data[selPL].month || '';
+    plInfoItems = [
+      { label: 'PUT', val: liPut, color: liPut >= 0 ? C.green : C.red },
+      { label: 'CALL', val: liCall, color: liCall >= 0 ? C.green : C.red },
+    ];
+  }
+
+  // ── Chart 4: PRÊMIO — PUT vs CALL ──
+  var premEls = buildSubChart('prem_', [
+    { vals: putVals, color: C.opcoes, area: true },
+    { vals: callVals, color: C.acoes, area: false },
+  ], selPrem, function() { return []; });
+
+  var premInfoItems = null;
+  var premMonthLabel = '';
+  if (selPrem >= 0 && selPrem < n) {
+    premMonthLabel = data[selPrem].month || '';
+    premInfoItems = [
+      { label: 'PUT', val: putVals[selPrem], color: C.opcoes },
+      { label: 'CALL', val: callVals[selPrem], color: C.acoes },
+    ];
+  }
+
+  // ── Chart 5: RECOMPRA — PUT vs CALL ──
+  var recEls = buildSubChart('rec_', [
+    { vals: putRecompVals, color: C.opcoes, area: true },
+    { vals: callRecompVals, color: C.acoes, area: false },
+  ], selRec, function() { return []; });
+
+  var recInfoItems = null;
+  var recMonthLabel = '';
+  if (selRec >= 0 && selRec < n) {
+    recMonthLabel = data[selRec].month || '';
+    recInfoItems = [
+      { label: 'PUT', val: putRecompVals[selRec], color: C.opcoes },
+      { label: 'CALL', val: callRecompVals[selRec], color: C.acoes },
+    ];
+  }
+
+  // ── Chart 6: EXERCIDAS — PUT vs CALL ──
+  var exercPutVals = []; var exercCallVals = [];
+  var sumExercPut = 0; var sumExercCall = 0;
+  for (var ei = 0; ei < n; ei++) {
+    var ep = data[ei].exercida_put || 0;
+    var ec = data[ei].exercida_call || 0;
+    exercPutVals.push(ep);
+    exercCallVals.push(ec);
+    sumExercPut += ep;
+    sumExercCall += ec;
+  }
+
+  var exercEls = buildSubChart('exerc_', [
+    { vals: exercPutVals, color: C.opcoes, area: true },
+    { vals: exercCallVals, color: C.acoes, area: false },
+  ], selExerc, function() { return []; });
+
+  var exercInfoItems = null;
+  var exercMonthLabel = '';
+  if (selExerc >= 0 && selExerc < n) {
+    exercMonthLabel = data[selExerc].month || '';
+    exercInfoItems = [
+      { label: 'PUT', val: exercPutVals[selExerc], color: C.opcoes, prefix: '' },
+      { label: 'CALL', val: exercCallVals[selExerc], color: C.acoes, prefix: '' },
+    ];
+  }
+
+  return (
+    <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }}>
+      {/* Chart 1: PUT */}
+      <Text style={{ fontSize: 11, color: C.text, fontFamily: F.display, textAlign: 'center', marginBottom: 4 }}>
+        PUT — Prêmio vs Recompra
+      </Text>
+      {infoBar(selPut, putInfoItems, putMonthLabel)}
+      <TouchableOpacity activeOpacity={1} onPress={makeTouch(selPut, setSelPut)}>
+        <Svg width={w} height={subH}>{putEls}</Svg>
+      </TouchableOpacity>
+      {legendRow([{ label: 'Prêmio', color: C.green }, { label: 'Recompra', color: C.red }])}
+      {kpiRow([
+        { label: 'PRÊMIO', val: sumPutPrem, color: C.green },
+        { label: 'RECOMPRA', val: sumPutRecomp, color: C.red },
+        { label: 'P&L', val: sumPutPL, color: sumPutPL >= 0 ? C.green : C.red },
+      ])}
+
+      {/* Separator */}
+      <View style={{ height: 1, backgroundColor: C.border, marginVertical: 12, opacity: 0.4 }} />
+
+      {/* Chart 2: CALL */}
+      <Text style={{ fontSize: 11, color: C.text, fontFamily: F.display, textAlign: 'center', marginBottom: 4 }}>
+        CALL — Prêmio vs Recompra
+      </Text>
+      {infoBar(selCall, callInfoItems, callMonthLabel)}
+      <TouchableOpacity activeOpacity={1} onPress={makeTouch(selCall, setSelCall)}>
+        <Svg width={w} height={subH}>{callEls}</Svg>
+      </TouchableOpacity>
+      {legendRow([{ label: 'Prêmio', color: C.green }, { label: 'Recompra', color: C.red }])}
+      {kpiRow([
+        { label: 'PRÊMIO', val: sumCallPrem, color: C.green },
+        { label: 'RECOMPRA', val: sumCallRecomp, color: C.red },
+        { label: 'P&L', val: sumCallPL, color: sumCallPL >= 0 ? C.green : C.red },
+      ])}
+
+      {/* Separator */}
+      <View style={{ height: 1, backgroundColor: C.border, marginVertical: 12, opacity: 0.4 }} />
+
+      {/* Chart 3: P&L PUT vs CALL */}
+      <Text style={{ fontSize: 11, color: C.text, fontFamily: F.display, textAlign: 'center', marginBottom: 4 }}>
+        P&L — PUT vs CALL
+      </Text>
+      {infoBar(selPL, plInfoItems, plMonthLabel)}
+      <TouchableOpacity activeOpacity={1} onPress={makeTouch(selPL, setSelPL)}>
+        <Svg width={w} height={subH}>{plEls}</Svg>
+      </TouchableOpacity>
+      {legendRow([{ label: 'PUT P&L', color: C.opcoes }, { label: 'CALL P&L', color: C.acoes }])}
+      {kpiRow([
+        { label: 'PUT P&L', val: sumPutPL, color: sumPutPL >= 0 ? C.green : C.red },
+        { label: 'CALL P&L', val: sumCallPL, color: sumCallPL >= 0 ? C.green : C.red },
+        { label: 'TOTAL', val: sumPutPL + sumCallPL, color: (sumPutPL + sumCallPL) >= 0 ? C.green : C.red },
+      ])}
+
+      {/* Separator */}
+      <View style={{ height: 1, backgroundColor: C.border, marginVertical: 12, opacity: 0.4 }} />
+
+      {/* Chart 4: PRÊMIO — PUT vs CALL */}
+      <Text style={{ fontSize: 11, color: C.text, fontFamily: F.display, textAlign: 'center', marginBottom: 4 }}>
+        Prêmio — PUT vs CALL
+      </Text>
+      {infoBar(selPrem, premInfoItems, premMonthLabel)}
+      <TouchableOpacity activeOpacity={1} onPress={makeTouch(selPrem, setSelPrem)}>
+        <Svg width={w} height={subH}>{premEls}</Svg>
+      </TouchableOpacity>
+      {legendRow([{ label: 'PUT', color: C.opcoes }, { label: 'CALL', color: C.acoes }])}
+      {kpiRow([
+        { label: 'PUT', val: sumPutPrem, color: C.opcoes },
+        { label: 'CALL', val: sumCallPrem, color: C.acoes },
+        { label: 'TOTAL', val: sumPutPrem + sumCallPrem, color: C.green },
+      ])}
+
+      {/* Separator */}
+      <View style={{ height: 1, backgroundColor: C.border, marginVertical: 12, opacity: 0.4 }} />
+
+      {/* Chart 5: RECOMPRA — PUT vs CALL */}
+      <Text style={{ fontSize: 11, color: C.text, fontFamily: F.display, textAlign: 'center', marginBottom: 4 }}>
+        Recompra — PUT vs CALL
+      </Text>
+      {infoBar(selRec, recInfoItems, recMonthLabel)}
+      <TouchableOpacity activeOpacity={1} onPress={makeTouch(selRec, setSelRec)}>
+        <Svg width={w} height={subH}>{recEls}</Svg>
+      </TouchableOpacity>
+      {legendRow([{ label: 'PUT', color: C.opcoes }, { label: 'CALL', color: C.acoes }])}
+      {kpiRow([
+        { label: 'PUT', val: sumPutRecomp, color: C.opcoes },
+        { label: 'CALL', val: sumCallRecomp, color: C.acoes },
+        { label: 'TOTAL', val: sumPutRecomp + sumCallRecomp, color: C.red },
+      ])}
+
+      {/* Separator */}
+      <View style={{ height: 1, backgroundColor: C.border, marginVertical: 12, opacity: 0.4 }} />
+
+      {/* Chart 6: EXERCIDAS — PUT vs CALL */}
+      <Text style={{ fontSize: 11, color: C.text, fontFamily: F.display, textAlign: 'center', marginBottom: 4 }}>
+        Exercidas — PUT vs CALL
+      </Text>
+      {infoBar(selExerc, exercInfoItems, exercMonthLabel)}
+      <TouchableOpacity activeOpacity={1} onPress={makeTouch(selExerc, setSelExerc)}>
+        <Svg width={w} height={subH}>{exercEls}</Svg>
+      </TouchableOpacity>
+      {legendRow([{ label: 'PUT', color: C.opcoes }, { label: 'CALL', color: C.acoes }])}
+      {kpiRow([
+        { label: 'PUT', val: sumExercPut, color: C.opcoes, prefix: '' },
+        { label: 'CALL', val: sumExercCall, color: C.acoes, prefix: '' },
+        { label: 'TOTAL', val: sumExercPut + sumExercCall, color: C.yellow, prefix: '' },
+      ])}
+
+      {/* Tendency indicator */}
+      {(function() {
+        var totalExerc = sumExercPut + sumExercCall;
+        if (totalExerc === 0) return null;
+
+        var pctPut = sumExercPut / totalExerc * 100;
+        var pctCall = sumExercCall / totalExerc * 100;
+
+        // Last 3 months trend
+        var rec3Put = 0; var rec3Call = 0;
+        for (var t3 = Math.max(0, n - 3); t3 < n; t3++) {
+          rec3Put += exercPutVals[t3];
+          rec3Call += exercCallVals[t3];
+        }
+        var rec3Total = rec3Put + rec3Call;
+        var rec3PctPut = rec3Total > 0 ? (rec3Put / rec3Total * 100) : 0;
+        var rec3PctCall = rec3Total > 0 ? (rec3Call / rec3Total * 100) : 0;
+
+        // Previous 3 months for comparison
+        var prev3Put = 0; var prev3Call = 0;
+        for (var p3 = Math.max(0, n - 6); p3 < Math.max(0, n - 3); p3++) {
+          prev3Put += exercPutVals[p3];
+          prev3Call += exercCallVals[p3];
+        }
+        var prev3Total = prev3Put + prev3Call;
+        var prev3PctPut = prev3Total > 0 ? (prev3Put / prev3Total * 100) : 0;
+
+        // Trend arrow
+        var trendText = '';
+        var trendColor = C.sub;
+        if (rec3Total > 0) {
+          var dominant = rec3PctPut >= rec3PctCall ? 'PUT' : 'CALL';
+          var dominantPct = rec3PctPut >= rec3PctCall ? rec3PctPut : rec3PctCall;
+          var dominantColor = rec3PctPut >= rec3PctCall ? C.opcoes : C.acoes;
+          trendColor = dominantColor;
+
+          if (prev3Total > 0) {
+            var delta = rec3PctPut - prev3PctPut;
+            var arrow = '';
+            if (Math.abs(delta) > 10) {
+              arrow = delta > 0 ? ' ↑' : ' ↓';
+            } else if (Math.abs(delta) > 3) {
+              arrow = delta > 0 ? ' ↗' : ' ↘';
+            } else {
+              arrow = ' →';
+            }
+            trendText = 'Últ. 3M: ' + dominant + ' ' + dominantPct.toFixed(0) + '%' + arrow;
+          } else {
+            trendText = 'Últ. 3M: ' + dominant + ' ' + dominantPct.toFixed(0) + '%';
+          }
+        }
+
+        return (
+          <View style={{ marginTop: 10 }}>
+            {/* Dominance bar */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <Text style={{ fontSize: 8, color: C.sub, fontFamily: F.body, width: 28, textAlign: 'right' }}>PUT</Text>
+              <View style={{ flex: 1, height: 10, borderRadius: 5, backgroundColor: C.border, flexDirection: 'row', overflow: 'hidden' }}>
+                {pctPut > 0 ? (
+                  <View style={{ width: pctPut + '%', height: 10, backgroundColor: C.opcoes, borderTopLeftRadius: 5, borderBottomLeftRadius: 5 }} />
+                ) : null}
+                {pctCall > 0 ? (
+                  <View style={{ width: pctCall + '%', height: 10, backgroundColor: C.acoes, borderTopRightRadius: 5, borderBottomRightRadius: 5 }} />
+                ) : null}
+              </View>
+              <Text style={{ fontSize: 8, color: C.sub, fontFamily: F.body, width: 28 }}>CALL</Text>
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 34 }}>
+              <Text style={{ fontSize: 9, color: C.opcoes, fontFamily: F.mono, fontWeight: '600' }}>
+                {pctPut.toFixed(0) + '%'}
+              </Text>
+              <Text style={{ fontSize: 9, color: C.acoes, fontFamily: F.mono, fontWeight: '600' }}>
+                {pctCall.toFixed(0) + '%'}
+              </Text>
+            </View>
+
+            {/* Trend insight */}
+            {trendText ? (
+              <View style={{ backgroundColor: C.surface, borderRadius: 6, paddingVertical: 5, paddingHorizontal: 10, marginTop: 6, borderWidth: 0.5, borderColor: C.border, alignItems: 'center' }}>
+                <Text style={{ fontSize: 10, color: trendColor, fontFamily: F.mono, fontWeight: '600' }}>
+                  {trendText}
+                </Text>
+                {prev3Total > 0 && rec3Total > 0 ? (
+                  <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.body, marginTop: 2 }}>
+                    {'vs 3M ant.: PUT ' + prev3PctPut.toFixed(0) + '% / CALL ' + (100 - prev3PctPut).toFixed(0) + '%'}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        );
+      })()}
+    </View>
+  );
+}
+
+// ═══════════ INLINE SVG: Prêmio x Recompra x P&L Line Chart ═══════════
+
+function PremioMediaLineChart(props) {
+  var data = props.data || [];
+  var _w = useState(0); var w = _w[0]; var setW = _w[1];
+  var _sel = useState(-1); var sel = _sel[0]; var setSel = _sel[1];
+
+  if (data.length === 0) return null;
+
+  var n = data.length;
+  var chartH = 180;
+  var topPad = 22;
+  var botPad = 24;
+  var leftPad = 42;
+  var rightPad = 8;
+
+  if (w === 0) {
+    return React.createElement(View, { onLayout: function(e) { setW(e.nativeEvent.layout.width); }, style: { height: 1 } });
   }
 
   var drawH = chartH - topPad - botPad;
   var drawW = w - leftPad - rightPad;
-  var n = data.length;
 
-  var valToY = function(v) {
-    return topPad + drawH - (v / maxVal) * drawH;
-  };
-  var idxToX = function(i) {
-    return leftPad + (n > 1 ? (i / (n - 1)) * drawW : drawW / 2);
-  };
+  // Extract series
+  var premVals = [];
+  var recVals = [];
+  var plVals = [];
+  var sumPrem = 0;
+  var sumRec = 0;
+  var sumPL = 0;
+  for (var ei = 0; ei < n; ei++) {
+    var ed = data[ei];
+    var ePrem = ed.total || 0;
+    var eRec = ed.recompra || 0;
+    var ePL = ePrem - eRec;
+    premVals.push(ePrem);
+    recVals.push(eRec);
+    plVals.push(ePL);
+    sumPrem += ePrem;
+    sumRec += eRec;
+    sumPL += ePL;
+  }
 
-  // Grid lines
-  var gridVals = [0, maxVal * 0.5, maxVal];
-  var allEls = [];
+  var avgPrem = n > 0 ? sumPrem / n : 0;
+  var avgRec = n > 0 ? sumRec / n : 0;
+  var avgPL = n > 0 ? sumPL / n : 0;
+
+  // Range (covers all 3 series including negative P&L)
+  var maxV = 1;
+  var minV = 0;
+  for (var ri = 0; ri < n; ri++) {
+    if (premVals[ri] > maxV) maxV = premVals[ri];
+    if (recVals[ri] > maxV) maxV = recVals[ri];
+    if (plVals[ri] > maxV) maxV = plVals[ri];
+    if (plVals[ri] < minV) minV = plVals[ri];
+  }
+  var range = maxV - minV;
+  if (range === 0) range = 1;
+
+  function vToY(v) { return topPad + drawH - ((v - minV) / range) * drawH; }
+  function iToX(i) { return leftPad + (n > 1 ? (i / (n - 1)) * drawW : drawW / 2); }
+
+  function handleTouch(e) {
+    if (drawW <= 0 || n === 0) return;
+    var x = e.nativeEvent.locationX - leftPad;
+    var step = n > 1 ? drawW / (n - 1) : drawW;
+    var idx = Math.round(x / step);
+    if (idx < 0) idx = 0;
+    if (idx >= n) idx = n - 1;
+    setSel(idx === sel ? -1 : idx);
+  }
+
+  // Build SVG elements
+  var els = [];
+
+  // Grid
+  var gridVals = [];
+  if (minV < 0) {
+    gridVals = [minV, 0, maxV];
+  } else {
+    gridVals = [0, maxV * 0.5, maxV];
+  }
   for (var gi = 0; gi < gridVals.length; gi++) {
-    var gy = valToY(gridVals[gi]);
-    allEls.push(React.createElement(SvgLine, {
-      key: 'prg-' + gi, x1: leftPad, y1: gy, x2: w - rightPad, y2: gy,
-      stroke: C.border, strokeWidth: 0.5, strokeDasharray: '3,3',
+    var gy = vToY(gridVals[gi]);
+    var isZero = gridVals[gi] === 0 && minV < 0;
+    els.push(React.createElement(SvgLine, {
+      key: 'g' + gi, x1: leftPad, y1: gy, x2: w - rightPad, y2: gy,
+      stroke: isZero ? C.sub : C.border, strokeWidth: isZero ? 0.8 : 0.5, strokeDasharray: isZero ? '' : '3,3',
     }));
-    allEls.push(React.createElement(SvgText, {
-      key: 'prgl-' + gi, x: leftPad - 4, y: gy + 3,
-      fill: C.dim, fontSize: 8, fontFamily: F.mono, textAnchor: 'end',
+    els.push(React.createElement(SvgText, {
+      key: 'gl' + gi, x: leftPad - 4, y: gy + 3,
+      fill: C.dim, fontSize: 7, fontFamily: F.mono, textAnchor: 'end',
     }, fmtC(gridVals[gi])));
   }
 
-  // Build points
-  var recebPts = [];
-  var recompPts = [];
-  for (var pi = 0; pi < n; pi++) {
-    var xp = idxToX(pi);
-    recebPts.push({ x: xp, y: valToY(data[pi].total || 0), val: data[pi].total || 0 });
-    recompPts.push({ x: xp, y: valToY(data[pi].recompra || 0), val: data[pi].recompra || 0 });
-  }
+  // Series definitions: premio (green), recompra (red), P&L (accent)
+  var allSeries = [
+    { vals: premVals, color: C.green, area: true },
+    { vals: recVals, color: C.red, area: false },
+    { vals: plVals, color: C.accent, area: false },
+  ];
 
-  // Render series helper
-  var renderSeries = function(pts, color, key, showArea) {
-    var els = [];
-    if (pts.length < 1) return els;
+  for (var si = 0; si < allSeries.length; si++) {
+    var s = allSeries[si];
+    var pts = [];
+    for (var pi = 0; pi < n; pi++) {
+      pts.push({ x: iToX(pi), y: vToY(s.vals[pi]), val: s.vals[pi] });
+    }
 
     // Area fill
-    if (showArea && pts.length >= 2) {
-      var baseY = valToY(0);
-      var areaPath = 'M' + pts[0].x + ',' + baseY;
-      for (var a = 0; a < pts.length; a++) {
-        areaPath = areaPath + ' L' + pts[a].x + ',' + pts[a].y;
-      }
-      areaPath = areaPath + ' L' + pts[pts.length - 1].x + ',' + baseY + ' Z';
-      els.push(React.createElement(Path, {
-        key: key + '-area', d: areaPath,
-        fill: color, opacity: 0.08,
-      }));
+    if (s.area && pts.length >= 2) {
+      var baseY = vToY(0);
+      var ap = 'M' + pts[0].x + ',' + baseY;
+      for (var a = 0; a < pts.length; a++) ap = ap + ' L' + pts[a].x + ',' + pts[a].y;
+      ap = ap + ' L' + pts[pts.length - 1].x + ',' + baseY + ' Z';
+      els.push(React.createElement(Path, { key: 's' + si + 'a', d: ap, fill: s.color, opacity: 0.1 }));
     }
 
     // Line
     if (pts.length >= 2) {
-      var linePath = 'M' + pts[0].x + ',' + pts[0].y;
-      for (var l = 1; l < pts.length; l++) {
-        linePath = linePath + ' L' + pts[l].x + ',' + pts[l].y;
-      }
+      var lp = 'M' + pts[0].x + ',' + pts[0].y;
+      for (var li = 1; li < pts.length; li++) lp = lp + ' L' + pts[li].x + ',' + pts[li].y;
       els.push(React.createElement(Path, {
-        key: key + '-line', d: linePath,
-        stroke: color, strokeWidth: 2, fill: 'none', opacity: 0.9,
+        key: 's' + si + 'l', d: lp,
+        stroke: s.color, strokeWidth: 3, fill: 'none', opacity: 0.9,
       }));
     }
 
-    // Dots + values (only if > 0)
-    for (var d = 0; d < pts.length; d++) {
-      if (pts[d].val > 0) {
+    // Dots
+    for (var di = 0; di < pts.length; di++) {
+      if (pts[di].val !== 0) {
+        var isSel = di === sel;
         els.push(React.createElement(Circle, {
-          key: key + '-glow-' + d, cx: pts[d].x, cy: pts[d].y,
-          r: 5, fill: color, opacity: 0.15,
+          key: 's' + si + 'dg' + di, cx: pts[di].x, cy: pts[di].y,
+          r: isSel ? 6 : 3.5, fill: s.color, opacity: isSel ? 0.25 : 0.15,
         }));
         els.push(React.createElement(Circle, {
-          key: key + '-dot-' + d, cx: pts[d].x, cy: pts[d].y,
-          r: 3, fill: color, opacity: 1,
+          key: 's' + si + 'dd' + di, cx: pts[di].x, cy: pts[di].y,
+          r: isSel ? 4 : 2, fill: s.color, opacity: 1,
         }));
-        els.push(React.createElement(SvgText, {
-          key: key + '-val-' + d, x: pts[d].x, y: pts[d].y - 7,
-          fontSize: 7, fill: color, fontFamily: F.mono,
-          textAnchor: 'middle', opacity: 0.8,
-        }, fmtC(pts[d].val)));
       }
     }
-    return els;
-  };
+  }
 
-  // Render recompra behind, recebido on top
-  var recompEls = renderSeries(recompPts, C.red, 'recomp', false);
-  var recebEls = renderSeries(recebPts, C.green, 'receb', true);
-  for (var re = 0; re < recompEls.length; re++) allEls.push(recompEls[re]);
-  for (var rc = 0; rc < recebEls.length; rc++) allEls.push(recebEls[rc]);
+  // Vertical selection line
+  if (sel >= 0 && sel < n) {
+    var selX = iToX(sel);
+    els.push(React.createElement(SvgLine, {
+      key: 'vl', x1: selX, y1: topPad, x2: selX, y2: topPad + drawH,
+      stroke: C.text, strokeWidth: 0.8, opacity: 0.35, strokeDasharray: '4,3',
+    }));
+  }
 
   // X-axis labels
   for (var xi = 0; xi < n; xi++) {
     var showXL = n <= 12 || xi % Math.ceil(n / 8) === 0 || xi === n - 1;
     if (showXL) {
-      var monthParts = (data[xi].month || '').split('/');
-      allEls.push(React.createElement(SvgText, {
-        key: 'prx-' + xi, x: idxToX(xi), y: chartH - 6,
-        fontSize: 8, fill: C.dim, fontFamily: F.mono, textAnchor: 'middle',
-      }, monthParts[0] || ''));
+      var xSel = xi === sel;
+      var mp = (data[xi].month || '').split('/');
+      els.push(React.createElement(SvgText, {
+        key: 'x' + xi, x: iToX(xi), y: chartH - 4,
+        fontSize: 7, fill: xSel ? C.text : C.dim, fontFamily: F.mono, textAnchor: 'middle',
+        fontWeight: xSel ? '600' : '400',
+      }, mp[0] || ''));
     }
   }
 
-  return (
-    <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }}>
-      <Svg width={w} height={chartH}>{allEls}</Svg>
+  // Info bar data
+  var selD = sel >= 0 && sel < n ? data[sel] : null;
+  var sPrem = selD ? (selD.total || 0) : 0;
+  var sRec = selD ? (selD.recompra || 0) : 0;
+  var sPL = sPrem - sRec;
 
-      {/* Legend */}
-      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 14, marginTop: 8 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.green }} />
-          <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body }}>Recebido</Text>
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.red }} />
-          <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body }}>Recompra</Text>
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.accent }} />
-          <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body }}>Liquido</Text>
-        </View>
-      </View>
+  return React.createElement(View, null,
+    // Legend
+    React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'center', gap: 14, marginBottom: 6 } },
+      React.createElement(View, { style: { flexDirection: 'row', alignItems: 'center', gap: 4 } },
+        React.createElement(View, { style: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.green } }),
+        React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'Prêmio')
+      ),
+      React.createElement(View, { style: { flexDirection: 'row', alignItems: 'center', gap: 4 } },
+        React.createElement(View, { style: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.red } }),
+        React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'Recompra')
+      ),
+      React.createElement(View, { style: { flexDirection: 'row', alignItems: 'center', gap: 4 } },
+        React.createElement(View, { style: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.accent } }),
+        React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'P&L')
+      )
+    ),
 
-      {/* KPIs */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingHorizontal: 4 }}>
-        <View style={{ alignItems: 'center', flex: 1 }}>
-          <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>RECEBIDO 12M</Text>
-          <Text style={{ fontSize: 13, color: C.green, fontFamily: F.mono, fontWeight: '600' }}>
-            {'R$ ' + fmt(sum12Receb)}
-          </Text>
-        </View>
-        <View style={{ alignItems: 'center', flex: 1 }}>
-          <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>RECOMPRA 12M</Text>
-          <Text style={{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '600' }}>
-            {'R$ ' + fmt(sum12Recomp)}
-          </Text>
-        </View>
-        <View style={{ alignItems: 'center', flex: 1 }}>
-          <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>LIQUIDO 12M</Text>
-          <Text style={{ fontSize: 13, color: sum12Liq >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600' }}>
-            {'R$ ' + fmt(sum12Liq)}
-          </Text>
-        </View>
-      </View>
-    </View>
+    // KPIs (averages)
+    React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 8 } },
+      React.createElement(View, { style: { alignItems: 'center' } },
+        React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'Média Prêmio'),
+        React.createElement(Text, { style: { fontSize: 12, color: C.green, fontFamily: F.mono, fontWeight: '700' } }, 'R$ ' + fmt(avgPrem))
+      ),
+      React.createElement(View, { style: { alignItems: 'center' } },
+        React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'Média Recompra'),
+        React.createElement(Text, { style: { fontSize: 12, color: C.red, fontFamily: F.mono, fontWeight: '700' } }, 'R$ ' + fmt(avgRec))
+      ),
+      React.createElement(View, { style: { alignItems: 'center' } },
+        React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'Média P&L'),
+        React.createElement(Text, { style: { fontSize: 12, color: avgPL >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' } }, 'R$ ' + fmt(avgPL))
+      )
+    ),
+
+    // Info bar on selection
+    selD ? React.createElement(View, { style: { backgroundColor: C.surface, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, marginBottom: 8, borderWidth: 0.5, borderColor: C.border } },
+      React.createElement(Text, { style: { fontSize: 10, color: C.sub, fontFamily: F.body, textAlign: 'center', marginBottom: 3 } }, selD.month || ''),
+      React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'space-around' } },
+        React.createElement(View, { style: { alignItems: 'center' } },
+          React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'Prêmio'),
+          React.createElement(Text, { style: { fontSize: 14, color: C.green, fontFamily: F.mono, fontWeight: '700' } }, 'R$ ' + fmt(sPrem))
+        ),
+        React.createElement(View, { style: { alignItems: 'center' } },
+          React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'Recompra'),
+          React.createElement(Text, { style: { fontSize: 14, color: C.red, fontFamily: F.mono, fontWeight: '700' } }, 'R$ ' + fmt(sRec))
+        ),
+        React.createElement(View, { style: { alignItems: 'center' } },
+          React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'P&L'),
+          React.createElement(Text, { style: { fontSize: 14, color: sPL >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' } }, 'R$ ' + fmt(sPL))
+        )
+      )
+    ) : null,
+
+    // Chart
+    React.createElement(TouchableOpacity, { activeOpacity: 1, onPress: handleTouch },
+      React.createElement(Svg, { width: w, height: chartH }, els)
+    )
   );
 }
 
@@ -3212,6 +3828,8 @@ function PremiosBarChart(props) {
   var showPut = props.showPut;
   var selected = props.selected != null ? props.selected : -1;
   var onSelect = props.onSelect || function() {};
+  var barColor = props.barColor || C.opcoes;
+  var barColors = props.barColors || null;
 
   var _w = useState(0); var w = _w[0]; var setW = _w[1];
 
@@ -3290,9 +3908,9 @@ function PremiosBarChart(props) {
               var monthParts = (d.month || '').split('/');
               var monthLabel = monthParts[0] || '';
 
-              // Build tooltip lines
+              // Build tooltip lines (only when overlay active)
               var tipLines = [];
-              if (isSelected) {
+              if (isSelected && hasOverlay) {
                 tipLines.push({ label: 'Receb', value: d.total || 0, color: C.green });
                 if (showCall) tipLines.push({ label: 'C', value: d.call || 0, color: C.acoes });
                 if (showPut) tipLines.push({ label: 'P', value: d.put || 0, color: C.opcoes });
@@ -3312,7 +3930,7 @@ function PremiosBarChart(props) {
                 <G key={'b' + i}>
                   {/* Total bar (background) */}
                   <SvgRect x={barX} y={totalB.y} width={totalBarW} height={totalB.h}
-                    rx={3} fill={C.opcoes} opacity={totalOpacity} />
+                    rx={3} fill={barColors ? (barColors[i] || barColor) : barColor} opacity={totalOpacity} />
 
                   {/* Call/Put overlay bars */}
                   {hasOverlay ? (function() {
@@ -3486,6 +4104,13 @@ export default function AnaliseScreen() {
   var _opcShowCall = useState(false); var opcShowCall = _opcShowCall[0]; var setOpcShowCall = _opcShowCall[1];
   var _opcShowPut = useState(false); var opcShowPut = _opcShowPut[0]; var setOpcShowPut = _opcShowPut[1];
   var _opcPremSelected = useState(-1); var opcPremSelected = _opcPremSelected[0]; var setOpcPremSelected = _opcPremSelected[1];
+  var _opcPremView = useState('mensal'); var opcPremView = _opcPremView[0]; var setOpcPremView = _opcPremView[1];
+  var _opcRecView = useState('mensal'); var opcRecView = _opcRecView[0]; var setOpcRecView = _opcRecView[1];
+  var _opcRecSelected = useState(-1); var opcRecSelected = _opcRecSelected[0]; var setOpcRecSelected = _opcRecSelected[1];
+  var _opcPLBarView = useState('mensal'); var opcPLBarView = _opcPLBarView[0]; var setOpcPLBarView = _opcPLBarView[1];
+  var _opcPLBarSelected = useState(-1); var opcPLBarSelected = _opcPLBarSelected[0]; var setOpcPLBarSelected = _opcPLBarSelected[1];
+  var _opcPLFilter = useState('todos'); var opcPLFilter = _opcPLFilter[0]; var setOpcPLFilter = _opcPLFilter[1];
+  var _opcPLSortAsc = useState(false); var opcPLSortAsc = _opcPLSortAsc[0]; var setOpcPLSortAsc = _opcPLSortAsc[1];
   var _indicators = useState([]); var indicators = _indicators[0]; var setIndicators = _indicators[1];
   var _searchTicker = useState(''); var searchTicker = _searchTicker[0]; var setSearchTicker = _searchTicker[1];
   var _searchLoading = useState(false); var searchLoading = _searchLoading[0]; var setSearchLoading = _searchLoading[1];
@@ -3942,7 +4567,7 @@ export default function AnaliseScreen() {
       opcByTipo[tipo].premio += premioTotal;
 
       var base2 = op.ativo_base || 'N/A';
-      if (!opcByBase[base2]) opcByBase[base2] = { count: 0, premioRecebido: 0, pl: 0 };
+      if (!opcByBase[base2]) opcByBase[base2] = { count: 0, premioRecebido: 0, pl: 0, call_premio: 0, call_pl: 0, put_premio: 0, put_pl: 0 };
       opcByBase[base2].count += 1;
 
       // Taxa mensal equivalente (normalizada por DTE)
@@ -3963,7 +4588,7 @@ export default function AnaliseScreen() {
           var dReceb = new Date(dataRef);
           dReceb.setDate(dReceb.getDate() + 1);
           var opMonth = dReceb.getFullYear() + '-' + String(dReceb.getMonth() + 1).padStart(2, '0');
-          if (!opcPremByMonth[opMonth]) opcPremByMonth[opMonth] = { total: 0, call: 0, put: 0, recompra: 0 };
+          if (!opcPremByMonth[opMonth]) opcPremByMonth[opMonth] = { total: 0, call: 0, put: 0, recompra: 0, recompra_call: 0, recompra_put: 0, exercida_call: 0, exercida_put: 0 };
           opcPremByMonth[opMonth].total += premioTotal;
           opcPremByMonth[opMonth][tipo] += premioTotal;
         }
@@ -3974,6 +4599,8 @@ export default function AnaliseScreen() {
         if (isVenda) {
           opcByBase[base2].premioRecebido += premioTotal;
           opcByBase[base2].pl += premioTotal;
+          opcByBase[base2][tipo + '_premio'] += premioTotal;
+          opcByBase[base2][tipo + '_pl'] += premioTotal;
         }
         var vencDate = new Date(op.vencimento);
         var daysToExp = Math.ceil((vencDate - nowOpc) / (1000 * 60 * 60 * 24));
@@ -3993,12 +4620,25 @@ export default function AnaliseScreen() {
             if (dataFech) {
               var dFech = new Date(dataFech);
               var fechMonth = dFech.getFullYear() + '-' + String(dFech.getMonth() + 1).padStart(2, '0');
-              if (!opcPremByMonth[fechMonth]) opcPremByMonth[fechMonth] = { total: 0, call: 0, put: 0, recompra: 0 };
+              if (!opcPremByMonth[fechMonth]) opcPremByMonth[fechMonth] = { total: 0, call: 0, put: 0, recompra: 0, recompra_call: 0, recompra_put: 0, exercida_call: 0, exercida_put: 0 };
               opcPremByMonth[fechMonth].recompra += premioFech;
+              opcPremByMonth[fechMonth]['recompra_' + tipo] += premioFech;
+            }
+          }
+          // Track exercised by month and tipo
+          if (status === 'exercida') {
+            var exVenc = op.vencimento || op.updated_at || '';
+            if (exVenc) {
+              var dEx = new Date(exVenc);
+              var exMonth = dEx.getFullYear() + '-' + String(dEx.getMonth() + 1).padStart(2, '0');
+              if (!opcPremByMonth[exMonth]) opcPremByMonth[exMonth] = { total: 0, call: 0, put: 0, recompra: 0, recompra_call: 0, recompra_put: 0, exercida_call: 0, exercida_put: 0 };
+              opcPremByMonth[exMonth]['exercida_' + tipo] += 1;
             }
           }
           opcByBase[base2].premioRecebido += premioTotal;
           opcByBase[base2].pl += plOp;
+          opcByBase[base2][tipo + '_premio'] += premioTotal;
+          opcByBase[base2][tipo + '_pl'] += plOp;
           if (plOp >= 0) opcWins++; else opcLosses++;
         }
       }
@@ -4041,9 +4681,23 @@ export default function AnaliseScreen() {
       var omd = new Date(nowOpc.getFullYear(), nowOpc.getMonth() - omi, 1);
       var omk = omd.getFullYear() + '-' + String(omd.getMonth() + 1).padStart(2, '0');
       var oml = MONTH_LABELS[omd.getMonth() + 1] + '/' + String(omd.getFullYear()).substring(2);
-      var omData = opcPremByMonth[omk] || { total: 0, call: 0, put: 0, recompra: 0 };
-      opcMonthlyPremiums.push({ month: oml, total: omData.total, call: omData.call, put: omData.put, recompra: omData.recompra || 0 });
+      var omData = opcPremByMonth[omk] || { total: 0, call: 0, put: 0, recompra: 0, recompra_call: 0, recompra_put: 0, exercida_call: 0, exercida_put: 0 };
+      opcMonthlyPremiums.push({ month: oml, total: omData.total, call: omData.call, put: omData.put, recompra: omData.recompra || 0, recompra_call: omData.recompra_call || 0, recompra_put: omData.recompra_put || 0, exercida_call: omData.exercida_call || 0, exercida_put: omData.exercida_put || 0 });
     }
+  }
+
+  // Recompra and P&L monthly data (derived from opcMonthlyPremiums)
+  var recMonthlyData = [];
+  var plMonthlyData = [];
+  var plMonthlyColors = [];
+  for (var rmi = 0; rmi < opcMonthlyPremiums.length; rmi++) {
+    var rmd = opcMonthlyPremiums[rmi];
+    recMonthlyData.push({ month: rmd.month, total: rmd.recompra || 0, call: rmd.recompra_call || 0, put: rmd.recompra_put || 0, value: rmd.recompra || 0 });
+    var plmT = (rmd.total || 0) - (rmd.recompra || 0);
+    var plmC = (rmd.call || 0) - (rmd.recompra_call || 0);
+    var plmP = (rmd.put || 0) - (rmd.recompra_put || 0);
+    plMonthlyData.push({ month: rmd.month, total: Math.abs(plmT), call: plmC, put: plmP, value: plmT });
+    plMonthlyColors.push(plmT >= 0 ? C.green : C.red);
   }
 
   // ── Derived: Alocação ──
@@ -4317,7 +4971,7 @@ export default function AnaliseScreen() {
   var premMediaMensal = premios12mOpc / 12;
   var premYieldOnCost = totalCusto > 0 ? (premios12mOpc / totalCusto) * 100 : 0;
 
-  // Premios by year
+  // Premios by year (with call/put split)
   var premByYear = {};
   for (var pyi = 0; pyi < opcoes.length; pyi++) {
     var pyiOp = opcoes[pyi];
@@ -4326,18 +4980,53 @@ export default function AnaliseScreen() {
     if (pyiVenda) {
       var pyiDate = pyiOp.data_abertura || pyiOp.created_at || pyiOp.vencimento || '';
       var pyiYear = pyiDate.substring(0, 4);
+      var pyiTipo = pyiOp.tipo || 'call';
+      var pyiPrem = (pyiOp.premio || 0) * (pyiOp.quantidade || 0);
       if (pyiYear) {
-        if (!premByYear[pyiYear]) premByYear[pyiYear] = 0;
-        premByYear[pyiYear] += (pyiOp.premio || 0) * (pyiOp.quantidade || 0);
+        if (!premByYear[pyiYear]) premByYear[pyiYear] = { total: 0, call: 0, put: 0, recompra: 0, recompra_call: 0, recompra_put: 0 };
+        premByYear[pyiYear].total += pyiPrem;
+        premByYear[pyiYear][pyiTipo] += pyiPrem;
+      }
+    }
+  }
+  // Recompra by year (closing date)
+  for (var ryi = 0; ryi < opcoes.length; ryi++) {
+    var ryOp = opcoes[ryi];
+    var ryDir = ryOp.direcao || 'venda';
+    var ryVenda = ryDir === 'venda' || ryDir === 'lancamento';
+    if (ryVenda && (ryOp.premio_fechamento || 0) > 0) {
+      var ryDate = ryOp.updated_at || ryOp.vencimento || '';
+      var ryYear = ryDate.substring(0, 4);
+      var ryTipo = ryOp.tipo || 'call';
+      var ryRec = (ryOp.premio_fechamento || 0) * (ryOp.quantidade || 0);
+      if (ryYear) {
+        if (!premByYear[ryYear]) premByYear[ryYear] = { total: 0, call: 0, put: 0, recompra: 0, recompra_call: 0, recompra_put: 0 };
+        premByYear[ryYear].recompra += ryRec;
+        premByYear[ryYear]['recompra_' + ryTipo] += ryRec;
       }
     }
   }
   var premAnnualData = [];
   var premAnnualYears = Object.keys(premByYear).sort();
   for (var pay = 0; pay < premAnnualYears.length; pay++) {
-    premAnnualData.push({ month: premAnnualYears[pay], value: premByYear[premAnnualYears[pay]] });
+    var payD = premByYear[premAnnualYears[pay]];
+    premAnnualData.push({ month: premAnnualYears[pay], total: payD.total, call: payD.call, put: payD.put, value: payD.total, recompra: payD.recompra || 0, recompra_call: payD.recompra_call || 0, recompra_put: payD.recompra_put || 0 });
   }
-  var maxPremYear = premAnnualData.reduce(function(m, d) { return Math.max(m, d.value); }, 1);
+  var maxPremYear = premAnnualData.reduce(function(m, d) { return Math.max(m, d.total || d.value || 0); }, 1);
+
+  // Recompra and P&L annual data
+  var recAnnualData = [];
+  var plAnnualData = [];
+  var plAnnualColors = [];
+  for (var ray = 0; ray < premAnnualData.length; ray++) {
+    var rad = premAnnualData[ray];
+    recAnnualData.push({ month: rad.month, total: rad.recompra || 0, call: rad.recompra_call || 0, put: rad.recompra_put || 0, value: rad.recompra || 0 });
+    var plAT = (rad.total || 0) - (rad.recompra || 0);
+    var plAC = (rad.call || 0) - (rad.recompra_call || 0);
+    var plAP = (rad.put || 0) - (rad.recompra_put || 0);
+    plAnnualData.push({ month: rad.month, total: Math.abs(plAT), call: plAC, put: plAP, value: plAT });
+    plAnnualColors.push(plAT >= 0 ? C.green : C.red);
+  }
 
   // Premios asset ranking (sorted by premio received)
   var premAssetRanking = [];
@@ -5308,43 +5997,73 @@ export default function AnaliseScreen() {
                     </Glass>
                   </View>
 
-                  {/* Historico mensal de premios */}
+                  {/* Historico de premios (mensal / anual) */}
                   {opcMonthlyPremiums.length > 0 && (function() {
-                    var sum12 = opcMonthlyPremiums.reduce(function(s, d) { return s + (d.total || 0); }, 0);
-                    var sumCall = opcMonthlyPremiums.reduce(function(s, d) { return s + (d.call || 0); }, 0);
-                    var sumPut = opcMonthlyPremiums.reduce(function(s, d) { return s + (d.put || 0); }, 0);
+                    var isAnual = opcPremView === 'anual';
+                    var chartData = isAnual ? premAnnualData : opcMonthlyPremiums;
+                    var sumTotal = chartData.reduce(function(s, d) { return s + (d.total || d.value || 0); }, 0);
+                    var sumCall = chartData.reduce(function(s, d) { return s + (d.call || 0); }, 0);
+                    var sumPut = chartData.reduce(function(s, d) { return s + (d.put || 0); }, 0);
+                    var selIdx = opcPremSelected;
+                    var selData = selIdx >= 0 && selIdx < chartData.length ? chartData[selIdx] : null;
                     return (
                       <>
-                        <SectionLabel>PREMIOS MENSAIS</SectionLabel>
+                        <SectionLabel>PRÊMIOS</SectionLabel>
                         <Glass padding={12}>
                           <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
-                            <Pill active={opcShowCall}
-                              color={C.acoes}
-                              onPress={function() { setOpcShowCall(!opcShowCall); setOpcPremSelected(-1); }}>Call</Pill>
-                            <Pill active={opcShowPut}
-                              color={C.green}
-                              onPress={function() { setOpcShowPut(!opcShowPut); setOpcPremSelected(-1); }}>Put</Pill>
+                            <Pill active={opcPremView === 'mensal'}
+                              color={C.accent}
+                              onPress={function() { setOpcPremView('mensal'); setOpcPremSelected(-1); }}>Mensal</Pill>
+                            <Pill active={opcPremView === 'anual'}
+                              color={C.accent}
+                              onPress={function() { setOpcPremView('anual'); setOpcPremSelected(-1); }}>Anual</Pill>
                           </View>
                           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10, marginBottom: 8 }}>
                             <Text style={{ fontFamily: F.mono, fontSize: 13, color: C.text }}>
-                              {'R$ ' + fmt(sum12)}
-                              <Text style={{ fontSize: 10, color: C.sub }}>{' 12m'}</Text>
+                              {'R$ ' + fmt(sumTotal)}
+                              <Text style={{ fontSize: 10, color: C.sub }}>{isAnual ? ' total' : ' 12m'}</Text>
                             </Text>
-                            {opcShowCall ? (
-                              <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.acoes }}>
-                                {'C R$ ' + fmt(sumCall)}
-                              </Text>
-                            ) : null}
-                            {opcShowPut ? (
-                              <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.green }}>
-                                {'P R$ ' + fmt(sumPut)}
-                              </Text>
-                            ) : null}
+                            <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.acoes }}>
+                              {'C R$ ' + fmt(sumCall)}
+                            </Text>
+                            <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.opcoes }}>
+                              {'P R$ ' + fmt(sumPut)}
+                            </Text>
                           </View>
+
+                          {/* Info bar when bar selected */}
+                          {selData ? (
+                            <View style={{ backgroundColor: C.surface, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, marginBottom: 8, borderWidth: 0.5, borderColor: C.border }}>
+                              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body, textAlign: 'center', marginBottom: 3 }}>
+                                {selData.month || ''}
+                              </Text>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                                <View style={{ alignItems: 'center' }}>
+                                  <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>Total</Text>
+                                  <Text style={{ fontSize: 14, color: C.text, fontFamily: F.mono, fontWeight: '700' }}>
+                                    {'R$ ' + fmt(selData.total || selData.value || 0)}
+                                  </Text>
+                                </View>
+                                <View style={{ alignItems: 'center' }}>
+                                  <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>CALL</Text>
+                                  <Text style={{ fontSize: 14, color: C.acoes, fontFamily: F.mono, fontWeight: '700' }}>
+                                    {'R$ ' + fmt(selData.call || 0)}
+                                  </Text>
+                                </View>
+                                <View style={{ alignItems: 'center' }}>
+                                  <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>PUT</Text>
+                                  <Text style={{ fontSize: 14, color: C.opcoes, fontFamily: F.mono, fontWeight: '700' }}>
+                                    {'R$ ' + fmt(selData.put || 0)}
+                                  </Text>
+                                </View>
+                              </View>
+                            </View>
+                          ) : null}
+
                           <PremiosBarChart
-                            data={opcMonthlyPremiums}
-                            showCall={opcShowCall}
-                            showPut={opcShowPut}
+                            data={chartData}
+                            showCall={false}
+                            showPut={false}
                             selected={opcPremSelected}
                             onSelect={setOpcPremSelected}
                           />
@@ -5353,35 +6072,234 @@ export default function AnaliseScreen() {
                     );
                   })()}
 
-                  {/* Por Ativo Base */}
-                  <SectionLabel>POR ATIVO BASE</SectionLabel>
-                  <Glass padding={0}>
+                  {/* Historico de recompras (mensal / anual) */}
+                  {opcMonthlyPremiums.length > 0 && (function() {
+                    var isAnual = opcRecView === 'anual';
+                    var chartData = isAnual ? recAnnualData : recMonthlyData;
+                    var sumTotal = chartData.reduce(function(s, d) { return s + (d.value || 0); }, 0);
+                    var sumCall = chartData.reduce(function(s, d) { return s + (d.call || 0); }, 0);
+                    var sumPut = chartData.reduce(function(s, d) { return s + (d.put || 0); }, 0);
+                    var selIdx = opcRecSelected;
+                    var selData = selIdx >= 0 && selIdx < chartData.length ? chartData[selIdx] : null;
+                    return (
+                      <>
+                        <SectionLabel>RECOMPRAS</SectionLabel>
+                        <Glass padding={12}>
+                          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
+                            <Pill active={opcRecView === 'mensal'}
+                              color={C.accent}
+                              onPress={function() { setOpcRecView('mensal'); setOpcRecSelected(-1); }}>Mensal</Pill>
+                            <Pill active={opcRecView === 'anual'}
+                              color={C.accent}
+                              onPress={function() { setOpcRecView('anual'); setOpcRecSelected(-1); }}>Anual</Pill>
+                          </View>
+                          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10, marginBottom: 8 }}>
+                            <Text style={{ fontFamily: F.mono, fontSize: 13, color: C.red }}>
+                              {'R$ ' + fmt(sumTotal)}
+                              <Text style={{ fontSize: 10, color: C.sub }}>{isAnual ? ' total' : ' 12m'}</Text>
+                            </Text>
+                            <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.acoes }}>
+                              {'C R$ ' + fmt(sumCall)}
+                            </Text>
+                            <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.opcoes }}>
+                              {'P R$ ' + fmt(sumPut)}
+                            </Text>
+                          </View>
+
+                          {selData ? (
+                            <View style={{ backgroundColor: C.surface, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, marginBottom: 8, borderWidth: 0.5, borderColor: C.border }}>
+                              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body, textAlign: 'center', marginBottom: 3 }}>
+                                {selData.month || ''}
+                              </Text>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                                <View style={{ alignItems: 'center' }}>
+                                  <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>Total</Text>
+                                  <Text style={{ fontSize: 14, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                                    {'R$ ' + fmt(selData.total || selData.value || 0)}
+                                  </Text>
+                                </View>
+                                <View style={{ alignItems: 'center' }}>
+                                  <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>CALL</Text>
+                                  <Text style={{ fontSize: 14, color: C.acoes, fontFamily: F.mono, fontWeight: '700' }}>
+                                    {'R$ ' + fmt(selData.call || 0)}
+                                  </Text>
+                                </View>
+                                <View style={{ alignItems: 'center' }}>
+                                  <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>PUT</Text>
+                                  <Text style={{ fontSize: 14, color: C.opcoes, fontFamily: F.mono, fontWeight: '700' }}>
+                                    {'R$ ' + fmt(selData.put || 0)}
+                                  </Text>
+                                </View>
+                              </View>
+                            </View>
+                          ) : null}
+
+                          <PremiosBarChart
+                            data={chartData}
+                            showCall={false}
+                            showPut={false}
+                            selected={opcRecSelected}
+                            onSelect={setOpcRecSelected}
+                            barColor={C.red}
+                          />
+                        </Glass>
+                      </>
+                    );
+                  })()}
+
+                  {/* Historico de P&L (mensal / anual) */}
+                  {opcMonthlyPremiums.length > 0 && (function() {
+                    var isAnual = opcPLBarView === 'anual';
+                    var chartData = isAnual ? plAnnualData : plMonthlyData;
+                    var colors = isAnual ? plAnnualColors : plMonthlyColors;
+                    var sumTotal = chartData.reduce(function(s, d) { return s + (d.value || 0); }, 0);
+                    var sumCall = chartData.reduce(function(s, d) { return s + (d.call || 0); }, 0);
+                    var sumPut = chartData.reduce(function(s, d) { return s + (d.put || 0); }, 0);
+                    var selIdx = opcPLBarSelected;
+                    var selData = selIdx >= 0 && selIdx < chartData.length ? chartData[selIdx] : null;
+                    return (
+                      <>
+                        <SectionLabel>P&L</SectionLabel>
+                        <Glass padding={12}>
+                          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
+                            <Pill active={opcPLBarView === 'mensal'}
+                              color={C.accent}
+                              onPress={function() { setOpcPLBarView('mensal'); setOpcPLBarSelected(-1); }}>Mensal</Pill>
+                            <Pill active={opcPLBarView === 'anual'}
+                              color={C.accent}
+                              onPress={function() { setOpcPLBarView('anual'); setOpcPLBarSelected(-1); }}>Anual</Pill>
+                          </View>
+                          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10, marginBottom: 8 }}>
+                            <Text style={{ fontFamily: F.mono, fontSize: 13, color: sumTotal >= 0 ? C.green : C.red }}>
+                              {'R$ ' + fmt(sumTotal)}
+                              <Text style={{ fontSize: 10, color: C.sub }}>{isAnual ? ' total' : ' 12m'}</Text>
+                            </Text>
+                            <Text style={{ fontFamily: F.mono, fontSize: 10, color: sumCall >= 0 ? C.green : C.red }}>
+                              {'C R$ ' + fmt(sumCall)}
+                            </Text>
+                            <Text style={{ fontFamily: F.mono, fontSize: 10, color: sumPut >= 0 ? C.green : C.red }}>
+                              {'P R$ ' + fmt(sumPut)}
+                            </Text>
+                          </View>
+
+                          {selData ? (
+                            <View style={{ backgroundColor: C.surface, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, marginBottom: 8, borderWidth: 0.5, borderColor: C.border }}>
+                              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body, textAlign: 'center', marginBottom: 3 }}>
+                                {selData.month || ''}
+                              </Text>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                                <View style={{ alignItems: 'center' }}>
+                                  <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>Total</Text>
+                                  <Text style={{ fontSize: 14, color: (selData.value || 0) >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                                    {'R$ ' + fmt(selData.value || 0)}
+                                  </Text>
+                                </View>
+                                <View style={{ alignItems: 'center' }}>
+                                  <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>CALL</Text>
+                                  <Text style={{ fontSize: 14, color: (selData.call || 0) >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                                    {'R$ ' + fmt(selData.call || 0)}
+                                  </Text>
+                                </View>
+                                <View style={{ alignItems: 'center' }}>
+                                  <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>PUT</Text>
+                                  <Text style={{ fontSize: 14, color: (selData.put || 0) >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                                    {'R$ ' + fmt(selData.put || 0)}
+                                  </Text>
+                                </View>
+                              </View>
+                            </View>
+                          ) : null}
+
+                          <PremiosBarChart
+                            data={chartData}
+                            showCall={false}
+                            showPut={false}
+                            selected={opcPLBarSelected}
+                            onSelect={setOpcPLBarSelected}
+                            barColors={colors}
+                          />
+                        </Glass>
+                      </>
+                    );
+                  })()}
+
+                  {/* Prêmio x Recompra x P&L line chart (12M) */}
+                  {opcMonthlyPremiums.length > 1 && (
+                    <Glass padding={12}>
+                      <Text style={styles.sectionTitle}>PRÊMIO x RECOMPRA x P&L (12M)</Text>
+                      <PremioMediaLineChart data={opcMonthlyPremiums} />
+                    </Glass>
+                  )}
+
+                  {/* Premio vs Recompra charts (PUT / CALL / P&L) */}
+                  {maxPremMonth > 1 && (
+                    <Glass padding={12}>
+                      <PremioVsRecompraChart data={opcMonthlyPremiums} />
+                    </Glass>
+                  )}
+
+                  {/* P&L por Ativo Base */}
+                  <SectionLabel>P&L POR ATIVO</SectionLabel>
+                  <Glass padding={12}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                        <Pill active={opcPLFilter === 'todos'} color={C.accent}
+                          onPress={function() { setOpcPLFilter('todos'); }}>Todos</Pill>
+                        <Pill active={opcPLFilter === 'put'} color={C.opcoes}
+                          onPress={function() { setOpcPLFilter('put'); }}>PUT</Pill>
+                        <Pill active={opcPLFilter === 'call'} color={C.acoes}
+                          onPress={function() { setOpcPLFilter('call'); }}>CALL</Pill>
+                      </View>
+                      <TouchableOpacity onPress={function() { setOpcPLSortAsc(!opcPLSortAsc); }}
+                        style={{ paddingHorizontal: 8, paddingVertical: 4 }}>
+                        <Text style={{ fontSize: 16, color: C.accent }}>
+                          {opcPLSortAsc ? '↑' : '↓'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                     {(function() {
-                      var bases = Object.keys(opcByBase).sort(function(a, b) {
-                        return opcByBase[b].premioRecebido - opcByBase[a].premioRecebido;
+                      var fKey = opcPLFilter === 'put' ? 'put_pl' : (opcPLFilter === 'call' ? 'call_pl' : 'pl');
+                      var pKey = opcPLFilter === 'put' ? 'put_premio' : (opcPLFilter === 'call' ? 'call_premio' : 'premioRecebido');
+                      var bases = Object.keys(opcByBase).filter(function(b) {
+                        var bd = opcByBase[b];
+                        if (opcPLFilter === 'put') return (bd.put_premio || 0) > 0 || (bd.put_pl || 0) !== 0;
+                        if (opcPLFilter === 'call') return (bd.call_premio || 0) > 0 || (bd.call_pl || 0) !== 0;
+                        return true;
                       });
-                      var maxPremio = 1;
+                      bases.sort(function(a, b) {
+                        var va = opcByBase[a][fKey] || 0;
+                        var vb = opcByBase[b][fKey] || 0;
+                        return opcPLSortAsc ? va - vb : vb - va;
+                      });
+                      var maxAbs = 1;
                       for (var bm = 0; bm < bases.length; bm++) {
-                        if (opcByBase[bases[bm]].premioRecebido > maxPremio) {
-                          maxPremio = opcByBase[bases[bm]].premioRecebido;
-                        }
+                        var absV = Math.abs(opcByBase[bases[bm]][fKey] || 0);
+                        if (absV > maxAbs) maxAbs = absV;
+                      }
+                      if (bases.length === 0) {
+                        return <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, textAlign: 'center', paddingVertical: 12 }}>Sem dados</Text>;
                       }
                       return bases.map(function(base, i) {
                         var bd = opcByBase[base];
-                        var barW = Math.min(bd.premioRecebido / maxPremio * 100, 100);
+                        var plVal = bd[fKey] || 0;
+                        var premVal = bd[pKey] || 0;
+                        var barPct = Math.min(Math.abs(plVal) / maxAbs * 100, 100);
+                        var barColor = plVal >= 0 ? C.green : C.red;
                         return (
-                          <View key={base} style={[styles.rankRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                          <View key={base} style={[{ paddingVertical: 10, paddingHorizontal: 4 }, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                               <Text style={styles.rankTicker}>{base}</Text>
-                              <View style={styles.rankBarBg}>
-                                <View style={[styles.rankBarFill, { width: barW + '%', backgroundColor: C.opcoes }]} />
+                              <View style={{ alignItems: 'flex-end' }}>
+                                <Text style={{ fontSize: 13, color: barColor, fontFamily: F.mono, fontWeight: '700' }}>
+                                  {(plVal >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(plVal))}
+                                </Text>
+                                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>
+                                  {'Prêmio R$ ' + fmt(premVal)}
+                                </Text>
                               </View>
                             </View>
-                            <View style={{ alignItems: 'flex-end' }}>
-                              <Text style={[styles.rankPct, { color: C.opcoes }]}>R$ {fmt(bd.premioRecebido)}</Text>
-                              <Text style={[styles.rankVal, { color: bd.pl >= 0 ? C.green : C.red }]}>
-                                P&L {bd.pl >= 0 ? '+' : ''}R$ {fmt(Math.abs(bd.pl))}
-                              </Text>
+                            <View style={{ height: 6, borderRadius: 3, backgroundColor: C.border, overflow: 'hidden' }}>
+                              <View style={{ width: barPct + '%', height: 6, borderRadius: 3, backgroundColor: barColor }} />
                             </View>
                           </View>
                         );
@@ -5389,61 +6307,6 @@ export default function AnaliseScreen() {
                     })()}
                   </Glass>
 
-                  {/* Por Status */}
-                  <SectionLabel>POR STATUS</SectionLabel>
-                  <Glass padding={0}>
-                    {Object.keys(opcByStatus).map(function(status, i) {
-                      var sd = opcByStatus[status];
-                      var pct = opcoes.length > 0 ? (sd.count / opcoes.length * 100) : 0;
-                      var sColor = OPC_STATUS_COLORS[status] || C.dim;
-                      return (
-                        <View key={status} style={[styles.rankRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                            <Badge text={OPC_STATUS_LABELS[status] || status} color={sColor} />
-                            <View style={styles.rankBarBg}>
-                              <View style={[styles.rankBarFill, { width: pct + '%', backgroundColor: sColor }]} />
-                            </View>
-                          </View>
-                          <View style={{ alignItems: 'flex-end' }}>
-                            <Text style={[styles.rankPct, { color: sColor }]}>{String(sd.count)}</Text>
-                            <Text style={styles.rankVal}>R$ {fmt(sd.premio)}</Text>
-                          </View>
-                        </View>
-                      );
-                    })}
-                  </Glass>
-
-                  {/* Proximos Vencimentos */}
-                  {opcProxVenc.length > 0 && (
-                    <>
-                      <SectionLabel>VENCEM EM 30 DIAS</SectionLabel>
-                      <Glass padding={0}>
-                        {opcProxVenc.map(function(item, i) {
-                          var o = item.op;
-                          var premioOp = (o.premio || 0) * (o.quantidade || 0);
-                          var urgColor = item.daysLeft < 7 ? C.red : (item.daysLeft < 15 ? C.yellow : C.opcoes);
-                          return (
-                            <View key={o.id || i} style={[styles.rankRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
-                              <View style={{ flex: 1 }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                  <Text style={styles.rankTicker}>{o.ticker_opcao || o.ativo_base}</Text>
-                                  <Badge text={(o.tipo || 'CALL').toUpperCase()} color={o.tipo === 'put' ? C.red : C.green} />
-                                  <Badge text={item.daysLeft + 'd'} color={urgColor} />
-                                </View>
-                                <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>
-                                  {o.ativo_base + ' | Strike R$ ' + fmt(o.strike || 0)}
-                                </Text>
-                              </View>
-                              <View style={{ alignItems: 'flex-end' }}>
-                                <Text style={[styles.rankPct, { color: C.opcoes }]}>R$ {fmt(premioOp)}</Text>
-                                <Text style={styles.rankVal}>{(o.direcao || 'venda') === 'compra' ? 'Compra' : 'Venda'}</Text>
-                              </View>
-                            </View>
-                          );
-                        })}
-                      </Glass>
-                    </>
-                  )}
                 </>
               )}
             </>
@@ -6502,14 +7365,6 @@ export default function AnaliseScreen() {
                           </View>
                         );
                       })()}
-                    </Glass>
-                  )}
-
-                  {/* Premio vs Recompra line chart */}
-                  {maxPremMonth > 1 && (
-                    <Glass padding={12}>
-                      <Text style={styles.sectionTitle}>PREMIO vs RECOMPRA (12M)</Text>
-                      <PremioVsRecompraChart data={opcMonthlyPremiums} />
                     </Glass>
                   )}
 

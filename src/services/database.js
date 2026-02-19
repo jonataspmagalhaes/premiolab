@@ -608,6 +608,105 @@ export async function getDashboard(userId) {
       }
     }
 
+    // Recompra por mes (data de fechamento) + P&L mensal ultimos 3 meses
+    var recompraMes = 0;
+    var recompraMesAnterior = 0;
+    var plMensal3m = {};
+    for (var rci = 0; rci < todasOpcoes.length; rci++) {
+      var rcOp = todasOpcoes[rci];
+      var rcDir = rcOp.direcao || 'venda';
+      if (rcDir !== 'venda' && rcDir !== 'lancamento') continue;
+      var rcPremFech = (rcOp.premio_fechamento || 0) * (rcOp.quantidade || 0);
+      if (rcPremFech <= 0) continue;
+      var rcDate = rcOp.updated_at || rcOp.vencimento || '';
+      if (!rcDate) continue;
+      var dRc = new Date(rcDate);
+      var rcM = dRc.getMonth();
+      var rcY = dRc.getFullYear();
+      if (rcM === mesAtual && rcY === anoAtual) {
+        recompraMes += rcPremFech;
+      } else if (rcM === mesAnterior && rcY === anoMesAnterior) {
+        recompraMesAnterior += rcPremFech;
+      }
+      // Agrupar por mes para media 3m
+      var rcKey = rcY + '-' + String(rcM + 1).padStart(2, '0');
+      if (!plMensal3m[rcKey]) plMensal3m[rcKey] = { prem: 0, rec: 0 };
+      plMensal3m[rcKey].rec += rcPremFech;
+    }
+    // Premios por mes (para media 3m)
+    for (var p3i = 0; p3i < todasOpcoes.length; p3i++) {
+      var p3Op = todasOpcoes[p3i];
+      var p3Dir = p3Op.direcao || 'venda';
+      if (p3Dir !== 'venda' && p3Dir !== 'lancamento') continue;
+      var p3Prem = (p3Op.premio || 0) * (p3Op.quantidade || 0);
+      if (p3Prem <= 0) continue;
+      var p3Date = p3Op.data_abertura || p3Op.created_at || p3Op.vencimento;
+      if (!p3Date) continue;
+      var dP3 = new Date(p3Date);
+      dP3.setDate(dP3.getDate() + 1);
+      var p3Key = dP3.getFullYear() + '-' + String(dP3.getMonth() + 1).padStart(2, '0');
+      if (!plMensal3m[p3Key]) plMensal3m[p3Key] = { prem: 0, rec: 0 };
+      plMensal3m[p3Key].prem += p3Prem;
+    }
+    // Calcular media P&L dos ultimos 3 meses (mes atual + 2 anteriores)
+    var plMedia3m = 0;
+    var meses3m = [];
+    for (var m3i = 0; m3i < 3; m3i++) {
+      var d3m = new Date(anoAtual, mesAtual - m3i, 1);
+      meses3m.push(d3m.getFullYear() + '-' + String(d3m.getMonth() + 1).padStart(2, '0'));
+    }
+    var soma3m = 0;
+    var count3m = 0;
+    for (var s3i = 0; s3i < meses3m.length; s3i++) {
+      var m3Data = plMensal3m[meses3m[s3i]];
+      var m3pl = (m3Data ? m3Data.prem : 0) - (m3Data ? m3Data.rec : 0);
+      soma3m += m3pl;
+      count3m++;
+    }
+    plMedia3m = count3m > 0 ? soma3m / count3m : 0;
+    var plMes = premiosMes - recompraMes;
+    var plMesAnterior = premiosMesAnterior - recompraMesAnterior;
+
+    // Media anual de renda (P&L opcoes + dividendos + RF) do ano corrente
+    var mesesDecorridos = mesAtual + 1;
+    var rendaAnualByMonth = {};
+    // P&L opcoes por mes (reusa plMensal3m que ja tem prem/rec)
+    var plKeys = Object.keys(plMensal3m);
+    var prefixAno = String(anoAtual);
+    for (var pki = 0; pki < plKeys.length; pki++) {
+      if (plKeys[pki].substring(0, 4) === prefixAno) {
+        var pkData = plMensal3m[plKeys[pki]];
+        if (!rendaAnualByMonth[plKeys[pki]]) rendaAnualByMonth[plKeys[pki]] = 0;
+        rendaAnualByMonth[plKeys[pki]] += (pkData.prem || 0) - (pkData.rec || 0);
+      }
+    }
+    // Dividendos por mes do ano corrente
+    for (var dai = 0; dai < proventosData.length; dai++) {
+      var daDateStr = (proventosData[dai].data_pagamento || '').substring(0, 10);
+      if (daDateStr.substring(0, 4) === prefixAno) {
+        var daMonth = daDateStr.substring(0, 7);
+        var daVal = (proventosData[dai].valor_por_cota || 0) * (proventosData[dai].quantidade || 0);
+        if (!rendaAnualByMonth[daMonth]) rendaAnualByMonth[daMonth] = 0;
+        rendaAnualByMonth[daMonth] += daVal;
+      }
+    }
+    // RF mensal para cada mes decorrido
+    var raKeys = Object.keys(rendaAnualByMonth);
+    for (var rai = 0; rai < raKeys.length; rai++) {
+      rendaAnualByMonth[raKeys[rai]] += rfRendaMensal;
+    }
+    // Meses sem opcoes/dividendos mas com RF
+    for (var rmi2 = 0; rmi2 < mesesDecorridos; rmi2++) {
+      var rmKey = anoAtual + '-' + String(rmi2 + 1).padStart(2, '0');
+      if (!rendaAnualByMonth[rmKey]) rendaAnualByMonth[rmKey] = rfRendaMensal;
+    }
+    var somaRendaAno = 0;
+    var rendaAnoKeys = Object.keys(rendaAnualByMonth);
+    for (var srai = 0; srai < rendaAnoKeys.length; srai++) {
+      somaRendaAno += rendaAnualByMonth[rendaAnoKeys[srai]];
+    }
+    var rendaMediaAnual = mesesDecorridos > 0 ? somaRendaAno / mesesDecorridos : 0;
+
     // Opções que vencem em breve (agrupadas por urgência)
     var opsVenc7d = [];
     var opsVenc15d = [];
@@ -637,9 +736,9 @@ export async function getDashboard(userId) {
       }
     }
 
-    // ── Renda total do mês ──
-    var rendaTotalMes = dividendosMes + premiosMes + rfRendaMensal;
-    var rendaTotalMesAnterior = dividendosMesAnterior + premiosMesAnterior + rfRendaMensal;
+    // ── Renda total do mês (usa P&L de opções) ──
+    var rendaTotalMes = dividendosMes + plMes + rfRendaMensal;
+    var rendaTotalMesAnterior = dividendosMesAnterior + plMesAnterior + rfRendaMensal;
 
     // ── Saldos ──
     var saldosData = saldos.data || [];
@@ -836,6 +935,10 @@ export async function getDashboard(userId) {
       proventosHoje: proventosHoje,
       dividendosRecebidosMes: dividendosRecebidosMes,
       dividendosAReceberMes: dividendosAReceberMes,
+      plMes: plMes,
+      plMesAnterior: plMesAnterior,
+      plMedia3m: plMedia3m,
+      rendaMediaAnual: rendaMediaAnual,
     };
   } catch (err) {
     console.error('Dashboard error:', err);
@@ -853,6 +956,10 @@ export async function getDashboard(userId) {
       proventosHoje: [],
       dividendosRecebidosMes: 0,
       dividendosAReceberMes: 0,
+      plMes: 0,
+      plMesAnterior: 0,
+      plMedia3m: 0,
+      rendaMediaAnual: 0,
     };
   }
 }

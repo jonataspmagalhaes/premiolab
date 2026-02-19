@@ -509,6 +509,10 @@ export default function HomeScreen({ navigation }) {
   var dividendosCatMesAnt = data.dividendosCatMesAnt || { acao: 0, fii: 0, etf: 0 };
   var dividendosRecebidosMes = data.dividendosRecebidosMes || 0;
   var dividendosAReceberMes = data.dividendosAReceberMes || 0;
+  var plMes = data.plMes || 0;
+  var plMesAnterior = data.plMesAnterior || 0;
+  var plMedia3m = data.plMedia3m || 0;
+  var rendaMediaAnual = data.rendaMediaAnual || 0;
 
   // Ganhos acumulados por categoria (P&L posicoes)
   var ganhosPorCat = { acao: 0, fii: 0, rf: 0, etf: 0 };
@@ -778,7 +782,7 @@ export default function HomeScreen({ navigation }) {
         <GlassCard glow="rgba(108,92,231,0.10)">
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
             <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '600' }}>RENDA DO MÊS</Text>
-            <InfoTip text="Prêmios de opções + dividendos/JCP + juros RF recebidos no mês corrente." />
+            <InfoTip text="P&L de opções (prêmios - recompras) + dividendos/JCP + juros RF no mês. Opções mostra o P&L líquido, podendo ser negativo em meses com recompra." />
           </View>
           <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.20)', fontFamily: F.mono, letterSpacing: 0.5, textAlign: 'center', marginTop: -6, marginBottom: 10 }}>
             {new Date().toLocaleString('pt-BR', { month: 'short' }).toUpperCase() + ' ' + new Date().getFullYear() + '  ·  ATUAL vs ANTERIOR'}
@@ -786,11 +790,14 @@ export default function HomeScreen({ navigation }) {
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-start', marginBottom: 16 }}>
             <DonutMini
-              label="Prêmios"
-              value={premiosMes}
-              prevValue={premiosMesAnterior}
+              label="P&L Opções"
+              value={plMes}
+              prevValue={plMesAnterior}
               color={P.opcao.color}
               size={88}
+              subLines={[
+                { text: 'Média 3m ' + fmt(plMedia3m), color: plMedia3m >= 0 ? '#22c55e' : '#ef4444' },
+              ]}
             />
             <DonutMini
               label="Dividendos"
@@ -805,8 +812,8 @@ export default function HomeScreen({ navigation }) {
             />
             <DonutMini
               label="Total"
-              value={premiosMes + dividendosMes}
-              prevValue={premiosMesAnterior + dividendosMesAnterior}
+              value={plMes + dividendosMes}
+              prevValue={plMesAnterior + dividendosMesAnterior}
               color={C.accent}
               size={100}
               meta={meta}
@@ -831,11 +838,14 @@ export default function HomeScreen({ navigation }) {
                   / {fmt(meta)}
                 </Text>
               </View>
-              {rendaTotalMes > 0 ? (
+              {(plMes !== 0 || dividendosMes > 0 || rfRendaMensal > 0) ? (
                 <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', fontFamily: F.mono, marginTop: 3 }}>
-                  {'Prêmios ' + fmt(premiosMes) + ' + Div ' + fmt(dividendosMes) + ' + RF ' + fmt(rfRendaMensal)}
+                  {'P&L Opções ' + fmt(plMes) + ' + Div ' + fmt(dividendosMes) + ' + RF ' + fmt(rfRendaMensal)}
                 </Text>
               ) : null}
+              <Text style={{ fontSize: 14, color: rendaMediaAnual >= meta ? '#22c55e' : 'rgba(255,255,255,0.45)', fontFamily: F.mono, fontWeight: '700', marginTop: 6 }}>
+                {'Média ' + new Date().getFullYear() + ': R$ ' + fmt(rendaMediaAnual) + '/mês'}
+              </Text>
             </View>
             <Text style={{
               fontSize: 22, fontWeight: '800', fontFamily: F.mono,
