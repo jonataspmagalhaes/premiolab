@@ -10,8 +10,8 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   getSaldos, upsertSaldo, deleteSaldo,
-  getMovimentacoes, addMovimentacaoComSaldo, getMovimentacoesSummary,
-  buildMovDescricao,
+  getMovimentacoes, addMovimentacaoComSaldo, deleteMovimentacao,
+  getMovimentacoesSummary, buildMovDescricao,
 } from '../../services/database';
 import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/currencyService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
@@ -423,6 +423,32 @@ export default function CaixaView(props) {
     navigation.navigate('AddConta');
   }
 
+  var AUTO_CATEGORIAS = ['compra_ativo', 'venda_ativo', 'premio_opcao', 'recompra_opcao',
+    'exercicio_opcao', 'dividendo', 'jcp', 'rendimento_fii', 'rendimento_rf'];
+
+  function handleDeleteMov(mov) {
+    var isAuto = AUTO_CATEGORIAS.indexOf(mov.categoria) >= 0;
+    if (isAuto) {
+      Alert.alert('Não permitido', 'Movimentações automáticas não podem ser excluídas.');
+      return;
+    }
+    var desc = mov.descricao || CAT_LABELS[mov.categoria] || mov.categoria;
+    Alert.alert('Excluir movimentação?', desc + '\nR$ ' + fmt(mov.valor) + '\n\nO saldo NÃO será revertido automaticamente.', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Excluir', style: 'destructive',
+        onPress: function() {
+          deleteMovimentacao(mov.id).then(function(res) {
+            if (res && res.error) {
+              Alert.alert('Erro', 'Falha ao excluir.');
+            }
+            load();
+          });
+        },
+      },
+    ]);
+  }
+
   function formatDate(dateStr) {
     if (!dateStr) return '';
     var parts = dateStr.substring(0, 10).split('-');
@@ -551,15 +577,19 @@ export default function CaixaView(props) {
                         var movColor = isEntrada ? C.green : m.tipo === 'transferencia' ? C.accent : C.red;
                         var movIcon = isEntrada ? '↓' : m.tipo === 'transferencia' ? '→' : '↑';
                         return (
-                          <View key={m.id || mi} style={styles.miniMovRow}>
-                            <Text style={[styles.miniMovIcon, { color: movColor }]}>{movIcon}</Text>
-                            <Text style={styles.miniMovDesc} numberOfLines={1}>
-                              {m.descricao || CAT_LABELS[m.categoria] || m.categoria}
-                            </Text>
-                            <Text style={[styles.miniMovVal, { color: movColor }]}>
-                              {isEntrada ? '+' : '-'}{simbolo} {fmt(m.valor)}
-                            </Text>
-                          </View>
+                          <TouchableOpacity key={m.id || mi} activeOpacity={0.7}
+                            onLongPress={function() { handleDeleteMov(m); }}
+                            delayLongPress={400}>
+                            <View style={styles.miniMovRow}>
+                              <Text style={[styles.miniMovIcon, { color: movColor }]}>{movIcon}</Text>
+                              <Text style={styles.miniMovDesc} numberOfLines={1}>
+                                {m.descricao || CAT_LABELS[m.categoria] || m.categoria}
+                              </Text>
+                              <Text style={[styles.miniMovVal, { color: movColor }]}>
+                                {isEntrada ? '+' : '-'}{simbolo} {fmt(m.valor)}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
                         );
                       })}
                     </View>
@@ -727,24 +757,30 @@ export default function CaixaView(props) {
             var isTransf = m.tipo === 'transferencia' || m.categoria === 'transferencia';
             var movColor = isEntrada ? C.green : isTransf ? C.accent : C.red;
             var movIcon = isEntrada ? '↓' : isTransf ? '→' : '↑';
+            var isAuto = AUTO_CATEGORIAS.indexOf(m.categoria) >= 0;
             return (
-              <View key={m.id || i} style={[styles.movRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
-                <View style={[styles.movIconWrap, { backgroundColor: movColor + '12' }]}>
-                  <Text style={[styles.movIconText, { color: movColor }]}>{movIcon}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.movDesc} numberOfLines={1}>
-                    {m.descricao || CAT_LABELS[m.categoria] || m.categoria}
-                  </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.movDate}>{formatDate(m.data)}</Text>
-                    <Badge text={m.conta} color={C.dim} />
+              <TouchableOpacity key={m.id || i} activeOpacity={0.7}
+                onLongPress={function() { handleDeleteMov(m); }}
+                delayLongPress={400}>
+                <View style={[styles.movRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+                  <View style={[styles.movIconWrap, { backgroundColor: movColor + '12' }]}>
+                    <Text style={[styles.movIconText, { color: movColor }]}>{movIcon}</Text>
                   </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.movDesc} numberOfLines={1}>
+                      {m.descricao || CAT_LABELS[m.categoria] || m.categoria}
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={styles.movDate}>{formatDate(m.data)}</Text>
+                      <Badge text={m.conta} color={C.dim} />
+                      {isAuto ? <Badge text="auto" color={C.dim} /> : null}
+                    </View>
+                  </View>
+                  <Text style={[styles.movVal, { color: movColor }]}>
+                    {isEntrada ? '+' : '-'}R$ {fmt(m.valor)}
+                  </Text>
                 </View>
-                <Text style={[styles.movVal, { color: movColor }]}>
-                  {isEntrada ? '+' : '-'}R$ {fmt(m.valor)}
-                </Text>
-              </View>
+              </TouchableOpacity>
             );
           })}
         </Glass>
