@@ -66,6 +66,7 @@ supabase/
 - AddRendaFixa, EditRendaFixa
 - AddProvento, EditProvento
 - AddMovimentacao, Extrato, AddConta
+- Relatorios
 - ConfigMeta, ConfigCorretoras, ConfigAlertas, ConfigSelic
 - Historico, Guia, Sobre
 
@@ -314,11 +315,10 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 - [x] **Sistema de Indicadores Tecnicos** (implementado: indicatorService.js, tabela indicators, integrado em Opcoes/AssetDetail/Analise/Home)
 - [x] **Auto-sync de dividendos** (implementado: dividendService.js, cross-check brapi+StatusInvest, auto-trigger Home, sync manual Proventos, dedup por ticker+data+valor)
 - [x] **Gestao Financeira / Fluxo de Caixa** (implementado: tab Gestao com sub-tabs Carteira+Caixa, movimentacoes, integracao com operacoes/opcoes/dividendos)
+- [x] **Relatorios Detalhados** (implementado: tela Relatorios com sub-tabs Dividendos/Opcoes/Operacoes/IR, graficos, agrupamentos)
 - [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
-- [ ] Grafico de P&L de opcoes por mes (premios recebidos historico)
 - [ ] Notificacoes push para vencimentos proximos
 - [ ] Importacao de operacoes via CSV/Excel
-- [ ] Calculo de IR (darf mensal, swing trade, day trade)
 - [ ] Integracao com CEI/B3 para importacao automatica
 - [ ] Dark/Light mode toggle
 - [ ] Backup/restore de dados
@@ -548,3 +548,37 @@ A seção "SALDO DISPONÍVEL" foi removida do CarteiraScreen e movida para Caixa
 | `src/screens/opcoes/AddOpcaoScreen.js` | Alert creditar prêmio + movimentação |
 | `src/screens/opcoes/OpcoesScreen.js` | Log movimentação em recompra/exercício/expirou PÓ |
 | `src/services/dividendService.js` | Log movimentação no auto-sync de dividendos |
+
+## Relatórios Detalhados (Implementado)
+
+Tela dedicada de relatórios financeiros acessível via menu Mais → Relatórios. Quatro sub-tabs com filtros de período e gráficos.
+
+### Sub-tabs
+
+| Sub-tab | Conteúdo |
+|---------|----------|
+| **Dividendos** | Summary (total/qty/ativos), evolução mensal (barras), por tipo (barras horizontais %), por ativo (cards com proventos detalhados), por corretora (agrupado com subtotais) |
+| **Opções** | Summary (prêmios/recompras/resultado), cards por status (ativa/fechada/exercida/expirou PÓ), evolução mensal (barras duplas prêmios vs recompras), por ativo base (cards com P&L por opção) |
+| **Operações** | Summary (compras/vendas/custos), evolução mensal (barras duplas compras vs vendas), por ativo (cards com PM compra/venda, custos) |
+| **IR** | Summary (IR devido/meses/alertas >20k), prejuízo acumulado por classe, detalhamento mensal (vendas/ganhos/perdas/IR por classe, badges DARF e >20K) |
+
+### Filtros
+- Período: 3M, 6M, 1A, 2A, Tudo
+
+### Gráficos SVG
+- `BarChartSingle` — barras simples (dividendos por mês)
+- `BarChartDual` — barras lado a lado (prêmios vs recompras, compras vs vendas)
+- `HBarRow` — barras horizontais com % (tipos de provento)
+
+### IR
+Funções `computeIR()` e `computeTaxByMonth()` copiadas do AnaliseScreen. Calculam:
+- Vendas/ganhos/perdas por classe (ações 15%, FIIs 20%, ETFs 15%)
+- Isenção ações se vendas ≤ R$20k/mês
+- Prejuízo acumulado transportado entre meses
+
+### Arquivos criados/modificados
+| Arquivo | Mudança |
+|---------|---------|
+| `src/screens/relatorios/RelatoriosScreen.js` | **Criado** — tela completa com 4 sub-tabs + gráficos |
+| `src/navigation/AppNavigator.js` | Stack screen Relatorios |
+| `src/screens/mais/MaisScreen.js` | Item "Relatórios" no menu (substituiu "Calculo IR") |

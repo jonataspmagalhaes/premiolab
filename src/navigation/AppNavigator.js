@@ -35,6 +35,7 @@ import AddProventoScreen from '../screens/proventos/AddProventoScreen';
 import ProventosScreen from '../screens/proventos/ProventosScreen';
 import EditProventoScreen from '../screens/proventos/EditProventoScreen';
 import AddSaldoScreen from '../screens/carteira/AddSaldoScreen';
+import RelatoriosScreen from '../screens/relatorios/RelatoriosScreen';
 import AddMovimentacaoScreen from '../screens/gestao/AddMovimentacaoScreen';
 import ExtratoScreen from '../screens/gestao/ExtratoScreen';
 import AddContaScreen from '../screens/gestao/AddContaScreen';
@@ -75,6 +76,7 @@ var SafeAddProventoScreen = withSafeArea(AddProventoScreen);
 var SafeProventosScreen = withSafeArea(ProventosScreen);
 var SafeEditProventoScreen = withSafeArea(EditProventoScreen);
 var SafeAddSaldoScreen = withSafeArea(AddSaldoScreen);
+var SafeRelatoriosScreen = withSafeArea(RelatoriosScreen);
 var SafeAddMovimentacaoScreen = withSafeArea(AddMovimentacaoScreen);
 var SafeExtratoScreen = withSafeArea(ExtratoScreen);
 var SafeAddContaScreen = withSafeArea(AddContaScreen);
@@ -216,6 +218,7 @@ function AppStack() {
       <Stack.Screen name="Proventos" component={SafeProventosScreen} />
       <Stack.Screen name="EditProvento" component={SafeEditProventoScreen} />
       <Stack.Screen name="AddSaldo" component={SafeAddSaldoScreen} />
+      <Stack.Screen name="Relatorios" component={SafeRelatoriosScreen} />
       <Stack.Screen name="AddMovimentacao" component={SafeAddMovimentacaoScreen} />
       <Stack.Screen name="Extrato" component={SafeExtratoScreen} />
       <Stack.Screen name="AddConta" component={SafeAddContaScreen} />

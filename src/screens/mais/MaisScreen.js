@@ -23,7 +23,7 @@ var SECTIONS = [
       { icon: '💰', label: 'Proventos', value: 'Gerenciar', color: C.fiis, route: 'Proventos' },
       { icon: '🏦', label: 'Renda Fixa', value: 'Gerenciar', color: C.rf, route: 'RendaFixa' },
       { icon: '📤', label: 'Exportar CSV', value: '', color: C.sub, action: 'export_csv' },
-      { icon: '📑', label: 'Calculo IR', value: 'Em breve', color: C.yellow, route: 'IR' },
+      { icon: '📊', label: 'Relatórios', value: 'Detalhados', color: C.yellow, route: 'Relatorios' },
     ],
   },
   {
