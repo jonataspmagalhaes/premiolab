@@ -446,21 +446,52 @@ export default function CaixaView(props) {
       Alert.alert('Não permitido', 'Movimentações automáticas não podem ser excluídas.');
       return;
     }
+    var movMoeda = mov.moeda || 'BRL';
     var desc = mov.descricao || CAT_LABELS[mov.categoria] || mov.categoria;
-    Alert.alert('Excluir movimentação?', desc + '\nR$ ' + fmt(mov.valor) + '\n\nO saldo NÃO será revertido automaticamente.', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Excluir', style: 'destructive',
-        onPress: function() {
-          deleteMovimentacao(mov.id).then(function(res) {
-            if (res && res.error) {
-              Alert.alert('Erro', 'Falha ao excluir.');
-            }
-            load();
-          });
+    Alert.alert(
+      'Excluir movimentação?',
+      desc + '\n' + getSymbol(movMoeda) + ' ' + fmt(mov.valor) + '\n\nO saldo será revertido automaticamente.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir e reverter', style: 'destructive',
+          onPress: function() {
+            deleteMovimentacao(mov.id).then(function(res) {
+              if (res && res.error) {
+                Alert.alert('Erro', 'Falha ao excluir.');
+                load();
+                return;
+              }
+              // Reverter saldo: entrada excluída = subtrair, saída excluída = somar
+              var conta = mov.conta || '';
+              var saldoAtual = null;
+              for (var si = 0; si < saldos.length; si++) {
+                var sName = saldos[si].corretora || saldos[si].name || '';
+                if (sName === conta) {
+                  saldoAtual = saldos[si];
+                  break;
+                }
+              }
+              if (saldoAtual) {
+                var saldoNovo = (saldoAtual.saldo || 0);
+                if (mov.tipo === 'entrada') {
+                  saldoNovo = saldoNovo - (mov.valor || 0);
+                } else {
+                  saldoNovo = saldoNovo + (mov.valor || 0);
+                }
+                upsertSaldo(user.id, {
+                  corretora: conta,
+                  saldo: Math.max(0, saldoNovo),
+                  moeda: saldoAtual.moeda || 'BRL',
+                }).then(function() { load(); });
+              } else {
+                load();
+              }
+            });
+          },
         },
-      },
-    ]);
+      ]
+    );
   }
 
   function formatDate(dateStr) {
