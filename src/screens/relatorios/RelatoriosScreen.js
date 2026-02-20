@@ -4,13 +4,14 @@ import { useFocusEffect } from '@react-navigation/native';
 import Svg, { Rect as SvgRect, Line as SvgLine, Text as SvgText } from 'react-native-svg';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getProventos, getOpcoes, getOperacoes, getPositions } from '../../services/database';
+import { getProventos, getOpcoes, getOperacoes, getPositions, getMovimentacoes } from '../../services/database';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
 // ═══════════ CONSTANTS ═══════════
 
 var SUBS = [
+  { k: 'caixa', l: 'Caixa' },
   { k: 'div', l: 'Dividendos' },
   { k: 'opc', l: 'Opções' },
   { k: 'ops', l: 'Operações' },
@@ -354,13 +355,14 @@ export default function RelatoriosScreen(props) {
 
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
-  var _sub = useState('div'); var sub = _sub[0]; var setSub = _sub[1];
+  var _sub = useState('caixa'); var sub = _sub[0]; var setSub = _sub[1];
   var _period = useState('1A'); var period = _period[0]; var setPeriod = _period[1];
 
   var _proventos = useState([]); var proventos = _proventos[0]; var setProventos = _proventos[1];
   var _opcoes = useState([]); var opcoes = _opcoes[0]; var setOpcoes = _opcoes[1];
   var _operacoes = useState([]); var operacoes = _operacoes[0]; var setOperacoes = _operacoes[1];
   var _positions = useState([]); var positions = _positions[0]; var setPositions = _positions[1];
+  var _movimentacoes = useState([]); var movimentacoes = _movimentacoes[0]; var setMovimentacoes = _movimentacoes[1];
 
   var load = async function() {
     if (!user) return;
@@ -369,11 +371,13 @@ export default function RelatoriosScreen(props) {
       getOpcoes(user.id),
       getOperacoes(user.id),
       getPositions(user.id),
+      getMovimentacoes(user.id, {}),
     ]);
     setProventos(results[0].data || []);
     setOpcoes(results[1].data || []);
     setOperacoes(results[2].data || []);
     setPositions(results[3].data || []);
+    setMovimentacoes(results[4].data || []);
     setLoading(false);
   };
 
@@ -392,6 +396,63 @@ export default function RelatoriosScreen(props) {
   var filteredProventos = filterByPeriod(proventos, 'data_pagamento', periodDays);
   var filteredOpcoes = periodDays ? filterByPeriod(opcoes, 'data_abertura', periodDays) : opcoes;
   var filteredOperacoes = filterByPeriod(operacoes, 'data', periodDays);
+  var filteredMovs = filterByPeriod(movimentacoes, 'data', periodDays);
+
+  // ═══════════ CAIXA DATA ═══════════
+
+  var caixaEntradas = 0;
+  var caixaSaidas = 0;
+  var caixaByMonth = {};
+  var caixaByConta = {};
+  var caixaByCategoria = {};
+
+  var CAT_LABELS = {
+    deposito: 'Depósito', retirada: 'Retirada', transferencia: 'Transferência',
+    compra_ativo: 'Compra ativo', venda_ativo: 'Venda ativo',
+    premio_opcao: 'Prêmio opção', recompra_opcao: 'Recompra opção', exercicio_opcao: 'Exercício opção',
+    dividendo: 'Dividendo', jcp: 'JCP', rendimento_fii: 'Rendimento FII', rendimento_rf: 'Rendimento RF',
+    ajuste_manual: 'Ajuste manual', salario: 'Salário',
+    despesa_fixa: 'Despesa fixa', despesa_variavel: 'Despesa variável', outro: 'Outro',
+  };
+
+  var CAT_COLORS_MAP = {
+    deposito: C.green, retirada: C.red, transferencia: C.accent,
+    compra_ativo: C.acoes, venda_ativo: C.green,
+    premio_opcao: C.opcoes, recompra_opcao: C.red, exercicio_opcao: C.yellow,
+    dividendo: C.fiis, jcp: C.acoes, rendimento_fii: C.fiis, rendimento_rf: C.rf,
+    ajuste_manual: C.dim, salario: C.green,
+    despesa_fixa: C.red, despesa_variavel: C.yellow, outro: C.dim,
+  };
+
+  filteredMovs.forEach(function(m) {
+    var val = m.valor || 0;
+    var isEntrada = m.tipo === 'entrada';
+    var mKey = (m.data || '').substring(0, 7);
+    var conta = m.conta || 'Sem conta';
+    var cat = m.categoria || 'outro';
+
+    if (isEntrada) caixaEntradas += val; else caixaSaidas += val;
+
+    if (mKey) {
+      if (!caixaByMonth[mKey]) caixaByMonth[mKey] = { entradas: 0, saidas: 0, movs: [] };
+      if (isEntrada) caixaByMonth[mKey].entradas += val; else caixaByMonth[mKey].saidas += val;
+      caixaByMonth[mKey].movs.push(m);
+    }
+
+    if (!caixaByConta[conta]) caixaByConta[conta] = { entradas: 0, saidas: 0 };
+    if (isEntrada) caixaByConta[conta].entradas += val; else caixaByConta[conta].saidas += val;
+
+    if (!caixaByCategoria[cat]) caixaByCategoria[cat] = 0;
+    caixaByCategoria[cat] += val;
+  });
+
+  var caixaMonthKeys = Object.keys(caixaByMonth).sort();
+  var caixaContaKeys = Object.keys(caixaByConta).sort();
+  var caixaCatKeys = Object.keys(caixaByCategoria).sort(function(a, b) {
+    return caixaByCategoria[b] - caixaByCategoria[a];
+  });
+  var caixaCatTotal = 0;
+  caixaCatKeys.forEach(function(k) { caixaCatTotal += caixaByCategoria[k]; });
 
   // ═══════════ DIVIDENDOS DATA ═══════════
 
@@ -612,6 +673,162 @@ export default function RelatoriosScreen(props) {
           );
         })}
       </ScrollView>
+
+      {/* ═══════════ CAIXA TAB ═══════════ */}
+      {sub === 'caixa' && (
+        <View style={{ gap: SIZE.gap }}>
+          {/* Summary */}
+          <Glass glow={C.green} padding={16}>
+            <View style={styles.resumoRow}>
+              <View style={{ alignItems: 'center', flex: 1 }}>
+                <Text style={styles.resumoLabel}>ENTRADAS</Text>
+                <Text style={[styles.resumoVal, { color: C.green }]}>{'R$ ' + fmt(caixaEntradas)}</Text>
+              </View>
+              <View style={styles.resumoDivider} />
+              <View style={{ alignItems: 'center', flex: 1 }}>
+                <Text style={styles.resumoLabel}>SAÍDAS</Text>
+                <Text style={[styles.resumoVal, { color: C.red }]}>{'R$ ' + fmt(caixaSaidas)}</Text>
+              </View>
+              <View style={styles.resumoDivider} />
+              <View style={{ alignItems: 'center', flex: 1 }}>
+                <Text style={styles.resumoLabel}>SALDO</Text>
+                <Text style={[styles.resumoVal, { color: (caixaEntradas - caixaSaidas) >= 0 ? C.green : C.red }]}>
+                  {'R$ ' + fmt(caixaEntradas - caixaSaidas)}
+                </Text>
+              </View>
+            </View>
+          </Glass>
+
+          {/* Gráfico Entradas vs Saídas por mês */}
+          {caixaMonthKeys.length > 1 && (
+            <View>
+              <SectionLabel>ENTRADAS VS SAÍDAS</SectionLabel>
+              <Glass padding={12}>
+                <View style={{ flexDirection: 'row', gap: 12, marginBottom: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.green }} />
+                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>Entradas</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.red }} />
+                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>Saídas</Text>
+                  </View>
+                </View>
+                <BarChartDual
+                  data={caixaMonthKeys.map(function(mk) {
+                    return {
+                      label: formatMonthLabel(mk),
+                      v1: caixaByMonth[mk].entradas,
+                      v2: caixaByMonth[mk].saidas,
+                    };
+                  })}
+                  color1={C.green}
+                  color2={C.red}
+                />
+              </Glass>
+            </View>
+          )}
+
+          {/* Por Categoria */}
+          {caixaCatKeys.length > 0 && (
+            <View>
+              <SectionLabel>POR CATEGORIA</SectionLabel>
+              <Glass padding={14}>
+                {caixaCatKeys.map(function(cat) {
+                  return (
+                    <HBarRow key={cat}
+                      label={CAT_LABELS[cat] || cat}
+                      value={caixaByCategoria[cat]}
+                      total={caixaCatTotal}
+                      color={CAT_COLORS_MAP[cat] || C.accent}
+                    />
+                  );
+                })}
+              </Glass>
+            </View>
+          )}
+
+          {/* Por Conta */}
+          {caixaContaKeys.length > 0 && (
+            <View>
+              <SectionLabel>POR CONTA</SectionLabel>
+              {caixaContaKeys.map(function(conta) {
+                var info = caixaByConta[conta];
+                var saldo = info.entradas - info.saidas;
+                return (
+                  <Glass key={conta} padding={0}>
+                    <View style={styles.tickerHeader}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.tickerName}>{conta}</Text>
+                      </View>
+                      <Text style={[styles.tickerTotal, { color: saldo >= 0 ? C.green : C.red }]}>
+                        {'R$ ' + fmt(saldo)}
+                      </Text>
+                    </View>
+                    <View style={[styles.itemRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
+                      <Text style={[styles.itemLabel, { color: C.green }]}>Entradas</Text>
+                      <Text style={[styles.itemVal, { color: C.green }]}>{'R$ ' + fmt(info.entradas)}</Text>
+                    </View>
+                    <View style={[styles.itemRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
+                      <Text style={[styles.itemLabel, { color: C.red }]}>Saídas</Text>
+                      <Text style={[styles.itemVal, { color: C.red }]}>{'R$ ' + fmt(info.saidas)}</Text>
+                    </View>
+                  </Glass>
+                );
+              })}
+            </View>
+          )}
+
+          {/* Detalhamento Mensal */}
+          <SectionLabel>DETALHAMENTO MENSAL</SectionLabel>
+          {caixaMonthKeys.length === 0 && (
+            <EmptyState icon="wallet-outline" title="Sem movimentações"
+              description="Nenhuma movimentação encontrada no período" />
+          )}
+          {caixaMonthKeys.slice().reverse().map(function(mk) {
+            var group = caixaByMonth[mk];
+            var saldoMes = group.entradas - group.saidas;
+            return (
+              <View key={mk}>
+                <View style={styles.monthHeader}>
+                  <Text style={styles.monthLabel}>{formatMonthLabel(mk)}</Text>
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <Text style={[styles.monthSub, { color: C.green }]}>{'+' + fmt(group.entradas)}</Text>
+                    <Text style={[styles.monthSub, { color: C.red }]}>{'-' + fmt(group.saidas)}</Text>
+                    <Text style={[styles.monthSub, { color: saldoMes >= 0 ? C.green : C.red }]}>{'= ' + fmt(saldoMes)}</Text>
+                  </View>
+                </View>
+                <Glass padding={0}>
+                  {group.movs.map(function(m, mi) {
+                    var isEntrada = m.tipo === 'entrada';
+                    var movColor = isEntrada ? C.green : m.tipo === 'transferencia' ? C.accent : C.red;
+                    var movIcon = isEntrada ? '↑' : m.tipo === 'transferencia' ? '→' : '↓';
+                    return (
+                      <View key={m.id || mi}
+                        style={[styles.itemRow, mi > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+                        <View style={[styles.movIconWrap, { backgroundColor: movColor + '12' }]}>
+                          <Text style={[styles.movIconText, { color: movColor }]}>{movIcon}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.itemLabel} numberOfLines={1}>{m.descricao || CAT_LABELS[m.categoria] || m.categoria}</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                            <Text style={styles.itemDate}>{formatDate(m.data)}</Text>
+                            <Badge text={m.conta} color={C.dim} />
+                            {m.ticker ? <Badge text={m.ticker} color={C.acoes} /> : null}
+                          </View>
+                        </View>
+                        <Text style={[styles.itemVal, { color: movColor }]}>
+                          {(isEntrada ? '+' : '-') + 'R$ ' + fmt(m.valor)}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </Glass>
+              </View>
+            );
+          })}
+        </View>
+      )}
 
       {/* ═══════════ DIVIDENDOS TAB ═══════════ */}
       {sub === 'div' && (
@@ -1173,4 +1390,10 @@ var styles = StyleSheet.create({
   irClassLabel: { fontSize: 11, fontWeight: '700', fontFamily: F.body, width: 40 },
   irClassDetail: { flex: 1, gap: 2 },
   irText: { fontSize: 10, color: C.sub, fontFamily: F.mono },
+
+  monthHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
+  monthLabel: { fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display },
+  monthSub: { fontSize: 10, fontFamily: F.mono, fontWeight: '600' },
+  movIconWrap: { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
+  movIconText: { fontSize: 14, fontWeight: '700' },
 });
