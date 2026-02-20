@@ -198,7 +198,8 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - Cards de RF com botoes Editar/Excluir
 - Corretora removida do header do card (mostrada no expandido com qty por corretora)
 - **Saldo livre**: movido para Gestao > Caixa (CaixaView). Acoes Depositar/Retirar/Transferir/Editar saldo/Excluir conta agora logam movimentacoes automaticamente
-- **Multi-moeda**: contas podem ser cadastradas em moedas estrangeiras (USD, EUR, GBP, QAR, ARS, JPY, CHF). Cambio automatico via brapi.dev (cache 30min). Patrimonio total soma tudo em BRL. CaixaView exibe valor na moeda original + ≈ R$ convertido. Transferencias entre moedas diferentes sao bloqueadas
+- **Multi-moeda**: contas podem ser cadastradas em moedas estrangeiras (USD, EUR, GBP, QAR, ARS, JPY, CHF). Cambio automatico via brapi.dev (cache 30min). Patrimonio total soma tudo em BRL. CaixaView exibe valor na moeda original + ≈ R$ convertido
+- **Transferencia cross-currency**: transferir entre contas de moedas diferentes exibe campo editavel de cambio (auto-preenchido via rates do currencyService) + preview do valor convertido. Descricao da movimentacao inclui taxa usada
 - **Editar saldo direto**: botao "Editar saldo" no card expandido permite definir novo valor, registra movimentacao `ajuste_manual` com diff
 
 ### Opcoes (OpcoesScreen)

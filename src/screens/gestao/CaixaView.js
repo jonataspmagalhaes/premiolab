@@ -177,6 +177,7 @@ export default function CaixaView(props) {
   var _actMode = useState(null); var actMode = _actMode[0]; var setActMode = _actMode[1];
   var _actVal = useState(''); var actVal = _actVal[0]; var setActVal = _actVal[1];
   var _trDest = useState(null); var trDest = _trDest[0]; var setTrDest = _trDest[1];
+  var _trCambio = useState(''); var trCambio = _trCambio[0]; var setTrCambio = _trCambio[1];
   var _hist6m = useState([]); var hist6m = _hist6m[0]; var setHist6m = _hist6m[1];
   var _rates = useState({ BRL: 1 }); var rates = _rates[0]; var setRates = _rates[1];
 
@@ -274,12 +275,14 @@ export default function CaixaView(props) {
     setActMode(actMode === mode ? null : mode);
     setActVal('');
     setTrDest(null);
+    setTrCambio('');
   }
 
   function resetAction() {
     setActMode(null);
     setActVal('');
     setTrDest(null);
+    setTrCambio('');
   }
 
   function onChangeVal(t) {
@@ -334,26 +337,37 @@ export default function CaixaView(props) {
     if (!dest) return;
     var destName = dest.corretora || dest.name || '';
 
-    // Bloquear transferência entre moedas diferentes
     var sMoeda = s.moeda || 'BRL';
     var dMoeda = dest.moeda || 'BRL';
+    var valorDest = num;
+    var descOrigem = 'Transferência para ' + destName;
+    var descDest = 'Transferência de ' + sName;
+
     if (sMoeda !== dMoeda) {
-      Alert.alert('Moedas diferentes', 'Não é possível transferir entre contas de moedas diferentes (' + sMoeda + ' → ' + dMoeda + ').');
-      return;
+      var cambio = parseFloat((trCambio || '').replace(',', '.')) || 0;
+      if (cambio <= 0) {
+        Alert.alert('Câmbio inválido', 'Informe a taxa de câmbio para converter ' + sMoeda + ' → ' + dMoeda + '.');
+        return;
+      }
+      valorDest = num * cambio;
+      descOrigem = 'Transferência para ' + destName + ' (' + getSymbol(sMoeda) + ' ' + fmt(num) + ' × ' + cambio.toFixed(4) + ' = ' + getSymbol(dMoeda) + ' ' + fmt(valorDest) + ')';
+      descDest = 'Transferência de ' + sName + ' (' + getSymbol(sMoeda) + ' ' + fmt(num) + ' × ' + cambio.toFixed(4) + ' = ' + getSymbol(dMoeda) + ' ' + fmt(valorDest) + ')';
     }
 
     resetAction();
     Promise.all([
       addMovimentacaoComSaldo(user.id, {
         conta: sName, tipo: 'saida', categoria: 'transferencia',
-        valor: num, descricao: 'Transferência para ' + destName,
+        valor: num, descricao: descOrigem,
         conta_destino: destName,
         data: new Date().toISOString().substring(0, 10),
+        moeda: sMoeda,
       }),
       addMovimentacaoComSaldo(user.id, {
         conta: destName, tipo: 'entrada', categoria: 'transferencia',
-        valor: num, descricao: 'Transferência de ' + sName,
+        valor: valorDest, descricao: descDest,
         data: new Date().toISOString().substring(0, 10),
+        moeda: dMoeda,
       }),
     ]).then(function() { load(); });
   }
@@ -653,25 +667,66 @@ export default function CaixaView(props) {
                             />
                           </View>
                           {actMode === 'transferir' ? (
-                            <View style={{ gap: 4 }}>
+                            <View style={{ gap: 6 }}>
                               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>DESTINO</Text>
                               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                                 {destOptions.map(function(d) {
                                   var sel = trDest === d.id;
                                   var dMoeda = d.moeda || 'BRL';
-                                  var sameMoeda = sMoeda === dMoeda;
                                   return (
                                     <TouchableOpacity key={d.id}
-                                      onPress={function() { setTrDest(sel ? null : d.id); }}
+                                      onPress={function() {
+                                        setTrDest(sel ? null : d.id);
+                                        if (!sel && sMoeda !== dMoeda) {
+                                          var rateFrom = rates[sMoeda] || 1;
+                                          var rateTo = rates[dMoeda] || 1;
+                                          var cambioAuto = rateTo > 0 ? (rateFrom / rateTo) : 1;
+                                          setTrCambio(cambioAuto.toFixed(4).replace('.', ','));
+                                        } else {
+                                          setTrCambio('');
+                                        }
+                                      }}
                                       activeOpacity={0.7}
-                                      style={[styles.destPill, sel && { borderColor: C.accent, backgroundColor: C.accent + '18' }, !sameMoeda && { opacity: 0.4 }]}>
+                                      style={[styles.destPill, sel && { borderColor: C.accent, backgroundColor: C.accent + '18' }]}>
                                       <Text style={[styles.destPillText, sel && { color: C.accent, fontWeight: '700' }]}>
-                                        {(d.corretora || d.name || '') + (dMoeda !== 'BRL' ? ' (' + dMoeda + ')' : '')}
+                                        {(d.corretora || d.name || '') + (dMoeda !== sMoeda ? ' (' + dMoeda + ')' : '')}
                                       </Text>
                                     </TouchableOpacity>
                                   );
                                 })}
                               </View>
+                              {(function() {
+                                var destSel = trDest ? saldos.find(function(x) { return x.id === trDest; }) : null;
+                                var dMoeda = destSel ? (destSel.moeda || 'BRL') : sMoeda;
+                                if (sMoeda === dMoeda) return null;
+                                var cambioNum = parseFloat((trCambio || '').replace(',', '.')) || 0;
+                                var valOrigem = parseVal();
+                                var valConv = valOrigem * cambioNum;
+                                return (
+                                  <View style={{ gap: 6, marginTop: 4, padding: 8, borderRadius: 8, backgroundColor: C.accent + '08', borderWidth: 1, borderColor: C.accent + '20' }}>
+                                    <Text style={{ fontSize: 10, color: C.accent, fontFamily: F.mono, letterSpacing: 0.4 }}>
+                                      CÂMBIO {sMoeda} → {dMoeda}
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                      <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>1 {sMoeda} =</Text>
+                                      <TextInput
+                                        value={trCambio}
+                                        onChangeText={setTrCambio}
+                                        placeholder="0,0000"
+                                        placeholderTextColor={C.dim}
+                                        keyboardType="decimal-pad"
+                                        style={[styles.valInput, { flex: 0, width: 100, borderColor: C.accent + '40', fontSize: 13 }]}
+                                      />
+                                      <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>{dMoeda}</Text>
+                                    </View>
+                                    {valOrigem > 0 && cambioNum > 0 ? (
+                                      <Text style={{ fontSize: 11, color: C.green, fontFamily: F.mono }}>
+                                        {getSymbol(sMoeda) + ' ' + fmt(valOrigem) + ' → ' + getSymbol(dMoeda) + ' ' + fmt(valConv)}
+                                      </Text>
+                                    ) : null}
+                                  </View>
+                                );
+                              })()}
                             </View>
                           ) : null}
                         </View>
