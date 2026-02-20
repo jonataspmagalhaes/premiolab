@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { addOpcao } from '../../services/database';
+import { addOpcao, addMovimentacaoComSaldo, buildMovDescricao } from '../../services/database';
 import { Glass, Pill, Badge } from '../../components';
 
 function fmt(v) {
@@ -118,22 +118,61 @@ export default function AddOpcaoScreen(props) {
         Alert.alert('Erro', result.error.message);
         setSubmitted(false);
       } else {
-        Alert.alert('Sucesso!', 'Opção registrada.', [
-          {
-            text: 'Adicionar outra',
-            onPress: function() {
-              setAtivoBase('');
-              setTickerOpcao('');
-              setStrike('');
-              setPremio('');
-              setQuantidade('');
-              setVencimento('');
-              setDataAbertura(todayBr());
-              setSubmitted(false);
-            },
-          },
-          { text: 'Concluir', onPress: function() { navigation.goBack(); } },
-        ]);
+        var resetFields = function() {
+          setAtivoBase('');
+          setTickerOpcao('');
+          setStrike('');
+          setPremio('');
+          setQuantidade('');
+          setVencimento('');
+          setDataAbertura(todayBr());
+          setSubmitted(false);
+        };
+
+        // Oferecer creditar prêmio no saldo (apenas para venda/lançamento)
+        if (direcao === 'venda' || direcao === 'lancamento') {
+          var opDesc = 'Prêmio ' + tipo.toUpperCase() + ' ' + ativoBase.toUpperCase();
+          Alert.alert(
+            'Opção registrada!',
+            'Creditar prêmio R$ ' + fmt(premioTotal) + ' em ' + corretora + '?',
+            [
+              {
+                text: 'Não',
+                style: 'cancel',
+                onPress: function() {
+                  Alert.alert('Sucesso!', 'Opção registrada.', [
+                    { text: 'Adicionar outra', onPress: resetFields },
+                    { text: 'Concluir', onPress: function() { navigation.goBack(); } },
+                  ]);
+                },
+              },
+              {
+                text: 'Sim, creditar',
+                onPress: function() {
+                  addMovimentacaoComSaldo(user.id, {
+                    conta: corretora,
+                    tipo: 'entrada',
+                    categoria: 'premio_opcao',
+                    valor: premioTotal,
+                    descricao: opDesc,
+                    ticker: ativoBase.toUpperCase(),
+                    referencia_tipo: 'opcao',
+                    data: brToIso(dataAbertura) || new Date().toISOString().substring(0, 10),
+                  }).catch(function(e) { console.warn('Mov premio failed:', e); });
+                  Alert.alert('Sucesso!', 'Opção + prêmio creditado.', [
+                    { text: 'Adicionar outra', onPress: resetFields },
+                    { text: 'Concluir', onPress: function() { navigation.goBack(); } },
+                  ]);
+                },
+              },
+            ]
+          );
+        } else {
+          Alert.alert('Sucesso!', 'Opção registrada.', [
+            { text: 'Adicionar outra', onPress: resetFields },
+            { text: 'Concluir', onPress: function() { navigation.goBack(); } },
+          ]);
+        }
       }
     } catch (err) {
       Alert.alert('Erro', 'Falha ao salvar.');

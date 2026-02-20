@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { addOperacao, incrementCorretora, getIndicators } from '../../services/database';
+import { addOperacao, incrementCorretora, getIndicators, addMovimentacaoComSaldo, buildMovDescricao } from '../../services/database';
 import { runDailyCalculation } from '../../services/indicatorService';
 import { Glass, Pill, Badge } from '../../components';
 
@@ -113,23 +113,61 @@ export default function AddOperacaoScreen(props) {
         }).catch(function(e) {
           console.warn('First op indicator check failed:', e);
         });
-        Alert.alert('Sucesso!', 'Operação registrada.', [
-          {
-            text: 'Adicionar outra',
-            onPress: function() {
-              setTicker('');
-              setQuantidade('');
-              setPreco('');
-              setCorretagem('');
-              setEmolumentos('');
-              setImpostos('');
-              setShowCustos(false);
-              setData(todayBr());
-              setSubmitted(false);
+
+        // Oferecer atualizar saldo na conta
+        var opTotal = tipo === 'compra' ? custoTotal : custoTotal;
+        var opTipo = tipo === 'compra' ? 'saida' : 'entrada';
+        var opCat = tipo === 'compra' ? 'compra_ativo' : 'venda_ativo';
+        var opDescLabel = tipo === 'compra' ? 'Compra' : 'Venda';
+        var opDesc = opDescLabel + ' ' + ticker.toUpperCase() + ' x' + qty;
+
+        var resetFields = function() {
+          setTicker('');
+          setQuantidade('');
+          setPreco('');
+          setCorretagem('');
+          setEmolumentos('');
+          setImpostos('');
+          setShowCustos(false);
+          setData(todayBr());
+          setSubmitted(false);
+        };
+
+        Alert.alert(
+          'Operação registrada!',
+          'Atualizar saldo em ' + corretora + '? (' + (tipo === 'compra' ? '-' : '+') + 'R$ ' + fmt(opTotal) + ')',
+          [
+            {
+              text: 'Não',
+              style: 'cancel',
+              onPress: function() {
+                Alert.alert('Sucesso!', 'Operação registrada.', [
+                  { text: 'Adicionar outra', onPress: resetFields },
+                  { text: 'Concluir', onPress: function() { navigation.goBack(); } },
+                ]);
+              },
             },
-          },
-          { text: 'Concluir', onPress: function() { navigation.goBack(); } },
-        ]);
+            {
+              text: 'Sim, atualizar',
+              onPress: function() {
+                addMovimentacaoComSaldo(user.id, {
+                  conta: corretora,
+                  tipo: opTipo,
+                  categoria: opCat,
+                  valor: opTotal,
+                  descricao: opDesc,
+                  ticker: ticker.toUpperCase(),
+                  referencia_tipo: 'operacao',
+                  data: brToIso(data) || new Date().toISOString().substring(0, 10),
+                }).catch(function(e) { console.warn('Mov saldo failed:', e); });
+                Alert.alert('Sucesso!', 'Operação + saldo atualizados.', [
+                  { text: 'Adicionar outra', onPress: resetFields },
+                  { text: 'Concluir', onPress: function() { navigation.goBack(); } },
+                ]);
+              },
+            },
+          ]
+        );
       }
     } catch (err) {
       Alert.alert('Erro', 'Falha ao salvar. Tente novamente.');

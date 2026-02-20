@@ -454,6 +454,151 @@ export async function upsertPatrimonioSnapshot(userId, data, valor) {
   return { error: result.error };
 }
 
+// ═══════════ MOVIMENTAÇÕES (Fluxo de Caixa) ═══════════
+
+function buildMovDescricao(categoria, ticker, extra) {
+  var MAP = {
+    compra_ativo: 'Compra ', venda_ativo: 'Venda ',
+    premio_opcao: 'Prêmio ', recompra_opcao: 'Recompra ',
+    exercicio_opcao: 'Exercício ', dividendo: 'Dividendo ',
+    jcp: 'JCP ', rendimento_fii: 'Rendimento ',
+    rendimento_rf: 'Rendimento RF ',
+    deposito: 'Depósito ', retirada: 'Retirada ',
+    transferencia: 'Transferência ',
+    salario: 'Salário ', despesa_fixa: 'Despesa fixa ',
+    despesa_variavel: 'Despesa variável ',
+    ajuste_manual: 'Ajuste ',
+  };
+  return (MAP[categoria] || '') + (ticker || '') + (extra ? ' ' + extra : '');
+}
+
+export { buildMovDescricao };
+
+export async function getMovimentacoes(userId, filters) {
+  if (!filters) filters = {};
+  var query = supabase
+    .from('movimentacoes')
+    .select('*')
+    .eq('user_id', userId)
+    .order('data', { ascending: false })
+    .order('created_at', { ascending: false });
+
+  if (filters.conta) query = query.eq('conta', filters.conta);
+  if (filters.tipo) query = query.eq('tipo', filters.tipo);
+  if (filters.categoria) query = query.eq('categoria', filters.categoria);
+  if (filters.dataInicio) query = query.gte('data', filters.dataInicio);
+  if (filters.dataFim) query = query.lte('data', filters.dataFim);
+  if (filters.ticker) query = query.eq('ticker', filters.ticker.toUpperCase().trim());
+  if (filters.limit) query = query.limit(filters.limit);
+
+  var result = await query;
+  return { data: result.data || [], error: result.error };
+}
+
+export async function addMovimentacao(userId, mov) {
+  var payload = { user_id: userId };
+  var keys = Object.keys(mov);
+  for (var i = 0; i < keys.length; i++) {
+    payload[keys[i]] = mov[keys[i]];
+  }
+  var result = await supabase
+    .from('movimentacoes')
+    .insert(payload)
+    .select()
+    .single();
+  return { data: result.data, error: result.error };
+}
+
+export async function addMovimentacaoComSaldo(userId, mov) {
+  // 1. Get current saldo
+  var saldoResult = await supabase
+    .from('saldos_corretora')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('name', mov.conta)
+    .maybeSingle();
+
+  var saldoAtual = (saldoResult.data && saldoResult.data.saldo) || 0;
+  var novoSaldo;
+  if (mov.tipo === 'entrada') {
+    novoSaldo = saldoAtual + (mov.valor || 0);
+  } else {
+    novoSaldo = saldoAtual - (mov.valor || 0);
+  }
+
+  // 2. Insert movimentacao with saldo_apos
+  var payload = { user_id: userId, saldo_apos: novoSaldo };
+  var keys = Object.keys(mov);
+  for (var i = 0; i < keys.length; i++) {
+    payload[keys[i]] = mov[keys[i]];
+  }
+  var movResult = await supabase
+    .from('movimentacoes')
+    .insert(payload)
+    .select()
+    .single();
+
+  if (movResult.error) return { data: null, error: movResult.error };
+
+  // 3. Update saldo
+  if (saldoResult.data) {
+    await supabase
+      .from('saldos_corretora')
+      .update({ saldo: novoSaldo, updated_at: new Date().toISOString() })
+      .eq('id', saldoResult.data.id);
+  } else {
+    await supabase
+      .from('saldos_corretora')
+      .insert({ user_id: userId, name: mov.conta, saldo: novoSaldo });
+  }
+
+  return { data: movResult.data, error: null };
+}
+
+export async function deleteMovimentacao(id) {
+  var result = await supabase
+    .from('movimentacoes')
+    .delete()
+    .eq('id', id);
+  return { error: result.error };
+}
+
+export async function getMovimentacoesSummary(userId, mes, ano) {
+  var dataInicio = ano + '-' + String(mes).padStart(2, '0') + '-01';
+  var nextMonth = mes === 12 ? 1 : mes + 1;
+  var nextYear = mes === 12 ? ano + 1 : ano;
+  var dataFim = nextYear + '-' + String(nextMonth).padStart(2, '0') + '-01';
+
+  var result = await supabase
+    .from('movimentacoes')
+    .select('*')
+    .eq('user_id', userId)
+    .gte('data', dataInicio)
+    .lt('data', dataFim);
+
+  var movs = result.data || [];
+  var totalEntradas = 0;
+  var totalSaidas = 0;
+  var porCategoria = {};
+
+  for (var i = 0; i < movs.length; i++) {
+    var m = movs[i];
+    if (m.tipo === 'entrada') totalEntradas += (m.valor || 0);
+    else if (m.tipo === 'saida') totalSaidas += (m.valor || 0);
+
+    if (!porCategoria[m.categoria]) porCategoria[m.categoria] = 0;
+    porCategoria[m.categoria] += (m.valor || 0);
+  }
+
+  return {
+    totalEntradas: totalEntradas,
+    totalSaidas: totalSaidas,
+    saldo: totalEntradas - totalSaidas,
+    porCategoria: porCategoria,
+    total: movs.length,
+  };
+}
+
 // ═══════════ DASHBOARD AGGREGATES ═══════════
 export async function getDashboard(userId) {
   try {
@@ -680,10 +825,11 @@ export async function getDashboard(userId) {
         rendaAnualByMonth[plKeys[pki]] += (pkData.prem || 0) - (pkData.rec || 0);
       }
     }
-    // Dividendos por mes do ano corrente
+    // Dividendos ja recebidos do ano corrente (data_pagamento <= hoje)
+    var todayStr = now.toISOString().substring(0, 10);
     for (var dai = 0; dai < proventosData.length; dai++) {
       var daDateStr = (proventosData[dai].data_pagamento || '').substring(0, 10);
-      if (daDateStr.substring(0, 4) === prefixAno) {
+      if (daDateStr.substring(0, 4) === prefixAno && daDateStr <= todayStr) {
         var daMonth = daDateStr.substring(0, 7);
         var daVal = (proventosData[dai].valor_por_cota || 0) * (proventosData[dai].quantidade || 0);
         if (!rendaAnualByMonth[daMonth]) rendaAnualByMonth[daMonth] = 0;
@@ -705,7 +851,8 @@ export async function getDashboard(userId) {
     for (var srai = 0; srai < rendaAnoKeys.length; srai++) {
       somaRendaAno += rendaAnualByMonth[rendaAnoKeys[srai]];
     }
-    var rendaMediaAnual = mesesDecorridos > 0 ? somaRendaAno / mesesDecorridos : 0;
+    var mesesCompletos = Math.max(mesAtual, 1);
+    var rendaMediaAnual = mesesCompletos > 0 ? somaRendaAno / mesesCompletos : 0;
 
     // Opções que vencem em breve (agrupadas por urgência)
     var opsVenc7d = [];

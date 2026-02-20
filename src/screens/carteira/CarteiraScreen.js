@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, ActivityIndicator, LayoutAnimation,
-  Platform, UIManager, Alert, TextInput,
+  Platform, UIManager, Alert, TextInput, Modal,
 } from 'react-native';
 import Svg, {
   Circle as SvgCircle, Path, Defs, LinearGradient as SvgGrad,
@@ -11,9 +11,9 @@ import Svg, {
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa, deleteSaldo, upsertSaldo } from '../../services/database';
+import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa } from '../../services/database';
 import { enrichPositionsWithPrices, fetchPriceHistory, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
-import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
+import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { MiniLineChart } from '../../components/InteractiveChart';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
@@ -405,10 +405,7 @@ export default function CarteiraScreen(props) {
   var _pLoad = useState(false); var pricesLoading = _pLoad[0]; var setPricesLoading = _pLoad[1];
   var _hist = useState({}); var priceHistory = _hist[0]; var setPriceHistory = _hist[1];
   var _exp = useState(null); var expanded = _exp[0]; var setExpanded = _exp[1];
-  var _actId = useState(null); var actionId = _actId[0]; var setActionId = _actId[1];
-  var _actMode = useState(null); var actionMode = _actMode[0]; var setActionMode = _actMode[1];
-  var _actVal = useState(''); var actionVal = _actVal[0]; var setActionVal = _actVal[1];
-  var _trDest = useState(null); var transferDest = _trDest[0]; var setTransferDest = _trDest[1];
+  var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
 
   var load = async function () {
     if (!user) return;
@@ -608,7 +605,9 @@ export default function CarteiraScreen(props) {
       {/* ══════ 6. FILTER PILLS ══════ */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
         <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>POSIÇÕES</Text>
-        <InfoTip text="Posições agregadas por ticker com preço médio ponderado. PM = custo médio de compra." />
+        <TouchableOpacity onPress={function() { setInfoModal({ title: 'Posições', text: 'Posições agregadas por ticker com preço médio ponderado. PM = custo médio de compra.' }); }}>
+          <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+        </TouchableOpacity>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ gap: 6, paddingBottom: 2 }}>
@@ -668,234 +667,29 @@ export default function CarteiraScreen(props) {
         </Glass>
       ) : null}
 
-      {/* ══════ 12. SALDOS ══════ */}
-      {filter === 'todos' ? (
-        <View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <SectionLabel style={{ marginBottom: 0 }}>SALDO DISPONIVEL</SectionLabel>
-            {totalSaldos > 0 ? (
-              <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>
-                R$ {fmt(totalSaldos)}
-              </Text>
-            ) : null}
-          </View>
-          {saldos.length > 0 ? saldos.map(function (s, i) {
-            var bc = [C.opcoes, C.acoes, C.fiis, C.etfs, C.rf, C.accent][i % 6];
-            var sName = s.corretora || '';
-            var isActive = actionId === s.id;
-            var curMode = isActive ? actionMode : null;
-
-            var resetAction = function () {
-              setActionId(null);
-              setActionMode(null);
-              setActionVal('');
-              setTransferDest(null);
-            };
-
-            var openMode = function (mode) {
-              if (isActive && actionMode === mode) {
-                resetAction();
-              } else {
-                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                setActionId(s.id);
-                setActionMode(mode);
-                setActionVal('');
-                setTransferDest(null);
-              }
-            };
-
-            var parseVal = function () {
-              return parseFloat((actionVal || '').replace(/\./g, '').replace(',', '.')) || 0;
-            };
-
-            var handleExcluir = function () {
-              Alert.alert(
-                'Excluir saldo',
-                'Remover saldo de ' + sName + '?',
-                [
-                  { text: 'Cancelar', style: 'cancel' },
-                  {
-                    text: 'Excluir', style: 'destructive',
-                    onPress: function () {
-                      deleteSaldo(s.id).then(function () { load(); });
-                    },
-                  },
-                ]
-              );
-            };
-
-            var handleConfirmDeduz = function () {
-              var num = parseVal();
-              if (num <= 0) return;
-              var novoSaldo = Math.max(0, (s.saldo || 0) - num);
-              resetAction();
-              upsertSaldo(user.id, { corretora: sName, saldo: novoSaldo }).then(function () { load(); });
-            };
-
-            var handleConfirmDeposit = function () {
-              var num = parseVal();
-              if (num <= 0) return;
-              var novoSaldo = (s.saldo || 0) + num;
-              resetAction();
-              upsertSaldo(user.id, { corretora: sName, saldo: novoSaldo }).then(function () { load(); });
-            };
-
-            var handleConfirmTransfer = function () {
-              var num = parseVal();
-              if (num <= 0 || !transferDest) return;
-              if (num > (s.saldo || 0)) {
-                Alert.alert('Saldo insuficiente', 'O valor excede o saldo disponível.');
-                return;
-              }
-              var dest = saldos.find(function (x) { return x.id === transferDest; });
-              if (!dest) return;
-              var novoOrigem = (s.saldo || 0) - num;
-              var novoDestino = (dest.saldo || 0) + num;
-              resetAction();
-              Promise.all([
-                upsertSaldo(user.id, { corretora: sName, saldo: novoOrigem }),
-                upsertSaldo(user.id, { corretora: dest.corretora || '', saldo: novoDestino }),
-              ]).then(function () { load(); });
-            };
-
-            var onChangeVal = function (t) {
-              var nums = t.replace(/\D/g, '');
-              if (nums === '') { setActionVal(''); return; }
-              var centavos = parseInt(nums);
-              var reais = (centavos / 100).toFixed(2);
-              var parts = reais.split('.');
-              parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-              setActionVal(parts[0] + ',' + parts[1]);
-            };
-
-            var modeColor = curMode === 'depositar' ? C.green : curMode === 'transferir' ? C.accent : C.yellow;
-
-            var destOptions = saldos.filter(function (x) { return x.id !== s.id; });
-
-            return (
-              <View key={s.id || i} style={{ marginTop: i > 0 ? 6 : 0 }}>
-                <Glass padding={12}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                      <View style={[styles.brokerIcon, { backgroundColor: bc + '12', borderColor: bc + '22' }]}>
-                        <Text style={[styles.brokerIconText, { color: bc }]}>
-                          {(sName || 'COR').substring(0, 2).toUpperCase()}
-                        </Text>
-                      </View>
-                      <Text style={styles.saldoName}>{sName}</Text>
-                    </View>
-                    <Text style={[styles.saldoValue, { color: bc }]}>R$ {fmt(s.saldo || 0)}</Text>
-                  </View>
-
-                  {/* Action panel (depositar / deduzir / transferir) */}
-                  {curMode ? (
-                    <View style={{ marginTop: 10, gap: 8 }}>
-                      {curMode === 'transferir' && destOptions.length === 0 ? (
-                        <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
-                          Nenhuma outra conta para transferir
-                        </Text>
-                      ) : (
-                        <View style={{ gap: 8 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.mono }}>R$</Text>
-                            <TextInput
-                              value={actionVal}
-                              onChangeText={onChangeVal}
-                              placeholder="0,00"
-                              placeholderTextColor={C.dim}
-                              keyboardType="numeric"
-                              autoFocus
-                              style={{
-                                flex: 1, backgroundColor: C.cardSolid, borderWidth: 1, borderColor: modeColor + '40',
-                                borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8,
-                                fontSize: 16, color: C.text, fontFamily: F.mono,
-                              }}
-                            />
-                          </View>
-                          {curMode === 'transferir' ? (
-                            <View style={{ gap: 4 }}>
-                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>DESTINO</Text>
-                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                                {destOptions.map(function (d) {
-                                  var sel = transferDest === d.id;
-                                  return (
-                                    <TouchableOpacity
-                                      key={d.id}
-                                      onPress={function () { setTransferDest(sel ? null : d.id); }}
-                                      activeOpacity={0.7}
-                                      style={{
-                                        paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
-                                        borderWidth: 1,
-                                        borderColor: sel ? C.accent : C.border,
-                                        backgroundColor: sel ? C.accent + '18' : 'transparent',
-                                      }}
-                                    >
-                                      <Text style={{ fontSize: 11, fontFamily: F.body, fontWeight: sel ? '700' : '500', color: sel ? C.accent : C.sub }}>
-                                        {d.corretora || ''}
-                                      </Text>
-                                    </TouchableOpacity>
-                                  );
-                                })}
-                              </View>
-                            </View>
-                          ) : null}
-                        </View>
-                      )}
-                      <View style={{ flexDirection: 'row', gap: 8 }}>
-                        <TouchableOpacity
-                          onPress={resetAction}
-                          activeOpacity={0.7}
-                          style={{ flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: C.border, alignItems: 'center' }}
-                        >
-                          <Text style={{ fontSize: 13, fontWeight: '600', color: C.sub, fontFamily: F.body }}>Cancelar</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={curMode === 'depositar' ? handleConfirmDeposit : curMode === 'transferir' ? handleConfirmTransfer : handleConfirmDeduz}
-                          activeOpacity={0.7}
-                          style={{
-                            flex: 1, paddingVertical: 8, borderRadius: 8,
-                            backgroundColor: modeColor + '18', borderWidth: 1, borderColor: modeColor + '40',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <Text style={{ fontSize: 13, fontWeight: '600', color: modeColor, fontFamily: F.body }}>Confirmar</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 10 }}>
-                      <TouchableOpacity onPress={function () { openMode('depositar'); }} activeOpacity={0.7}
-                        style={{ flex: 1, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: C.green + '30', alignItems: 'center' }}>
-                        <Text style={{ fontSize: 10, fontWeight: '600', color: C.green + 'CC', fontFamily: F.mono, letterSpacing: 0.4 }}>Depositar</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={function () { openMode('deduzir'); }} activeOpacity={0.7}
-                        style={{ flex: 1, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: C.yellow + '30', alignItems: 'center' }}>
-                        <Text style={{ fontSize: 10, fontWeight: '600', color: C.yellow + 'CC', fontFamily: F.mono, letterSpacing: 0.4 }}>Deduzir</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={function () { openMode('transferir'); }} activeOpacity={0.7}
-                        style={{ flex: 1, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: C.accent + '30', alignItems: 'center' }}>
-                        <Text style={{ fontSize: 10, fontWeight: '600', color: C.accent + 'CC', fontFamily: F.mono, letterSpacing: 0.4 }}>Transferir</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={handleExcluir} activeOpacity={0.7}
-                        style={{ flex: 1, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: C.red + '30', alignItems: 'center' }}>
-                        <Text style={{ fontSize: 10, fontWeight: '600', color: C.red + 'CC', fontFamily: F.mono, letterSpacing: 0.4 }}>Excluir</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </Glass>
-              </View>
-            );
-          }) : (
-            <Glass padding={16}>
-              <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
-                Nenhum saldo cadastrado
-              </Text>
-            </Glass>
-          )}
-        </View>
-      ) : null}
+      {/* Saldos moved to Gestão > Caixa */}
 
       <View style={{ height: SIZE.tabBarHeight + 20 }} />
+
+      <Modal visible={infoModal !== null} animationType="fade" transparent={true}
+        onRequestClose={function() { setInfoModal(null); }}>
+        <TouchableOpacity activeOpacity={1} onPress={function() { setInfoModal(null); }}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 30 }}>
+          <TouchableOpacity activeOpacity={1}
+            style={{ backgroundColor: C.card, borderRadius: 14, padding: 20, maxWidth: 340, width: '100%', borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ fontSize: 13, color: C.text, fontFamily: F.display, fontWeight: '700', marginBottom: 10 }}>
+              {infoModal && infoModal.title || ''}
+            </Text>
+            <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body, lineHeight: 18 }}>
+              {infoModal && infoModal.text || ''}
+            </Text>
+            <TouchableOpacity onPress={function() { setInfoModal(null); }}
+              style={{ marginTop: 14, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 8, borderRadius: 8, backgroundColor: C.accent }}>
+              <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono, fontWeight: '600' }}>Fechar</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </ScrollView>
   );
 }

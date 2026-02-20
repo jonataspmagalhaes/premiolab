@@ -1,14 +1,14 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, Alert,
+  TouchableOpacity, Alert, Modal,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getProventos, deleteProvento, getProfile } from '../../services/database';
 import { runDividendSync } from '../../services/dividendService';
-import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
+import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
 var TIPO_LABELS = {
@@ -72,6 +72,7 @@ export default function ProventosScreen(props) {
   var _tab = useState('pendente'); var tab = _tab[0]; var setTab = _tab[1];
   var _syncing = useState(false); var syncing = _syncing[0]; var setSyncing = _syncing[1];
   var _lastSync = useState(null); var lastSync = _lastSync[0]; var setLastSync = _lastSync[1];
+  var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
 
   var load = async function() {
     if (!user) return;
@@ -202,7 +203,9 @@ export default function ProventosScreen(props) {
         </TouchableOpacity>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Text style={styles.title}>Proventos</Text>
-          <InfoTip text="Dividendos, JCP, rendimentos de FIIs e amortizações. Sincronizar importa automaticamente de brapi + StatusInvest." />
+          <TouchableOpacity onPress={function() { setInfoModal({ title: 'Proventos', text: 'Dividendos, JCP, rendimentos de FIIs e amortizações. Sincronizar importa automaticamente de brapi + StatusInvest.' }); }}>
+            <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+          </TouchableOpacity>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
           <View style={{ alignItems: 'center' }}>
@@ -353,6 +356,26 @@ export default function ProventosScreen(props) {
       </TouchableOpacity>
 
       <View style={{ height: SIZE.tabBarHeight + 20 }} />
+
+      <Modal visible={infoModal !== null} animationType="fade" transparent={true}
+        onRequestClose={function() { setInfoModal(null); }}>
+        <TouchableOpacity activeOpacity={1} onPress={function() { setInfoModal(null); }}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 30 }}>
+          <TouchableOpacity activeOpacity={1}
+            style={{ backgroundColor: C.card, borderRadius: 14, padding: 20, maxWidth: 340, width: '100%', borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ fontSize: 13, color: C.text, fontFamily: F.display, fontWeight: '700', marginBottom: 10 }}>
+              {infoModal && infoModal.title || ''}
+            </Text>
+            <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body, lineHeight: 18 }}>
+              {infoModal && infoModal.text || ''}
+            </Text>
+            <TouchableOpacity onPress={function() { setInfoModal(null); }}
+              style={{ marginTop: 14, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 8, borderRadius: 8, backgroundColor: C.accent }}>
+              <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono, fontWeight: '600' }}>Fechar</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </ScrollView>
   );
 }

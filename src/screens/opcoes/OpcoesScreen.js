@@ -1,21 +1,25 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, TextInput, Alert, Dimensions,
+  TouchableOpacity, TextInput, Alert, Dimensions, Modal,
 } from 'react-native';
 import Svg, { Line, Rect, Path, Text as SvgText } from 'react-native-svg';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators, getProfile } from '../../services/database';
-import { enrichPositionsWithPrices, clearPriceCache, fetchPrices } from '../../services/priceService';
-import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
+import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators, getProfile, addMovimentacaoComSaldo, addMovimentacao } from '../../services/database';
+import { enrichPositionsWithPrices, clearPriceCache, fetchPrices, fetchPriceHistoryLong } from '../../services/priceService';
+import { runDailyCalculation, shouldCalculateToday, calcHV, calcSMA, calcEMA, calcRSI, calcBeta, calcATR, calcBollingerBands, calcMaxDrawdown } from '../../services/indicatorService';
 import { supabase } from '../../config/supabase';
-import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
+import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtC(v) {
+  return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
 function maskDate(text) {
@@ -478,6 +482,7 @@ function OpCard(props) {
   var saldos = props.saldos || [];
   var indicatorsMap = props.indicators || {};
   var cardSelicRate = props.selicRate || 13.25;
+  var setInfoModal = props.setInfoModal;
   var onEdit = props.onEdit;
   var onDelete = props.onDelete;
   var onClose = props.onClose;
@@ -680,7 +685,9 @@ function OpCard(props) {
               {'IV: ' + iv.toFixed(0) + '%'}
             </Text>
             {ivLabel ? <Badge text={ivLabel} color={ivColor} /> : null}
-            <InfoTip text="HV = volatilidade histórica 20d. IV = volatilidade implícita. IV > 130% HV = prêmio caro." size={12} />
+            <TouchableOpacity onPress={function() { setInfoModal({ title: 'HV / IV', text: 'HV = volatilidade histórica 20d. IV = volatilidade implícita. IV > 130% HV = prêmio caro.' }); }}>
+              <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+            </TouchableOpacity>
           </View>
         );
       })()}
@@ -834,6 +841,7 @@ function OpCard(props) {
 // ═══════════════════════════════════════
 function SimuladorBS(props) {
   var simSelicRate = props.selicRate || 13.25;
+  var setInfoModal = props.setInfoModal;
   var s1 = useState('CALL'); var tipo = s1[0]; var setTipo = s1[1];
   var s2 = useState('venda'); var direcao = s2[0]; var setDirecao = s2[1];
   var s3 = useState('34.30'); var spot = s3[0]; var setSpot = s3[1];
@@ -934,7 +942,9 @@ function SimuladorBS(props) {
       <Glass glow={C.opcoes} padding={14}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
           <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>GREGAS (BLACK-SCHOLES)</Text>
-          <InfoTip text="Delta: sensibilidade ao preço. Gamma: aceleração do delta. Theta: perda temporal/dia. Vega: sensibilidade à volatilidade." />
+          <TouchableOpacity onPress={function() { setInfoModal({ title: 'Gregas (Black-Scholes)', text: 'Delta: sensibilidade ao preço. Gamma: aceleração do delta. Theta: perda temporal/dia. Vega: sensibilidade à volatilidade.' }); }}>
+            <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+          </TouchableOpacity>
         </View>
         <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: 8 }}>
           {[
@@ -1293,6 +1303,12 @@ export default function OpcoesScreen() {
   var s9 = useState(false); var exercicioAuto = s9[0]; var setExercicioAuto = s9[1];
   var s10 = useState({}); var indicators = s10[0]; var setIndicators = s10[1];
   var _selicSt = useState(13.25); var selicRate = _selicSt[0]; var setSelicRate = _selicSt[1];
+  var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
+  var _indList = useState([]); var indList = _indList[0]; var setIndList = _indList[1];
+  var _searchTicker = useState(''); var searchTicker = _searchTicker[0]; var setSearchTicker = _searchTicker[1];
+  var _searchLoading = useState(false); var searchLoading = _searchLoading[0]; var setSearchLoading = _searchLoading[1];
+  var _searchResult = useState(null); var searchResult = _searchResult[0]; var setSearchResult = _searchResult[1];
+  var _searchError = useState(''); var searchError = _searchError[0]; var setSearchError = _searchError[1];
 
   var load = async function() {
     if (!user) return;
@@ -1314,6 +1330,7 @@ export default function OpcoesScreen() {
       indMap[indData[ii].ticker] = indData[ii];
     }
     setIndicators(indMap);
+    setIndList(indData);
 
     // Trigger daily calculation if stale
     var lastCalc = indData.length > 0 ? indData[0].data_calculo : null;
@@ -1329,6 +1346,7 @@ export default function OpcoesScreen() {
             newMap[calcResult.data[ci].ticker] = calcResult.data[ci];
           }
           setIndicators(newMap);
+          setIndList(calcResult.data);
         }
       }).catch(function(e) {
         console.warn('Indicator calc failed:', e);
@@ -1457,7 +1475,7 @@ export default function OpcoesScreen() {
         var msg = '';
         if (exCount > 0) msg = msg + exCount + ' exercida(s)';
         if (exCount > 0 && poCount > 0) msg = msg + ', ';
-        if (poCount > 0) msg = msg + poCount + ' expirou PO';
+        if (poCount > 0) msg = msg + poCount + ' virou pó';
         Alert.alert('Exercício automático', msg);
       }
     } else {
@@ -1667,15 +1685,22 @@ export default function OpcoesScreen() {
           {
             text: 'Descontar',
             onPress: async function() {
-              var novoSaldo = saldoAtual - recompraTotal;
               var saldoName = saldoMatch.corretora || saldoMatch.name;
-              var resS = await supabase
-                .from('saldos_corretora')
-                .update({ saldo: novoSaldo })
-                .eq('id', saldoMatch.id);
-              if (resS.error) {
-                Alert.alert('Erro', 'Falha ao atualizar saldo: ' + (resS.error.message || ''));
+              // Use addMovimentacaoComSaldo for atomic saldo update + log
+              var resM = await addMovimentacaoComSaldo(user.id, {
+                conta: saldoName,
+                tipo: 'saida',
+                categoria: 'recompra_opcao',
+                valor: recompraTotal,
+                descricao: 'Recompra ' + (original.tipo || '').toUpperCase() + ' ' + (original.ativo_base || ''),
+                ticker: original.ativo_base || null,
+                referencia_tipo: 'opcao',
+                data: new Date().toISOString().substring(0, 10),
+              });
+              if (resM.error) {
+                Alert.alert('Erro', 'Falha ao atualizar saldo: ' + (resM.error.message || ''));
               } else {
+                var novoSaldo = saldoAtual - recompraTotal;
                 // Update local saldos state
                 var newSaldos = [];
                 for (var sj = 0; sj < saldos.length; sj++) {
@@ -1723,7 +1748,23 @@ export default function OpcoesScreen() {
       cp.status = 'expirou_po';
       setOpcoes(opcoes.concat([cp]));
     }
-    Alert.alert('Registrado', 'Opção expirou sem valor (PO). Prêmio mantido integralmente.');
+    // Log movimentacao informativa (prêmio mantido)
+    if (expOp) {
+      var premTotal = (expOp.premio || 0) * (expOp.quantidade || 0);
+      if (premTotal > 0 && expOp.corretora) {
+        addMovimentacao(user.id, {
+          conta: expOp.corretora,
+          tipo: 'entrada',
+          categoria: 'premio_opcao',
+          valor: premTotal,
+          descricao: 'Prêmio mantido - expirou PÓ ' + (expOp.ativo_base || ''),
+          ticker: expOp.ativo_base || null,
+          referencia_tipo: 'opcao',
+          data: new Date().toISOString().substring(0, 10),
+        }).catch(function(e) { console.warn('Mov expirou_po log failed:', e); });
+      }
+    }
+    Alert.alert('Registrado', 'Opção virou pó. Prêmio mantido integralmente.');
   };
 
   var handleExercida = function(expOp) {
@@ -1764,6 +1805,20 @@ export default function OpcoesScreen() {
           if (opResult.error) {
             Alert.alert('Aviso', 'Opção marcada como exercida, mas falha ao criar operação: ' + opResult.error.message);
           } else {
+            // Log movimentacao do exercício
+            var exValor = (expOp.strike || 0) * (expOp.quantidade || 0);
+            if (exValor > 0 && expOp.corretora) {
+              addMovimentacaoComSaldo(user.id, {
+                conta: expOp.corretora,
+                tipo: opTipo === 'compra' ? 'saida' : 'entrada',
+                categoria: 'exercicio_opcao',
+                valor: exValor,
+                descricao: 'Exercício ' + (expOp.tipo || '').toUpperCase() + ' ' + (expOp.ativo_base || ''),
+                ticker: expOp.ativo_base || null,
+                referencia_tipo: 'opcao',
+                data: new Date().toISOString().substring(0, 10),
+              }).catch(function(e) { console.warn('Mov exercicio failed:', e); });
+            }
             Alert.alert('Exercida!', 'Opção exercida e operação de ' + opTipo + ' registrada na carteira.');
           }
           setExpired(expired.filter(function(o) { return o.id !== expOp.id; }));
@@ -1816,9 +1871,30 @@ export default function OpcoesScreen() {
     return new Date(a.vencimento) - new Date(b.vencimento);
   });
 
+  // Stats para header da aba Ativas
+  var totalPuts = 0;
+  var totalCalls = 0;
+  var totalATM = 0;
+  var totalITM = 0;
+  var totalVenc7d = 0;
+  var nowMs = now.getTime();
+  for (var si = 0; si < ativas.length; si++) {
+    var sop = ativas[si];
+    if ((sop.tipo || 'call').toLowerCase() === 'put') { totalPuts++; } else { totalCalls++; }
+    var sSpot = 0;
+    var sMatch = (positions || []).find(function(p) { return p.ticker === sop.ativo_base; });
+    if (sMatch) sSpot = sMatch.preco_atual || sMatch.pm || 0;
+    var sMon = getMoneyness(sop.tipo, sop.direcao, sop.strike, sSpot);
+    if (sMon && sMon.label === 'ATM') totalATM++;
+    if (sMon && sMon.label === 'ITM') totalITM++;
+    var sDays = Math.ceil((new Date(sop.vencimento).getTime() - nowMs) / (1000 * 60 * 60 * 24));
+    if (sDays >= 0 && sDays <= 7) totalVenc7d++;
+  }
+
   if (loading) return <View style={styles.container}><LoadingScreen /></View>;
 
   return (
+    <>
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
@@ -1827,37 +1903,7 @@ export default function OpcoesScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />
       }
     >
-      {/* SUMMARY BAR */}
-      <Glass glow={C.opcoes} padding={16}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 }}>
-          <InfoTip text="Moneyness: ITM/ATM/OTM indica se a opção está no/perto/fora do dinheiro. Cobertura: verifica se há ações suficientes na mesma corretora. DTE: dias até o vencimento." />
-        </View>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-          {[
-            { l: 'PRÊMIO MÊS', v: 'R$ ' + fmt(premioMes), c: C.opcoes },
-            { l: 'THETA/DIA', v: (thetaDiaTotal >= 0 ? '+' : '') + 'R$ ' + fmt(thetaDiaTotal), c: thetaDiaTotal >= 0 ? C.green : C.red },
-            { l: 'OPERAÇÕES', v: String(ativas.length), c: C.sub },
-          ].map(function(m, i) {
-            return (
-              <View key={i} style={{ alignItems: 'center', flex: 1 }}>
-                <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: m.c, fontFamily: F.display, marginTop: 2 }}>{m.v}</Text>
-              </View>
-            );
-          })}
-        </View>
-      </Glass>
-
-      {/* BANNER: gregas usando PM */}
-      {!pricesAvailable && positions.length > 0 ? (
-        <View style={{ padding: 8, borderRadius: 8, backgroundColor: 'rgba(245,158,11,0.08)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)' }}>
-          <Text style={{ fontSize: 11, color: '#f59e0b', fontFamily: F.mono, textAlign: 'center' }}>
-            Gregas usando PM (cotações indisponíveis)
-          </Text>
-        </View>
-      ) : null}
-
-      {/* SUB TABS */}
+      {/* SUB TABS — topo da página */}
       <View style={styles.subTabs}>
         {[
           { k: 'ativas', l: 'Ativas (' + ativas.length + ')', c: C.opcoes },
@@ -1865,6 +1911,7 @@ export default function OpcoesScreen() {
           { k: 'sim', l: 'Simulador', c: C.opcoes },
           { k: 'cadeia', l: 'Cadeia', c: C.opcoes },
           { k: 'hist', l: 'Histórico (' + historico.length + ')', c: C.opcoes },
+          { k: 'ind', l: 'Indicadores', c: C.acoes },
         ].map(function(t) {
           return (
             <Pill key={t.k} active={sub === t.k} color={t.c} onPress={function() { setSub(t.k); }}>{t.l}</Pill>
@@ -1920,7 +1967,7 @@ export default function OpcoesScreen() {
                         onPress={function() { handleExpiredPo(expOp.id); }}
                         style={{ flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: C.green + '40', backgroundColor: C.green + '08', alignItems: 'center' }}
                       >
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: C.green, fontFamily: F.display }}>Expirou sem valor (PO)</Text>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: C.green, fontFamily: F.display }}>Virou Pó</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={function() { handleExercida(expOp); }}
@@ -1955,10 +2002,39 @@ export default function OpcoesScreen() {
             />
           ) : (
             <>
+              {/* Header stats */}
+              <Glass glow={C.opcoes} padding={14}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                  {[
+                    { l: 'PUTs', v: String(totalPuts), c: C.red },
+                    { l: 'CALLs', v: String(totalCalls), c: C.green },
+                    { l: 'ATM', v: String(totalATM), c: C.yellow },
+                    { l: 'ITM', v: String(totalITM), c: C.red },
+                    { l: 'VENC 7D', v: String(totalVenc7d), c: totalVenc7d > 0 ? C.red : C.dim },
+                  ].map(function(m, i) {
+                    return (
+                      <View key={i} style={{ alignItems: 'center', flex: 1 }}>
+                        <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
+                        <Text style={{ fontSize: 18, fontWeight: '800', color: m.c, fontFamily: F.display, marginTop: 2 }}>{m.v}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </Glass>
+
+              {/* BANNER: gregas usando PM */}
+              {!pricesAvailable && positions.length > 0 ? (
+                <View style={{ padding: 8, borderRadius: 8, backgroundColor: 'rgba(245,158,11,0.08)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)' }}>
+                  <Text style={{ fontSize: 11, color: '#f59e0b', fontFamily: F.mono, textAlign: 'center' }}>
+                    Gregas usando PM (cotações indisponíveis)
+                  </Text>
+                </View>
+              ) : null}
+
               {/* Option cards */}
               {ativas.map(function(op, i) {
                 return (
-                  <OpCard key={op.id || i} op={op} positions={positions} saldos={saldos} indicators={indicators} selicRate={selicRate}
+                  <OpCard key={op.id || i} op={op} positions={positions} saldos={saldos} indicators={indicators} selicRate={selicRate} setInfoModal={setInfoModal}
                     onEdit={function() { navigation.navigate('EditOpcao', { opcao: op }); }}
                     onDelete={function() { handleDelete(op.id); }}
                     onClose={handleClose}
@@ -2013,7 +2089,7 @@ export default function OpcoesScreen() {
       )}
 
       {/* SIMULADOR TAB */}
-      {sub === 'sim' && <SimuladorBS selicRate={selicRate} />}
+      {sub === 'sim' && <SimuladorBS selicRate={selicRate} setInfoModal={setInfoModal} />}
 
       {/* CADEIA TAB */}
       {sub === 'cadeia' && <CadeiaSintetica positions={positions} indicators={indicators} selicRate={selicRate} />}
@@ -2044,7 +2120,7 @@ export default function OpcoesScreen() {
                           totalPL = totalPL + ((h.premio_fechamento || 0) - (h.premio || 0)) * (h.quantidade || 0);
                         }
                       } else {
-                        // Expirou PO, expirada, exercida = full premium
+                        // Virou pó, expirada, exercida = full premium
                         totalPL = totalPL + (h.premio || 0) * (h.quantidade || 0);
                       }
                     }
@@ -2053,7 +2129,7 @@ export default function OpcoesScreen() {
                     var fechadas = historico.filter(function(o) { return o.status === 'fechada'; }).length;
                     return [
                       { l: 'P&L TOTAL', v: (totalPL >= 0 ? '+' : '') + 'R$ ' + fmt(totalPL), c: totalPL >= 0 ? C.green : C.red },
-                      { l: 'EXPIROU PO', v: String(expiradas), c: C.acoes },
+                      { l: 'VIROU PÓ', v: String(expiradas), c: C.acoes },
                       { l: 'EXERCIDAS', v: String(exercidas), c: C.etfs },
                       { l: 'FECHADAS', v: String(fechadas), c: C.yellow },
                     ];
@@ -2073,9 +2149,10 @@ export default function OpcoesScreen() {
                 {historico.map(function(op, i) {
                   var tipoLabel = (op.tipo || 'call').toUpperCase();
                   var premTotal = (op.premio || 0) * (op.quantidade || 0);
-                  var statusLabel = (op.status || 'encerrada').toUpperCase().replace('_', ' ');
+                  var statusRaw = (op.status || 'encerrada').toUpperCase().replace('_', ' ');
+                  var statusLabel = statusRaw === 'EXPIROU PO' ? 'VIROU PÓ' : statusRaw;
                   var statusMap = {
-                    'EXPIROU PO': C.green,
+                    'VIROU PÓ': C.green,
                     'EXPIRADA': C.green,
                     'EXERCIDA': C.etfs,
                     'FECHADA': C.yellow,
@@ -2100,7 +2177,7 @@ export default function OpcoesScreen() {
                     histDisplayColor = histPL >= 0 ? C.green : C.red;
                     histDisplayVal = (histPL >= 0 ? '+' : '') + 'R$ ' + fmt(histPL);
                   } else {
-                    // Expirou PO / expirada = full premium kept
+                    // Virou pó / expirada = full premium kept
                     histDisplayVal = '+R$ ' + fmt(premTotal);
                   }
 
@@ -2168,8 +2245,316 @@ export default function OpcoesScreen() {
         </View>
       )}
 
+      {/* INDICADORES TAB */}
+      {sub === 'ind' && (
+        <View style={{ gap: SIZE.gap }}>
+          {/* Consulta avulsa */}
+          <Glass padding={14}>
+            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 6 }}>CONSULTAR ATIVO AVULSO</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TextInput
+                value={searchTicker}
+                onChangeText={function(t) { setSearchTicker(t.toUpperCase()); }}
+                placeholder="Ex: WEGE3"
+                placeholderTextColor={C.dim}
+                autoCapitalize="characters"
+                style={{
+                  flex: 1, backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border,
+                  borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+                  fontSize: 14, color: C.text, fontFamily: F.mono,
+                }}
+              />
+              <TouchableOpacity
+                activeOpacity={0.8}
+                disabled={searchLoading || searchTicker.length < 4}
+                onPress={function() {
+                  var tk = searchTicker.trim().toUpperCase();
+                  if (tk.length < 4) return;
+                  setSearchLoading(true);
+                  setSearchError('');
+                  setSearchResult(null);
+                  fetchPriceHistoryLong([tk, '^BVSP']).then(function(histMap) {
+                    var hist = histMap[tk];
+                    if (!hist || hist.length < 20) {
+                      setSearchError('Dados insuficientes para ' + tk + ' (mínimo 20 candles)');
+                      setSearchLoading(false);
+                      return;
+                    }
+                    var closes = [];
+                    var highs = [];
+                    var lows = [];
+                    var volumes = [];
+                    for (var i = 0; i < hist.length; i++) {
+                      closes.push(hist[i].close);
+                      highs.push(hist[i].high);
+                      lows.push(hist[i].low);
+                      volumes.push(hist[i].volume || 0);
+                    }
+                    var ibovHist = histMap['^BVSP'];
+                    var ibovCloses = [];
+                    if (ibovHist) {
+                      for (var j = 0; j < ibovHist.length; j++) {
+                        ibovCloses.push(ibovHist[j].close);
+                      }
+                    }
+                    var volSum = 0;
+                    var volCount = Math.min(20, volumes.length);
+                    for (var v = volumes.length - volCount; v < volumes.length; v++) {
+                      volSum = volSum + volumes[v];
+                    }
+                    var res = {
+                      ticker: tk,
+                      preco_fechamento: closes[closes.length - 1],
+                      hv_20: closes.length >= 21 ? calcHV(closes, 20) : null,
+                      hv_60: closes.length >= 61 ? calcHV(closes, 60) : null,
+                      sma_20: closes.length >= 20 ? calcSMA(closes, 20) : null,
+                      sma_50: closes.length >= 50 ? calcSMA(closes, 50) : null,
+                      ema_9: closes.length >= 9 ? calcEMA(closes, 9) : null,
+                      ema_21: closes.length >= 21 ? calcEMA(closes, 21) : null,
+                      rsi_14: closes.length >= 15 ? calcRSI(closes, 14) : null,
+                      beta: ibovCloses.length >= 21 ? calcBeta(closes, ibovCloses, 20) : null,
+                      atr_14: closes.length >= 15 ? calcATR(highs, lows, closes, 14) : null,
+                      max_drawdown: calcMaxDrawdown(closes),
+                      bb_upper: null, bb_lower: null, bb_width: null,
+                      volume_medio_20: volCount > 0 ? volSum / volCount : null,
+                    };
+                    if (closes.length >= 20) {
+                      var bb = calcBollingerBands(closes, 20, 2);
+                      res.bb_upper = bb.upper;
+                      res.bb_lower = bb.lower;
+                      res.bb_width = bb.width;
+                    }
+                    setSearchResult(res);
+                    setSearchLoading(false);
+                  }).catch(function(e) {
+                    setSearchError('Erro ao buscar ' + tk + ': ' + e.message);
+                    setSearchLoading(false);
+                  });
+                }}
+                style={{
+                  backgroundColor: C.accent, borderRadius: 10,
+                  paddingHorizontal: 16, paddingVertical: 10,
+                  opacity: (searchLoading || searchTicker.length < 4) ? 0.4 : 1,
+                }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '700', color: 'white', fontFamily: F.display }}>
+                  {searchLoading ? 'Buscando...' : 'Buscar'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {searchError ? (
+              <Text style={{ fontSize: 11, color: C.red, fontFamily: F.body, marginTop: 6 }}>{searchError}</Text>
+            ) : null}
+          </Glass>
+
+          {/* Search result card */}
+          {searchResult && (
+            <Glass padding={14} glow={C.accent}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: C.text, fontFamily: F.display }}>{searchResult.ticker}</Text>
+                  <Badge text="AVULSO" color={C.accent} />
+                </View>
+                {searchResult.preco_fechamento != null ? (
+                  <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.mono }}>
+                    {'R$ ' + fmt(searchResult.preco_fechamento)}
+                  </Text>
+                ) : null}
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {[
+                  { l: 'HV 20d', v: searchResult.hv_20 != null ? searchResult.hv_20.toFixed(1) + '%' : '-', c: C.opcoes },
+                  { l: 'HV 60d', v: searchResult.hv_60 != null ? searchResult.hv_60.toFixed(1) + '%' : '-', c: C.opcoes },
+                  { l: 'RSI 14', v: searchResult.rsi_14 != null ? searchResult.rsi_14.toFixed(1) : '-',
+                    c: searchResult.rsi_14 != null ? (searchResult.rsi_14 > 70 ? C.red : searchResult.rsi_14 < 30 ? C.green : C.text) : C.text },
+                  { l: 'Beta', v: searchResult.beta != null ? searchResult.beta.toFixed(2) : '-',
+                    c: searchResult.beta != null ? (searchResult.beta > 1.2 ? C.red : searchResult.beta < 0.8 ? C.green : C.text) : C.text },
+                  { l: 'SMA 20', v: searchResult.sma_20 != null ? 'R$ ' + fmt(searchResult.sma_20) : '-', c: C.acoes },
+                  { l: 'SMA 50', v: searchResult.sma_50 != null ? 'R$ ' + fmt(searchResult.sma_50) : '-', c: C.acoes },
+                  { l: 'EMA 9', v: searchResult.ema_9 != null ? 'R$ ' + fmt(searchResult.ema_9) : '-', c: C.acoes },
+                  { l: 'EMA 21', v: searchResult.ema_21 != null ? 'R$ ' + fmt(searchResult.ema_21) : '-', c: C.acoes },
+                  { l: 'ATR 14', v: searchResult.atr_14 != null ? 'R$ ' + fmt(searchResult.atr_14) : '-', c: C.text },
+                  { l: 'Max DD', v: searchResult.max_drawdown != null ? searchResult.max_drawdown.toFixed(1) + '%' : '-', c: C.red },
+                  { l: 'BB Upper', v: searchResult.bb_upper != null ? 'R$ ' + fmt(searchResult.bb_upper) : '-', c: C.acoes },
+                  { l: 'BB Lower', v: searchResult.bb_lower != null ? 'R$ ' + fmt(searchResult.bb_lower) : '-', c: C.acoes },
+                  { l: 'BB Width', v: searchResult.bb_width != null ? searchResult.bb_width.toFixed(1) + '%' : '-', c: C.opcoes },
+                  { l: 'Vol Med 20', v: searchResult.volume_medio_20 != null ? fmtC(searchResult.volume_medio_20) : '-', c: C.sub },
+                ].map(function(d, di) {
+                  return (
+                    <View key={di} style={styles.indDetailItem}>
+                      <Text style={styles.indDetailLabel}>{d.l}</Text>
+                      <Text style={[styles.indDetailValue, { color: d.c }]}>{d.v}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </Glass>
+          )}
+
+          {indList.length === 0 ? (
+            !searchResult ? (
+              <EmptyState
+                icon={'\u0394'} title="Sem indicadores"
+                description="Indicadores são calculados automaticamente após 18h em dias úteis. Adicione ativos na carteira para começar. Use a busca acima para consultar qualquer ativo."
+                color={C.opcoes}
+              />
+            ) : null
+          ) : (
+            <>
+              {/* Summary */}
+              <Glass padding={14}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                  {[
+                    { l: 'ATIVOS', v: String(indList.length), c: C.acoes },
+                    { l: 'ÚLTIMO CÁLCULO', v: indList[0] && indList[0].data_calculo
+                      ? new Date(indList[0].data_calculo).toLocaleDateString('pt-BR') : '–', c: C.sub },
+                  ].map(function(m, i) {
+                    return (
+                      <View key={i} style={{ alignItems: 'center', flex: 1 }}>
+                        <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: m.c, fontFamily: F.display, marginTop: 2 }}>{m.v}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </Glass>
+
+              {/* Recalculate button */}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={{ backgroundColor: C.opcoes + '15', borderWidth: 1, borderColor: C.opcoes + '30', borderRadius: 10, paddingVertical: 10, alignItems: 'center' }}
+                onPress={function() {
+                  if (!user) return;
+                  runDailyCalculation(user.id).then(function(calcResult) {
+                    if (calcResult.data && calcResult.data.length > 0) {
+                      setIndList(calcResult.data);
+                    }
+                  }).catch(function(e) {
+                    console.warn('Manual calc failed:', e);
+                  });
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '700', color: C.opcoes, fontFamily: F.display }}>Recalcular indicadores</Text>
+              </TouchableOpacity>
+
+              {/* Info tooltip */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <TouchableOpacity onPress={function() { setInfoModal({ title: 'Indicadores Técnicos', text: 'HV: volatilidade histórica 20 dias (%). RSI: força relativa 14 dias (>70 sobrecomprado, <30 sobrevendido). Beta: sensibilidade ao IBOV (>1 mais volátil). Max DD: maior queda pico-a-vale (%).' }); }}>
+                  <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Summary table */}
+              <Glass padding={0}>
+                <View style={styles.indTableHeader}>
+                  <Text style={[styles.indTableCol, { flex: 1.2 }]}>Ticker</Text>
+                  <Text style={styles.indTableCol}>HV 20d</Text>
+                  <Text style={styles.indTableCol}>RSI</Text>
+                  <Text style={styles.indTableCol}>Beta</Text>
+                  <Text style={styles.indTableCol}>Max DD</Text>
+                </View>
+                {indList.map(function(ind, i) {
+                  var rsiColor = C.text;
+                  if (ind.rsi_14 != null) {
+                    if (ind.rsi_14 > 70) rsiColor = C.red;
+                    else if (ind.rsi_14 < 30) rsiColor = C.green;
+                  }
+                  var betaColor = C.text;
+                  if (ind.beta != null) {
+                    if (ind.beta > 1.2) betaColor = C.red;
+                    else if (ind.beta < 0.8) betaColor = C.green;
+                  }
+                  return (
+                    <View key={ind.ticker || i} style={[styles.indTableRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+                      <Text style={[styles.indTableTicker, { flex: 1.2 }]}>{ind.ticker}</Text>
+                      <Text style={[styles.indTableVal, { color: C.opcoes }]}>
+                        {ind.hv_20 != null ? ind.hv_20.toFixed(1) + '%' : '–'}
+                      </Text>
+                      <Text style={[styles.indTableVal, { color: rsiColor }]}>
+                        {ind.rsi_14 != null ? ind.rsi_14.toFixed(0) : '–'}
+                      </Text>
+                      <Text style={[styles.indTableVal, { color: betaColor }]}>
+                        {ind.beta != null ? ind.beta.toFixed(2) : '–'}
+                      </Text>
+                      <Text style={[styles.indTableVal, { color: C.red }]}>
+                        {ind.max_drawdown != null ? ind.max_drawdown.toFixed(1) + '%' : '–'}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </Glass>
+
+              {/* Detailed cards per ticker */}
+              <SectionLabel>DETALHES POR ATIVO</SectionLabel>
+              {indList.map(function(ind, i) {
+                return (
+                  <Glass key={ind.ticker || i} padding={14}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, fontFamily: F.display }}>{ind.ticker}</Text>
+                      {ind.preco_fechamento != null ? (
+                        <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.mono }}>
+                          {'R$ ' + fmt(ind.preco_fechamento)}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                      {[
+                        { l: 'HV 20d', v: ind.hv_20 != null ? ind.hv_20.toFixed(1) + '%' : '–', c: C.opcoes },
+                        { l: 'HV 60d', v: ind.hv_60 != null ? ind.hv_60.toFixed(1) + '%' : '–', c: C.opcoes },
+                        { l: 'RSI 14', v: ind.rsi_14 != null ? ind.rsi_14.toFixed(1) : '–',
+                          c: ind.rsi_14 != null ? (ind.rsi_14 > 70 ? C.red : ind.rsi_14 < 30 ? C.green : C.text) : C.text },
+                        { l: 'Beta', v: ind.beta != null ? ind.beta.toFixed(2) : '–',
+                          c: ind.beta != null ? (ind.beta > 1.2 ? C.red : ind.beta < 0.8 ? C.green : C.text) : C.text },
+                        { l: 'SMA 20', v: ind.sma_20 != null ? 'R$ ' + fmt(ind.sma_20) : '–', c: C.acoes },
+                        { l: 'SMA 50', v: ind.sma_50 != null ? 'R$ ' + fmt(ind.sma_50) : '–', c: C.acoes },
+                        { l: 'EMA 9', v: ind.ema_9 != null ? 'R$ ' + fmt(ind.ema_9) : '–', c: C.acoes },
+                        { l: 'EMA 21', v: ind.ema_21 != null ? 'R$ ' + fmt(ind.ema_21) : '–', c: C.acoes },
+                        { l: 'ATR 14', v: ind.atr_14 != null ? 'R$ ' + fmt(ind.atr_14) : '–', c: C.text },
+                        { l: 'Max DD', v: ind.max_drawdown != null ? ind.max_drawdown.toFixed(1) + '%' : '–', c: C.red },
+                        { l: 'BB Upper', v: ind.bb_upper != null ? 'R$ ' + fmt(ind.bb_upper) : '–', c: C.acoes },
+                        { l: 'BB Lower', v: ind.bb_lower != null ? 'R$ ' + fmt(ind.bb_lower) : '–', c: C.acoes },
+                        { l: 'BB Width', v: ind.bb_width != null ? ind.bb_width.toFixed(1) + '%' : '–', c: C.opcoes },
+                        { l: 'Vol Med 20', v: ind.volume_medio_20 != null ? fmtC(ind.volume_medio_20) : '–', c: C.sub },
+                      ].map(function(d, di) {
+                        return (
+                          <View key={di} style={styles.indDetailItem}>
+                            <Text style={styles.indDetailLabel}>{d.l}</Text>
+                            <Text style={[styles.indDetailValue, { color: d.c }]}>{d.v}</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </Glass>
+                );
+              })}
+            </>
+          )}
+        </View>
+      )}
+
       <View style={{ height: SIZE.tabBarHeight + 20 }} />
     </ScrollView>
+
+    <Modal visible={infoModal !== null} animationType="fade" transparent={true}
+      onRequestClose={function() { setInfoModal(null); }}>
+      <TouchableOpacity activeOpacity={1} onPress={function() { setInfoModal(null); }}
+        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 30 }}>
+        <TouchableOpacity activeOpacity={1}
+          style={{ backgroundColor: C.card, borderRadius: 14, padding: 20, maxWidth: 340, width: '100%', borderWidth: 1, borderColor: C.border }}>
+          <Text style={{ fontSize: 13, color: C.text, fontFamily: F.display, fontWeight: '700', marginBottom: 10 }}>
+            {infoModal && infoModal.title || ''}
+          </Text>
+          <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body, lineHeight: 18 }}>
+            {infoModal && infoModal.text || ''}
+          </Text>
+          <TouchableOpacity onPress={function() { setInfoModal(null); }}
+            style={{ marginTop: 14, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 8, borderRadius: 8, backgroundColor: C.accent }}>
+            <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono, fontWeight: '600' }}>Fechar</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+    </>
   );
 }
 
@@ -2227,4 +2612,14 @@ var styles = StyleSheet.create({
   chainDelta: { fontSize: 11, color: C.dim, fontFamily: F.mono },
   chainItm: { backgroundColor: 'rgba(34,197,94,0.06)' },
   chainAtm: { backgroundColor: 'rgba(245,158,11,0.06)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)' },
+
+  // Indicadores
+  indTableHeader: { flexDirection: 'row', alignItems: 'center', padding: 10, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: 'rgba(255,255,255,0.02)' },
+  indTableCol: { flex: 1, fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4, textAlign: 'center' },
+  indTableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 10 },
+  indTableTicker: { flex: 1, fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display },
+  indTableVal: { flex: 1, fontSize: 11, fontWeight: '600', fontFamily: F.mono, textAlign: 'center' },
+  indDetailItem: { width: '31%', backgroundColor: C.surface, borderRadius: 8, padding: 8, borderWidth: 1, borderColor: C.border },
+  indDetailLabel: { fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 },
+  indDetailValue: { fontSize: 12, fontWeight: '700', fontFamily: F.display, marginTop: 2 },
 });

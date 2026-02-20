@@ -1,14 +1,14 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TextInput,
-  TouchableOpacity, Alert, ActivityIndicator, Switch,
+  TouchableOpacity, Alert, ActivityIndicator, Switch, Modal,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, F, SIZE } from '../../../theme';
 import { useAuth } from '../../../contexts/AuthContext';
 import { updateProfile, getProfile } from '../../../services/database';
-import { Glass, Badge, SectionLabel, InfoTip } from '../../../components';
+import { Glass, Badge, SectionLabel } from '../../../components';
 
 export default function ConfigSelicScreen(props) {
   var navigation = props.navigation;
@@ -20,6 +20,7 @@ export default function ConfigSelicScreen(props) {
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
   var _saving = useState(false); var saving = _saving[0]; var setSaving = _saving[1];
   var _lastUpdate = useState(''); var lastUpdate = _lastUpdate[0]; var setLastUpdate = _lastUpdate[1];
+  var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
 
   useFocusEffect(useCallback(function() {
     load();
@@ -119,7 +120,9 @@ export default function ConfigSelicScreen(props) {
         </TouchableOpacity>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Text style={styles.title}>Taxa Selic</Text>
-          <InfoTip text="Taxa usada para cálculo de Black-Scholes, benchmark CDI e simulações de renda fixa." />
+          <TouchableOpacity onPress={function() { setInfoModal({ title: 'Taxa Selic', text: 'Taxa usada para cálculo de Black-Scholes, benchmark CDI e simulações de renda fixa.' }); }}>
+            <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+          </TouchableOpacity>
         </View>
         <View style={{ width: 32 }} />
       </View>
@@ -226,6 +229,26 @@ export default function ConfigSelicScreen(props) {
       )}
 
       <View style={{ height: 40 }} />
+
+      <Modal visible={infoModal !== null} animationType="fade" transparent={true}
+        onRequestClose={function() { setInfoModal(null); }}>
+        <TouchableOpacity activeOpacity={1} onPress={function() { setInfoModal(null); }}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 30 }}>
+          <TouchableOpacity activeOpacity={1}
+            style={{ backgroundColor: C.card, borderRadius: 14, padding: 20, maxWidth: 340, width: '100%', borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ fontSize: 13, color: C.text, fontFamily: F.display, fontWeight: '700', marginBottom: 10 }}>
+              {infoModal && infoModal.title || ''}
+            </Text>
+            <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body, lineHeight: 18 }}>
+              {infoModal && infoModal.text || ''}
+            </Text>
+            <TouchableOpacity onPress={function() { setInfoModal(null); }}
+              style={{ marginTop: 14, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 8, borderRadius: 8, backgroundColor: C.accent }}>
+              <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono, fontWeight: '600' }}>Fechar</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </ScrollView>
   );
 }

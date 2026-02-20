@@ -148,7 +148,7 @@ export default function EditOpcaoScreen(props) {
       <View style={styles.pillRow}>
         {STATUS_LIST.map(function(st) {
           var stColor = st === 'ativa' ? C.green : st === 'fechada' ? C.accent : st === 'exercida' ? C.opcoes : st === 'expirou_po' ? C.etfs : C.dim;
-          var stLabel = st === 'expirou_po' ? 'Expirou PO' : st.charAt(0).toUpperCase() + st.slice(1);
+          var stLabel = st === 'expirou_po' ? 'Virou Pó' : st.charAt(0).toUpperCase() + st.slice(1);
           return (
             <Pill key={st} active={status === st} color={stColor} onPress={function() { setStatus(st); }}>
               {stLabel}

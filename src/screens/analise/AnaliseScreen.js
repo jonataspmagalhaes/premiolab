@@ -7,6 +7,7 @@ import {
 import Svg, {
   Circle, Rect as SvgRect, G,
   Text as SvgText, Line as SvgLine, Path,
+  Defs, LinearGradient as SvgLinearGradient, Stop,
 } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
@@ -27,7 +28,7 @@ import {
   calcATR, calcBollingerBands, calcMaxDrawdown,
 } from '../../services/indicatorService';
 import { fetchPriceHistoryLong, fetchTickerProfile } from '../../services/priceService';
-import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
+import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import InteractiveChart from '../../components/InteractiveChart';
 
@@ -358,7 +359,7 @@ var PERF_SUB_COLORS = {
   todos: C.accent, acao: C.acoes, fii: C.fiis, etf: C.etfs, opcoes: C.opcoes, rf: C.rf,
 };
 
-var OPC_STATUS_LABELS = { ativa: 'Ativa', exercida: 'Exercida', expirada: 'Expirada', fechada: 'Fechada', expirou_po: 'Expirou PO' };
+var OPC_STATUS_LABELS = { ativa: 'Ativa', exercida: 'Exercida', expirada: 'Expirada', fechada: 'Fechada', expirou_po: 'Virou Pó' };
 var OPC_STATUS_COLORS = { ativa: C.accent, exercida: C.green, expirada: C.dim, fechada: C.yellow, expirou_po: C.green };
 
 var RF_TIPO_LABELS = {
@@ -374,7 +375,9 @@ var RF_ISENTOS = { lci_lca: true, debenture: true };
 var PROV_SUBS = [
   { k: 'visao', l: 'Visão Geral' },
   { k: 'proventos', l: 'Proventos' },
+  { k: 'rendimentos', l: 'Rendimentos' },
   { k: 'premios', l: 'Prêmios' },
+  { k: 'rf', l: 'Renda Fixa' },
 ];
 
 // ═══════════ HELPERS ═══════════
@@ -1531,6 +1534,7 @@ function RebalanceTool(props) {
   var initialized = _initialized[0]; var setInitialized = _initialized[1];
   var _dbLoaded = useState(false);
   var dbLoaded = _dbLoaded[0]; var setDbLoaded = _dbLoaded[1];
+  var _rebalInfoModal = useState(null); var rebalInfoModal = _rebalInfoModal[0]; var setRebalInfoModal = _rebalInfoModal[1];
 
   // ── Load saved targets from DB ──
   var _didLoadDB = false;
@@ -2461,7 +2465,9 @@ function RebalanceTool(props) {
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={styles.sectionTitle}>REBALANCEAMENTO</Text>
-            <InfoTip text="Defina metas de alocação por classe, setor e ativo. O sistema calcula os ajustes necessários para equilibrar a carteira." />
+            <TouchableOpacity onPress={function() { setRebalInfoModal({ title: 'Rebalanceamento', text: 'Defina metas de alocação por classe, setor e ativo. O sistema calcula os ajustes necessários para equilibrar a carteira.' }); }}>
+              <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+            </TouchableOpacity>
           </View>
           <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
             <TouchableOpacity onPress={function () {
@@ -2693,6 +2699,25 @@ function RebalanceTool(props) {
           </View>
         ) : null}
       </Glass>
+      <Modal visible={rebalInfoModal !== null} animationType="fade" transparent={true}
+        onRequestClose={function() { setRebalInfoModal(null); }}>
+        <TouchableOpacity activeOpacity={1} onPress={function() { setRebalInfoModal(null); }}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 30 }}>
+          <TouchableOpacity activeOpacity={1}
+            style={{ backgroundColor: C.card, borderRadius: 14, padding: 20, maxWidth: 340, width: '100%', borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ fontSize: 13, color: C.text, fontFamily: F.display, fontWeight: '700', marginBottom: 10 }}>
+              {rebalInfoModal && rebalInfoModal.title || ''}
+            </Text>
+            <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body, lineHeight: 18 }}>
+              {rebalInfoModal && rebalInfoModal.text || ''}
+            </Text>
+            <TouchableOpacity onPress={function() { setRebalInfoModal(null); }}
+              style={{ marginTop: 14, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 8, borderRadius: 8, backgroundColor: C.accent }}>
+              <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono, fontWeight: '600' }}>Fechar</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -2961,63 +2986,162 @@ function ProvVertBarChart(props) {
   var data = props.data || [];
   var maxVal = props.maxVal || 1;
   var color = props.color || C.fiis;
-  var height = props.height || 180;
+  var height = props.height || 200;
   var _w = useState(0); var w = _w[0]; var setW = _w[1];
+  var _sel = useState(-1); var sel = _sel[0]; var setSel = _sel[1];
 
   if (data.length === 0 || w === 0) {
     return <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }} style={{ height: 1 }} />;
   }
 
-  var padL = 6;
-  var padR = 6;
-  var padTop = 18;
-  var padBot = 32;
+  var padL = 40;
+  var padR = 10;
+  var padTop = 14;
+  var padBot = 34;
   var chartW = w - padL - padR;
   var chartH = height - padTop - padBot;
-  var barGap = 4;
+  var barGap = 3;
   var barW = (chartW - barGap * (data.length - 1)) / data.length;
-  if (barW > 32) barW = 32;
+  if (barW > 28) barW = 28;
   var totalBarsW = data.length * barW + (data.length - 1) * barGap;
   var offsetX = padL + (chartW - totalBarsW) / 2;
+
+  // Y axis labels
+  var ySteps = [0, 0.25, 0.5, 0.75, 1];
+  var fmtY = function(v) {
+    if (v >= 1000) return (v / 1000).toFixed(1) + 'k';
+    if (v >= 100) return v.toFixed(0);
+    return v.toFixed(0);
+  };
+
+  // Touch handler
+  var onBarPress = function(idx) {
+    setSel(sel === idx ? -1 : idx);
+  };
+
+  // Selected bar detail
+  var selData = sel >= 0 && sel < data.length ? data[sel] : null;
+  var selTickers = selData && selData.tickers ? selData.tickers : {};
+  var selTickerKeys = Object.keys(selTickers).sort(function(a, b) { return selTickers[b] - selTickers[a]; });
 
   return (
     <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }}>
       <Svg width={w} height={height}>
-        {/* Grid lines */}
-        {[0, 0.25, 0.5, 0.75, 1].map(function(pct, gi) {
+        <Defs>
+          <SvgLinearGradient id="provBarGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={color} stopOpacity="0.9" />
+            <Stop offset="1" stopColor={color} stopOpacity="0.4" />
+          </SvgLinearGradient>
+          <SvgLinearGradient id="provBarGradSel" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={C.green} stopOpacity="1" />
+            <Stop offset="1" stopColor={C.green} stopOpacity="0.5" />
+          </SvgLinearGradient>
+        </Defs>
+        {/* Grid lines + Y labels */}
+        {ySteps.map(function(pct, gi) {
           var gy = padTop + chartH * (1 - pct);
+          var yVal = maxVal * pct;
           return (
-            <SvgLine key={gi} x1={padL} y1={gy} x2={w - padR} y2={gy}
-              stroke={C.border} strokeWidth={0.5} opacity={0.4} />
+            <G key={'g' + gi}>
+              <SvgLine x1={padL} y1={gy} x2={w - padR} y2={gy}
+                stroke="rgba(255,255,255,0.04)" strokeWidth={0.5} />
+              <SvgText x={padL - 6} y={gy + 3} fill="rgba(255,255,255,0.2)"
+                fontSize={8} fontFamily={F.mono} textAnchor="end">
+                {fmtY(yVal)}
+              </SvgText>
+            </G>
           );
         })}
         {/* Bars */}
         {data.map(function(d, i) {
           var bx = offsetX + i * (barW + barGap);
           var bh = maxVal > 0 ? (d.value / maxVal) * chartH : 0;
-          bh = Math.max(bh, 1);
+          bh = Math.max(bh, d.value > 0 ? 3 : 1);
           var by = padTop + chartH - bh;
-          var barColor = d.color || color;
+          var isSel = sel === i;
+          var isAny = sel >= 0;
           return (
-            <G key={i}>
+            <G key={i} onPress={function() { onBarPress(i); }}>
+              {/* Touch area */}
+              <SvgRect x={bx - barGap / 2} y={padTop} width={barW + barGap} height={chartH + padBot}
+                fill="transparent" onPress={function() { onBarPress(i); }} />
+              {/* Bar */}
               <SvgRect x={bx} y={by} width={barW} height={bh}
-                rx={3} fill={barColor} opacity={0.7} />
+                rx={barW / 2 > 6 ? 6 : barW / 2}
+                fill={isSel ? 'url(#provBarGradSel)' : 'url(#provBarGrad)'}
+                opacity={isAny && !isSel ? 0.3 : 1} />
+              {/* Glow on selected */}
+              {isSel ? (
+                <SvgRect x={bx - 1} y={by - 1} width={barW + 2} height={bh + 2}
+                  rx={barW / 2 > 6 ? 7 : barW / 2 + 1}
+                  fill="none" stroke={C.green} strokeWidth={1.5} strokeOpacity={0.4} />
+              ) : null}
               {/* Value on top */}
-              {d.value > 0 && (
-                <SvgText x={bx + barW / 2} y={by - 4} fill={C.green}
-                  fontSize={7} fontFamily={F.mono} fontWeight="600" textAnchor="middle">
+              {d.value > 0 ? (
+                <SvgText x={bx + barW / 2} y={by - 6} fill={isSel ? C.green : 'rgba(255,255,255,0.5)'}
+                  fontSize={8} fontFamily={F.mono} fontWeight="700" textAnchor="middle">
                   {d.value >= 1000 ? (d.value / 1000).toFixed(1) + 'k' : fmt(d.value)}
                 </SvgText>
-              )}
-              {/* Label */}
-              <SvgText x={bx + barW / 2} y={height - padBot + 12} fill={C.sub}
-                fontSize={8} fontFamily={F.mono} textAnchor="middle">
-                {d.month}
+              ) : null}
+              {/* Month label (split month / year) */}
+              <SvgText x={bx + barW / 2} y={height - padBot + 12} fill={isSel ? C.text : 'rgba(255,255,255,0.55)'}
+                fontSize={9} fontFamily={F.mono} fontWeight={isSel ? '700' : '500'} textAnchor="middle">
+                {d.month.split('/')[0]}
               </SvgText>
+              {d.month.indexOf('/') >= 0 && (i === 0 || d.month.split('/')[1] !== data[i - 1].month.split('/')[1]) ? (
+                <SvgText x={bx + barW / 2} y={height - padBot + 23} fill={isSel ? C.text : 'rgba(255,255,255,0.3)'}
+                  fontSize={8} fontFamily={F.mono} fontWeight="400" textAnchor="middle">
+                  {d.month.split('/')[1]}
+                </SvgText>
+              ) : null}
             </G>
           );
         })}
+        {/* Selection indicator line */}
+        {sel >= 0 && sel < data.length ? (
+          <SvgLine
+            x1={offsetX + sel * (barW + barGap) + barW / 2}
+            y1={padTop}
+            x2={offsetX + sel * (barW + barGap) + barW / 2}
+            y2={padTop + chartH}
+            stroke={C.green} strokeWidth={0.5} strokeOpacity={0.3}
+            strokeDasharray="3,3"
+          />
+        ) : null}
       </Svg>
+
+      {/* Detail panel when bar is selected */}
+      {selData && selTickerKeys.length > 0 ? (
+        <View style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: 12, marginTop: 8 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display }}>
+              {selData.month}
+            </Text>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: C.green, fontFamily: F.mono }}>
+              {'R$ ' + fmt(selData.value)}
+            </Text>
+          </View>
+          <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginBottom: 6 }} />
+          {selTickerKeys.map(function(tk, idx) {
+            var tkVal = selTickers[tk];
+            var tkPct = selData.value > 0 ? (tkVal / selData.value * 100).toFixed(0) : '0';
+            return (
+              <View key={tk} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: C.text, fontFamily: F.mono }}>{tk}</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono }}>{tkPct + '%'}</Text>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>
+                    {'R$ ' + fmt(tkVal)}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -3820,6 +3944,417 @@ function PremioMediaLineChart(props) {
   );
 }
 
+// ═══════════ INLINE SVG: Desfechos PUT vs CALL (barras agrupadas) ═══════════
+
+function DesfechosChart(props) {
+  var opcByStatus = props.opcByStatus || {};
+  var _w = useState(0); var w = _w[0]; var setW = _w[1];
+
+  if (w === 0) {
+    return React.createElement(View, { onLayout: function(e) { setW(e.nativeEvent.layout.width); }, style: { height: 1 } });
+  }
+
+  var categories = [
+    { key: 'expirou_po', label: 'Virou Pó', color: C.green },
+    { key: 'exercida', label: 'Exercidas', color: C.yellow },
+    { key: 'fechada', label: 'Fechadas', color: C.sub },
+  ];
+
+  var chartH = 160;
+  var topPad = 18;
+  var botPad = 32;
+  var leftPad = 32;
+  var rightPad = 8;
+  var drawH = chartH - topPad - botPad;
+  var drawW = w - leftPad - rightPad;
+
+  // Get max value for scale
+  var maxVal = 1;
+  for (var ci = 0; ci < categories.length; ci++) {
+    var cat = categories[ci];
+    var st = opcByStatus[cat.key];
+    if (st) {
+      if ((st.put || 0) > maxVal) maxVal = st.put;
+      if ((st.call || 0) > maxVal) maxVal = st.call;
+    }
+  }
+
+  var groupW = drawW / categories.length;
+  var barW = Math.min(groupW * 0.3, 32);
+  var gap = barW * 0.3;
+
+  function vToH(v) { return (v / maxVal) * drawH; }
+
+  var els = [];
+
+  // Grid lines
+  var gridSteps = [0, Math.round(maxVal * 0.5), maxVal];
+  for (var gi = 0; gi < gridSteps.length; gi++) {
+    var gy = topPad + drawH - (gridSteps[gi] / maxVal) * drawH;
+    els.push(React.createElement(SvgLine, {
+      key: 'g' + gi, x1: leftPad, y1: gy, x2: w - rightPad, y2: gy,
+      stroke: C.border, strokeWidth: 0.5, strokeDasharray: '3,3',
+    }));
+    els.push(React.createElement(SvgText, {
+      key: 'gl' + gi, x: leftPad - 4, y: gy + 3,
+      fill: C.dim, fontSize: 8, fontFamily: F.mono, textAnchor: 'end',
+    }, String(gridSteps[gi])));
+  }
+
+  // Bars
+  for (var bi = 0; bi < categories.length; bi++) {
+    var bCat = categories[bi];
+    var bSt = opcByStatus[bCat.key] || { count: 0, put: 0, call: 0 };
+    var cx = leftPad + groupW * bi + groupW / 2;
+
+    // PUT bar (left)
+    var putH = vToH(bSt.put || 0);
+    var putX = cx - gap / 2 - barW;
+    var putY = topPad + drawH - putH;
+    if (putH > 0) {
+      els.push(React.createElement(SvgRect, {
+        key: 'p' + bi, x: putX, y: putY, width: barW, height: putH,
+        rx: 3, fill: C.red, opacity: 0.85,
+      }));
+      els.push(React.createElement(SvgText, {
+        key: 'pv' + bi, x: putX + barW / 2, y: putY - 4,
+        fill: C.red, fontSize: 9, fontFamily: F.mono, fontWeight: '700', textAnchor: 'middle',
+      }, String(bSt.put || 0)));
+    }
+
+    // CALL bar (right)
+    var callH = vToH(bSt.call || 0);
+    var callX = cx + gap / 2;
+    var callY = topPad + drawH - callH;
+    if (callH > 0) {
+      els.push(React.createElement(SvgRect, {
+        key: 'c' + bi, x: callX, y: callY, width: barW, height: callH,
+        rx: 3, fill: C.acoes, opacity: 0.85,
+      }));
+      els.push(React.createElement(SvgText, {
+        key: 'cv' + bi, x: callX + barW / 2, y: callY - 4,
+        fill: C.acoes, fontSize: 9, fontFamily: F.mono, fontWeight: '700', textAnchor: 'middle',
+      }, String(bSt.call || 0)));
+    }
+
+    // Category label
+    els.push(React.createElement(SvgText, {
+      key: 'l' + bi, x: cx, y: chartH - 12,
+      fill: bCat.color, fontSize: 9, fontFamily: F.body, fontWeight: '600', textAnchor: 'middle',
+    }, bCat.label));
+
+    // Total count below label
+    els.push(React.createElement(SvgText, {
+      key: 't' + bi, x: cx, y: chartH - 2,
+      fill: C.dim, fontSize: 7, fontFamily: F.mono, textAnchor: 'middle',
+    }, String(bSt.count || 0) + ' total'));
+  }
+
+  return React.createElement(View, null,
+    // Legend
+    React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'center', gap: 20, marginBottom: 8 } },
+      React.createElement(View, { style: { flexDirection: 'row', alignItems: 'center', gap: 4 } },
+        React.createElement(View, { style: { width: 10, height: 10, borderRadius: 2, backgroundColor: C.red } }),
+        React.createElement(Text, { style: { fontSize: 10, color: C.sub, fontFamily: F.body } }, 'PUT')
+      ),
+      React.createElement(View, { style: { flexDirection: 'row', alignItems: 'center', gap: 4 } },
+        React.createElement(View, { style: { width: 10, height: 10, borderRadius: 2, backgroundColor: C.acoes } }),
+        React.createElement(Text, { style: { fontSize: 10, color: C.sub, fontFamily: F.body } }, 'CALL')
+      )
+    ),
+    // Chart
+    React.createElement(Svg, { width: w, height: chartH }, els)
+  );
+}
+
+// ═══════════ INLINE SVG: Prêmio / Recompra / P&L Médio 3M (genérico PUT/CALL) ═══════════
+
+function PremioRecompraMA3Chart(props) {
+  var data = props.data || [];
+  var visible = props.visible || { premio: true, recompra: true, plMedia: true };
+  var onToggle = props.onToggle;
+  var premioKey = props.premioKey || 'put';
+  var recompraKey = props.recompraKey || 'recompra_put';
+  var _w = useState(0); var w = _w[0]; var setW = _w[1];
+  var _sel = useState(-1); var sel = _sel[0]; var setSel = _sel[1];
+
+  if (data.length === 0) return null;
+
+  var n = data.length;
+  var chartH = 190;
+  var topPad = 22;
+  var botPad = 24;
+  var leftPad = 42;
+  var rightPad = 8;
+
+  if (w === 0) {
+    return React.createElement(View, { onLayout: function(e) { setW(e.nativeEvent.layout.width); }, style: { height: 1 } });
+  }
+
+  var drawH = chartH - topPad - botPad;
+  var drawW = w - leftPad - rightPad;
+
+  // Extract series
+  var vendaVals = [];
+  var compraVals = [];
+  var plRaw = [];
+  var plMediaVals = [];
+  var sumPrem = 0;
+  var sumRec = 0;
+  for (var ei = 0; ei < n; ei++) {
+    var ed = data[ei];
+    var vv = ed[premioKey] || 0;
+    var cv = ed[recompraKey] || 0;
+    vendaVals.push(vv);
+    compraVals.push(cv);
+    plRaw.push(vv - cv);
+    sumPrem += vv;
+    sumRec += cv;
+  }
+
+  // Moving average 3M of P&L
+  for (var mi = 0; mi < n; mi++) {
+    var maSum = 0;
+    var maCount = 0;
+    for (var mj = Math.max(0, mi - 2); mj <= mi; mj++) {
+      maSum += plRaw[mj];
+      maCount++;
+    }
+    plMediaVals.push(maCount > 0 ? maSum / maCount : 0);
+  }
+
+  var avgPrem = n > 0 ? sumPrem / n : 0;
+  var avgRec = n > 0 ? sumRec / n : 0;
+  var avgPL = n > 0 ? (sumPrem - sumRec) / n : 0;
+
+  // Range (covers all visible series including negative values)
+  var maxV = 1;
+  var minV = 0;
+  for (var ri = 0; ri < n; ri++) {
+    if (visible.premio) {
+      if (vendaVals[ri] > maxV) maxV = vendaVals[ri];
+      if (vendaVals[ri] < minV) minV = vendaVals[ri];
+    }
+    if (visible.recompra) {
+      if (compraVals[ri] > maxV) maxV = compraVals[ri];
+      if (compraVals[ri] < minV) minV = compraVals[ri];
+    }
+    if (visible.plMedia) {
+      if (plMediaVals[ri] > maxV) maxV = plMediaVals[ri];
+      if (plMediaVals[ri] < minV) minV = plMediaVals[ri];
+    }
+  }
+  var range = maxV - minV;
+  if (range === 0) range = 1;
+
+  function vToY(v) { return topPad + drawH - ((v - minV) / range) * drawH; }
+  function iToX(i) { return leftPad + (n > 1 ? (i / (n - 1)) * drawW : drawW / 2); }
+
+  function handleTouch(e) {
+    if (drawW <= 0 || n === 0) return;
+    var x = e.nativeEvent.locationX - leftPad;
+    var step = n > 1 ? drawW / (n - 1) : drawW;
+    var idx = Math.round(x / step);
+    if (idx < 0) idx = 0;
+    if (idx >= n) idx = n - 1;
+    setSel(idx === sel ? -1 : idx);
+  }
+
+  // Build bezier path from points
+  function buildBezier(pts) {
+    if (pts.length < 2) return '';
+    var path = 'M' + pts[0].x + ',' + pts[0].y;
+    for (var bi = 1; bi < pts.length; bi++) {
+      var prev = pts[bi - 1];
+      var cur = pts[bi];
+      var cpx = (prev.x + cur.x) / 2;
+      path = path + ' C' + cpx + ',' + prev.y + ' ' + cpx + ',' + cur.y + ' ' + cur.x + ',' + cur.y;
+    }
+    return path;
+  }
+
+  // Build SVG elements
+  var els = [];
+
+  // Grid
+  var gridVals = [];
+  if (minV < 0) {
+    gridVals = [minV, 0, maxV];
+  } else {
+    gridVals = [0, maxV * 0.5, maxV];
+  }
+  for (var gi = 0; gi < gridVals.length; gi++) {
+    var gy = vToY(gridVals[gi]);
+    var isZero = gridVals[gi] === 0 && minV < 0;
+    els.push(React.createElement(SvgLine, {
+      key: 'g' + gi, x1: leftPad, y1: gy, x2: w - rightPad, y2: gy,
+      stroke: isZero ? C.sub : C.border, strokeWidth: isZero ? 0.8 : 0.5, strokeDasharray: isZero ? '' : '3,3',
+    }));
+    els.push(React.createElement(SvgText, {
+      key: 'gl' + gi, x: leftPad - 4, y: gy + 3,
+      fill: C.dim, fontSize: 7, fontFamily: F.mono, textAnchor: 'end',
+    }, fmtC(gridVals[gi])));
+  }
+
+  // Series: venda (green solid), compra (red dashed), P&L media (accent dotted)
+  var allSeries = [
+    { vals: vendaVals, color: C.green, dash: '', sw: 2.5, area: true, vis: visible.premio, key: 'v' },
+    { vals: compraVals, color: C.red, dash: '8,4', sw: 2.5, area: false, vis: visible.recompra, key: 'c' },
+    { vals: plMediaVals, color: C.accent, dash: '4,3', sw: 2, area: false, vis: visible.plMedia, key: 'p' },
+  ];
+
+  for (var si = 0; si < allSeries.length; si++) {
+    var s = allSeries[si];
+    if (!s.vis) continue;
+
+    var pts = [];
+    for (var pi = 0; pi < n; pi++) {
+      pts.push({ x: iToX(pi), y: vToY(s.vals[pi]), val: s.vals[pi] });
+    }
+
+    // Area fill (only for venda)
+    if (s.area && pts.length >= 2) {
+      var baseY = vToY(0);
+      var areaPath = buildBezier(pts);
+      areaPath = areaPath + ' L' + pts[pts.length - 1].x + ',' + baseY + ' L' + pts[0].x + ',' + baseY + ' Z';
+      els.push(React.createElement(Path, { key: s.key + 'a', d: areaPath, fill: s.color, opacity: 0.1 }));
+    }
+
+    // Line (bezier)
+    if (pts.length >= 2) {
+      var lp = buildBezier(pts);
+      els.push(React.createElement(Path, {
+        key: s.key + 'l', d: lp,
+        stroke: s.color, strokeWidth: s.sw, fill: 'none', opacity: 0.9,
+        strokeDasharray: s.dash,
+      }));
+    }
+
+    // Dots with glow
+    for (var di = 0; di < pts.length; di++) {
+      if (pts[di].val !== 0 || s.key === 'p') {
+        var isSel = di === sel;
+        els.push(React.createElement(Circle, {
+          key: s.key + 'dg' + di, cx: pts[di].x, cy: pts[di].y,
+          r: isSel ? 6 : 3.5, fill: s.color, opacity: isSel ? 0.3 : 0.15,
+        }));
+        els.push(React.createElement(Circle, {
+          key: s.key + 'dd' + di, cx: pts[di].x, cy: pts[di].y,
+          r: isSel ? 4 : 2, fill: s.color, opacity: 1,
+        }));
+      }
+    }
+  }
+
+  // Vertical selection line
+  if (sel >= 0 && sel < n) {
+    var selX = iToX(sel);
+    els.push(React.createElement(SvgLine, {
+      key: 'sel', x1: selX, y1: topPad, x2: selX, y2: topPad + drawH,
+      stroke: C.text, strokeWidth: 0.8, opacity: 0.35, strokeDasharray: '4,3',
+    }));
+  }
+
+  // X-axis labels
+  for (var xi = 0; xi < n; xi++) {
+    var showXL = n <= 12 || xi % Math.ceil(n / 8) === 0 || xi === n - 1;
+    if (showXL) {
+      var xSel = xi === sel;
+      var mp = (data[xi].month || '').split('/');
+      els.push(React.createElement(SvgText, {
+        key: 'x' + xi, x: iToX(xi), y: chartH - 4,
+        fontSize: 7, fill: xSel ? C.text : C.dim, fontFamily: F.mono, textAnchor: 'middle',
+        fontWeight: xSel ? '600' : '400',
+      }, mp[0] || ''));
+    }
+  }
+
+  // Legend line samples for visual reference
+  var legendItems = [
+    { label: 'Prêmio', color: C.green, key: 'premio', dash: null, sw: 2.5 },
+    { label: 'Recompra', color: C.red, key: 'recompra', dash: '6,3', sw: 2.5 },
+    { label: 'P&L Médio 3M', color: C.accent, key: 'plMedia', dash: '3,2', sw: 2 },
+  ];
+
+  // Info bar data
+  var selD = sel >= 0 && sel < n ? data[sel] : null;
+  var sPrem = selD ? (selD[premioKey] || 0) : 0;
+  var sRec = selD ? (selD[recompraKey] || 0) : 0;
+  var sPLM = sel >= 0 ? plMediaVals[sel] : 0;
+
+  return React.createElement(View, null,
+    // Interactive legend
+    React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'center', gap: 16, marginBottom: 6 } },
+      legendItems.map(function(li) {
+        var isActive = visible[li.key];
+        return React.createElement(TouchableOpacity, {
+          key: li.key,
+          activeOpacity: 0.6,
+          onPress: function() {
+            if (onToggle) {
+              var newVis = {};
+              newVis.premio = visible.premio;
+              newVis.recompra = visible.recompra;
+              newVis.plMedia = visible.plMedia;
+              newVis[li.key] = !visible[li.key];
+              onToggle(newVis);
+            }
+          },
+          style: { flexDirection: 'row', alignItems: 'center', gap: 4, opacity: isActive ? 1 : 0.35 },
+        },
+          React.createElement(Svg, { width: 14, height: 8 },
+            React.createElement(SvgLine, {
+              x1: 0, y1: 4, x2: 14, y2: 4,
+              stroke: li.color, strokeWidth: li.sw, strokeDasharray: li.dash || '',
+            })
+          ),
+          React.createElement(Text, { style: { fontSize: 9, color: isActive ? C.sub : C.dim, fontFamily: F.body } }, li.label)
+        );
+      })
+    ),
+
+    // KPIs (averages)
+    React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 8 } },
+      React.createElement(View, { style: { alignItems: 'center' } },
+        React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'Média Prêmio'),
+        React.createElement(Text, { style: { fontSize: 12, color: C.green, fontFamily: F.mono, fontWeight: '700' } }, 'R$ ' + fmt(avgPrem))
+      ),
+      React.createElement(View, { style: { alignItems: 'center' } },
+        React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'Média Recompra'),
+        React.createElement(Text, { style: { fontSize: 12, color: C.red, fontFamily: F.mono, fontWeight: '700' } }, 'R$ ' + fmt(avgRec))
+      ),
+      React.createElement(View, { style: { alignItems: 'center' } },
+        React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'P&L Médio'),
+        React.createElement(Text, { style: { fontSize: 12, color: avgPL >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' } }, 'R$ ' + fmt(avgPL))
+      )
+    ),
+
+    // Info bar on selection
+    selD ? React.createElement(View, { style: { backgroundColor: C.surface, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, marginBottom: 8, borderWidth: 0.5, borderColor: C.border } },
+      React.createElement(Text, { style: { fontSize: 10, color: C.sub, fontFamily: F.body, textAlign: 'center', marginBottom: 3 } }, selD.month || ''),
+      React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'space-around' } },
+        React.createElement(View, { style: { alignItems: 'center' } },
+          React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'Prêmio'),
+          React.createElement(Text, { style: { fontSize: 14, color: C.green, fontFamily: F.mono, fontWeight: '700' } }, 'R$ ' + fmt(sPrem))
+        ),
+        React.createElement(View, { style: { alignItems: 'center' } },
+          React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'Recompra'),
+          React.createElement(Text, { style: { fontSize: 14, color: C.red, fontFamily: F.mono, fontWeight: '700' } }, 'R$ ' + fmt(sRec))
+        ),
+        React.createElement(View, { style: { alignItems: 'center' } },
+          React.createElement(Text, { style: { fontSize: 9, color: C.sub, fontFamily: F.body } }, 'P&L 3M'),
+          React.createElement(Text, { style: { fontSize: 14, color: sPLM >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' } }, 'R$ ' + fmt(sPLM))
+        )
+      )
+    ) : null,
+
+    // Chart
+    React.createElement(TouchableOpacity, { activeOpacity: 1, onPress: handleTouch },
+      React.createElement(Svg, { width: w, height: chartH }, els)
+    )
+  );
+}
+
 // ═══════════ INLINE SVG: Premios Vertical Bar Chart ═══════════
 
 function PremiosBarChart(props) {
@@ -4079,6 +4614,642 @@ function CombinedBarChart(props) {
   );
 }
 
+// ═══════════ INLINE SVG: Renda Passiva Multi-Line Chart ═══════════
+
+// ═══════════ INLINE: Dividend Heatmap ═══════════
+
+function hmColor(val, maxV) {
+  if (val <= 0 || maxV <= 0) return C.border;
+  var pct = val / maxV;
+  if (pct < 0.15) return '#1B3A4B';
+  if (pct < 0.3) return '#2A6478';
+  if (pct < 0.45) return '#3B82A0';
+  if (pct < 0.6) return '#E09F3E';
+  if (pct < 0.75) return '#E07B3E';
+  if (pct < 0.9) return '#D94F30';
+  return '#C62828';
+}
+
+function DividendHeatmap(props) {
+  var tickers = props.tickers || [];
+  var months = props.months || [];
+  var data = props.data || {};
+  var maxVal = props.maxVal || 1;
+
+  if (tickers.length === 0) {
+    return <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, textAlign: 'center', marginTop: 8 }}>Sem dados de ações</Text>;
+  }
+
+  var cellH = 28;
+  var cellW = 36;
+  var labelW = 60;
+  var headerH = 24;
+  var totalH = headerH + tickers.length * cellH;
+  var totalW = labelW + months.length * cellW;
+
+  var _hmSel = useState(null); var hmSel = _hmSel[0]; var setHmSel = _hmSel[1];
+
+  return (
+    <View>
+      {/* Tooltip */}
+      {hmSel && (
+        <View style={{ backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border, borderRadius: 8, padding: 8, marginBottom: 6, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: C.text, fontFamily: F.display }}>{hmSel.ticker + ' — ' + hmSel.month}</Text>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: hmSel.val > 0 ? C.green : C.dim, fontFamily: F.mono }}>
+            {'R$ ' + fmt(hmSel.val)}
+          </Text>
+          <TouchableOpacity onPress={function() { setHmSel(null); }}>
+            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View>
+          {/* Header row */}
+          <View style={{ flexDirection: 'row', height: headerH }}>
+            <View style={{ width: labelW }} />
+            {months.map(function(m, mi) {
+              return (
+                <View key={mi} style={{ width: cellW, alignItems: 'center', justifyContent: 'flex-end' }}>
+                  <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>{m.label}</Text>
+                </View>
+              );
+            })}
+          </View>
+          {/* Data rows */}
+          {tickers.map(function(tk, ti) {
+            var rowData = data[tk] || {};
+            return (
+              <View key={tk} style={{ flexDirection: 'row', height: cellH }}>
+                <View style={{ width: labelW, justifyContent: 'center', paddingRight: 6 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: C.text, fontFamily: F.mono, textAlign: 'right' }}>{tk}</Text>
+                </View>
+                {months.map(function(m, mi) {
+                  var val = rowData[m.key] || 0;
+                  var bg = hmColor(val, maxVal);
+                  return (
+                    <TouchableOpacity key={mi}
+                      onPress={function() { setHmSel(hmSel && hmSel.ticker === tk && hmSel.monthKey === m.key ? null : { ticker: tk, month: m.label, monthKey: m.key, val: val }); }}
+                      style={{ width: cellW, height: cellH, padding: 1 }}>
+                      <View style={{ flex: 1, backgroundColor: bg, borderRadius: 3, alignItems: 'center', justifyContent: 'center' }}>
+                        {val > 0 && (
+                          <Text style={{ fontSize: 7, color: '#fff', fontFamily: F.mono, fontWeight: '600' }}>
+                            {val >= 1000 ? (val / 1000).toFixed(1) + 'k' : val.toFixed(0)}
+                          </Text>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            );
+          })}
+          {/* Legend */}
+          <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginTop: 8, paddingLeft: labelW }}>
+            {[
+              { l: 'Nenhum', c: C.border },
+              { l: 'Baixo', c: '#1B3A4B' },
+              { l: 'Médio', c: '#3B82A0' },
+              { l: 'Alto', c: '#E07B3E' },
+              { l: 'Máximo', c: '#C62828' },
+            ].map(function(lg) {
+              return (
+                <View key={lg.l} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: lg.c }} />
+                  <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>{lg.l}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+var RP_SERIES = [
+  { key: 'div', label: 'Dividendos/JCP', color: C.acoes, dash: '' },
+  { key: 'rend', label: 'Rendimentos FII', color: C.fiis, dash: '6,3' },
+  { key: 'rf', label: 'Renda Fixa', color: C.rf, dash: '3,3' },
+  { key: 'pl', label: 'P&L Opções', color: C.opcoes, dash: '8,4' },
+];
+
+var PREM_LINE_SERIES = [
+  { key: 'premios', label: 'Prêmios', color: C.green, dash: '' },
+  { key: 'recompra', label: 'Recompra', color: C.red, dash: '6,3' },
+  { key: 'pl', label: 'P&L Líquido', color: C.accent, dash: '3,3' },
+];
+
+function PremiosRecompraLineChart(props) {
+  var data = props.data || [];
+  var visible = props.visible || {};
+  var onToggle = props.onToggle;
+  var height = 220;
+  var _pcw = useState(0); var pcw = _pcw[0]; var setPcw = _pcw[1];
+  var _pSel = useState(-1); var pSel = _pSel[0]; var setPSel = _pSel[1];
+
+  if (data.length === 0) {
+    return <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, textAlign: 'center', marginTop: 8 }}>Sem dados</Text>;
+  }
+
+  var ptW = 56;
+  var totalW = Math.max(data.length * ptW, pcw || 300);
+  var padL = 8;
+  var padR = 16;
+  var padTop = 24;
+  var padBot = 36;
+  var chartH = height - padTop - padBot;
+  var chartW = totalW - padL - padR;
+
+  var allVals = [];
+  for (var avi = 0; avi < data.length; avi++) {
+    for (var avs = 0; avs < PREM_LINE_SERIES.length; avs++) {
+      if (visible[PREM_LINE_SERIES[avs].key]) allVals.push(data[avi][PREM_LINE_SERIES[avs].key] || 0);
+    }
+  }
+  if (allVals.length === 0) allVals = [0];
+  var minVal = Math.min.apply(null, allVals);
+  var maxVal = Math.max.apply(null, allVals);
+  if (minVal > 0) minVal = 0;
+  if (maxVal <= 0) maxVal = 1;
+  var range = maxVal - minVal || 1;
+
+  function yPos(v) { return padTop + chartH * (1 - (v - minVal) / range); }
+  function xPos(i) { return padL + (i / Math.max(data.length - 1, 1)) * chartW; }
+
+  var paths = [];
+  for (var si = 0; si < PREM_LINE_SERIES.length; si++) {
+    var s = PREM_LINE_SERIES[si];
+    if (!visible[s.key]) continue;
+    var d = '';
+    for (var pi = 0; pi < data.length; pi++) {
+      var px = xPos(pi);
+      var py = yPos(data[pi][s.key] || 0);
+      d += (pi === 0 ? 'M' : 'L') + px.toFixed(1) + ',' + py.toFixed(1);
+    }
+    paths.push({ d: d, color: s.color, dash: s.dash, key: s.key, label: s.label });
+  }
+
+  var ySteps = 5;
+  var yLabels = [];
+  for (var yi = 0; yi <= ySteps; yi++) {
+    var yv = minVal + (range * yi / ySteps);
+    yLabels.push({ v: yv, y: yPos(yv) });
+  }
+
+  var zeroY = yPos(0);
+  var selData = pSel >= 0 && pSel < data.length ? data[pSel] : null;
+
+  return (
+    <View>
+      {selData && (
+        <View style={{ backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 10, marginBottom: 6 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <Text style={{ fontSize: 12, fontWeight: '800', color: C.text, fontFamily: F.display }}>{selData.label}</Text>
+            <TouchableOpacity onPress={function() { setPSel(-1); }}>
+              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{'\u2715'}</Text>
+            </TouchableOpacity>
+          </View>
+          {PREM_LINE_SERIES.map(function(s) {
+            if (!visible[s.key]) return null;
+            var v = selData[s.key] || 0;
+            return (
+              <View key={s.key} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <View style={{ width: 8, height: 3, backgroundColor: s.color, borderRadius: 1 }} />
+                  <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body }}>{s.label}</Text>
+                </View>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: v >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                  {'R$ ' + fmt(Math.abs(v))}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      )}
+      <View onLayout={function(e) { setPcw(e.nativeEvent.layout.width); }} style={{ overflow: 'hidden' }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <Svg width={totalW} height={height}>
+            {yLabels.map(function(yl, gi) {
+              return (
+                <G key={gi}>
+                  <SvgLine x1={padL} y1={yl.y} x2={totalW - padR} y2={yl.y}
+                    stroke={C.border} strokeWidth={0.5} opacity={0.3} />
+                  <SvgText x={padL} y={yl.y - 4} fill={C.dim}
+                    fontSize={7} fontFamily={F.mono}>
+                    {yl.v >= 1000 ? (yl.v / 1000).toFixed(1) + 'k' : yl.v < 0 ? '-' + Math.abs(yl.v).toFixed(0) : yl.v.toFixed(0)}
+                  </SvgText>
+                </G>
+              );
+            })}
+            {minVal < 0 && (
+              <SvgLine x1={padL} y1={zeroY} x2={totalW - padR} y2={zeroY}
+                stroke={C.sub} strokeWidth={1} opacity={0.5} />
+            )}
+            {pSel >= 0 && pSel < data.length && (
+              <SvgLine x1={xPos(pSel)} y1={padTop} x2={xPos(pSel)} y2={padTop + chartH}
+                stroke={C.accent} strokeWidth={1} opacity={0.5} strokeDasharray="4,3" />
+            )}
+            {paths.map(function(p) {
+              return (
+                <Path key={p.key} d={p.d} stroke={p.color} strokeWidth={2.5}
+                  fill="none" strokeDasharray={p.dash || undefined} strokeLinecap="round" strokeLinejoin="round" />
+              );
+            })}
+            {paths.map(function(p) {
+              var dots = [];
+              for (var di = 0; di < data.length; di++) {
+                var dx = xPos(di);
+                var dy = yPos(data[di][p.key] || 0);
+                var isSel = di === pSel;
+                dots.push(
+                  <Circle key={p.key + '_' + di} cx={dx} cy={dy} r={isSel ? 5 : 3} fill={p.color} opacity={isSel ? 1 : 0.9} />
+                );
+              }
+              return dots;
+            })}
+            {data.map(function(d, ti) {
+              var tx = xPos(ti);
+              var hitW = Math.max(ptW * 0.8, 30);
+              return (
+                <SvgRect key={'hit_' + ti} x={tx - hitW / 2} y={padTop} width={hitW} height={chartH}
+                  fill="transparent" onPress={function() { setPSel(pSel === ti ? -1 : ti); }} />
+              );
+            })}
+            {data.map(function(d, xi) {
+              var lx = xPos(xi);
+              var showLabel = data.length <= 12 || xi % Math.ceil(data.length / 12) === 0 || xi === data.length - 1;
+              if (!showLabel) return null;
+              return (
+                <SvgText key={xi} x={lx} y={height - padBot + 14} fill={xi === pSel ? C.accent : C.sub}
+                  fontSize={7} fontFamily={F.mono} fontWeight={xi === pSel ? '700' : '400'} textAnchor="middle">
+                  {d.label}
+                </SvgText>
+              );
+            })}
+          </Svg>
+        </ScrollView>
+      </View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10, marginTop: 8 }}>
+        {PREM_LINE_SERIES.map(function(s) {
+          var isOn = visible[s.key];
+          return (
+            <TouchableOpacity key={s.key} onPress={function() { onToggle(s.key); }}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, opacity: isOn ? 1 : 0.35 }}>
+              <View style={{ width: 12, height: 3, backgroundColor: s.color, borderRadius: 1 }} />
+              <Text style={{ fontSize: 9, color: isOn ? C.text : C.dim, fontFamily: F.mono }}>{s.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function RendaPassivaLineChart(props) {
+  var data = props.data || [];
+  var visible = props.visible || {};
+  var onToggle = props.onToggle;
+  var height = 220;
+  var _cw = useState(0); var cw = _cw[0]; var setCw = _cw[1];
+  var _sel = useState(-1); var sel = _sel[0]; var setSel = _sel[1];
+
+  if (data.length === 0) {
+    return <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, textAlign: 'center', marginTop: 8 }}>Sem dados</Text>;
+  }
+
+  var ptW = 56;
+  var totalW = Math.max(data.length * ptW, cw || 300);
+  var padL = 8;
+  var padR = 16;
+  var padTop = 24;
+  var padBot = 36;
+  var chartH = height - padTop - padBot;
+  var chartW = totalW - padL - padR;
+
+  // Find min/max across visible series
+  var allVals = [];
+  for (var avi = 0; avi < data.length; avi++) {
+    for (var avs = 0; avs < RP_SERIES.length; avs++) {
+      if (visible[RP_SERIES[avs].key]) allVals.push(data[avi][RP_SERIES[avs].key] || 0);
+    }
+  }
+  if (allVals.length === 0) allVals = [0];
+  var minVal = Math.min.apply(null, allVals);
+  var maxVal = Math.max.apply(null, allVals);
+  if (minVal > 0) minVal = 0;
+  if (maxVal <= 0) maxVal = 1;
+  var range = maxVal - minVal || 1;
+
+  function yPos(v) { return padTop + chartH * (1 - (v - minVal) / range); }
+  function xPos(i) { return padL + (i / Math.max(data.length - 1, 1)) * chartW; }
+
+  // Build paths
+  var paths = [];
+  for (var si = 0; si < RP_SERIES.length; si++) {
+    var s = RP_SERIES[si];
+    if (!visible[s.key]) continue;
+    var d = '';
+    for (var pi = 0; pi < data.length; pi++) {
+      var px = xPos(pi);
+      var py = yPos(data[pi][s.key] || 0);
+      d += (pi === 0 ? 'M' : 'L') + px.toFixed(1) + ',' + py.toFixed(1);
+    }
+    paths.push({ d: d, color: s.color, dash: s.dash, key: s.key, label: s.label });
+  }
+
+  // Y grid labels
+  var ySteps = 5;
+  var yLabels = [];
+  for (var yi = 0; yi <= ySteps; yi++) {
+    var yv = minVal + (range * yi / ySteps);
+    yLabels.push({ v: yv, y: yPos(yv) });
+  }
+
+  var zeroY = yPos(0);
+  var selData = sel >= 0 && sel < data.length ? data[sel] : null;
+
+  return (
+    <View>
+      {/* Tooltip */}
+      {selData && (
+        <View style={{ backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 10, marginBottom: 6 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <Text style={{ fontSize: 12, fontWeight: '800', color: C.text, fontFamily: F.display }}>{selData.label}</Text>
+            <TouchableOpacity onPress={function() { setSel(-1); }}>
+              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          {RP_SERIES.map(function(s) {
+            if (!visible[s.key]) return null;
+            var v = selData[s.key] || 0;
+            return (
+              <View key={s.key} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <View style={{ width: 8, height: 3, backgroundColor: s.color, borderRadius: 1 }} />
+                  <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body }}>{s.label}</Text>
+                </View>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: v >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                  {'R$ ' + fmt(Math.abs(v))}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      )}
+      <View onLayout={function(e) { setCw(e.nativeEvent.layout.width); }} style={{ overflow: 'hidden' }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <Svg width={totalW} height={height}>
+            {/* Grid lines + Y labels */}
+            {yLabels.map(function(yl, gi) {
+              return (
+                <G key={gi}>
+                  <SvgLine x1={padL} y1={yl.y} x2={totalW - padR} y2={yl.y}
+                    stroke={C.border} strokeWidth={0.5} opacity={0.3} />
+                  <SvgText x={padL} y={yl.y - 4} fill={C.dim}
+                    fontSize={7} fontFamily={F.mono}>
+                    {yl.v >= 1000 ? (yl.v / 1000).toFixed(1) + 'k' : yl.v < 0 ? '-' + Math.abs(yl.v).toFixed(0) : yl.v.toFixed(0)}
+                  </SvgText>
+                </G>
+              );
+            })}
+            {/* Zero line highlight */}
+            {minVal < 0 && (
+              <SvgLine x1={padL} y1={zeroY} x2={totalW - padR} y2={zeroY}
+                stroke={C.sub} strokeWidth={1} opacity={0.5} />
+            )}
+            {/* Selected vertical line */}
+            {sel >= 0 && sel < data.length && (
+              <SvgLine x1={xPos(sel)} y1={padTop} x2={xPos(sel)} y2={padTop + chartH}
+                stroke={C.accent} strokeWidth={1} opacity={0.5} strokeDasharray="4,3" />
+            )}
+            {/* Lines */}
+            {paths.map(function(p) {
+              return (
+                <Path key={p.key} d={p.d} stroke={p.color} strokeWidth={2.5}
+                  fill="none" strokeDasharray={p.dash || undefined} strokeLinecap="round" strokeLinejoin="round" />
+              );
+            })}
+            {/* Dots */}
+            {paths.map(function(p) {
+              var dots = [];
+              for (var di = 0; di < data.length; di++) {
+                var dx = xPos(di);
+                var dy = yPos(data[di][p.key] || 0);
+                var isSel = di === sel;
+                dots.push(
+                  <Circle key={p.key + '_' + di} cx={dx} cy={dy} r={isSel ? 5 : 3} fill={p.color} opacity={isSel ? 1 : 0.9} />
+                );
+              }
+              return dots;
+            })}
+            {/* Touch targets */}
+            {data.map(function(d, ti) {
+              var tx = xPos(ti);
+              var hitW = Math.max(ptW * 0.8, 30);
+              return (
+                <SvgRect key={'hit_' + ti} x={tx - hitW / 2} y={padTop} width={hitW} height={chartH}
+                  fill="transparent" onPress={function() { setSel(sel === ti ? -1 : ti); }} />
+              );
+            })}
+            {/* X labels */}
+            {data.map(function(d, xi) {
+              var lx = xPos(xi);
+              var showLabel = data.length <= 12 || xi % Math.ceil(data.length / 12) === 0 || xi === data.length - 1;
+              if (!showLabel) return null;
+              return (
+                <SvgText key={xi} x={lx} y={height - padBot + 14} fill={xi === sel ? C.accent : C.sub}
+                  fontSize={7} fontFamily={F.mono} fontWeight={xi === sel ? '700' : '400'} textAnchor="middle">
+                  {d.label}
+                </SvgText>
+              );
+            })}
+          </Svg>
+        </ScrollView>
+      </View>
+      {/* Legend toggles */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10, marginTop: 8 }}>
+        {RP_SERIES.map(function(s) {
+          var isOn = visible[s.key];
+          return (
+            <TouchableOpacity key={s.key} onPress={function() { onToggle(s.key); }}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, opacity: isOn ? 1 : 0.35 }}>
+              <View style={{ width: 12, height: 3, backgroundColor: s.color, borderRadius: 1 }} />
+              <Text style={{ fontSize: 9, color: isOn ? C.text : C.dim, fontFamily: F.mono }}>{s.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+// ═══════════ INLINE SVG: Renda Passiva Total Line Chart ═══════════
+
+function RendaPassivaTotalChart(props) {
+  var data = props.data || [];
+  var height = 200;
+  var _tw = useState(0); var tw = _tw[0]; var setTw = _tw[1];
+  var _tSel = useState(-1); var tSel = _tSel[0]; var setTSel = _tSel[1];
+
+  if (data.length === 0) {
+    return <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, textAlign: 'center', marginTop: 8 }}>Sem dados</Text>;
+  }
+
+  var ptW = 56;
+  var totalW = Math.max(data.length * ptW, tw || 300);
+  var padL = 8;
+  var padR = 16;
+  var padTop = 28;
+  var padBot = 36;
+  var chartH = height - padTop - padBot;
+  var chartW = totalW - padL - padR;
+
+  var vals = [];
+  for (var vi = 0; vi < data.length; vi++) { vals.push(data[vi].total || 0); }
+  var minV = Math.min.apply(null, vals);
+  var maxV = Math.max.apply(null, vals);
+  if (minV > 0) minV = 0;
+  if (maxV <= 0) maxV = 1;
+  var range = maxV - minV || 1;
+
+  function yP(v) { return padTop + chartH * (1 - (v - minV) / range); }
+  function xP(i) { return padL + (i / Math.max(data.length - 1, 1)) * chartW; }
+
+  // Build path
+  var pathD = '';
+  for (var pi = 0; pi < data.length; pi++) {
+    var px = xP(pi);
+    var py = yP(data[pi].total || 0);
+    pathD += (pi === 0 ? 'M' : 'L') + px.toFixed(1) + ',' + py.toFixed(1);
+  }
+
+  // Area fill path
+  var areaD = pathD + 'L' + xP(data.length - 1).toFixed(1) + ',' + yP(0).toFixed(1) + 'L' + xP(0).toFixed(1) + ',' + yP(0).toFixed(1) + 'Z';
+
+  // Y grid
+  var ySteps = 5;
+  var yLabels = [];
+  for (var yi = 0; yi <= ySteps; yi++) {
+    var yv = minV + (range * yi / ySteps);
+    yLabels.push({ v: yv, y: yP(yv) });
+  }
+
+  var zeroY = yP(0);
+  var tSelData = tSel >= 0 && tSel < data.length ? data[tSel] : null;
+
+  return (
+    <View>
+      {/* Tooltip */}
+      {tSelData && (
+        <View style={{ backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 10, marginBottom: 6 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <Text style={{ fontSize: 12, fontWeight: '800', color: C.text, fontFamily: F.display }}>{tSelData.label}</Text>
+            <TouchableOpacity onPress={function() { setTSel(-1); }}>
+              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          {[
+            { l: 'Dividendos/JCP', v: tSelData.div, c: C.acoes },
+            { l: 'Rendimentos FII', v: tSelData.rend, c: C.fiis },
+            { l: 'Renda Fixa', v: tSelData.rf, c: C.rf },
+            { l: 'P&L Opções', v: tSelData.pl, c: C.opcoes },
+          ].map(function(row) {
+            return (
+              <View key={row.l} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: row.c }} />
+                  <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body }}>{row.l}</Text>
+                </View>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: row.v >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                  {'R$ ' + fmt(Math.abs(row.v))}
+                </Text>
+              </View>
+            );
+          })}
+          <View style={{ borderTopWidth: 1, borderTopColor: C.border, marginTop: 4, paddingTop: 4, flexDirection: 'row', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: 10, fontWeight: '800', color: C.text, fontFamily: F.display }}>TOTAL</Text>
+            <Text style={{ fontSize: 10, fontWeight: '800', color: tSelData.total >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+              {'R$ ' + fmt(Math.abs(tSelData.total))}
+            </Text>
+          </View>
+        </View>
+      )}
+      <View onLayout={function(e) { setTw(e.nativeEvent.layout.width); }} style={{ overflow: 'hidden' }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <Svg width={totalW} height={height}>
+            <Defs>
+              <SvgLinearGradient id="rpTotalGrad" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor={C.green} stopOpacity="0.25" />
+                <Stop offset="1" stopColor={C.green} stopOpacity="0.02" />
+              </SvgLinearGradient>
+            </Defs>
+            {/* Grid */}
+            {yLabels.map(function(yl, gi) {
+              return (
+                <G key={gi}>
+                  <SvgLine x1={padL} y1={yl.y} x2={totalW - padR} y2={yl.y}
+                    stroke={C.border} strokeWidth={0.5} opacity={0.3} />
+                  <SvgText x={padL} y={yl.y - 4} fill={C.dim} fontSize={7} fontFamily={F.mono}>
+                    {yl.v >= 1000 ? (yl.v / 1000).toFixed(1) + 'k' : yl.v < 0 ? '-' + Math.abs(yl.v).toFixed(0) : yl.v.toFixed(0)}
+                  </SvgText>
+                </G>
+              );
+            })}
+            {/* Zero line */}
+            {minV < 0 && (
+              <SvgLine x1={padL} y1={zeroY} x2={totalW - padR} y2={zeroY}
+                stroke={C.sub} strokeWidth={1} opacity={0.5} />
+            )}
+            {/* Selected vertical line */}
+            {tSel >= 0 && tSel < data.length && (
+              <SvgLine x1={xP(tSel)} y1={padTop} x2={xP(tSel)} y2={padTop + chartH}
+                stroke={C.accent} strokeWidth={1} opacity={0.5} strokeDasharray="4,3" />
+            )}
+            {/* Area fill */}
+            <Path d={areaD} fill="url(#rpTotalGrad)" />
+            {/* Line */}
+            <Path d={pathD} stroke={C.green} strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            {/* Dots */}
+            {data.map(function(d, di) {
+              var dx = xP(di);
+              var dy = yP(d.total || 0);
+              var isSel = di === tSel;
+              return (
+                <G key={di}>
+                  <Circle cx={dx} cy={dy} r={isSel ? 6 : 4} fill={C.green} opacity={isSel ? 0.3 : 0.2} />
+                  <Circle cx={dx} cy={dy} r={isSel ? 4 : 2.5} fill={C.green} />
+                </G>
+              );
+            })}
+            {/* Touch targets */}
+            {data.map(function(d, ti) {
+              var tx = xP(ti);
+              var hitW = Math.max(ptW * 0.8, 30);
+              return (
+                <SvgRect key={'hit_' + ti} x={tx - hitW / 2} y={padTop} width={hitW} height={chartH}
+                  fill="transparent" onPress={function() { setTSel(tSel === ti ? -1 : ti); }} />
+              );
+            })}
+            {/* X labels */}
+            {data.map(function(d, xi) {
+              var lx = xP(xi);
+              var showLbl = data.length <= 12 || xi % Math.ceil(data.length / 12) === 0 || xi === data.length - 1;
+              if (!showLbl) return null;
+              return (
+                <SvgText key={xi} x={lx} y={height - padBot + 14} fill={xi === tSel ? C.accent : C.sub}
+                  fontSize={7} fontFamily={F.mono} fontWeight={xi === tSel ? '700' : '400'} textAnchor="middle">
+                  {d.label}
+                </SvgText>
+              );
+            })}
+          </Svg>
+        </ScrollView>
+      </View>
+    </View>
+  );
+}
+
 // ═══════════ MAIN COMPONENT ═══════════
 
 export default function AnaliseScreen() {
@@ -4099,6 +5270,13 @@ export default function AnaliseScreen() {
   var _provYearSel = useState(-1); var provYearSel = _provYearSel[0]; var setProvYearSel = _provYearSel[1];
   var _chartTouching = useState(false); var chartTouching = _chartTouching[0]; var setChartTouching = _chartTouching[1];
   var _perfSub = useState('todos'); var perfSub = _perfSub[0]; var setPerfSub = _perfSub[1];
+  var _allProvMode = useState('mensal'); var allProvMode = _allProvMode[0]; var setAllProvMode = _allProvMode[1];
+  var _fiiRendMode = useState('mensal'); var fiiRendMode = _fiiRendMode[0]; var setFiiRendMode = _fiiRendMode[1];
+  var _fiiMonthSel = useState(-1); var fiiMonthSel = _fiiMonthSel[0]; var setFiiMonthSel = _fiiMonthSel[1];
+  var _fiiYearSel = useState(-1); var fiiYearSel = _fiiYearSel[0]; var setFiiYearSel = _fiiYearSel[1];
+  var _rpLineVis = useState({ div: true, rend: true, rf: true, pl: true }); var rpLineVis = _rpLineVis[0]; var setRpLineVis = _rpLineVis[1];
+  var _rpRankAsc = useState(false); var rpRankAsc = _rpRankAsc[0]; var setRpRankAsc = _rpRankAsc[1];
+  var _rfRendMode = useState('mensal'); var rfRendMode = _rfRendMode[0]; var setRfRendMode = _rfRendMode[1];
   var _rendaFixa = useState([]); var rendaFixa = _rendaFixa[0]; var setRendaFixa = _rendaFixa[1];
   var _opcoes = useState([]); var opcoes = _opcoes[0]; var setOpcoes = _opcoes[1];
   var _opcShowCall = useState(false); var opcShowCall = _opcShowCall[0]; var setOpcShowCall = _opcShowCall[1];
@@ -4109,11 +5287,18 @@ export default function AnaliseScreen() {
   var _opcRecSelected = useState(-1); var opcRecSelected = _opcRecSelected[0]; var setOpcRecSelected = _opcRecSelected[1];
   var _opcPLBarView = useState('mensal'); var opcPLBarView = _opcPLBarView[0]; var setOpcPLBarView = _opcPLBarView[1];
   var _opcPLBarSelected = useState(-1); var opcPLBarSelected = _opcPLBarSelected[0]; var setOpcPLBarSelected = _opcPLBarSelected[1];
+  var _premLineVis = useState({ premios: true, recompra: true, pl: true }); var premLineVis = _premLineVis[0]; var setPremLineVis = _premLineVis[1];
+  var _plMonthSel = useState(-1); var plMonthSel = _plMonthSel[0]; var setPlMonthSel = _plMonthSel[1];
+  var _plYearSel = useState(-1); var plYearSel = _plYearSel[0]; var setPlYearSel = _plYearSel[1];
   var _opcPLFilter = useState('todos'); var opcPLFilter = _opcPLFilter[0]; var setOpcPLFilter = _opcPLFilter[1];
   var _opcPLSortAsc = useState(false); var opcPLSortAsc = _opcPLSortAsc[0]; var setOpcPLSortAsc = _opcPLSortAsc[1];
+  var _putChartVis = useState({ premio: true, recompra: true, plMedia: true }); var putChartVis = _putChartVis[0]; var setPutChartVis = _putChartVis[1];
+  var _callChartVis = useState({ premio: true, recompra: true, plMedia: true }); var callChartVis = _callChartVis[0]; var setCallChartVis = _callChartVis[1];
+  var _totalChartVis = useState({ premio: true, recompra: true, plMedia: true }); var totalChartVis = _totalChartVis[0]; var setTotalChartVis = _totalChartVis[1];
   var _indicators = useState([]); var indicators = _indicators[0]; var setIndicators = _indicators[1];
   var _searchTicker = useState(''); var searchTicker = _searchTicker[0]; var setSearchTicker = _searchTicker[1];
   var _searchLoading = useState(false); var searchLoading = _searchLoading[0]; var setSearchLoading = _searchLoading[1];
+  var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
   var _treemapModal = useState(false); var treemapModalVisible = _treemapModal[0]; var setTreemapModal = _treemapModal[1];
   var _selectedTile = useState(null); var selectedTile = _selectedTile[0]; var setSelectedTile = _selectedTile[1];
   var _allocView = useState('aloc'); var allocView = _allocView[0]; var setAllocView = _allocView[1];
@@ -4312,6 +5497,136 @@ export default function AnaliseScreen() {
     }
   }
 
+  // ── All Proventos: Monthly + Annual (for Todos tab) ──
+  var allProvMonthly = [];
+  var allProvAnnual = [];
+  if (proventos.length > 0) {
+    var apByMonth = {};
+    var apByMonthTicker = {};
+    var apByYear = {};
+    var apByYearTicker = {};
+    for (var api = 0; api < proventos.length; api++) {
+      var apProv = proventos[api];
+      var apVal = apProv.valor_total || 0;
+      var apDate = new Date((apProv.data_pagamento || '') + 'T12:00:00');
+      if (isNaN(apDate.getTime())) continue;
+      var apMKey = apDate.getFullYear() + '-' + String(apDate.getMonth() + 1).padStart(2, '0');
+      if (!apByMonth[apMKey]) apByMonth[apMKey] = 0;
+      apByMonth[apMKey] += apVal;
+      if (!apByMonthTicker[apMKey]) apByMonthTicker[apMKey] = {};
+      var apTk = (apProv.ticker || '').toUpperCase().trim();
+      if (apTk) {
+        if (!apByMonthTicker[apMKey][apTk]) apByMonthTicker[apMKey][apTk] = 0;
+        apByMonthTicker[apMKey][apTk] += apVal;
+      }
+      var apYKey = String(apDate.getFullYear());
+      if (!apByYear[apYKey]) apByYear[apYKey] = 0;
+      apByYear[apYKey] += apVal;
+      if (!apByYearTicker[apYKey]) apByYearTicker[apYKey] = {};
+      if (apTk) {
+        if (!apByYearTicker[apYKey][apTk]) apByYearTicker[apYKey][apTk] = 0;
+        apByYearTicker[apYKey][apTk] += apVal;
+      }
+    }
+    // Monthly: last 12
+    var apNow = new Date();
+    for (var apmi = 11; apmi >= 0; apmi--) {
+      var apmd = new Date(apNow.getFullYear(), apNow.getMonth() - apmi, 1);
+      var apmk = apmd.getFullYear() + '-' + String(apmd.getMonth() + 1).padStart(2, '0');
+      var apml = MONTH_LABELS[apmd.getMonth() + 1] + '/' + String(apmd.getFullYear()).substring(2);
+      allProvMonthly.push({ month: apml, value: apByMonth[apmk] || 0, tickers: apByMonthTicker[apmk] || {} });
+    }
+    // Annual
+    var apYears = Object.keys(apByYear).sort();
+    for (var apy = 0; apy < apYears.length; apy++) {
+      allProvAnnual.push({ month: apYears[apy], value: apByYear[apYears[apy]], tickers: apByYearTicker[apYears[apy]] || {} });
+    }
+  }
+  var allProvData = allProvMode === 'anual' ? allProvAnnual : allProvMonthly;
+  var allProvMax = allProvData.reduce(function(m, d) { return Math.max(m, d.value); }, 1);
+
+  // ── FII Rendimentos: monthly + annual + totals ──
+  var fiiTickerSet = {};
+  var etfTickerSet = {};
+  for (var fti = 0; fti < positions.length; fti++) {
+    var ftiCat = positions[fti].categoria || 'acao';
+    var ftiTk = (positions[fti].ticker || '').toUpperCase().trim();
+    if (ftiCat === 'fii') fiiTickerSet[ftiTk] = true;
+    if (ftiCat === 'etf') etfTickerSet[ftiTk] = true;
+  }
+  var fiiRendTotal = 0;
+  var fiiRend12m = 0;
+  var fiiRendRecebido = 0;
+  var fiiRendAReceber = 0;
+  var fiiRendByMonth = {};
+  var fiiRendByMonthTicker = {};
+  var fiiRendByYear = {};
+  var fiiRendByYearTicker = {};
+  var fiiRendByTicker = {};
+  var fiiOneYrAgo = new Date();
+  fiiOneYrAgo.setFullYear(fiiOneYrAgo.getFullYear() - 1);
+  var fiiTodayStr = new Date().toISOString().substring(0, 10);
+  for (var fri = 0; fri < proventos.length; fri++) {
+    var frProv = proventos[fri];
+    var frTk = (frProv.ticker || '').toUpperCase().trim();
+    if (!fiiTickerSet[frTk]) continue;
+    var frVal = frProv.valor_total || 0;
+    fiiRendTotal += frVal;
+    var frDateStr = (frProv.data_pagamento || '').substring(0, 10);
+    var frDate = new Date(frProv.data_pagamento);
+    if (frDate >= fiiOneYrAgo) fiiRend12m += frVal;
+    if (frDateStr <= fiiTodayStr) { fiiRendRecebido += frVal; } else { fiiRendAReceber += frVal; }
+    var frMKey = frDate.getFullYear() + '-' + String(frDate.getMonth() + 1).padStart(2, '0');
+    if (!fiiRendByMonth[frMKey]) fiiRendByMonth[frMKey] = 0;
+    fiiRendByMonth[frMKey] += frVal;
+    if (!fiiRendByMonthTicker[frMKey]) fiiRendByMonthTicker[frMKey] = {};
+    if (!fiiRendByMonthTicker[frMKey][frTk]) fiiRendByMonthTicker[frMKey][frTk] = 0;
+    fiiRendByMonthTicker[frMKey][frTk] += frVal;
+    var frYKey = String(frDate.getFullYear());
+    if (!fiiRendByYear[frYKey]) fiiRendByYear[frYKey] = 0;
+    fiiRendByYear[frYKey] += frVal;
+    if (!fiiRendByYearTicker[frYKey]) fiiRendByYearTicker[frYKey] = {};
+    if (!fiiRendByYearTicker[frYKey][frTk]) fiiRendByYearTicker[frYKey][frTk] = 0;
+    fiiRendByYearTicker[frYKey][frTk] += frVal;
+    if (!fiiRendByTicker[frTk]) fiiRendByTicker[frTk] = 0;
+    fiiRendByTicker[frTk] += frVal;
+  }
+  var fiiRendMonthly = [];
+  var fiiRendAnnual = [];
+  var fiiNow = new Date();
+  for (var fmi = 11; fmi >= 0; fmi--) {
+    var fmd = new Date(fiiNow.getFullYear(), fiiNow.getMonth() - fmi, 1);
+    var fmk = fmd.getFullYear() + '-' + String(fmd.getMonth() + 1).padStart(2, '0');
+    var fml = MONTH_LABELS[fmd.getMonth() + 1] + '/' + String(fmd.getFullYear()).substring(2);
+    fiiRendMonthly.push({ month: fml, value: fiiRendByMonth[fmk] || 0, tickers: fiiRendByMonthTicker[fmk] || {} });
+  }
+  var fiiYears = Object.keys(fiiRendByYear).sort();
+  for (var fyi = 0; fyi < fiiYears.length; fyi++) {
+    fiiRendAnnual.push({ month: fiiYears[fyi], value: fiiRendByYear[fiiYears[fyi]], tickers: fiiRendByYearTicker[fiiYears[fyi]] || {} });
+  }
+  var fiiRendMediaMensal = 0;
+  var fiiRendLast3 = 0;
+  for (var fl3 = Math.max(fiiRendMonthly.length - 3, 0); fl3 < fiiRendMonthly.length; fl3++) {
+    fiiRendLast3 += fiiRendMonthly[fl3].value;
+  }
+  fiiRendMediaMensal = fiiRendLast3 / 3;
+
+  // ── RF: monthly income estimate ──
+  var rfRendaTotal = 0;
+  var rfRendaMensalEst = 0;
+  for (var rri = 0; rri < rendaFixa.length; rri++) {
+    var rrItem = rendaFixa[rri];
+    var rrValor = parseFloat(rrItem.valor_aplicado) || 0;
+    var rrTaxa = parseFloat(rrItem.taxa) || 0;
+    var rrIdx = rrItem.indexador || 'prefixado';
+    var rrAnual = rrIdx === 'cdi' || rrIdx === 'selic' ? (selicAnual - 0.10) * (rrTaxa / 100) :
+      rrIdx === 'ipca' ? rrTaxa + 4.5 : rrTaxa;
+    var rrMensal = rrValor * (Math.pow(1 + rrAnual / 100, 1 / 12) - 1);
+    rfRendaMensalEst += rrMensal;
+    rfRendaTotal += rrValor;
+  }
+  var rfRendaAnualEst = rfRendaMensalEst * 12;
+
   // ── Derived: Category Performance (Acao/FII/ETF) ──
   var catPositions = [];
   var catTotalInvested = 0;
@@ -4321,6 +5636,9 @@ export default function AnaliseScreen() {
   var catPctCDI = 0;
   var catDividendsTotal = 0;
   var catDividends12m = 0;
+  var catProvsRecebidos = 0;
+  var catProvsAReceber = 0;
+  var catDY = 0;
   var catYieldOnCost = 0;
   var catRetornoTotal = 0;
   var catRetornoTotalPct = 0;
@@ -4349,7 +5667,7 @@ export default function AnaliseScreen() {
     catPctCDI = cdiPct > 0 ? (catRentPct / cdiPct * 100) : 0;
     catPesoCarteira = totalPatrimonio > 0 ? (catCurrentValue / totalPatrimonio * 100) : 0;
 
-    // Dividends: total, 12m, per ticker, monthly
+    // Dividends: total, 12m, per ticker, monthly, recebidos/a receber
     var oneYrAgo = new Date();
     oneYrAgo.setFullYear(oneYrAgo.getFullYear() - 1);
     var catTickerSet = {};
@@ -4357,22 +5675,40 @@ export default function AnaliseScreen() {
       catTickerSet[catPositions[ct].ticker] = true;
     }
     var catProvByMonth = {};
+    var catProvByMonthTicker = {}; // { 'YYYY-MM': { ticker: valor } }
     var catProvByTicker = {};
+    var catTodayStr = new Date().toISOString().substring(0, 10);
+    var catProvByMonthRecebido = {}; // only received proventos
     for (var cdp = 0; cdp < proventos.length; cdp++) {
       var prov = proventos[cdp];
       if (!catTickerSet[prov.ticker]) continue;
       var provVal = prov.valor_total || 0;
       catDividendsTotal += provVal;
+      var provDateStr = (prov.data_pagamento || '').substring(0, 10);
+      var provPago = provDateStr <= catTodayStr;
+      if (provPago) {
+        catProvsRecebidos += provVal;
+      } else {
+        catProvsAReceber += provVal;
+      }
       var provDate = new Date(prov.data_pagamento);
       if (provDate >= oneYrAgo) catDividends12m += provVal;
       var pmKey = provDate.getFullYear() + '-' + String(provDate.getMonth() + 1).padStart(2, '0');
       if (!catProvByMonth[pmKey]) catProvByMonth[pmKey] = 0;
       catProvByMonth[pmKey] += provVal;
+      if (provPago) {
+        if (!catProvByMonthRecebido[pmKey]) catProvByMonthRecebido[pmKey] = 0;
+        catProvByMonthRecebido[pmKey] += provVal;
+      }
+      if (!catProvByMonthTicker[pmKey]) catProvByMonthTicker[pmKey] = {};
+      if (!catProvByMonthTicker[pmKey][prov.ticker]) catProvByMonthTicker[pmKey][prov.ticker] = 0;
+      catProvByMonthTicker[pmKey][prov.ticker] += provVal;
       if (!catProvByTicker[prov.ticker]) catProvByTicker[prov.ticker] = { total: 0, last12m: 0 };
       catProvByTicker[prov.ticker].total += provVal;
       if (provDate >= oneYrAgo) catProvByTicker[prov.ticker].last12m += provVal;
     }
     catYieldOnCost = catTotalInvested > 0 ? (catDividends12m / catTotalInvested * 100) : 0;
+    catDY = catCurrentValue > 0 ? (catDividends12m / catCurrentValue * 100) : 0;
     catRetornoTotal = catPL + catDividendsTotal;
     catRetornoTotalPct = catTotalInvested > 0 ? (catRetornoTotal / catTotalInvested * 100) : 0;
 
@@ -4382,14 +5718,18 @@ export default function AnaliseScreen() {
       var cmd = new Date(nowCat.getFullYear(), nowCat.getMonth() - cmi, 1);
       var cmk = cmd.getFullYear() + '-' + String(cmd.getMonth() + 1).padStart(2, '0');
       var cml = MONTH_LABELS[cmd.getMonth() + 1] + '/' + String(cmd.getFullYear()).substring(2);
-      catMonthlyDividends.push({ month: cml, value: catProvByMonth[cmk] || 0 });
+      catMonthlyDividends.push({ month: cml, value: catProvByMonth[cmk] || 0, tickers: catProvByMonthTicker[cmk] || {} });
     }
 
-    // Renda mensal media (ultimos 3 meses)
+    // Renda mensal media (ultimos 3 meses — somente recebidos)
     var last3sum = 0;
     var last3count = 0;
     for (var l3 = Math.max(catMonthlyDividends.length - 3, 0); l3 < catMonthlyDividends.length; l3++) {
-      last3sum += catMonthlyDividends[l3].value;
+      var l3key = (function() {
+        var l3d = new Date(nowCat.getFullYear(), nowCat.getMonth() - (catMonthlyDividends.length - 1 - l3), 1);
+        return l3d.getFullYear() + '-' + String(l3d.getMonth() + 1).padStart(2, '0');
+      })();
+      last3sum += (catProvByMonthRecebido[l3key] || 0);
       last3count++;
     }
     catRendaMensal = last3count > 0 ? last3sum / last3count : 0;
@@ -4545,15 +5885,17 @@ export default function AnaliseScreen() {
     var opcTaxaMensalSum = 0;
     var opcTaxaMensalCount = 0;
     var opcPremByMonth = {};
+    var opcPLByMonth = {};
 
     for (var oi = 0; oi < opcoes.length; oi++) {
       var op = opcoes[oi];
       var premioTotal = (op.premio || 0) * (op.quantidade || 0);
       var status = op.status || 'ativa';
 
-      if (!opcByStatus[status]) opcByStatus[status] = { count: 0, premio: 0 };
+      if (!opcByStatus[status]) opcByStatus[status] = { count: 0, premio: 0, call: 0, put: 0 };
       opcByStatus[status].count += 1;
       opcByStatus[status].premio += premioTotal;
+      opcByStatus[status][op.tipo || 'call'] += 1;
 
       var direcao = op.direcao || 'venda';
       var isVenda = direcao === 'venda' || direcao === 'lancamento';
@@ -4614,6 +5956,15 @@ export default function AnaliseScreen() {
           var plOp = premioTotal - premioFech;
           opcPLTotal += plOp;
           opcTotalPremiosFechamento += premioFech;
+          // P&L por mês de encerramento (resultado da operação no mês que fechou)
+          var dataEnc = op.data_fechamento || op.updated_at || op.vencimento || '';
+          if (dataEnc) {
+            var dEnc = new Date(dataEnc);
+            var encMonth = dEnc.getFullYear() + '-' + String(dEnc.getMonth() + 1).padStart(2, '0');
+            if (!opcPLByMonth[encMonth]) opcPLByMonth[encMonth] = { total: 0, call: 0, put: 0 };
+            opcPLByMonth[encMonth].total += plOp;
+            opcPLByMonth[encMonth][tipo] += plOp;
+          }
           // Register recompra in the closing month (regime de caixa)
           if (premioFech > 0) {
             var dataFech = op.updated_at || op.vencimento || '';
@@ -4649,7 +6000,7 @@ export default function AnaliseScreen() {
     var opcTotalEncerradasVenda = opcWins + opcLosses;
     opcWinRate = opcTotalEncerradasVenda > 0 ? (opcWins / opcTotalEncerradasVenda * 100) : 0;
 
-    // Taxa exercicio / expirou PO
+    // Taxa exercício / virou pó
     var exercidas = (opcByStatus.exercida && opcByStatus.exercida.count) || 0;
     var expirouPO = (opcByStatus.expirou_po && opcByStatus.expirou_po.count) || 0;
     var totalEncerradasAll = opcEncerradas.length;
@@ -4686,18 +6037,24 @@ export default function AnaliseScreen() {
     }
   }
 
-  // Recompra and P&L monthly data (derived from opcMonthlyPremiums)
+  // Recompra monthly data (derived from opcMonthlyPremiums)
   var recMonthlyData = [];
-  var plMonthlyData = [];
-  var plMonthlyColors = [];
   for (var rmi = 0; rmi < opcMonthlyPremiums.length; rmi++) {
     var rmd = opcMonthlyPremiums[rmi];
     recMonthlyData.push({ month: rmd.month, total: rmd.recompra || 0, call: rmd.recompra_call || 0, put: rmd.recompra_put || 0, value: rmd.recompra || 0 });
-    var plmT = (rmd.total || 0) - (rmd.recompra || 0);
-    var plmC = (rmd.call || 0) - (rmd.recompra_call || 0);
-    var plmP = (rmd.put || 0) - (rmd.recompra_put || 0);
-    plMonthlyData.push({ month: rmd.month, total: Math.abs(plmT), call: plmC, put: plmP, value: plmT });
-    plMonthlyColors.push(plmT >= 0 ? C.green : C.red);
+  }
+
+  // P&L encerradas por mês (resultado completo da operação no mês de encerramento)
+  var plMonthlyData = [];
+  var plMonthlyColors = [];
+  var nowPL = new Date();
+  for (var pli = 11; pli >= 0; pli--) {
+    var plDate = new Date(nowPL.getFullYear(), nowPL.getMonth() - pli, 1);
+    var plKey = plDate.getFullYear() + '-' + String(plDate.getMonth() + 1).padStart(2, '0');
+    var plLabel = MONTH_LABELS[plDate.getMonth() + 1] + '/' + String(plDate.getFullYear()).substring(2);
+    var plD = opcPLByMonth[plKey] || { total: 0, call: 0, put: 0 };
+    plMonthlyData.push({ month: plLabel, total: Math.abs(plD.total), call: plD.call, put: plD.put, value: plD.total });
+    plMonthlyColors.push(plD.total >= 0 ? C.green : C.red);
   }
 
   // ── Derived: Alocação ──
@@ -4807,6 +6164,62 @@ export default function AnaliseScreen() {
   // Media mensal (12 meses)
   var mediaMensal = proventos12m / 12;
 
+  // Proventos sem ETFs (para aba Proventos)
+  var provSemEtf = proventos.filter(function(p) {
+    var ptk = (p.ticker || '').toUpperCase().trim();
+    return !etfTickerSet[ptk];
+  });
+  var provSemEtfRecebido = 0;
+  var provSemEtfAReceber = 0;
+  var provSemEtf12m = 0;
+  for (var pse = 0; pse < provSemEtf.length; pse++) {
+    var pseP = provSemEtf[pse];
+    var pseDate = (pseP.data_pagamento || '').substring(0, 10);
+    var pseVal = pseP.valor_total || 0;
+    var psePd = new Date(pseP.data_pagamento + 'T12:00:00');
+    if (pseDate <= todayProvStr) { provSemEtfRecebido += pseVal; } else { provSemEtfAReceber += pseVal; }
+    if (psePd >= oneYearAgo && pseDate <= todayProvStr) provSemEtf12m += pseVal;
+  }
+  var custoSemEtf = positions.reduce(function(s, p) {
+    if ((p.categoria || 'acao') === 'etf') return s;
+    return s + p.quantidade * p.pm;
+  }, 0);
+  var valorAtualSemEtf = positions.reduce(function(s, p) {
+    if ((p.categoria || 'acao') === 'etf') return s;
+    return s + p.quantidade * (p.preco_atual || p.pm);
+  }, 0);
+  var provYoC = custoSemEtf > 0 ? (provSemEtf12m / custoSemEtf) * 100 : 0;
+  var provDY = valorAtualSemEtf > 0 ? (provSemEtf12m / valorAtualSemEtf) * 100 : 0;
+
+  // Heatmap: ações — dividendos acumulados por ticker por mês do ano (Jan-Dez)
+  var hmTickers = {};
+  var hmMonths = [];
+  for (var hmi = 1; hmi <= 12; hmi++) {
+    hmMonths.push({ key: String(hmi), label: MONTH_LABELS[hmi] });
+  }
+  for (var hmp = 0; hmp < proventos.length; hmp++) {
+    var hmProv = proventos[hmp];
+    var hmTk = (hmProv.ticker || '').toUpperCase().trim();
+    if (etfTickerSet[hmTk] || fiiTickerSet[hmTk]) continue;
+    var hmPd = hmProv.data_pagamento || '';
+    if (hmPd.length < 7) continue;
+    var hmMes = String(parseInt(hmPd.substring(5, 7)));
+    var hmVal = hmProv.valor_total || 0;
+    if (!hmTickers[hmTk]) hmTickers[hmTk] = {};
+    if (!hmTickers[hmTk][hmMes]) hmTickers[hmTk][hmMes] = 0;
+    hmTickers[hmTk][hmMes] += hmVal;
+  }
+  var hmTickerList = Object.keys(hmTickers).sort();
+  // Global max for color scale
+  var hmMaxVal = 0;
+  for (var hmtk = 0; hmtk < hmTickerList.length; hmtk++) {
+    var hmData = hmTickers[hmTickerList[hmtk]];
+    for (var hmm = 0; hmm < hmMonths.length; hmm++) {
+      var hmv = hmData[hmMonths[hmm].key] || 0;
+      if (hmv > hmMaxVal) hmMaxVal = hmv;
+    }
+  }
+
   // Meta mensal
   var metaMensal = profile ? (profile.meta_mensal || 0) : 0;
   var metaPct = metaMensal > 0 ? Math.min((mediaMensal / metaMensal) * 100, 100) : 0;
@@ -4873,6 +6286,138 @@ export default function AnaliseScreen() {
     totalMesPendente += corretoraMap[corrKeysTotal[tmi]].totalPendente;
   }
   var currentMonthLabel = MONTH_LABELS[now.getMonth() + 1].toUpperCase() + ' ' + now.getFullYear();
+
+  // ── FII Rendimentos: KPIs, charts, heatmap, ranking, current month ──
+  var fiiRend12mRecebido = 0;
+  for (var fr12 = 0; fr12 < proventos.length; fr12++) {
+    var fr12Prov = proventos[fr12];
+    var fr12Tk = (fr12Prov.ticker || '').toUpperCase().trim();
+    if (!fiiTickerSet[fr12Tk]) continue;
+    var fr12DateStr = (fr12Prov.data_pagamento || '').substring(0, 10);
+    var fr12Date = new Date(fr12Prov.data_pagamento + 'T12:00:00');
+    if (fr12Date >= fiiOneYrAgo && fr12DateStr <= fiiTodayStr) fiiRend12mRecebido += (fr12Prov.valor_total || 0);
+  }
+  var fiiCusto = 0;
+  var fiiValorAtual = 0;
+  for (var fci2 = 0; fci2 < positions.length; fci2++) {
+    if ((positions[fci2].categoria || 'acao') !== 'fii') continue;
+    fiiCusto += positions[fci2].quantidade * positions[fci2].pm;
+    fiiValorAtual += positions[fci2].quantidade * (positions[fci2].preco_atual || positions[fci2].pm);
+  }
+  var fiiYoC = fiiCusto > 0 ? (fiiRend12mRecebido / fiiCusto) * 100 : 0;
+  var fiiDY = fiiValorAtual > 0 ? (fiiRend12mRecebido / fiiValorAtual) * 100 : 0;
+
+  // FII monthly chart (ProvMonthlyBarChart format: tickers as array)
+  var fiiLast12 = [];
+  for (var fm12 = 11; fm12 >= 0; fm12--) {
+    var fmd12 = new Date(fiiNow.getFullYear(), fiiNow.getMonth() - fm12, 1);
+    var fmk12 = fmd12.getFullYear() + '-' + String(fmd12.getMonth() + 1).padStart(2, '0');
+    var fml12 = MONTH_LABELS[fmd12.getMonth() + 1];
+    var fmTotal12 = fiiRendByMonth[fmk12] || 0;
+    var fmTickers12 = fiiRendByMonthTicker[fmk12] || {};
+    var fmTickerArr12 = Object.keys(fmTickers12).map(function(tk) {
+      return { ticker: tk, value: fmTickers12[tk] };
+    }).sort(function(a, b) { return b.value - a.value; });
+    fiiLast12.push({ month: fml12, value: fmTotal12, tickers: fmTickerArr12 });
+  }
+  var fiiMaxMonth = fiiLast12.reduce(function(m, d) { return Math.max(m, d.value); }, 1);
+
+  // FII annual chart
+  var fiiAnnualData = [];
+  for (var fay = 0; fay < fiiYears.length; fay++) {
+    fiiAnnualData.push({ month: fiiYears[fay], value: fiiRendByYear[fiiYears[fay]] });
+  }
+  var fiiMaxYear = fiiAnnualData.reduce(function(m, d) { return Math.max(m, d.value); }, 1);
+
+  // FII asset ranking with 12M received + YoC
+  var fiiProvByTicker12m = {};
+  for (var fpr = 0; fpr < proventos.length; fpr++) {
+    var fprProv = proventos[fpr];
+    var fprTk = (fprProv.ticker || '').toUpperCase().trim();
+    if (!fiiTickerSet[fprTk]) continue;
+    var fprDate = new Date(fprProv.data_pagamento + 'T12:00:00');
+    var fprDateStr = (fprProv.data_pagamento || '').substring(0, 10);
+    if (fprDate >= fiiOneYrAgo && fprDateStr <= fiiTodayStr) {
+      if (!fiiProvByTicker12m[fprTk]) fiiProvByTicker12m[fprTk] = 0;
+      fiiProvByTicker12m[fprTk] += (fprProv.valor_total || 0);
+    }
+  }
+  var fiiAssetRanking = [];
+  for (var far = 0; far < positions.length; far++) {
+    if ((positions[far].categoria || 'acao') !== 'fii') continue;
+    var farTk = (positions[far].ticker || '').toUpperCase().trim();
+    var farTotal = fiiProvByTicker12m[farTk] || 0;
+    var farCusto = positions[far].quantidade * positions[far].pm;
+    var farYoC = farCusto > 0 ? (farTotal / farCusto) * 100 : 0;
+    fiiAssetRanking.push({ ticker: farTk, total12m: farTotal, yoc: farYoC, quantidade: positions[far].quantidade });
+  }
+  fiiAssetRanking.sort(function(a, b) { return b.total12m - a.total12m; });
+
+  // FII heatmap: rendimentos by ticker by month-of-year (Jan-Dez)
+  var fiiHmTickers = {};
+  for (var fhm = 0; fhm < proventos.length; fhm++) {
+    var fhmProv = proventos[fhm];
+    var fhmTk = (fhmProv.ticker || '').toUpperCase().trim();
+    if (!fiiTickerSet[fhmTk]) continue;
+    var fhmPd = fhmProv.data_pagamento || '';
+    if (fhmPd.length < 7) continue;
+    var fhmMes = String(parseInt(fhmPd.substring(5, 7)));
+    var fhmVal = fhmProv.valor_total || 0;
+    if (!fiiHmTickers[fhmTk]) fiiHmTickers[fhmTk] = {};
+    if (!fiiHmTickers[fhmTk][fhmMes]) fiiHmTickers[fhmTk][fhmMes] = 0;
+    fiiHmTickers[fhmTk][fhmMes] += fhmVal;
+  }
+  var fiiHmTickerList = Object.keys(fiiHmTickers).sort();
+  var fiiHmMaxVal = 0;
+  for (var fhmt = 0; fhmt < fiiHmTickerList.length; fhmt++) {
+    var fhmData = fiiHmTickers[fiiHmTickerList[fhmt]];
+    for (var fhmm = 0; fhmm < hmMonths.length; fhmm++) {
+      var fhmv = fhmData[hmMonths[fhmm].key] || 0;
+      if (fhmv > fiiHmMaxVal) fiiHmMaxVal = fhmv;
+    }
+  }
+
+  // FII current month rendimentos by corretora
+  var fiiMesAtual = proventos.filter(function(p) {
+    var ptk = (p.ticker || '').toUpperCase().trim();
+    if (!fiiTickerSet[ptk]) return false;
+    return (p.data_pagamento || '').substring(0, 7) === currentMonth;
+  });
+  var fiiCorretoraMap = {};
+  for (var fcm = 0; fcm < fiiMesAtual.length; fcm++) {
+    var fcProv = fiiMesAtual[fcm];
+    var fcTk = (fcProv.ticker || '').toUpperCase().trim();
+    var fcIsPago = (fcProv.data_pagamento || '').substring(0, 10) <= fiiTodayStr;
+    if (fcProv.corretora) {
+      addProvToCorretora(fiiCorretoraMap, fcProv.corretora, fcProv, fcProv.quantidade || 0, fcProv.valor_total || 0, fcIsPago);
+    } else {
+      var fcCorr = posCorretMap[fcTk];
+      if (fcCorr) {
+        var fcKeysArr = Object.keys(fcCorr);
+        var fcTotalQty = 0;
+        for (var fck = 0; fck < fcKeysArr.length; fck++) fcTotalQty += (fcCorr[fcKeysArr[fck]] || 0);
+        if (fcTotalQty > 0 && fcKeysArr.length > 0) {
+          for (var fckj = 0; fckj < fcKeysArr.length; fckj++) {
+            var fcQty = fcCorr[fcKeysArr[fckj]] || 0;
+            if (fcQty <= 0) continue;
+            var fcRatio = fcQty / fcTotalQty;
+            addProvToCorretora(fiiCorretoraMap, fcKeysArr[fckj], fcProv, Math.round(fcQty), (fcProv.valor_total || 0) * fcRatio, fcIsPago);
+          }
+        } else {
+          addProvToCorretora(fiiCorretoraMap, 'Sem corretora', fcProv, fcProv.quantidade || 0, fcProv.valor_total || 0, fcIsPago);
+        }
+      } else {
+        addProvToCorretora(fiiCorretoraMap, 'Sem corretora', fcProv, fcProv.quantidade || 0, fcProv.valor_total || 0, fcIsPago);
+      }
+    }
+  }
+  var fiiTotalMesPago = 0;
+  var fiiTotalMesPendente = 0;
+  var fiiCorrKeys = Object.keys(fiiCorretoraMap);
+  for (var fckt = 0; fckt < fiiCorrKeys.length; fckt++) {
+    fiiTotalMesPago += fiiCorretoraMap[fiiCorrKeys[fckt]].totalPago;
+    fiiTotalMesPendente += fiiCorretoraMap[fiiCorrKeys[fckt]].totalPendente;
+  }
 
   // Bar chart data: last 12 months (vertical) with ticker breakdown
   var last12 = [];
@@ -5014,18 +6559,30 @@ export default function AnaliseScreen() {
   }
   var maxPremYear = premAnnualData.reduce(function(m, d) { return Math.max(m, d.total || d.value || 0); }, 1);
 
-  // Recompra and P&L annual data
+  // Recompra annual data
   var recAnnualData = [];
-  var plAnnualData = [];
-  var plAnnualColors = [];
   for (var ray = 0; ray < premAnnualData.length; ray++) {
     var rad = premAnnualData[ray];
     recAnnualData.push({ month: rad.month, total: rad.recompra || 0, call: rad.recompra_call || 0, put: rad.recompra_put || 0, value: rad.recompra || 0 });
-    var plAT = (rad.total || 0) - (rad.recompra || 0);
-    var plAC = (rad.call || 0) - (rad.recompra_call || 0);
-    var plAP = (rad.put || 0) - (rad.recompra_put || 0);
-    plAnnualData.push({ month: rad.month, total: Math.abs(plAT), call: plAC, put: plAP, value: plAT });
-    plAnnualColors.push(plAT >= 0 ? C.green : C.red);
+  }
+
+  // P&L encerradas anual (agrupado por ano de encerramento)
+  var plByYear = {};
+  var plYearKeys = Object.keys(opcPLByMonth);
+  for (var ply = 0; ply < plYearKeys.length; ply++) {
+    var plYearKey = plYearKeys[ply].substring(0, 4);
+    if (!plByYear[plYearKey]) plByYear[plYearKey] = { total: 0, call: 0, put: 0 };
+    plByYear[plYearKey].total += opcPLByMonth[plYearKeys[ply]].total;
+    plByYear[plYearKey].call += opcPLByMonth[plYearKeys[ply]].call;
+    plByYear[plYearKey].put += opcPLByMonth[plYearKeys[ply]].put;
+  }
+  var plAnnualData = [];
+  var plAnnualColors = [];
+  var plAnnualYears = Object.keys(plByYear).sort();
+  for (var play = 0; play < plAnnualYears.length; play++) {
+    var plaD = plByYear[plAnnualYears[play]];
+    plAnnualData.push({ month: plAnnualYears[play], total: Math.abs(plaD.total), call: plaD.call, put: plaD.put, value: plaD.total });
+    plAnnualColors.push(plaD.total >= 0 ? C.green : C.red);
   }
 
   // Premios asset ranking (sorted by premio received)
@@ -5034,9 +6591,19 @@ export default function AnaliseScreen() {
   for (var par = 0; par < opcBaseKeys.length; par++) {
     var parKey = opcBaseKeys[par];
     var parData = opcByBase[parKey];
-    premAssetRanking.push({ ticker: parKey, count: parData.count, premio: parData.premioRecebido, pl: parData.pl });
+    premAssetRanking.push({ ticker: parKey, count: parData.count, premio: parData.premioRecebido, pl: parData.pl, recompra: parData.premioRecebido - parData.pl });
   }
   premAssetRanking.sort(function(a, b) { return b.premio - a.premio; });
+
+  // P&L realizado by CALL / PUT (somente encerradas)
+  var callPLTotal = 0;
+  var putPLTotal = 0;
+  var plMKeys = Object.keys(opcPLByMonth);
+  for (var cpk = 0; cpk < plMKeys.length; cpk++) {
+    callPLTotal += opcPLByMonth[plMKeys[cpk]].call || 0;
+    putPLTotal += opcPLByMonth[plMKeys[cpk]].put || 0;
+  }
+  var absPLTotal = Math.abs(callPLTotal) + Math.abs(putPLTotal);
 
   // Premios by month detail (for list)
   var premByMonthDetail = {};
@@ -5057,64 +6624,224 @@ export default function AnaliseScreen() {
   // Max premium month value (for chart)
   var maxPremMonth = opcMonthlyPremiums.reduce(function(m, d) { return Math.max(m, d.total); }, 1);
 
+  // P&L max values for charts
+  var plMaxMonth = plMonthlyData.reduce(function(m, d) { return Math.max(m, d.total); }, 1);
+  var plMaxYear = plAnnualData.reduce(function(m, d) { return Math.max(m, d.total); }, 1);
+
+  // P&L yield on cost (based on P&L líquido)
+  var plYieldOnCost = totalCusto > 0 ? (opcPLTotal / totalCusto) * 100 : 0;
+
+  // P&L média mensal (ano corrente, encerradas, dividido por meses decorridos)
+  var plAnoCorrente = new Date().getFullYear();
+  var plMesesDecorridos = Math.max(new Date().getMonth(), 1);
+  var plTotalAno = 0;
+  var plAnoKeys = Object.keys(opcPLByMonth);
+  var plAnoPrefix = String(plAnoCorrente);
+  for (var pt12 = 0; pt12 < plAnoKeys.length; pt12++) {
+    if (plAnoKeys[pt12].substring(0, 4) === plAnoPrefix) {
+      plTotalAno += opcPLByMonth[plAnoKeys[pt12]].total || 0;
+    }
+  }
+  var plMediaMensal = plMesesDecorridos > 0 ? plTotalAno / plMesesDecorridos : 0;
+
+  // Line chart data: prêmios / recompra / P&L por mês (todos os meses históricos)
+  var premLineMonths = {};
+  var plmPBMKeys = Object.keys(opcPremByMonth);
+  for (var plmk = 0; plmk < plmPBMKeys.length; plmk++) {
+    premLineMonths[plmPBMKeys[plmk]] = true;
+  }
+  var plmPLKeys = Object.keys(opcPLByMonth);
+  for (var plmk2 = 0; plmk2 < plmPLKeys.length; plmk2++) {
+    premLineMonths[plmPLKeys[plmk2]] = true;
+  }
+  var premLineSorted = Object.keys(premLineMonths).sort();
+  var premLineData = [];
+  for (var pli2 = 0; pli2 < premLineSorted.length; pli2++) {
+    var plmKey = premLineSorted[pli2];
+    var plmParts = plmKey.split('-');
+    var plmLabel = MONTH_LABELS[parseInt(plmParts[1])] + '/' + plmParts[0].substring(2);
+    var plmPrem = opcPremByMonth[plmKey] || { total: 0, recompra: 0 };
+    var plmPL = opcPLByMonth[plmKey] || { total: 0 };
+    premLineData.push({
+      label: plmLabel,
+      premios: plmPrem.total || 0,
+      recompra: plmPrem.recompra || 0,
+      pl: plmPL.total || 0,
+    });
+  }
+
   // ── Derived: Visao Geral (combinado) ──
-  var rendaPassivaTotal = totalProvs + opcTotalPremiosRecebidos;
-  var rendaPassiva12m = proventos12m + premios12mOpc;
+  // Breakdown proventos: dividendos+JCP (ações) vs rendimentos (FIIs) — somente recebidos
+  var rpTodayStr = new Date().toISOString().substring(0, 10);
+  var rpOneYearAgo = new Date();
+  rpOneYearAgo.setFullYear(rpOneYearAgo.getFullYear() - 1);
+  var rpDividendos = 0;
+  var rpRendimentos = 0;
+  var rpDiv12m = 0;
+  var rpRend12m = 0;
+  for (var rpi = 0; rpi < proventos.length; rpi++) {
+    var rpProv = proventos[rpi];
+    var rpDateStr = (rpProv.data_pagamento || '').substring(0, 10);
+    if (rpDateStr > rpTodayStr) continue;
+    var rpTk = (rpProv.ticker || '').toUpperCase().trim();
+    var rpVal = rpProv.valor_total || 0;
+    var rpDate = new Date(rpProv.data_pagamento + 'T12:00:00');
+    if (fiiTickerSet[rpTk]) {
+      rpRendimentos += rpVal;
+      if (rpDate >= rpOneYearAgo) rpRend12m += rpVal;
+    } else {
+      rpDividendos += rpVal;
+      if (rpDate >= rpOneYearAgo) rpDiv12m += rpVal;
+    }
+  }
+  var rpRF = rfRendaMensalEst;
+  var rpPLOpcoes = opcPLTotal;
+  // P&L opções encerradas nos últimos 12 meses
+  var rpPL12m = 0;
+  var rpPlMonthKeys = Object.keys(opcPLByMonth);
+  var rp12mAgoStr = rpOneYearAgo.getFullYear() + '-' + String(rpOneYearAgo.getMonth() + 1).padStart(2, '0');
+  for (var rplm = 0; rplm < rpPlMonthKeys.length; rplm++) {
+    if (rpPlMonthKeys[rplm] >= rp12mAgoStr) {
+      rpPL12m += opcPLByMonth[rpPlMonthKeys[rplm]].total;
+    }
+  }
+  var rendaPassivaTotal = rpDividendos + rpRendimentos + rpRF + rpPLOpcoes;
+  var rendaPassiva12m = rpDiv12m + rpRend12m + rpRF * 12 + rpPL12m;
   var rendaPassivaMediaMensal = rendaPassiva12m / 12;
   var rendaPassivaYoC = totalCusto > 0 ? (rendaPassiva12m / totalCusto) * 100 : 0;
 
-  // Combined monthly: last 12 months with prov + prem
-  var combinedMonthly = [];
-  for (var cmi = 11; cmi >= 0; cmi--) {
-    var cmd = new Date(now.getFullYear(), now.getMonth() - cmi, 1);
-    var cmk = cmd.getFullYear() + '-' + String(cmd.getMonth() + 1).padStart(2, '0');
-    var cmLabel = MONTH_LABELS[cmd.getMonth() + 1];
-    var cmProv = 0;
-    filteredProventos.forEach(function(p) {
-      var pk = (p.data_pagamento || '').substring(0, 7);
-      if (pk === cmk) cmProv += (p.valor_total || 0);
-    });
-    var cmPrem = 0;
-    for (var cpj = 0; cpj < opcoes.length; cpj++) {
-      var cpOp = opcoes[cpj];
-      var cpDir = cpOp.direcao || 'venda';
-      var cpVenda = cpDir === 'venda' || cpDir === 'lancamento';
-      if (cpVenda) {
-        var cpDate = cpOp.data_abertura || cpOp.created_at || cpOp.vencimento || '';
-        if (cpDate) {
-          var cpD = new Date(cpDate);
-          cpD.setDate(cpD.getDate() + 1);
-          var cpMk = cpD.getFullYear() + '-' + String(cpD.getMonth() + 1).padStart(2, '0');
-          if (cpMk === cmk) cmPrem += (cpOp.premio || 0) * (cpOp.quantidade || 0);
-        }
-      }
+  // ── Tabela Recebidos / A Receber do ano por tipo ──
+  var rpAnoAtual = now.getFullYear();
+  var rpAnoStr = String(rpAnoAtual);
+  var rpTblDiv = { recebido: 0, aReceber: 0 };
+  var rpTblRend = { recebido: 0, aReceber: 0 };
+  for (var rtb = 0; rtb < proventos.length; rtb++) {
+    var rtProv = proventos[rtb];
+    var rtDateStr = (rtProv.data_pagamento || '').substring(0, 10);
+    if (rtDateStr.substring(0, 4) !== rpAnoStr) continue;
+    var rtTk = (rtProv.ticker || '').toUpperCase().trim();
+    var rtVal = rtProv.valor_total || 0;
+    if (fiiTickerSet[rtTk]) {
+      if (rtDateStr <= rpTodayStr) { rpTblRend.recebido += rtVal; } else { rpTblRend.aReceber += rtVal; }
+    } else {
+      if (rtDateStr <= rpTodayStr) { rpTblDiv.recebido += rtVal; } else { rpTblDiv.aReceber += rtVal; }
     }
-    combinedMonthly.push({ month: cmLabel, provValue: cmProv, premValue: cmPrem, total: cmProv + cmPrem });
   }
-  var maxCombinedMonth = combinedMonthly.reduce(function(m, d) { return Math.max(m, d.total); }, 1);
+  // RF do ano: meses passados = recebido, meses restantes = a receber
+  var rpMesesPassados = now.getMonth() + 1;
+  var rpMesesRestantes = 12 - rpMesesPassados;
+  var rpTblRF = { recebido: rpRF * rpMesesPassados, aReceber: rpRF * rpMesesRestantes };
+  // P&L opções do ano
+  var rpTblPL = { recebido: 0, aReceber: 0 };
+  for (var rtpl = 0; rtpl < rpPlMonthKeys.length; rtpl++) {
+    if (rpPlMonthKeys[rtpl].substring(0, 4) === rpAnoStr) {
+      rpTblPL.recebido += opcPLByMonth[rpPlMonthKeys[rtpl]].total;
+    }
+  }
+  var rpTblRows = [
+    { l: 'Dividendos/JCP', c: C.acoes, r: rpTblDiv.recebido, a: rpTblDiv.aReceber },
+    { l: 'Rendimentos FII', c: C.fiis, r: rpTblRend.recebido, a: rpTblRend.aReceber },
+    { l: 'Renda Fixa (est.)', c: C.rf, r: rpTblRF.recebido, a: rpTblRF.aReceber },
+    { l: 'P&L Opções', c: C.opcoes, r: rpTblPL.recebido, a: rpTblPL.aReceber },
+  ];
+  var rpTblTotalR = rpTblDiv.recebido + rpTblRend.recebido + rpTblRF.recebido + rpTblPL.recebido;
+  var rpTblTotalA = rpTblDiv.aReceber + rpTblRend.aReceber + rpTblRF.aReceber + rpTblPL.aReceber;
 
-  // Combined annual
-  var combinedAnnualMap = {};
-  // Add proventos by year
-  for (var cay = 0; cay < annualYears.length; cay++) {
-    var cayK = annualYears[cay];
-    if (!combinedAnnualMap[cayK]) combinedAnnualMap[cayK] = { prov: 0, prem: 0 };
-    combinedAnnualMap[cayK].prov = provsByYear[cayK] || 0;
+  // ── Ranking geral de ativos geradores de renda passiva ──
+  var rpRankMap = {};
+  // Proventos (dividendos/JCP + rendimentos FII) — somente recebidos
+  for (var rrk = 0; rrk < proventos.length; rrk++) {
+    var rrkP = proventos[rrk];
+    var rrkDateStr = (rrkP.data_pagamento || '').substring(0, 10);
+    if (rrkDateStr > rpTodayStr) continue;
+    var rrkTk = (rrkP.ticker || '').toUpperCase().trim();
+    var rrkVal = rrkP.valor_total || 0;
+    if (!rpRankMap[rrkTk]) rpRankMap[rrkTk] = { ticker: rrkTk, total: 0, tipo: fiiTickerSet[rrkTk] ? 'FII' : 'Ação', c: fiiTickerSet[rrkTk] ? C.fiis : C.acoes };
+    rpRankMap[rrkTk].total += rrkVal;
   }
-  // Add premios by year
-  for (var cpay = 0; cpay < premAnnualYears.length; cpay++) {
-    var cpayK = premAnnualYears[cpay];
-    if (!combinedAnnualMap[cpayK]) combinedAnnualMap[cpayK] = { prov: 0, prem: 0 };
-    combinedAnnualMap[cpayK].prem = premByYear[cpayK] || 0;
+  // P&L opções encerradas por ativo_base
+  for (var rro = 0; rro < opcoes.length; rro++) {
+    var rroOp = opcoes[rro];
+    var rroSt = rroOp.status || 'ativa';
+    if (rroSt === 'ativa') continue;
+    var rroDir = rroOp.direcao || 'venda';
+    var rroVenda = rroDir === 'venda' || rroDir === 'lancamento';
+    if (!rroVenda) continue;
+    var rroPrem = (rroOp.premio || 0) * (rroOp.quantidade || 0);
+    var rroFech = (rroOp.premio_fechamento || 0) * (rroOp.quantidade || 0);
+    var rroPL = rroPrem - rroFech;
+    var rroBase = (rroOp.ativo_base || '').toUpperCase().trim();
+    if (!rroBase) continue;
+    if (!rpRankMap[rroBase]) rpRankMap[rroBase] = { ticker: rroBase, total: 0, tipo: 'Opção', c: C.opcoes };
+    rpRankMap[rroBase].total += rroPL;
+    if (rpRankMap[rroBase].tipo !== 'Opção' && rpRankMap[rroBase].tipo !== 'Ação + Opção') {
+      rpRankMap[rroBase].tipo = rpRankMap[rroBase].tipo + ' + Opção';
+    }
   }
-  var combinedAnnualKeys = Object.keys(combinedAnnualMap).sort();
-  var combinedAnnualData = [];
-  for (var cak = 0; cak < combinedAnnualKeys.length; cak++) {
-    var cakKey = combinedAnnualKeys[cak];
-    var cakVal = combinedAnnualMap[cakKey];
-    combinedAnnualData.push({ month: cakKey, provValue: cakVal.prov, premValue: cakVal.prem, total: cakVal.prov + cakVal.prem });
+  // RF por título
+  for (var rrf = 0; rrf < rendaFixa.length; rrf++) {
+    var rrfItem = rendaFixa[rrf];
+    var rrfLabel = (rrfItem.tipo || 'CDB').toUpperCase() + ' ' + (rrfItem.emissor || '');
+    var rrfValor = parseFloat(rrfItem.valor_aplicado) || 0;
+    var rrfTaxa = parseFloat(rrfItem.taxa) || 0;
+    var rrfIdx = rrfItem.indexador || 'prefixado';
+    var rrfAnual = rrfIdx === 'cdi' || rrfIdx === 'selic' ? (selicAnual - 0.10) * (rrfTaxa / 100) :
+      rrfIdx === 'ipca' ? rrfTaxa + 4.5 : rrfTaxa;
+    var rrfMensal = rrfValor * (Math.pow(1 + rrfAnual / 100, 1 / 12) - 1);
+    var rrfKey = 'RF_' + rrf;
+    rpRankMap[rrfKey] = { ticker: rrfLabel.trim(), total: rrfMensal * rpMesesPassados, tipo: 'RF', c: C.rf };
   }
-  var maxCombinedYear = combinedAnnualData.reduce(function(m, d) { return Math.max(m, d.total); }, 1);
+  var rpRankList = [];
+  var rpRankKeys = Object.keys(rpRankMap);
+  for (var rrl = 0; rrl < rpRankKeys.length; rrl++) {
+    rpRankList.push(rpRankMap[rpRankKeys[rrl]]);
+  }
+
+  // ── Renda passiva line chart: 4 séries mensais (todo o histórico) ──
+  var rpLineMap = {};
+  // Dividendos/JCP por mês (ações — não FII)
+  for (var rld = 0; rld < proventos.length; rld++) {
+    var rldP = proventos[rld];
+    var rldTk = (rldP.ticker || '').toUpperCase().trim();
+    var rldDate = (rldP.data_pagamento || '').substring(0, 7);
+    if (!rldDate) continue;
+    if (!rpLineMap[rldDate]) rpLineMap[rldDate] = { div: 0, rend: 0, rf: 0, pl: 0 };
+    if (fiiTickerSet[rldTk]) {
+      rpLineMap[rldDate].rend += (rldP.valor_total || 0);
+    } else {
+      rpLineMap[rldDate].div += (rldP.valor_total || 0);
+    }
+  }
+  // P&L opções encerradas por mês
+  var rpPlKeys = Object.keys(opcPLByMonth);
+  for (var rplk = 0; rplk < rpPlKeys.length; rplk++) {
+    var rplKey = rpPlKeys[rplk];
+    if (!rpLineMap[rplKey]) rpLineMap[rplKey] = { div: 0, rend: 0, rf: 0, pl: 0 };
+    rpLineMap[rplKey].pl += opcPLByMonth[rplKey].total;
+  }
+  // RF estimada mensal (constante pra cada mês)
+  var rpRfMensal = rfRendaMensalEst;
+  // Gerar série contínua de meses
+  var rpAllKeys = Object.keys(rpLineMap).sort();
+  var rpLineData = [];
+  if (rpAllKeys.length > 0) {
+    var rpStart = rpAllKeys[0].split('-');
+    var rpStartY = parseInt(rpStart[0]);
+    var rpStartM = parseInt(rpStart[1]);
+    var rpNowY = now.getFullYear();
+    var rpNowM = now.getMonth() + 1;
+    var rpCurY = rpStartY;
+    var rpCurM = rpStartM;
+    while (rpCurY < rpNowY || (rpCurY === rpNowY && rpCurM <= rpNowM)) {
+      var rpK = rpCurY + '-' + String(rpCurM).padStart(2, '0');
+      var rpEntry = rpLineMap[rpK] || { div: 0, rend: 0, rf: 0, pl: 0 };
+      var rpLbl = MONTH_LABELS[rpCurM] + '/' + String(rpCurY).substring(2);
+      var rpTotalMes = rpEntry.div + rpEntry.rend + rpRfMensal + rpEntry.pl;
+      rpLineData.push({ label: rpLbl, div: rpEntry.div, rend: rpEntry.rend, rf: rpRfMensal, pl: rpEntry.pl, total: rpTotalMes });
+      rpCurM++;
+      if (rpCurM > 12) { rpCurM = 1; rpCurY++; }
+    }
+  }
 
   // ── Derived: IR ──
   var irMonthResults = computeIR(operacoes);
@@ -5155,9 +6882,9 @@ export default function AnaliseScreen() {
       <View style={styles.subTabs}>
         {[
           { k: 'perf', l: 'Performance' },
-          { k: 'aloc', l: 'Aloc / Comp' },
-          { k: 'prov', l: 'Prov/Prem' },
-          { k: 'ind', l: 'Indicadores' },
+          { k: 'aloc', l: 'Alocação' },
+          { k: 'comp', l: 'Composição' },
+          { k: 'prov', l: 'Renda Passiva' },
         ].map(function(t) {
           return (
             <Pill key={t.k} active={sub === t.k} color={C.accent}
@@ -5254,7 +6981,9 @@ export default function AnaliseScreen() {
                   {/* Legend row */}
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 14 }}>
                     <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>{useWeekly ? 'RETORNO SEMANAL' : 'RETORNO MENSAL'}</Text>
-                    <InfoTip text="Retorno percentual por período comparando carteira vs CDI vs IBOV. Carteira usa snapshots de patrimônio." size={12} />
+                    <TouchableOpacity onPress={function() { setInfoModal({ title: 'Retorno Mensal/Semanal', text: 'Retorno percentual por período comparando carteira vs CDI vs IBOV. Carteira usa snapshots de patrimônio. CDI e IBOV são calculados com dados reais do período selecionado.' }); }}>
+                      <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+                    </TouchableOpacity>
                     <View style={{ flex: 1 }} />
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                       <View style={{ width: 12, height: 2.5, backgroundColor: C.accent, borderRadius: 2 }} />
@@ -5433,7 +7162,9 @@ export default function AnaliseScreen() {
                 <>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
                     <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>DRAWDOWN</Text>
-                    <InfoTip text="Maior queda percentual do patrimônio desde o pico histórico. Mede o risco de perdas da carteira." />
+                    <TouchableOpacity onPress={function() { setInfoModal({ title: 'Drawdown', text: 'Maior queda percentual do patrimônio desde o pico histórico. Mede o risco de perdas da carteira. Quanto menor (mais negativo), maior foi a perda máxima no período.' }); }}>
+                      <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+                    </TouchableOpacity>
                   </View>
                   <Glass padding={12}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 10 }}>
@@ -5582,8 +7313,8 @@ export default function AnaliseScreen() {
                     <Text style={styles.kpiLabel}>PIOR MES</Text>
                     {worstMonth ? (
                       <>
-                        <Text style={[styles.kpiValue, { color: C.red }]}>
-                          {worstMonth.pct.toFixed(1)}%
+                        <Text style={[styles.kpiValue, { color: worstMonth.pct >= 0 ? C.yellow : C.red }]}>
+                          {(worstMonth.pct >= 0 ? '+' : '') + worstMonth.pct.toFixed(1)}%
                         </Text>
                         <Text style={styles.kpiSub}>
                           {MONTH_LABELS[parseInt(worstMonth.month.split('-')[1])]}/{worstMonth.month.split('-')[0].substring(2)}
@@ -5601,7 +7332,9 @@ export default function AnaliseScreen() {
                 <>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
                     <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>RENTABILIDADE POR ATIVO</Text>
-                    <InfoTip text="P&L percentual de cada ativo baseado no preço médio de compra vs preço atual de mercado." />
+                    <TouchableOpacity onPress={function() { setInfoModal({ title: 'Rentabilidade por Ativo', text: 'P&L percentual de cada ativo baseado no preço médio de compra vs preço atual de mercado. Barras verdes indicam lucro e vermelhas prejuízo.' }); }}>
+                      <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+                    </TouchableOpacity>
                   </View>
                   <Glass padding={14}>
                     {sortedByPnl.map(function (a, i) {
@@ -5617,7 +7350,9 @@ export default function AnaliseScreen() {
                 <>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
                     <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>P&L POR CLASSE</Text>
-                    <InfoTip text="Contribuição de cada classe de ativo para o resultado total da carteira." />
+                    <TouchableOpacity onPress={function() { setInfoModal({ title: 'P&L por Classe', text: 'Contribuição de cada classe de ativo (Ações, FIIs, ETFs, RF) para o resultado total da carteira em reais.' }); }}>
+                      <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+                    </TouchableOpacity>
                   </View>
                   <Glass padding={14}>
                     {pnlClassList.map(function(c, i) {
@@ -5652,6 +7387,33 @@ export default function AnaliseScreen() {
                         );
                       })()}
                     </View>
+                  </Glass>
+                </>
+              )}
+
+              {/* ── PROVENTOS (all categories) ── */}
+              {allProvData.length > 0 && allProvMax > 0 && (
+                <>
+                  <SectionLabel>PROVENTOS</SectionLabel>
+                  <Glass padding={12}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                        <TouchableOpacity
+                          onPress={function() { setAllProvMode('mensal'); }}
+                          style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 8, backgroundColor: allProvMode === 'mensal' ? C.accent + '20' : 'transparent', borderWidth: 1, borderColor: allProvMode === 'mensal' ? C.accent + '50' : C.border }}>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: allProvMode === 'mensal' ? C.accent : C.dim, fontFamily: F.mono }}>MENSAL</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={function() { setAllProvMode('anual'); }}
+                          style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 8, backgroundColor: allProvMode === 'anual' ? C.accent + '20' : 'transparent', borderWidth: 1, borderColor: allProvMode === 'anual' ? C.accent + '50' : C.border }}>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: allProvMode === 'anual' ? C.accent : C.dim, fontFamily: F.mono }}>ANUAL</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                        {'Total: R$ ' + fmt(allProvData.reduce(function(s, d) { return s + d.value; }, 0))}
+                      </Text>
+                    </View>
+                    <ProvVertBarChart data={allProvData} maxVal={allProvMax} color={C.fiis} height={190} />
                   </Glass>
                 </>
               )}
@@ -5734,18 +7496,31 @@ export default function AnaliseScreen() {
                   </View>
 
                   {/* Stats Row 2: Proventos */}
+                  <Glass padding={12}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 }}>PROVENTOS TOTAL</Text>
+                      <Text style={{ fontSize: 16, fontWeight: '800', color: C.green, fontFamily: F.mono }}>
+                        {'R$ ' + fmt(catDividendsTotal)}
+                      </Text>
+                    </View>
+                    <View style={{ height: 1, backgroundColor: C.border, marginBottom: 6 }} />
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 }}>
+                      <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body }}>Recebidos</Text>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>
+                        {'R$ ' + fmt(catProvsRecebidos)}
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 }}>
+                      <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body }}>A receber</Text>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: C.yellow, fontFamily: F.mono }}>
+                        {'R$ ' + fmt(catProvsAReceber)}
+                      </Text>
+                    </View>
+                  </Glass>
                   <View style={styles.kpiRow}>
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
-                        <Text style={styles.kpiLabel}>PROVENTOS TOTAL</Text>
-                        <Text style={[styles.kpiValue, { color: C.green }]}>
-                          R$ {fmt(catDividendsTotal)}
-                        </Text>
-                      </View>
-                    </Glass>
-                    <Glass padding={10} style={{ flex: 1 }}>
-                      <View style={styles.kpiCard}>
-                        <Text style={styles.kpiLabel}>{perfSub === 'fii' ? 'DY 12M' : 'YIELD ON COST'}</Text>
+                        <Text style={styles.kpiLabel}>YIELD ON COST</Text>
                         <Text style={[styles.kpiValue, { color: C.green }]}>
                           {catYieldOnCost.toFixed(2)}%
                         </Text>
@@ -5753,9 +7528,9 @@ export default function AnaliseScreen() {
                     </Glass>
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
-                        <Text style={styles.kpiLabel}>RENDA/MES</Text>
+                        <Text style={styles.kpiLabel}>DY 12M</Text>
                         <Text style={[styles.kpiValue, { color: C.green }]}>
-                          R$ {fmt(catRendaMensal)}
+                          {catDY.toFixed(2)}%
                         </Text>
                       </View>
                     </Glass>
@@ -5780,25 +7555,7 @@ export default function AnaliseScreen() {
                           </Text>
                         </View>
                       </Glass>
-                      <Glass padding={10} style={{ flex: 1 }}>
-                        <View style={styles.kpiCard}>
-                          <Text style={styles.kpiLabel}>TAXA ACERTO</Text>
-                          <Text style={[styles.kpiValue, { color: C.green }]}>
-                            {((catMesesPositivos / (catMesesPositivos + catMesesNegativos)) * 100).toFixed(0)}%
-                          </Text>
-                        </View>
-                      </Glass>
                     </View>
-                  )}
-
-                  {/* Proventos mensais chart (FII focus) */}
-                  {catDividendsTotal > 0 && (
-                    <>
-                      <SectionLabel>{perfSub === 'fii' ? 'RENDIMENTOS MENSAIS' : 'PROVENTOS MENSAIS'}</SectionLabel>
-                      <Glass padding={12}>
-                        <ProvVertBarChart data={catMonthlyDividends} maxVal={catMonthlyDividends.reduce(function(m, d) { return Math.max(m, d.value); }, 1)} color={C.fiis} height={140} />
-                      </Glass>
-                    </>
                   )}
 
                   {/* Position Ranking */}
@@ -5875,11 +7632,21 @@ export default function AnaliseScreen() {
                   <Glass glow={C.opcoes} padding={16}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                       <View>
-                        <Text style={styles.heroLabel}>PREMIOS RECEBIDOS</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Text style={styles.heroLabel}>PREMIOS RECEBIDOS</Text>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'Prêmios Recebidos', text: 'Soma de todos os prêmios recebidos na venda de opções (prêmio × quantidade). Inclui opções ativas e encerradas.' }); }}>
+                            <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
                         <Text style={styles.heroValue}>R$ {fmt(opcTotalPremiosRecebidos)}</Text>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={styles.heroLabel}>P&L ENCERRADAS</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                          <Text style={styles.heroLabel}>P&L ENCERRADAS</Text>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'P&L Encerradas', text: 'Resultado por operação encerrada: prêmio recebido na venda menos custo de recompra/fechamento. Soma todas as opções vendidas já encerradas (fechadas, exercidas, expiradas).' }); }}>
+                            <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
                         <Text style={[styles.heroPct, { color: opcPLTotal >= 0 ? C.green : C.red }]}>
                           {opcPLTotal >= 0 ? '+' : ''}R$ {fmt(Math.abs(opcPLTotal))}
                         </Text>
@@ -5912,7 +7679,12 @@ export default function AnaliseScreen() {
                   <View style={styles.kpiRow}>
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
-                        <Text style={styles.kpiLabel}>WIN RATE</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                          <Text style={styles.kpiLabel}>WIN RATE</Text>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'Win Rate', text: 'Percentual de operações encerradas com lucro (P&L ≥ 0) sobre o total de encerradas vendidas.\n\nW = operações com lucro\nL = operações com prejuízo' }); }}>
+                            <Text style={{ fontSize: 11, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
                         <Text style={[styles.kpiValue, { color: opcWinRate >= 70 ? C.green : (opcWinRate >= 50 ? C.yellow : C.red) }]}>
                           {opcWinRate.toFixed(0)}%
                         </Text>
@@ -5921,7 +7693,12 @@ export default function AnaliseScreen() {
                     </Glass>
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
-                        <Text style={styles.kpiLabel}>TAXA MEDIA a.m.</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                          <Text style={styles.kpiLabel}>TAXA MEDIA a.m.</Text>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'Taxa Média a.m.', text: 'Taxa mensal equivalente média das opções vendidas.\n\nPara cada opção: calcula o prêmio como % do valor de exposição (strike × qty), depois normaliza para 30 dias via juros compostos.\n\nFórmula: ((1 + prêmio%)^(30/DTE) - 1) × 100\n\nO valor anual (a.a.) é a taxa mensal × 12.' }); }}>
+                            <Text style={{ fontSize: 11, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
                         <Text style={[styles.kpiValue, { color: C.opcoes }]}>
                           {opcTaxaMediaMensal.toFixed(2)}%
                         </Text>
@@ -5930,7 +7707,12 @@ export default function AnaliseScreen() {
                     </Glass>
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
-                        <Text style={styles.kpiLabel}>PREMIUM YIELD</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                          <Text style={styles.kpiLabel}>PREMIUM YIELD</Text>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'Premium Yield', text: 'Prêmios recebidos nos últimos 12 meses como percentual do patrimônio total atual.\n\nFórmula: (prêmios 12M / patrimônio total) × 100\n\nMostra quanto a venda de opções rendeu em relação ao tamanho da carteira.' }); }}>
+                            <Text style={{ fontSize: 11, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
                         <Text style={[styles.kpiValue, { color: C.green }]}>
                           {opcPremiumYield.toFixed(1)}%
                         </Text>
@@ -5943,7 +7725,12 @@ export default function AnaliseScreen() {
                   <View style={styles.kpiRow}>
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
-                        <Text style={styles.kpiLabel}>CALL</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                          <Text style={styles.kpiLabel}>CALL</Text>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'CALL', text: 'Total de opções do tipo CALL (todas as direções). Valor = soma dos prêmios (prêmio × quantidade).' }); }}>
+                            <Text style={{ fontSize: 11, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
                         <Text style={[styles.kpiValue, { color: C.green }]}>
                           {String(opcByTipo.call.count)}
                         </Text>
@@ -5952,7 +7739,12 @@ export default function AnaliseScreen() {
                     </Glass>
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
-                        <Text style={styles.kpiLabel}>PUT</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                          <Text style={styles.kpiLabel}>PUT</Text>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'PUT', text: 'Total de opções do tipo PUT (todas as direções). Valor = soma dos prêmios (prêmio × quantidade).' }); }}>
+                            <Text style={{ fontSize: 11, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
                         <Text style={[styles.kpiValue, { color: C.red }]}>
                           {String(opcByTipo.put.count)}
                         </Text>
@@ -5961,7 +7753,12 @@ export default function AnaliseScreen() {
                     </Glass>
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
-                        <Text style={styles.kpiLabel}>CUSTO FECH.</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                          <Text style={styles.kpiLabel}>CUSTO FECH.</Text>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'Custo de Fechamento', text: 'Soma total dos custos de recompra de todas as opções encerradas (prêmio de fechamento × quantidade).\n\nÉ o valor pago para fechar posições antes do vencimento.' }); }}>
+                            <Text style={{ fontSize: 11, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
                         <Text style={[styles.kpiValue, { color: C.yellow }]}>
                           R$ {fmt(opcTotalPremiosFechamento)}
                         </Text>
@@ -5973,7 +7770,12 @@ export default function AnaliseScreen() {
                   <View style={styles.kpiRow}>
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
-                        <Text style={styles.kpiLabel}>EXPIROU PO</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                          <Text style={styles.kpiLabel}>VIROU PÓ</Text>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'Virou Pó', text: 'Percentual de opções encerradas que expiraram sem valor (OTM no vencimento).\n\nPrêmio mantido integralmente = lucro máximo da operação.' }); }}>
+                            <Text style={{ fontSize: 11, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
                         <Text style={[styles.kpiValue, { color: C.green }]}>
                           {opcTaxaExpirouPO.toFixed(0)}%
                         </Text>
@@ -5981,7 +7783,12 @@ export default function AnaliseScreen() {
                     </Glass>
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
-                        <Text style={styles.kpiLabel}>EXERCIDA</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                          <Text style={styles.kpiLabel}>EXERCIDA</Text>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'Exercida', text: 'Percentual de opções encerradas que foram exercidas (ITM no vencimento).\n\nCALL exercida = venda do ativo no strike.\nPUT exercida = compra do ativo no strike.' }); }}>
+                            <Text style={{ fontSize: 11, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
                         <Text style={[styles.kpiValue, { color: C.yellow }]}>
                           {opcTaxaExercicio.toFixed(0)}%
                         </Text>
@@ -5989,13 +7796,29 @@ export default function AnaliseScreen() {
                     </Glass>
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
-                        <Text style={styles.kpiLabel}>FECHADA</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                          <Text style={styles.kpiLabel}>FECHADA</Text>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'Fechada', text: 'Percentual de opções encerradas por recompra antecipada (antes do vencimento).\n\nP&L = prêmio recebido na venda menos custo da recompra.' }); }}>
+                            <Text style={{ fontSize: 11, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
                         <Text style={[styles.kpiValue, { color: C.sub }]}>
                           {opcEncerradas.length > 0 ? (((opcByStatus.fechada && opcByStatus.fechada.count || 0) / opcEncerradas.length * 100).toFixed(0)) : '0'}%
                         </Text>
                       </View>
                     </Glass>
                   </View>
+
+                  {/* Desfechos PUT vs CALL */}
+                  {opcEncerradas.length > 0 && (
+                    <>
+                      <SectionLabel>DESFECHOS</SectionLabel>
+                      <Glass padding={12}>
+                        <Text style={styles.sectionTitle}>PUT vs CALL POR DESFECHO</Text>
+                        <DesfechosChart opcByStatus={opcByStatus} />
+                      </Glass>
+                    </>
+                  )}
 
                   {/* Historico de premios (mensal / anual) */}
                   {opcMonthlyPremiums.length > 0 && (function() {
@@ -6159,7 +7982,12 @@ export default function AnaliseScreen() {
                     var selData = selIdx >= 0 && selIdx < chartData.length ? chartData[selIdx] : null;
                     return (
                       <>
-                        <SectionLabel>P&L</SectionLabel>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <SectionLabel>P&L ENCERRADAS</SectionLabel>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'P&L Encerradas', text: 'Resultado das opções encerradas agrupado pelo mês de encerramento.\n\nPara cada opção fechada, exercida ou expirada, calcula: (prêmio recebido × quantidade) menos (custo de recompra × quantidade).\n\nO resultado inteiro da operação aparece no mês em que ela foi encerrada. A soma de todos os meses é igual ao valor do card P&L Encerradas no topo.\n\nVerde = lucro no mês, Vermelho = prejuízo no mês.' }); }}>
+                            <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
                         <Glass padding={12}>
                           <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
                             <Pill active={opcPLBarView === 'mensal'}
@@ -6223,19 +8051,58 @@ export default function AnaliseScreen() {
                     );
                   })()}
 
-                  {/* Prêmio x Recompra x P&L line chart (12M) */}
+                  {/* PUT: Prêmio x Recompra x P&L Médio 3M */}
                   {opcMonthlyPremiums.length > 1 && (
-                    <Glass padding={12}>
-                      <Text style={styles.sectionTitle}>PRÊMIO x RECOMPRA x P&L (12M)</Text>
-                      <PremioMediaLineChart data={opcMonthlyPremiums} />
-                    </Glass>
+                    <>
+                      <SectionLabel>PUT</SectionLabel>
+                      <Glass padding={12}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                          <Text style={styles.sectionTitle}>PRÊMIO x RECOMPRA x P&L MÉDIO 3M</Text>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'PUT — Prêmio x Recompra x P&L', text: 'Fluxo mensal de PUTs vendidas. Prêmio: valor recebido no mês da abertura (D+1). Recompra: custo pago no mês do fechamento. P&L Médio: média móvel dos últimos 3 meses do resultado (prêmio - recompra).' }); }}>
+                            <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
+                        <PremioRecompraMA3Chart data={opcMonthlyPremiums} visible={putChartVis}
+                          premioKey="put" recompraKey="recompra_put"
+                          onToggle={function(v) { setPutChartVis(v); }} />
+                      </Glass>
+                    </>
                   )}
 
-                  {/* Premio vs Recompra charts (PUT / CALL / P&L) */}
-                  {maxPremMonth > 1 && (
-                    <Glass padding={12}>
-                      <PremioVsRecompraChart data={opcMonthlyPremiums} />
-                    </Glass>
+                  {/* CALL: Prêmio x Recompra x P&L Médio 3M */}
+                  {opcMonthlyPremiums.length > 1 && (
+                    <>
+                      <SectionLabel>CALL</SectionLabel>
+                      <Glass padding={12}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                          <Text style={styles.sectionTitle}>PRÊMIO x RECOMPRA x P&L MÉDIO 3M</Text>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'CALL — Prêmio x Recompra x P&L', text: 'Fluxo mensal de CALLs vendidas. Prêmio: valor recebido no mês da abertura (D+1). Recompra: custo pago no mês do fechamento. P&L Médio: média móvel dos últimos 3 meses do resultado (prêmio - recompra).' }); }}>
+                            <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
+                        <PremioRecompraMA3Chart data={opcMonthlyPremiums} visible={callChartVis}
+                          premioKey="call" recompraKey="recompra_call"
+                          onToggle={function(v) { setCallChartVis(v); }} />
+                      </Glass>
+                    </>
+                  )}
+
+                  {/* TOTAL: Prêmio x Recompra x P&L Médio 3M */}
+                  {opcMonthlyPremiums.length > 1 && (
+                    <>
+                      <SectionLabel>TOTAL</SectionLabel>
+                      <Glass padding={12}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                          <Text style={styles.sectionTitle}>PRÊMIO x RECOMPRA x P&L MÉDIO 3M</Text>
+                          <TouchableOpacity onPress={function() { setInfoModal({ title: 'Total — Prêmio x Recompra x P&L', text: 'Fluxo mensal de todas as opções vendidas (PUT + CALL). Prêmio: valor recebido no mês da abertura (D+1). Recompra: custo pago no mês do fechamento. P&L Médio: média móvel dos últimos 3 meses do resultado (prêmio - recompra).' }); }}>
+                            <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+                          </TouchableOpacity>
+                        </View>
+                        <PremioRecompraMA3Chart data={opcMonthlyPremiums} visible={totalChartVis}
+                          premioKey="total" recompraKey="recompra"
+                          onToggle={function(v) { setTotalChartVis(v); }} />
+                      </Glass>
+                    </>
                   )}
 
                   {/* P&L por Ativo Base */}
@@ -6489,27 +8356,9 @@ export default function AnaliseScreen() {
         </>
       )}
 
-      {/* ═══════════ ALOCAÇÃO / COMPOSIÇÃO ═══════════ */}
+      {/* ═══════════ ALOCAÇÃO ═══════════ */}
       {sub === 'aloc' && (
         <>
-          {/* Segmented control: Alocacao / Composicao */}
-          <View style={{ flexDirection: 'row', borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.04)', padding: 3 }}>
-            <TouchableOpacity
-              onPress={function () { setAllocView('aloc'); setSankeyTooltip(null); }}
-              style={{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center',
-                backgroundColor: allocView === 'aloc' ? C.accent + '20' : 'transparent' }}>
-              <Text style={{ fontSize: 12, fontWeight: allocView === 'aloc' ? '700' : '500',
-                color: allocView === 'aloc' ? C.accent : C.sub, fontFamily: F.body }}>Alocação</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={function () { setAllocView('comp'); }}
-              style={{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center',
-                backgroundColor: allocView === 'comp' ? C.accent + '20' : 'transparent' }}>
-              <Text style={{ fontSize: 12, fontWeight: allocView === 'comp' ? '700' : '500',
-                color: allocView === 'comp' ? C.accent : C.sub, fontFamily: F.body }}>Composição</Text>
-            </TouchableOpacity>
-          </View>
-
           {positions.length === 0 ? (
             <EmptyState
               icon={"\u25EB"}
@@ -6519,9 +8368,6 @@ export default function AnaliseScreen() {
             />
           ) : (
             <>
-              {/* ── VIEW: ALOCAÇÃO ── */}
-              {allocView === 'aloc' ? (
-                <>
                   {/* Donut — Alocacao por Classe */}
                   {allocSegments.length > 0 ? (
                     <Glass padding={14}>
@@ -6617,12 +8463,23 @@ export default function AnaliseScreen() {
                   <RebalanceTool allocAtual={alocGrouped} totalCarteira={totalAlocPatrimonio}
                     positions={positions} assetList={assetList} rendaFixa={rendaFixa}
                     userId={user && user.id} savedTargets={savedRebalTargets} />
-                </>
-              ) : null}
+            </>
+          )}
+        </>
+      )}
 
-              {/* ── VIEW: COMPOSIÇÃO (Two-Level Donut) ── */}
-              {allocView === 'comp' ? (
-                <>
+      {/* ═══════════ COMPOSIÇÃO ═══════════ */}
+      {sub === 'comp' && (
+        <>
+          {positions.length === 0 ? (
+            <EmptyState
+              icon={"\u25EB"}
+              title="Sem ativos"
+              description="Adicione operações para ver a composição da carteira"
+              color={C.accent}
+            />
+          ) : (
+            <>
                   {/* Filter pills */}
                   <View style={{ flexDirection: 'row', gap: 6 }}>
                     {SANKEY_FILTERS.map(function (f) {
@@ -6791,14 +8648,32 @@ export default function AnaliseScreen() {
                       </Glass>
                     );
                   })}
-                </>
-              ) : null}
             </>
           )}
         </>
       )}
 
       {/* Treemap Fullscreen Modal */}
+      <Modal visible={infoModal !== null} animationType="fade" transparent={true}
+        onRequestClose={function() { setInfoModal(null); }}>
+        <TouchableOpacity activeOpacity={1} onPress={function() { setInfoModal(null); }}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 30 }}>
+          <TouchableOpacity activeOpacity={1}
+            style={{ backgroundColor: C.card, borderRadius: 14, padding: 20, maxWidth: 340, width: '100%', borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ fontSize: 13, color: C.text, fontFamily: F.display, fontWeight: '700', marginBottom: 10 }}>
+              {infoModal && infoModal.title || ''}
+            </Text>
+            <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body, lineHeight: 18 }}>
+              {infoModal && infoModal.text || ''}
+            </Text>
+            <TouchableOpacity onPress={function() { setInfoModal(null); }}
+              style={{ marginTop: 14, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 8, borderRadius: 8, backgroundColor: C.accent }}>
+              <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono, fontWeight: '600' }}>Fechar</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       <Modal visible={treemapModalVisible} animationType="fade" transparent={true}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' }}>
           <View style={{ paddingTop: 50, paddingHorizontal: 18, paddingBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -6872,17 +8747,19 @@ export default function AnaliseScreen() {
       {sub === 'prov' && (
         <>
           {/* Sub-tab pills */}
-          <View style={styles.perfSubTabs}>
-            {PROV_SUBS.map(function(ps) {
-              var isActive = provSub === ps.k;
-              return (
-                <Pill key={ps.k} active={isActive} color={C.accent}
-                  onPress={function() { setProvSub(ps.k); }}>
-                  {ps.l}
-                </Pill>
-              );
-            })}
-          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+            <View style={styles.perfSubTabs}>
+              {PROV_SUBS.map(function(ps) {
+                var isActive = provSub === ps.k;
+                return (
+                  <Pill key={ps.k} active={isActive} color={C.accent}
+                    onPress={function() { setProvSub(ps.k); }}>
+                    {ps.l}
+                  </Pill>
+                );
+              })}
+            </View>
+          </ScrollView>
 
           {/* ═══ VISAO GERAL ═══ */}
           {provSub === 'visao' && (
@@ -6912,33 +8789,33 @@ export default function AnaliseScreen() {
                 {rendaPassivaTotal > 0 ? (
                   <>
                     <View style={{ height: 20, borderRadius: 10, overflow: 'hidden', flexDirection: 'row', marginTop: 8 }}>
-                      <View style={{ width: (totalProvs / rendaPassivaTotal * 100) + '%', height: 20, backgroundColor: C.fiis }} />
-                      <View style={{ width: (opcTotalPremiosRecebidos / rendaPassivaTotal * 100) + '%', height: 20, backgroundColor: C.opcoes }} />
+                      {rpDividendos > 0 && <View style={{ width: (rpDividendos / rendaPassivaTotal * 100) + '%', height: 20, backgroundColor: C.acoes }} />}
+                      {rpRendimentos > 0 && <View style={{ width: (rpRendimentos / rendaPassivaTotal * 100) + '%', height: 20, backgroundColor: C.fiis }} />}
+                      {rpRF > 0 && <View style={{ width: (rpRF / rendaPassivaTotal * 100) + '%', height: 20, backgroundColor: C.rf }} />}
+                      {rpPLOpcoes !== 0 && <View style={{ width: (Math.abs(rpPLOpcoes) / rendaPassivaTotal * 100) + '%', height: 20, backgroundColor: rpPLOpcoes >= 0 ? C.green : C.red }} />}
                     </View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: C.fiis }} />
-                        <Text style={{ fontSize: 11, color: C.text, fontFamily: F.body }}>Proventos</Text>
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: C.fiis, fontFamily: F.mono }}>
-                          {(totalProvs / rendaPassivaTotal * 100).toFixed(0) + '%'}
-                        </Text>
-                      </View>
-                      <Text style={{ fontSize: 11, fontWeight: '600', color: C.green, fontFamily: F.mono }}>
-                        {'R$ ' + fmt(totalProvs)}
-                      </Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: C.opcoes }} />
-                        <Text style={{ fontSize: 11, color: C.text, fontFamily: F.body }}>Prêmios</Text>
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: C.opcoes, fontFamily: F.mono }}>
-                          {(opcTotalPremiosRecebidos / rendaPassivaTotal * 100).toFixed(0) + '%'}
-                        </Text>
-                      </View>
-                      <Text style={{ fontSize: 11, fontWeight: '600', color: C.green, fontFamily: F.mono }}>
-                        {'R$ ' + fmt(opcTotalPremiosRecebidos)}
-                      </Text>
-                    </View>
+                    {[
+                      { l: 'Dividendos / JCP', v: rpDividendos, c: C.acoes },
+                      { l: 'Rendimentos FII', v: rpRendimentos, c: C.fiis },
+                      { l: 'Renda Fixa (mês)', v: rpRF, c: C.rf },
+                      { l: 'P&L Opções Encerradas', v: rpPLOpcoes, c: rpPLOpcoes >= 0 ? C.green : C.red },
+                    ].map(function(item, idx) {
+                      if (item.v === 0) return null;
+                      return (
+                        <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: idx === 0 ? 8 : 4 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: item.c }} />
+                            <Text style={{ fontSize: 11, color: C.text, fontFamily: F.body }}>{item.l}</Text>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: item.c, fontFamily: F.mono }}>
+                              {(Math.abs(item.v) / rendaPassivaTotal * 100).toFixed(0) + '%'}
+                            </Text>
+                          </View>
+                          <Text style={{ fontSize: 11, fontWeight: '600', color: item.v >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                            {(item.v < 0 ? '-' : '') + 'R$ ' + fmt(Math.abs(item.v))}
+                          </Text>
+                        </View>
+                      );
+                    })}
                   </>
                 ) : (
                   <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, marginTop: 4 }}>Sem dados</Text>
@@ -6960,19 +8837,112 @@ export default function AnaliseScreen() {
                 </Glass>
               )}
 
-              {/* Combined monthly chart */}
-              {maxCombinedMonth > 1 && (
+              {/* Renda passiva total por mês */}
+              {rpLineData.length > 0 && (
                 <Glass padding={12}>
-                  <Text style={styles.sectionTitle}>RENDA MENSAL (12M)</Text>
-                  <CombinedBarChart data={combinedMonthly} maxVal={maxCombinedMonth} height={180} />
+                  <Text style={styles.sectionTitle}>RENDA PASSIVA TOTAL / MÊS</Text>
+                  <RendaPassivaTotalChart data={rpLineData} />
                 </Glass>
               )}
 
-              {/* Combined annual chart */}
-              {combinedAnnualData.length >= 1 && (
+              {/* Renda passiva line chart por categoria */}
+              {rpLineData.length > 0 && (
                 <Glass padding={12}>
-                  <Text style={styles.sectionTitle}>EVOLUÇÃO ANUAL</Text>
-                  <CombinedBarChart data={combinedAnnualData} maxVal={maxCombinedYear} height={160} />
+                  <Text style={styles.sectionTitle}>EVOLUÇÃO POR TIPO</Text>
+                  <RendaPassivaLineChart
+                    data={rpLineData}
+                    visible={rpLineVis}
+                    onToggle={function(k) {
+                      var nv = {};
+                      for (var tk in rpLineVis) { nv[tk] = rpLineVis[tk]; }
+                      nv[k] = !nv[k];
+                      setRpLineVis(nv);
+                    }}
+                  />
+                </Glass>
+              )}
+
+              {/* Tabela Recebidos / A Receber do Ano */}
+              <Glass padding={14}>
+                <Text style={styles.sectionTitle}>{'RECEBIDOS / A RECEBER — ' + rpAnoAtual}</Text>
+                {/* Header */}
+                <View style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.border, marginTop: 8 }}>
+                  <Text style={{ flex: 2, fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>TIPO</Text>
+                  <Text style={{ flex: 1, fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4, textAlign: 'right' }}>RECEBIDO</Text>
+                  <Text style={{ flex: 1, fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4, textAlign: 'right' }}>A RECEBER</Text>
+                  <Text style={{ flex: 1, fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4, textAlign: 'right' }}>TOTAL</Text>
+                </View>
+                {/* Rows */}
+                {rpTblRows.map(function(row, ri) {
+                  var rowTotal = row.r + row.a;
+                  if (rowTotal === 0 && row.r === 0) return null;
+                  return (
+                    <View key={ri} style={{ flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border + '30', alignItems: 'center' }}>
+                      <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: row.c }} />
+                        <Text style={{ fontSize: 11, color: C.text, fontFamily: F.body }}>{row.l}</Text>
+                      </View>
+                      <Text style={{ flex: 1, fontSize: 11, fontWeight: '600', color: C.green, fontFamily: F.mono, textAlign: 'right' }}>
+                        {fmt(row.r)}
+                      </Text>
+                      <Text style={{ flex: 1, fontSize: 11, fontWeight: '600', color: C.yellow, fontFamily: F.mono, textAlign: 'right' }}>
+                        {fmt(row.a)}
+                      </Text>
+                      <Text style={{ flex: 1, fontSize: 11, fontWeight: '700', color: C.text, fontFamily: F.mono, textAlign: 'right' }}>
+                        {fmt(rowTotal)}
+                      </Text>
+                    </View>
+                  );
+                })}
+                {/* Total row */}
+                <View style={{ flexDirection: 'row', paddingVertical: 8, marginTop: 2 }}>
+                  <Text style={{ flex: 2, fontSize: 11, fontWeight: '800', color: C.text, fontFamily: F.display }}>TOTAL</Text>
+                  <Text style={{ flex: 1, fontSize: 11, fontWeight: '800', color: C.green, fontFamily: F.mono, textAlign: 'right' }}>
+                    {fmt(rpTblTotalR)}
+                  </Text>
+                  <Text style={{ flex: 1, fontSize: 11, fontWeight: '800', color: C.yellow, fontFamily: F.mono, textAlign: 'right' }}>
+                    {fmt(rpTblTotalA)}
+                  </Text>
+                  <Text style={{ flex: 1, fontSize: 11, fontWeight: '800', color: C.accent, fontFamily: F.mono, textAlign: 'right' }}>
+                    {fmt(rpTblTotalR + rpTblTotalA)}
+                  </Text>
+                </View>
+              </Glass>
+
+              {/* Ranking geral de ativos */}
+              {rpRankList.length > 0 && (
+                <Glass padding={14}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={styles.sectionTitle}>RANKING — RENDA PASSIVA</Text>
+                    <TouchableOpacity onPress={function() { setRpRankAsc(!rpRankAsc); }}
+                      style={{ paddingHorizontal: 8, paddingVertical: 4 }}>
+                      <Text style={{ fontSize: 13, color: C.accent, fontFamily: F.mono, fontWeight: '700' }}>
+                        {rpRankAsc ? '↑ Crescente' : '↓ Decrescente'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  {/* Header */}
+                  <View style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.border, marginTop: 6 }}>
+                    <Text style={{ width: 28, fontSize: 8, color: C.dim, fontFamily: F.mono }}>#</Text>
+                    <Text style={{ flex: 2, fontSize: 8, color: C.dim, fontFamily: F.mono }}>ATIVO</Text>
+                    <Text style={{ flex: 1, fontSize: 8, color: C.dim, fontFamily: F.mono, textAlign: 'center' }}>TIPO</Text>
+                    <Text style={{ flex: 1, fontSize: 8, color: C.dim, fontFamily: F.mono, textAlign: 'right' }}>TOTAL</Text>
+                  </View>
+                  {rpRankList.slice().sort(function(a, b) { return rpRankAsc ? a.total - b.total : b.total - a.total; }).map(function(item, idx) {
+                    return (
+                      <View key={idx} style={{ flexDirection: 'row', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: C.border + '20', alignItems: 'center' }}>
+                        <Text style={{ width: 28, fontSize: 10, color: C.dim, fontFamily: F.mono }}>{idx + 1}</Text>
+                        <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: item.c }} />
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.mono }}>{item.ticker}</Text>
+                        </View>
+                        <Text style={{ flex: 1, fontSize: 9, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>{item.tipo}</Text>
+                        <Text style={{ flex: 1, fontSize: 11, fontWeight: '700', color: item.total >= 0 ? C.green : C.red, fontFamily: F.mono, textAlign: 'right' }}>
+                          {(item.total < 0 ? '-' : '') + 'R$ ' + fmt(Math.abs(item.total))}
+                        </Text>
+                      </View>
+                    );
+                  })}
                 </Glass>
               )}
             </>
@@ -6985,10 +8955,12 @@ export default function AnaliseScreen() {
               <Glass glow={C.fiis} padding={14}>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', gap: 12 }}>
                   {[
-                    { l: 'TOTAL RECEBIDO', v: 'R$ ' + fmt(totalProvs), c: C.green },
-                    { l: 'YoC 12M', v: yieldOnCost.toFixed(2) + '%', c: C.fiis },
-                    { l: 'MEDIA/MES', v: 'R$ ' + fmt(mediaMensal), c: C.accent },
-                    { l: 'YoC vs SELIC', v: (yieldOnCost - selicRate).toFixed(1) + '%', c: yieldOnCost >= selicRate ? C.green : C.red },
+                    { l: 'TOTAL RECEBIDO', v: 'R$ ' + fmt(provSemEtfRecebido), c: C.green },
+                    { l: 'A RECEBER', v: 'R$ ' + fmt(provSemEtfAReceber), c: C.yellow },
+                    { l: '12M (RECEBIDO)', v: 'R$ ' + fmt(provSemEtf12m), c: C.accent },
+                    { l: 'YoC', v: provYoC.toFixed(2) + '%', c: C.fiis },
+                    { l: 'DY', v: provDY.toFixed(2) + '%', c: C.acoes },
+                    { l: 'YoC vs SELIC', v: (provYoC - selicRate).toFixed(1) + '%', c: provYoC >= selicRate ? C.green : C.red },
                   ].map(function(d, i) {
                     return (
                       <View key={i} style={{ alignItems: 'center', minWidth: 70 }}>
@@ -6999,21 +8971,6 @@ export default function AnaliseScreen() {
                   })}
                 </View>
               </Glass>
-
-              {/* Meta mensal progress */}
-              {metaMensal > 0 && (
-                <Glass padding={14}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 }}>META MENSAL</Text>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: metaPct >= 100 ? C.green : C.yellow, fontFamily: F.mono }}>
-                      {'R$ ' + fmt(mediaMensal) + ' / R$ ' + fmt(metaMensal) + ' (' + metaPct.toFixed(0) + '%)'}
-                    </Text>
-                  </View>
-                  <View style={{ height: 8, backgroundColor: C.border, borderRadius: 4, overflow: 'hidden' }}>
-                    <View style={{ width: metaPct + '%', height: 8, backgroundColor: metaPct >= 100 ? C.green : C.yellow, borderRadius: 4 }} />
-                  </View>
-                </Glass>
-              )}
 
               {/* Filter pills */}
               <View style={styles.provFilterRow}>
@@ -7117,32 +9074,6 @@ export default function AnaliseScreen() {
                 </Glass>
               )}
 
-              {/* Per-category breakdown */}
-              {Object.keys(provsByCat).length > 0 && (
-                <Glass padding={14}>
-                  <Text style={styles.sectionTitle}>PROVENTOS POR CATEGORIA (12M)</Text>
-                  {Object.keys(provsByCat).sort(function(a, b) { return provsByCat[b] - provsByCat[a]; }).map(function(cat) {
-                    var catVal = provsByCat[cat];
-                    var catPct = proventos12m > 0 ? (catVal / proventos12m * 100) : 0;
-                    var catLabel = cat === 'acao' ? 'Ações' : cat === 'fii' ? 'FIIs' : cat === 'etf' ? 'ETFs' : cat;
-                    var catColor = CAT_COLORS[cat] || C.accent;
-                    return (
-                      <View key={cat} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                          <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: catColor }} />
-                          <Text style={{ fontSize: 12, color: C.text, fontFamily: F.body }}>{catLabel}</Text>
-                          <View style={{ flex: 1, height: 4, backgroundColor: C.border, borderRadius: 2, marginLeft: 4 }}>
-                            <View style={{ width: catPct + '%', height: 4, backgroundColor: catColor, borderRadius: 2 }} />
-                          </View>
-                        </View>
-                        <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono, marginLeft: 8 }}>
-                          {'R$ ' + fmt(catVal) + ' (' + catPct.toFixed(0) + '%)'}
-                        </Text>
-                      </View>
-                    );
-                  })}
-                </Glass>
-              )}
 
               {/* Top payers (YoC ranking) */}
               {assetProvRanking.length > 0 && (
@@ -7179,6 +9110,14 @@ export default function AnaliseScreen() {
                       </Text>
                     </View>
                   )}
+                </Glass>
+              )}
+
+              {/* Heatmap dividendos ações */}
+              {hmTickerList.length > 0 && (
+                <Glass padding={12}>
+                  <Text style={styles.sectionTitle}>MAPA DE CALOR — SAZONALIDADE DIVIDENDOS</Text>
+                  <DividendHeatmap tickers={hmTickerList} months={hmMonths} data={hmTickers} maxVal={hmMaxVal} />
                 </Glass>
               )}
 
@@ -7274,20 +9213,21 @@ export default function AnaliseScreen() {
               {opcoes.length === 0 ? (
                 <EmptyState
                   icon={"\u2B23"}
-                  title="Sem opcoes"
-                  description="Adicione opcoes vendidas para ver premios recebidos aqui"
+                  title="Sem opções"
+                  description="Adicione opções vendidas para ver prêmios recebidos aqui"
                   color={C.opcoes}
                 />
               ) : (
                 <>
-                  {/* KPI Hero */}
+                  {/* KPI Cards */}
                   <Glass glow={C.opcoes} padding={14}>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', gap: 12 }}>
                       {[
-                        { l: 'TOTAL RECEBIDO', v: 'R$ ' + fmt(opcTotalPremiosRecebidos), c: C.green },
-                        { l: 'P&L LIQUIDO', v: 'R$ ' + fmt(opcPLTotal), c: opcPLTotal >= 0 ? C.green : C.red },
-                        { l: 'MEDIA/MES', v: 'R$ ' + fmt(premMediaMensal), c: C.accent },
-                        { l: 'YIELD s/ CUSTO', v: premYieldOnCost.toFixed(2) + '%', c: premYieldOnCost > 0 ? C.green : C.dim },
+                        { l: 'PRÊMIOS TOTAIS', v: 'R$ ' + fmt(opcTotalPremiosRecebidos), c: C.green },
+                        { l: 'RECOMPRA TOTAIS', v: 'R$ ' + fmt(opcTotalPremiosFechamento), c: C.red },
+                        { l: 'P&L LÍQUIDO', v: 'R$ ' + fmt(opcPLTotal), c: opcPLTotal >= 0 ? C.green : C.red },
+                        { l: 'P&L MÉDIA/MÊS', v: 'R$ ' + fmt(plMediaMensal), c: plMediaMensal >= 0 ? C.accent : C.red },
+                        { l: 'YIELD P&L', v: plYieldOnCost.toFixed(2) + '%', c: plYieldOnCost > 0 ? C.green : C.dim },
                       ].map(function(d, i) {
                         return (
                           <View key={i} style={{ alignItems: 'center', minWidth: 70 }}>
@@ -7299,139 +9239,144 @@ export default function AnaliseScreen() {
                     </View>
                   </Glass>
 
-                  {/* Metricas */}
-                  <Glass padding={14}>
-                    <Text style={styles.sectionTitle}>METRICAS</Text>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', gap: 10, marginTop: 8 }}>
-                      {[
-                        { l: 'WIN RATE', v: opcWinRate.toFixed(0) + '%', c: opcWinRate >= 70 ? C.green : opcWinRate >= 50 ? C.yellow : C.red },
-                        { l: 'TAXA MEDIA a.m.', v: opcTaxaMediaMensal.toFixed(2) + '%', c: C.accent },
-                        { l: 'CALLS', v: String(opcByTipo.call.count), c: C.acoes },
-                        { l: 'PUTS', v: String(opcByTipo.put.count), c: C.opcoes },
-                      ].map(function(d, i) {
-                        return (
-                          <View key={i} style={{ alignItems: 'center', minWidth: 60 }}>
-                            <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{d.l}</Text>
-                            <Text style={{ fontSize: 14, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }}>{d.v}</Text>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  </Glass>
-
-                  {/* Monthly premios chart with toggle */}
-                  {maxPremMonth > 1 && (
+                  {/* Line chart: Prêmios x Recompra x P&L */}
+                  {premLineData.length > 0 && (
                     <Glass padding={12}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <Text style={styles.sectionTitle}>PREMIOS MENSAIS (12M)</Text>
-                        <View style={{ flexDirection: 'row', gap: 6 }}>
-                          <TouchableOpacity onPress={function() { setOpcShowCall(!opcShowCall); }}>
-                            <Badge text="CALL" color={opcShowCall ? C.acoes : C.dim} />
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={function() { setOpcShowPut(!opcShowPut); }}>
-                            <Badge text="PUT" color={opcShowPut ? C.opcoes : C.dim} />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                      <PremiosBarChart data={opcMonthlyPremiums} showCall={opcShowCall} showPut={opcShowPut}
-                        selected={opcPremSelected} onSelect={function(i) { setOpcPremSelected(i); }} />
-                      {opcPremSelected >= 0 && opcPremSelected < opcMonthlyPremiums.length && (function() {
-                        var selM = opcMonthlyPremiums[opcPremSelected];
-                        var selRecomp = selM.recompra || 0;
-                        var selLiq = selM.total - selRecomp;
+                      <Text style={styles.sectionTitle}>PRÊMIOS x RECOMPRA x P&L (12M)</Text>
+                      <PremiosRecompraLineChart
+                        data={premLineData}
+                        visible={premLineVis}
+                        onToggle={function(key) {
+                          var nv = {};
+                          for (var k in premLineVis) { nv[k] = premLineVis[k]; }
+                          nv[key] = !nv[key];
+                          setPremLineVis(nv);
+                        }}
+                      />
+                    </Glass>
+                  )}
+
+                  {/* P&L Líquido Mensal */}
+                  {plMaxMonth > 0 && (
+                    <Glass padding={12}>
+                      <Text style={styles.sectionTitle}>P&L LÍQUIDO MENSAL (12M)</Text>
+                      <PremiosBarChart data={plMonthlyData} barColors={plMonthlyColors}
+                        selected={plMonthSel} onSelect={function(i) { setPlMonthSel(i); }} />
+                      {plMonthSel >= 0 && plMonthSel < plMonthlyData.length && (function() {
+                        var selPL = plMonthlyData[plMonthSel];
                         return (
                           <View style={{ marginTop: 6 }}>
                             <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12 }}>
-                              <Text style={{ fontSize: 10, color: C.green, fontFamily: F.mono }}>
-                                {selM.month + ': R$ ' + fmt(selM.total)}
-                              </Text>
-                              <Text style={{ fontSize: 10, color: C.acoes, fontFamily: F.mono }}>
-                                {'C: R$ ' + fmt(selM.call)}
-                              </Text>
-                              <Text style={{ fontSize: 10, color: C.opcoes, fontFamily: F.mono }}>
-                                {'P: R$ ' + fmt(selM.put)}
+                              <Text style={{ fontSize: 11, fontWeight: '700', color: selPL.value >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                                {selPL.month + ': ' + (selPL.value >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(selPL.value))}
                               </Text>
                             </View>
-                            {selRecomp > 0 ? (
-                              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12, marginTop: 2 }}>
-                                <Text style={{ fontSize: 10, color: C.red, fontFamily: F.mono }}>
-                                  {'Recompra: R$ ' + fmt(selRecomp)}
-                                </Text>
-                                <Text style={{ fontSize: 10, color: selLiq >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600' }}>
-                                  {'Liq: R$ ' + fmt(selLiq)}
-                                </Text>
-                              </View>
-                            ) : null}
+                            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12, marginTop: 2 }}>
+                              <Text style={{ fontSize: 10, color: C.acoes, fontFamily: F.mono }}>
+                                {'CALL: ' + (selPL.call >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(selPL.call))}
+                              </Text>
+                              <Text style={{ fontSize: 10, color: C.opcoes, fontFamily: F.mono }}>
+                                {'PUT: ' + (selPL.put >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(selPL.put))}
+                              </Text>
+                            </View>
                           </View>
                         );
                       })()}
                     </Glass>
                   )}
 
-                  {/* Annual premios chart */}
-                  {premAnnualData.length >= 1 && (
+                  {/* P&L Líquido Anual */}
+                  {plAnnualData.length >= 1 && (
                     <Glass padding={12}>
-                      <Text style={styles.sectionTitle}>EVOLUÇÃO ANUAL</Text>
-                      <ProvVertBarChart data={premAnnualData} maxVal={maxPremYear} color={C.opcoes} height={160} />
+                      <Text style={styles.sectionTitle}>P&L LÍQUIDO ANUAL</Text>
+                      <PremiosBarChart data={plAnnualData} barColors={plAnnualColors}
+                        selected={plYearSel} onSelect={function(i) { setPlYearSel(i); }} />
+                      {plYearSel >= 0 && plYearSel < plAnnualData.length && (function() {
+                        var selPLY = plAnnualData[plYearSel];
+                        return (
+                          <View style={{ marginTop: 6 }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12 }}>
+                              <Text style={{ fontSize: 12, fontWeight: '700', color: selPLY.value >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                                {selPLY.month + ': ' + (selPLY.value >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(selPLY.value))}
+                              </Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12, marginTop: 2 }}>
+                              <Text style={{ fontSize: 10, color: C.acoes, fontFamily: F.mono }}>
+                                {'CALL: ' + (selPLY.call >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(selPLY.call))}
+                              </Text>
+                              <Text style={{ fontSize: 10, color: C.opcoes, fontFamily: F.mono }}>
+                                {'PUT: ' + (selPLY.put >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(selPLY.put))}
+                              </Text>
+                            </View>
+                            {plYearSel > 0 && plAnnualData[plYearSel - 1].total > 0 && (
+                              <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 4 }}>
+                                <Text style={{ fontSize: 10, fontWeight: '600', color: selPLY.value >= plAnnualData[plYearSel - 1].value ? C.green : C.red, fontFamily: F.mono }}>
+                                  {'vs ' + plAnnualData[plYearSel - 1].month + ': ' + (selPLY.value >= plAnnualData[plYearSel - 1].value ? '+' : '') + fmt(selPLY.value - plAnnualData[plYearSel - 1].value)}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        );
+                      })()}
                     </Glass>
                   )}
 
-                  {/* CALL vs PUT breakdown */}
+                  {/* CALL vs PUT (P&L Líquido) */}
                   <Glass padding={14}>
-                    <Text style={styles.sectionTitle}>CALL vs PUT</Text>
-                    {opcTotalPremiosRecebidos > 0 ? (
+                    <Text style={styles.sectionTitle}>CALL vs PUT (P&L LÍQUIDO)</Text>
+                    {absPLTotal > 0 ? (
                       <>
                         <View style={{ height: 16, borderRadius: 8, overflow: 'hidden', flexDirection: 'row', marginTop: 8 }}>
-                          <View style={{ width: (opcByTipo.call.premio / opcTotalPremiosRecebidos * 100) + '%', height: 16, backgroundColor: C.acoes }} />
-                          <View style={{ width: (opcByTipo.put.premio / opcTotalPremiosRecebidos * 100) + '%', height: 16, backgroundColor: C.opcoes }} />
+                          <View style={{ width: (Math.abs(callPLTotal) / absPLTotal * 100) + '%', height: 16, backgroundColor: C.acoes }} />
+                          <View style={{ width: (Math.abs(putPLTotal) / absPLTotal * 100) + '%', height: 16, backgroundColor: C.opcoes }} />
                         </View>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                             <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: C.acoes }} />
                             <Text style={{ fontSize: 10, color: C.text, fontFamily: F.body }}>CALL</Text>
-                            <Text style={{ fontSize: 10, fontWeight: '600', color: C.acoes, fontFamily: F.mono }}>
-                              {'R$ ' + fmt(opcByTipo.call.premio) + ' (' + (opcByTipo.call.premio / opcTotalPremiosRecebidos * 100).toFixed(0) + '%)'}
+                            <Text style={{ fontSize: 10, fontWeight: '600', color: callPLTotal >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                              {(callPLTotal >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(callPLTotal))}
                             </Text>
                           </View>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                             <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: C.opcoes }} />
                             <Text style={{ fontSize: 10, color: C.text, fontFamily: F.body }}>PUT</Text>
-                            <Text style={{ fontSize: 10, fontWeight: '600', color: C.opcoes, fontFamily: F.mono }}>
-                              {'R$ ' + fmt(opcByTipo.put.premio) + ' (' + (opcByTipo.put.premio / opcTotalPremiosRecebidos * 100).toFixed(0) + '%)'}
+                            <Text style={{ fontSize: 10, fontWeight: '600', color: putPLTotal >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                              {(putPLTotal >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(putPLTotal))}
                             </Text>
                           </View>
                         </View>
                       </>
                     ) : (
-                      <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, marginTop: 4 }}>Sem premios</Text>
+                      <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, marginTop: 4 }}>Sem P&L</Text>
                     )}
                   </Glass>
 
-                  {/* Asset ranking by premio */}
+                  {/* Asset ranking by P&L */}
                   {premAssetRanking.length > 0 && (
                     <Glass padding={14}>
-                      <Text style={styles.sectionTitle}>RANKING ATIVOS BASE</Text>
+                      <Text style={styles.sectionTitle}>RANKING ATIVOS POR P&L LÍQUIDO</Text>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: C.border }}>
                         <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, flex: 1 }}>ATIVO</Text>
-                        <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, width: 50, textAlign: 'center' }}>QTD</Text>
-                        <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, width: 80, textAlign: 'right' }}>PREMIO</Text>
-                        <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, width: 70, textAlign: 'right' }}>P&L</Text>
+                        <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, width: 90, textAlign: 'right' }}>PRÊMIO</Text>
+                        <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, width: 90, textAlign: 'right' }}>RECOMPRA</Text>
+                        <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, width: 90, textAlign: 'right' }}>P&L</Text>
                       </View>
-                      {premAssetRanking.filter(function(a) { return a.premio > 0; }).map(function(a, idx) {
+                      {premAssetRanking.filter(function(a) { return a.premio > 0; }).slice().sort(function(a, b) { return b.pl - a.pl; }).map(function(a, idx) {
                         return (
                           <View key={a.ticker} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderBottomWidth: idx < premAssetRanking.length - 1 ? 0.5 : 0, borderBottomColor: C.border }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, width: 16 }}>{idx + 1 + '.'}</Text>
                               <Text style={{ fontSize: 11, fontWeight: '700', color: C.text, fontFamily: F.display }}>{a.ticker}</Text>
                             </View>
-                            <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, width: 50, textAlign: 'center' }}>
-                              {a.count + 'x'}
-                            </Text>
-                            <Text style={{ fontSize: 11, fontWeight: '600', color: C.green, fontFamily: F.mono, width: 80, textAlign: 'right' }}>
+                            <Text style={{ fontSize: 11, fontWeight: '600', color: C.green, fontFamily: F.mono, width: 90, textAlign: 'right' }}>
                               {'R$ ' + fmt(a.premio)}
                             </Text>
-                            <Text style={{ fontSize: 11, fontWeight: '700', color: a.pl >= 0 ? C.green : C.red, fontFamily: F.mono, width: 70, textAlign: 'right' }}>
-                              {(a.pl >= 0 ? '+' : '') + 'R$ ' + fmt(a.pl)}
+                            <Text style={{ fontSize: 11, fontWeight: '600', color: a.recompra > 0 ? C.red : C.dim, fontFamily: F.mono, width: 90, textAlign: 'right' }}>
+                              {'R$ ' + fmt(a.recompra)}
+                            </Text>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: a.pl >= 0 ? C.green : C.red, fontFamily: F.mono, width: 90, textAlign: 'right' }}>
+                              {(a.pl >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(a.pl))}
                             </Text>
                           </View>
                         );
@@ -7442,7 +9387,7 @@ export default function AnaliseScreen() {
                   {/* Monthly detail list */}
                   {Object.keys(premByMonthDetail).length > 0 && (
                     <>
-                      <SectionLabel>HISTORICO MENSAL</SectionLabel>
+                      <SectionLabel>HISTÓRICO MENSAL</SectionLabel>
                       {Object.keys(premByMonthDetail)
                         .sort(function(a, b) { return b.localeCompare(a); })
                         .slice(0, 12)
@@ -7484,289 +9429,279 @@ export default function AnaliseScreen() {
               )}
             </>
           )}
-        </>
-      )}
 
-      {/* ═══════════ INDICADORES ═══════════ */}
-      {sub === 'ind' && (
-        <>
-          {/* Consulta avulsa */}
-          <Glass padding={14}>
-            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 6 }}>CONSULTAR ATIVO AVULSO</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <TextInput
-                value={searchTicker}
-                onChangeText={function(t) { setSearchTicker(t.toUpperCase()); }}
-                placeholder="Ex: WEGE3"
-                placeholderTextColor={C.dim}
-                autoCapitalize="characters"
-                style={{
-                  flex: 1, backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border,
-                  borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
-                  fontSize: 14, color: C.text, fontFamily: F.mono,
-                }}
-              />
-              <TouchableOpacity
-                activeOpacity={0.8}
-                disabled={searchLoading || searchTicker.length < 4}
-                onPress={function() {
-                  var tk = searchTicker.trim().toUpperCase();
-                  if (tk.length < 4) return;
-                  setSearchLoading(true);
-                  setSearchError('');
-                  setSearchResult(null);
-                  fetchPriceHistoryLong([tk, '^BVSP']).then(function(histMap) {
-                    var hist = histMap[tk];
-                    if (!hist || hist.length < 20) {
-                      setSearchError('Dados insuficientes para ' + tk + ' (minimo 20 candles)');
-                      setSearchLoading(false);
-                      return;
-                    }
-                    var closes = [];
-                    var highs = [];
-                    var lows = [];
-                    var volumes = [];
-                    for (var i = 0; i < hist.length; i++) {
-                      closes.push(hist[i].close);
-                      highs.push(hist[i].high);
-                      lows.push(hist[i].low);
-                      volumes.push(hist[i].volume || 0);
-                    }
-                    var ibovHist = histMap['^BVSP'];
-                    var ibovCloses = [];
-                    if (ibovHist) {
-                      for (var j = 0; j < ibovHist.length; j++) {
-                        ibovCloses.push(ibovHist[j].close);
-                      }
-                    }
-                    var volSum = 0;
-                    var volCount = Math.min(20, volumes.length);
-                    for (var v = volumes.length - volCount; v < volumes.length; v++) {
-                      volSum = volSum + volumes[v];
-                    }
-                    var res = {
-                      ticker: tk,
-                      preco_fechamento: closes[closes.length - 1],
-                      hv_20: closes.length >= 21 ? calcHV(closes, 20) : null,
-                      hv_60: closes.length >= 61 ? calcHV(closes, 60) : null,
-                      sma_20: closes.length >= 20 ? calcSMA(closes, 20) : null,
-                      sma_50: closes.length >= 50 ? calcSMA(closes, 50) : null,
-                      ema_9: closes.length >= 9 ? calcEMA(closes, 9) : null,
-                      ema_21: closes.length >= 21 ? calcEMA(closes, 21) : null,
-                      rsi_14: closes.length >= 15 ? calcRSI(closes, 14) : null,
-                      beta: ibovCloses.length >= 21 ? calcBeta(closes, ibovCloses, 20) : null,
-                      atr_14: closes.length >= 15 ? calcATR(highs, lows, closes, 14) : null,
-                      max_drawdown: calcMaxDrawdown(closes),
-                      bb_upper: null, bb_lower: null, bb_width: null,
-                      volume_medio_20: volCount > 0 ? volSum / volCount : null,
-                    };
-                    if (closes.length >= 20) {
-                      var bb = calcBollingerBands(closes, 20, 2);
-                      res.bb_upper = bb.upper;
-                      res.bb_lower = bb.lower;
-                      res.bb_width = bb.width;
-                    }
-                    setSearchResult(res);
-                    setSearchLoading(false);
-                  }).catch(function(e) {
-                    setSearchError('Erro ao buscar ' + tk + ': ' + e.message);
-                    setSearchLoading(false);
-                  });
-                }}
-                style={{
-                  backgroundColor: C.accent, borderRadius: 10,
-                  paddingHorizontal: 16, paddingVertical: 10,
-                  opacity: (searchLoading || searchTicker.length < 4) ? 0.4 : 1,
-                }}
-              >
-                <Text style={{ fontSize: 13, fontWeight: '700', color: 'white', fontFamily: F.display }}>
-                  {searchLoading ? 'Buscando...' : 'Buscar'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            {searchError ? (
-              <Text style={{ fontSize: 11, color: C.red, fontFamily: F.body, marginTop: 6 }}>{searchError}</Text>
-            ) : null}
-          </Glass>
-
-          {/* Search result card */}
-          {searchResult && (
-            <Glass padding={14} glow={C.accent}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={{ fontSize: 16, fontWeight: '800', color: C.text, fontFamily: F.display }}>{searchResult.ticker}</Text>
-                  <Badge text="AVULSO" color={C.accent} />
-                </View>
-                {searchResult.preco_fechamento != null ? (
-                  <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.mono }}>
-                    {'R$ ' + fmt(searchResult.preco_fechamento)}
-                  </Text>
-                ) : null}
-              </View>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {[
-                  { l: 'HV 20d', v: searchResult.hv_20 != null ? searchResult.hv_20.toFixed(1) + '%' : '-', c: C.opcoes },
-                  { l: 'HV 60d', v: searchResult.hv_60 != null ? searchResult.hv_60.toFixed(1) + '%' : '-', c: C.opcoes },
-                  { l: 'RSI 14', v: searchResult.rsi_14 != null ? searchResult.rsi_14.toFixed(1) : '-',
-                    c: searchResult.rsi_14 != null ? (searchResult.rsi_14 > 70 ? C.red : searchResult.rsi_14 < 30 ? C.green : C.text) : C.text },
-                  { l: 'Beta', v: searchResult.beta != null ? searchResult.beta.toFixed(2) : '-',
-                    c: searchResult.beta != null ? (searchResult.beta > 1.2 ? C.red : searchResult.beta < 0.8 ? C.green : C.text) : C.text },
-                  { l: 'SMA 20', v: searchResult.sma_20 != null ? 'R$ ' + fmt(searchResult.sma_20) : '-', c: C.acoes },
-                  { l: 'SMA 50', v: searchResult.sma_50 != null ? 'R$ ' + fmt(searchResult.sma_50) : '-', c: C.acoes },
-                  { l: 'EMA 9', v: searchResult.ema_9 != null ? 'R$ ' + fmt(searchResult.ema_9) : '-', c: C.acoes },
-                  { l: 'EMA 21', v: searchResult.ema_21 != null ? 'R$ ' + fmt(searchResult.ema_21) : '-', c: C.acoes },
-                  { l: 'ATR 14', v: searchResult.atr_14 != null ? 'R$ ' + fmt(searchResult.atr_14) : '-', c: C.text },
-                  { l: 'Max DD', v: searchResult.max_drawdown != null ? searchResult.max_drawdown.toFixed(1) + '%' : '-', c: C.red },
-                  { l: 'BB Upper', v: searchResult.bb_upper != null ? 'R$ ' + fmt(searchResult.bb_upper) : '-', c: C.acoes },
-                  { l: 'BB Lower', v: searchResult.bb_lower != null ? 'R$ ' + fmt(searchResult.bb_lower) : '-', c: C.acoes },
-                  { l: 'BB Width', v: searchResult.bb_width != null ? searchResult.bb_width.toFixed(1) + '%' : '-', c: C.opcoes },
-                  { l: 'Vol Med 20', v: searchResult.volume_medio_20 != null ? fmtC(searchResult.volume_medio_20) : '-', c: C.sub },
-                ].map(function(d, di) {
-                  return (
-                    <View key={di} style={styles.indDetailItem}>
-                      <Text style={styles.indDetailLabel}>{d.l}</Text>
-                      <Text style={[styles.indDetailValue, { color: d.c }]}>{d.v}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            </Glass>
-          )}
-
-          {indicators.length === 0 ? (
-            !searchResult ? (
-              <EmptyState
-                icon={'\u0394'} title="Sem indicadores"
-                description="Indicadores sao calculados automaticamente apos 18h em dias uteis. Adicione ativos na carteira para comecar. Use a busca acima para consultar qualquer ativo."
-                color={C.opcoes}
-              />
-            ) : null
-          ) : (
+          {/* ═══ RENDIMENTOS (FIIs) ═══ */}
+          {provSub === 'rendimentos' && (
             <>
-              {/* Summary */}
-              <Glass padding={14}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-                  {[
-                    { l: 'ATIVOS', v: String(indicators.length), c: C.acoes },
-                    { l: 'ULTIMO CALCULO', v: indicators[0] && indicators[0].data_calculo
-                      ? new Date(indicators[0].data_calculo).toLocaleDateString('pt-BR') : '–', c: C.sub },
-                  ].map(function(m, i) {
-                    return (
-                      <View key={i} style={{ alignItems: 'center', flex: 1 }}>
-                        <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
-                        <Text style={{ fontSize: 16, fontWeight: '800', color: m.c, fontFamily: F.display, marginTop: 2 }}>{m.v}</Text>
-                      </View>
-                    );
-                  })}
-                </View>
-              </Glass>
-
-              {/* Recalculate button */}
-              <TouchableOpacity
-                activeOpacity={0.8}
-                style={{ backgroundColor: C.opcoes + '15', borderWidth: 1, borderColor: C.opcoes + '30', borderRadius: 10, paddingVertical: 10, alignItems: 'center' }}
-                onPress={function() {
-                  if (!user) return;
-                  runDailyCalculation(user.id).then(function(calcResult) {
-                    if (calcResult.data && calcResult.data.length > 0) {
-                      setIndicators(calcResult.data);
-                    }
-                  }).catch(function(e) {
-                    console.warn('Manual calc failed:', e);
-                  });
-                }}
-              >
-                <Text style={{ fontSize: 12, fontWeight: '700', color: C.opcoes, fontFamily: F.display }}>Recalcular indicadores</Text>
-              </TouchableOpacity>
-
-              {/* Table header */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                <InfoTip text="HV: volatilidade histórica 20 dias (%). RSI: força relativa 14 dias (>70 sobrecomprado, <30 sobrevendido). Beta: sensibilidade ao IBOV (>1 mais volátil). Max DD: maior queda pico-a-vale." />
-              </View>
-              <Glass padding={0}>
-                <View style={styles.indTableHeader}>
-                  <Text style={[styles.indTableCol, { flex: 1.2 }]}>Ticker</Text>
-                  <Text style={styles.indTableCol}>HV 20d</Text>
-                  <Text style={styles.indTableCol}>RSI</Text>
-                  <Text style={styles.indTableCol}>Beta</Text>
-                  <Text style={styles.indTableCol}>Max DD</Text>
-                </View>
-
-                {/* Table rows */}
-                {indicators.map(function(ind, i) {
-                  var rsiColor = C.text;
-                  if (ind.rsi_14 != null) {
-                    if (ind.rsi_14 > 70) rsiColor = C.red;
-                    else if (ind.rsi_14 < 30) rsiColor = C.green;
-                  }
-                  var betaColor = C.text;
-                  if (ind.beta != null) {
-                    if (ind.beta > 1.2) betaColor = C.red;
-                    else if (ind.beta < 0.8) betaColor = C.green;
-                  }
-                  return (
-                    <View key={ind.ticker || i} style={[styles.indTableRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
-                      <Text style={[styles.indTableTicker, { flex: 1.2 }]}>{ind.ticker}</Text>
-                      <Text style={[styles.indTableVal, { color: C.opcoes }]}>
-                        {ind.hv_20 != null ? ind.hv_20.toFixed(1) + '%' : '–'}
-                      </Text>
-                      <Text style={[styles.indTableVal, { color: rsiColor }]}>
-                        {ind.rsi_14 != null ? ind.rsi_14.toFixed(0) : '–'}
-                      </Text>
-                      <Text style={[styles.indTableVal, { color: betaColor }]}>
-                        {ind.beta != null ? ind.beta.toFixed(2) : '–'}
-                      </Text>
-                      <Text style={[styles.indTableVal, { color: C.red }]}>
-                        {ind.max_drawdown != null ? ind.max_drawdown.toFixed(1) + '%' : '–'}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </Glass>
-
-              {/* Detailed cards per ticker */}
-              <SectionLabel>DETALHES POR ATIVO</SectionLabel>
-              {indicators.map(function(ind, i) {
-                return (
-                  <Glass key={ind.ticker || i} padding={14}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, fontFamily: F.display }}>{ind.ticker}</Text>
-                      {ind.preco_fechamento != null ? (
-                        <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.mono }}>
-                          {'R$ ' + fmt(ind.preco_fechamento)}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {Object.keys(fiiTickerSet).length === 0 ? (
+                <EmptyState icon={'\u25CB'} title="Sem FIIs" description="Adicione FIIs na carteira para ver rendimentos" color={C.fiis} />
+              ) : (
+                <>
+                  {/* KPI Cards */}
+                  <Glass glow={C.fiis} padding={14}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', gap: 12 }}>
                       {[
-                        { l: 'HV 20d', v: ind.hv_20 != null ? ind.hv_20.toFixed(1) + '%' : '–', c: C.opcoes },
-                        { l: 'HV 60d', v: ind.hv_60 != null ? ind.hv_60.toFixed(1) + '%' : '–', c: C.opcoes },
-                        { l: 'RSI 14', v: ind.rsi_14 != null ? ind.rsi_14.toFixed(1) : '–',
-                          c: ind.rsi_14 != null ? (ind.rsi_14 > 70 ? C.red : ind.rsi_14 < 30 ? C.green : C.text) : C.text },
-                        { l: 'Beta', v: ind.beta != null ? ind.beta.toFixed(2) : '–',
-                          c: ind.beta != null ? (ind.beta > 1.2 ? C.red : ind.beta < 0.8 ? C.green : C.text) : C.text },
-                        { l: 'SMA 20', v: ind.sma_20 != null ? 'R$ ' + fmt(ind.sma_20) : '–', c: C.acoes },
-                        { l: 'SMA 50', v: ind.sma_50 != null ? 'R$ ' + fmt(ind.sma_50) : '–', c: C.acoes },
-                        { l: 'EMA 9', v: ind.ema_9 != null ? 'R$ ' + fmt(ind.ema_9) : '–', c: C.acoes },
-                        { l: 'EMA 21', v: ind.ema_21 != null ? 'R$ ' + fmt(ind.ema_21) : '–', c: C.acoes },
-                        { l: 'ATR 14', v: ind.atr_14 != null ? 'R$ ' + fmt(ind.atr_14) : '–', c: C.text },
-                        { l: 'Max DD', v: ind.max_drawdown != null ? ind.max_drawdown.toFixed(1) + '%' : '–', c: C.red },
-                        { l: 'BB Upper', v: ind.bb_upper != null ? 'R$ ' + fmt(ind.bb_upper) : '–', c: C.acoes },
-                        { l: 'BB Lower', v: ind.bb_lower != null ? 'R$ ' + fmt(ind.bb_lower) : '–', c: C.acoes },
-                        { l: 'BB Width', v: ind.bb_width != null ? ind.bb_width.toFixed(1) + '%' : '–', c: C.opcoes },
-                        { l: 'Vol Med 20', v: ind.volume_medio_20 != null ? fmtC(ind.volume_medio_20) : '–', c: C.sub },
-                      ].map(function(d, di) {
+                        { l: 'TOTAL RECEBIDO', v: 'R$ ' + fmt(fiiRendRecebido), c: C.green },
+                        { l: 'A RECEBER', v: 'R$ ' + fmt(fiiRendAReceber), c: C.yellow },
+                        { l: '12M (RECEBIDO)', v: 'R$ ' + fmt(fiiRend12mRecebido), c: C.accent },
+                        { l: 'YoC', v: fiiYoC.toFixed(2) + '%', c: C.fiis },
+                        { l: 'DY', v: fiiDY.toFixed(2) + '%', c: C.acoes },
+                        { l: 'YoC vs SELIC', v: (fiiYoC - selicRate).toFixed(1) + '%', c: fiiYoC >= selicRate ? C.green : C.red },
+                      ].map(function(d, i) {
                         return (
-                          <View key={di} style={styles.indDetailItem}>
-                            <Text style={styles.indDetailLabel}>{d.l}</Text>
-                            <Text style={[styles.indDetailValue, { color: d.c }]}>{d.v}</Text>
+                          <View key={i} style={{ alignItems: 'center', minWidth: 70 }}>
+                            <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{d.l}</Text>
+                            <Text style={{ fontSize: 15, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }}>{d.v}</Text>
                           </View>
                         );
                       })}
                     </View>
                   </Glass>
-                );
-              })}
+
+                  {/* Monthly vertical bar chart */}
+                  {fiiMaxMonth > 0 && (
+                    <Glass padding={12}>
+                      <Text style={styles.sectionTitle}>RENDIMENTOS MENSAIS (12M)</Text>
+                      <ProvMonthlyBarChart data={fiiLast12} maxVal={fiiMaxMonth} color={C.fiis} height={200}
+                        selected={fiiMonthSel} onSelect={function(i) { setFiiMonthSel(i); }} />
+                    </Glass>
+                  )}
+
+                  {/* Annual vertical bar chart */}
+                  {fiiAnnualData.length >= 1 && (
+                    <Glass padding={12}>
+                      <Text style={styles.sectionTitle}>EVOLUÇÃO ANUAL</Text>
+                      <AnnualBarChart data={fiiAnnualData} maxVal={fiiMaxYear} color={C.fiis} height={180}
+                        selected={fiiYearSel} onSelect={function(i) { setFiiYearSel(i); }} />
+                      {fiiAnnualData.length >= 2 && fiiYearSel === -1 && (
+                        <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 8, gap: 6 }}>
+                          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                            {fiiAnnualData[fiiAnnualData.length - 2].month + ': R$ ' + fmt(fiiAnnualData[fiiAnnualData.length - 2].value)}
+                          </Text>
+                          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{'>'}</Text>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: C.green, fontFamily: F.mono }}>
+                            {fiiAnnualData[fiiAnnualData.length - 1].month + ': R$ ' + fmt(fiiAnnualData[fiiAnnualData.length - 1].value)}
+                          </Text>
+                          {fiiAnnualData[fiiAnnualData.length - 2].value > 0 && (
+                            <Text style={{ fontSize: 10, fontWeight: '600', color: fiiAnnualData[fiiAnnualData.length - 1].value >= fiiAnnualData[fiiAnnualData.length - 2].value ? C.green : C.red, fontFamily: F.mono }}>
+                              {'(' + (((fiiAnnualData[fiiAnnualData.length - 1].value / fiiAnnualData[fiiAnnualData.length - 2].value) - 1) * 100).toFixed(0) + '%)'}
+                            </Text>
+                          )}
+                        </View>
+                      )}
+                      {fiiYearSel >= 0 && fiiYearSel < fiiAnnualData.length && (
+                        <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 8, gap: 8 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>
+                            {fiiAnnualData[fiiYearSel].month + ': R$ ' + fmt(fiiAnnualData[fiiYearSel].value)}
+                          </Text>
+                          {fiiYearSel > 0 && fiiAnnualData[fiiYearSel - 1].value > 0 ? (
+                            <Text style={{ fontSize: 10, fontWeight: '600', color: fiiAnnualData[fiiYearSel].value >= fiiAnnualData[fiiYearSel - 1].value ? C.green : C.red, fontFamily: F.mono }}>
+                              {'(' + (((fiiAnnualData[fiiYearSel].value / fiiAnnualData[fiiYearSel - 1].value) - 1) * 100).toFixed(0) + '% vs ' + fiiAnnualData[fiiYearSel - 1].month + ')'}
+                            </Text>
+                          ) : null}
+                        </View>
+                      )}
+                    </Glass>
+                  )}
+
+                  {/* Ranking FIIs (12M) with YoC */}
+                  {fiiAssetRanking.length > 0 && (
+                    <Glass padding={14}>
+                      <Text style={styles.sectionTitle}>RANKING FIIs (12M)</Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: C.border }}>
+                        <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, flex: 1 }}>ATIVO</Text>
+                        <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, width: 80, textAlign: 'right' }}>TOTAL 12M</Text>
+                        <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, width: 55, textAlign: 'right' }}>YoC</Text>
+                      </View>
+                      {fiiAssetRanking.filter(function(a) { return a.total12m > 0; }).map(function(a, idx) {
+                        return (
+                          <View key={a.ticker} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderBottomWidth: idx < fiiAssetRanking.length - 1 ? 0.5 : 0, borderBottomColor: C.border }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, width: 16 }}>{idx + 1 + '.'}</Text>
+                              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.fiis }} />
+                              <Text style={{ fontSize: 11, fontWeight: '700', color: C.text, fontFamily: F.display }}>{a.ticker}</Text>
+                            </View>
+                            <Text style={{ fontSize: 11, fontWeight: '600', color: C.green, fontFamily: F.mono, width: 80, textAlign: 'right' }}>
+                              {'R$ ' + fmt(a.total12m)}
+                            </Text>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: a.yoc >= selicRate ? C.green : a.yoc > 0 ? C.yellow : C.dim, fontFamily: F.mono, width: 55, textAlign: 'right' }}>
+                              {a.yoc.toFixed(1) + '%'}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                      {fiiAssetRanking.filter(function(a) { return a.total12m === 0 && a.quantidade > 0; }).length > 0 && (
+                        <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border }}>
+                          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginBottom: 4 }}>SEM RENDIMENTOS 12M</Text>
+                          <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body }}>
+                            {fiiAssetRanking.filter(function(a) { return a.total12m === 0 && a.quantidade > 0; }).map(function(a) { return a.ticker; }).join(', ')}
+                          </Text>
+                        </View>
+                      )}
+                    </Glass>
+                  )}
+
+                  {/* Heatmap rendimentos FIIs */}
+                  {fiiHmTickerList.length > 0 && (
+                    <Glass padding={12}>
+                      <Text style={styles.sectionTitle}>MAPA DE CALOR — SAZONALIDADE RENDIMENTOS</Text>
+                      <DividendHeatmap tickers={fiiHmTickerList} months={hmMonths} data={fiiHmTickers} maxVal={fiiHmMaxVal} />
+                    </Glass>
+                  )}
+
+                  {/* Current month rendimentos by corretora */}
+                  {fiiMesAtual.length === 0 ? (
+                    <EmptyState
+                      icon={"\u25C9"}
+                      title="Sem rendimentos"
+                      description={"Sem rendimentos previstos para " + currentMonthLabel}
+                      color={C.fiis}
+                    />
+                  ) : (
+                    <>
+                      {/* Header resumo mes */}
+                      <Glass glow={C.green} padding={14}>
+                        <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5, textAlign: 'center', marginBottom: 6 }}>{currentMonthLabel}</Text>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-around', gap: 12 }}>
+                          <View style={{ alignItems: 'center' }}>
+                            <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>TOTAL MES</Text>
+                            <Text style={{ fontSize: 16, fontWeight: '800', color: C.green, fontFamily: F.display, marginTop: 2 }}>
+                              {'R$ ' + fmt(fiiTotalMesPago + fiiTotalMesPendente)}
+                            </Text>
+                          </View>
+                          <View style={{ alignItems: 'center' }}>
+                            <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>RECEBIDO</Text>
+                            <Text style={{ fontSize: 14, fontWeight: '700', color: C.green, fontFamily: F.mono, marginTop: 2 }}>
+                              {'R$ ' + fmt(fiiTotalMesPago)}
+                            </Text>
+                          </View>
+                          <View style={{ alignItems: 'center' }}>
+                            <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>PENDENTE</Text>
+                            <Text style={{ fontSize: 14, fontWeight: '700', color: C.yellow, fontFamily: F.mono, marginTop: 2 }}>
+                              {'R$ ' + fmt(fiiTotalMesPendente)}
+                            </Text>
+                          </View>
+                        </View>
+                      </Glass>
+
+                      {/* Cards por corretora */}
+                      {Object.keys(fiiCorretoraMap).sort().map(function(corretora) {
+                        var corrData = fiiCorretoraMap[corretora];
+                        var corrTotal = corrData.totalPago + corrData.totalPendente;
+                        var sortedItems = corrData.items.slice().sort(function(a, b) {
+                          return (a.dataPagamento || '').localeCompare(b.dataPagamento || '');
+                        });
+                        return (
+                          <Glass key={corretora} padding={0}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, paddingBottom: 8 }}>
+                              <Text style={{ fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display }}>{corretora}</Text>
+                              <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>
+                                {'R$ ' + fmt(corrTotal)}
+                              </Text>
+                            </View>
+                            {sortedItems.map(function(item, idx) {
+                              var dataParts = (item.dataPagamento || '').split('-');
+                              var dataLabel = dataParts.length >= 3 ? dataParts[2] + '/' + dataParts[1] : item.dataPagamento;
+                              return (
+                                <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                                    <Text style={{ fontSize: 11, fontWeight: '600', color: C.text, fontFamily: F.body }}>{item.ticker}</Text>
+                                    <Badge text="REND" color={C.fiis} />
+                                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>{dataLabel}</Text>
+                                  </View>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>
+                                      {'R$ ' + fmt(item.valorPorCota) + ' x ' + item.quantidade}
+                                    </Text>
+                                    <Text style={{ fontSize: 11, fontWeight: '600', color: C.green, fontFamily: F.mono }}>
+                                      {'R$ ' + fmt(item.valorTotal)}
+                                    </Text>
+                                    <Badge text={item.isPago ? 'PAGO' : 'PENDENTE'} color={item.isPago ? C.green : C.yellow} />
+                                  </View>
+                                </View>
+                              );
+                            })}
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border }}>
+                              <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{'PAGO: R$ ' + fmt(corrData.totalPago)}</Text>
+                              <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{'PENDENTE: R$ ' + fmt(corrData.totalPendente)}</Text>
+                            </View>
+                          </Glass>
+                        );
+                      })}
+                    </>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
+          {/* ── RENDA FIXA ── */}
+          {provSub === 'rf' && (
+            <>
+              {rendaFixa.length === 0 ? (
+                <EmptyState icon={'\u25CB'} title="Sem renda fixa" description="Adicione aplicações de renda fixa para ver a renda estimada" color={C.rf} />
+              ) : (
+                <>
+                  {/* KPI Cards */}
+                  <View style={styles.kpiRow}>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>APLICADO</Text>
+                        <Text style={[styles.kpiValue, { color: C.rf }]}>{'R$ ' + fmt(rfRendaTotal)}</Text>
+                      </View>
+                    </Glass>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>RENDA/MÊS (EST.)</Text>
+                        <Text style={[styles.kpiValue, { color: C.green }]}>{'R$ ' + fmt(rfRendaMensalEst)}</Text>
+                      </View>
+                    </Glass>
+                  </View>
+                  <View style={styles.kpiRow}>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>RENDA/ANO (EST.)</Text>
+                        <Text style={[styles.kpiValue, { color: C.green }]}>{'R$ ' + fmt(rfRendaAnualEst)}</Text>
+                      </View>
+                    </Glass>
+                    <Glass padding={10} style={{ flex: 1 }}>
+                      <View style={styles.kpiCard}>
+                        <Text style={styles.kpiLabel}>TÍTULOS</Text>
+                        <Text style={[styles.kpiValue, { color: C.rf }]}>{String(rendaFixa.length)}</Text>
+                      </View>
+                    </Glass>
+                  </View>
+
+                  {/* Per-title breakdown */}
+                  <SectionLabel>DETALHAMENTO</SectionLabel>
+                  <Glass padding={0}>
+                    {rendaFixa.map(function(rf, i) {
+                      var rfTipo = rf.tipo || 'cdb';
+                      var rfLabel = RF_TIPO_LABELS[rfTipo] || rfTipo.toUpperCase();
+                      var rfValApl = parseFloat(rf.valor_aplicado) || 0;
+                      var rfTaxaVal = parseFloat(rf.taxa) || 0;
+                      var rfIdxLabel = rf.indexador === 'cdi' ? '% CDI' : rf.indexador === 'ipca' ? '+ IPCA' : rf.indexador === 'selic' ? '+ Selic' : '% a.a.';
+                      var rfMensalEst = rfValApl * (Math.pow(1 + (rf.indexador === 'cdi' || rf.indexador === 'selic' ? (selicAnual - 0.10) * (rfTaxaVal / 100) : rf.indexador === 'ipca' ? rfTaxaVal + 4.5 : rfTaxaVal) / 100, 1 / 12) - 1);
+                      return (
+                        <View key={i} style={[styles.provRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+                          <View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={{ fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display }}>{rfLabel}</Text>
+                              <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{rf.emissor || ''}</Text>
+                            </View>
+                            <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono, marginTop: 2 }}>
+                              {rfTaxaVal.toFixed(1) + rfIdxLabel + ' · R$ ' + fmt(rfValApl)}
+                            </Text>
+                          </View>
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>{'R$ ' + fmt(rfMensalEst) + '/mês'}</Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </Glass>
+                </>
+              )}
             </>
           )}
         </>
@@ -7855,7 +9790,7 @@ var styles = StyleSheet.create({
   irAlertText: { fontSize: 10, color: C.yellow, fontFamily: F.body, textAlign: 'center' },
 
   // Performance sub-tabs
-  perfSubTabs: { flexDirection: 'row', gap: 5, marginBottom: 4 },
+  perfSubTabs: { flexDirection: 'row', gap: 5 },
   catHeroDivider: { height: 1, backgroundColor: C.border, marginVertical: 10 },
 
   // Ranking

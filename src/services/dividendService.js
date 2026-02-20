@@ -4,7 +4,7 @@
  * Detecta novos dividendos para tickers na carteira e insere como proventos
  */
 
-import { getPositions, getProventos, addProvento, getOperacoes, updateProfile } from './database';
+import { getPositions, getProventos, addProvento, getOperacoes, updateProfile, getSaldos, addMovimentacao } from './database';
 
 var BRAPI_URL = 'https://brapi.dev/api/quote/';
 var BRAPI_TOKEN = 'tEU8wyBixv8hCi7J3NCjsi';
@@ -216,6 +216,11 @@ export async function runDividendSync(userId) {
       return { inserted: 0, checked: 0, details: [], message: 'Nenhuma posicao encontrada' };
     }
 
+    // 1b. Buscar saldos para saber conta destino das movimentacoes
+    var saldosResult = await getSaldos(userId);
+    var saldosData = saldosResult.data || [];
+    var saldosConta = saldosData.length > 0 ? (saldosData[0].corretora || saldosData[0].name || null) : null;
+
     // 2. Buscar proventos existentes para dedup
     var provResult = await getProventos(userId, { limit: 1000 });
     var existingProventos = provResult.data || [];
@@ -374,6 +379,19 @@ export async function runDividendSync(userId) {
           existingKeys[dkey] = true;
           inserted++;
           tickerDetail.inserted++;
+          // Log movimentacao (fire-and-forget)
+          if (saldosConta && rate * qtyForDiv > 0) {
+            addMovimentacao(userId, {
+              conta: saldosConta,
+              tipo: 'entrada',
+              categoria: tipoProv === 'jcp' ? 'jcp' : tipoProv === 'rendimento' ? 'rendimento_fii' : 'dividendo',
+              valor: rate * qtyForDiv,
+              descricao: (tipoProv === 'jcp' ? 'JCP' : tipoProv === 'rendimento' ? 'Rendimento' : 'Dividendo') + ' ' + ticker,
+              ticker: ticker,
+              referencia_tipo: 'provento',
+              data: paymentDateStr,
+            }).catch(function(e) { console.warn('dividendSync movimentacao failed:', e); });
+          }
         } else {
           tickerDetail.insertFailed++;
           tickerDetail.lastInsertError = addResult.error.message || addResult.error.code || JSON.stringify(addResult.error);

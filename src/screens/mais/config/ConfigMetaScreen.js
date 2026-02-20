@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TextInput,
-  TouchableOpacity, Alert,
+  TouchableOpacity, Alert, Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, F, SIZE } from '../../../theme';
 import { useAuth } from '../../../contexts/AuthContext';
 import { getProfile, updateProfile } from '../../../services/database';
-import { Glass, Pill, SectionLabel, InfoTip } from '../../../components';
+import { Glass, Pill, SectionLabel } from '../../../components';
 
 var QUICK = [3000, 5000, 6000, 8000, 10000, 15000];
 
@@ -16,6 +16,7 @@ export default function ConfigMetaScreen(props) {
   var _auth = useAuth(); var user = _auth.user;
   var _meta = useState('6000'); var meta = _meta[0]; var setMeta = _meta[1];
   var _saving = useState(false); var saving = _saving[0]; var setSaving = _saving[1];
+  var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
 
   useEffect(function() { loadMeta(); }, []);
 
@@ -46,7 +47,9 @@ export default function ConfigMetaScreen(props) {
         </TouchableOpacity>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Text style={styles.title}>Meta Mensal</Text>
-          <InfoTip text="Meta de renda passiva mensal (prêmios + dividendos + RF). Usada no gauge da Home." />
+          <TouchableOpacity onPress={function() { setInfoModal({ title: 'Meta Mensal', text: 'Meta de renda passiva mensal (prêmios + dividendos + RF). Usada no gauge da Home.' }); }}>
+            <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+          </TouchableOpacity>
         </View>
         <View style={{ width: 32 }} />
       </View>
@@ -92,6 +95,26 @@ export default function ConfigMetaScreen(props) {
           <Text style={styles.saveText}>{saving ? 'Salvando...' : 'Salvar Meta'}</Text>
         </LinearGradient>
       </TouchableOpacity>
+
+      <Modal visible={infoModal !== null} animationType="fade" transparent={true}
+        onRequestClose={function() { setInfoModal(null); }}>
+        <TouchableOpacity activeOpacity={1} onPress={function() { setInfoModal(null); }}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 30 }}>
+          <TouchableOpacity activeOpacity={1}
+            style={{ backgroundColor: C.card, borderRadius: 14, padding: 20, maxWidth: 340, width: '100%', borderWidth: 1, borderColor: C.border }}>
+            <Text style={{ fontSize: 13, color: C.text, fontFamily: F.display, fontWeight: '700', marginBottom: 10 }}>
+              {infoModal && infoModal.title || ''}
+            </Text>
+            <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body, lineHeight: 18 }}>
+              {infoModal && infoModal.text || ''}
+            </Text>
+            <TouchableOpacity onPress={function() { setInfoModal(null); }}
+              style={{ marginTop: 14, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 8, borderRadius: 8, backgroundColor: C.accent }}>
+              <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono, fontWeight: '600' }}>Fechar</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </ScrollView>
   );
 }

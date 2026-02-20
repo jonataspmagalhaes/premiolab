@@ -12,7 +12,7 @@ import { C, F, SIZE } from '../theme';
 import LoginScreen from '../screens/auth/LoginScreen';
 import OnboardingScreen from '../screens/auth/OnboardingScreen';
 import HomeScreen from '../screens/home/HomeScreen';
-import CarteiraScreen from '../screens/carteira/CarteiraScreen';
+import GestaoScreen from '../screens/gestao/GestaoScreen';
 import AssetDetailScreen from '../screens/carteira/AssetDetailScreen';
 import AddOperacaoScreen from '../screens/carteira/AddOperacaoScreen';
 import OpcoesScreen from '../screens/opcoes/OpcoesScreen';
@@ -35,6 +35,9 @@ import AddProventoScreen from '../screens/proventos/AddProventoScreen';
 import ProventosScreen from '../screens/proventos/ProventosScreen';
 import EditProventoScreen from '../screens/proventos/EditProventoScreen';
 import AddSaldoScreen from '../screens/carteira/AddSaldoScreen';
+import AddMovimentacaoScreen from '../screens/gestao/AddMovimentacaoScreen';
+import ExtratoScreen from '../screens/gestao/ExtratoScreen';
+import AddContaScreen from '../screens/gestao/AddContaScreen';
 
 // SafeArea HOC — protege telas stack contra notch/camera/relogio
 function withSafeArea(Screen) {
@@ -72,6 +75,9 @@ var SafeAddProventoScreen = withSafeArea(AddProventoScreen);
 var SafeProventosScreen = withSafeArea(ProventosScreen);
 var SafeEditProventoScreen = withSafeArea(EditProventoScreen);
 var SafeAddSaldoScreen = withSafeArea(AddSaldoScreen);
+var SafeAddMovimentacaoScreen = withSafeArea(AddMovimentacaoScreen);
+var SafeExtratoScreen = withSafeArea(ExtratoScreen);
+var SafeAddContaScreen = withSafeArea(AddContaScreen);
 
 // Dark Theme
 var PremioLabTheme = Object.assign({}, DefaultTheme, {
@@ -130,11 +136,11 @@ function MainTabs() {
           }}
         />
         <Tab.Screen
-          name="Carteira"
-          component={CarteiraScreen}
+          name="Gestao"
+          component={GestaoScreen}
           options={{
             tabBarIcon: function(p) {
-              return <TabIcon iconFocused="wallet" iconDefault="wallet-outline" label="Carteira" focused={p.focused} />;
+              return <TabIcon iconFocused="briefcase" iconDefault="briefcase-outline" label="Gestão" focused={p.focused} />;
             },
           }}
         />
@@ -210,6 +216,9 @@ function AppStack() {
       <Stack.Screen name="Proventos" component={SafeProventosScreen} />
       <Stack.Screen name="EditProvento" component={SafeEditProventoScreen} />
       <Stack.Screen name="AddSaldo" component={SafeAddSaldoScreen} />
+      <Stack.Screen name="AddMovimentacao" component={SafeAddMovimentacaoScreen} />
+      <Stack.Screen name="Extrato" component={SafeExtratoScreen} />
+      <Stack.Screen name="AddConta" component={SafeAddContaScreen} />
     </Stack.Navigator>
   );
 }

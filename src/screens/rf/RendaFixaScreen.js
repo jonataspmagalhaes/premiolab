@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, Alert,
+  TouchableOpacity, Alert, Modal,
 } from 'react-native';
 
 import { useFocusEffect } from '@react-navigation/native';
@@ -9,7 +9,7 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getRendaFixa } from '../../services/database';
 import { supabase } from '../../config/supabase';
-import { Glass, Badge, SectionLabel, InfoTip } from '../../components';
+import { Glass, Badge, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
 var TIPO_LABELS = {
@@ -51,6 +51,7 @@ export default function RendaFixaScreen(props) {
   var s1 = useState([]); var items = s1[0]; var setItems = s1[1];
   var s2 = useState(true); var loading = s2[0]; var setLoading = s2[1];
   var s3 = useState(false); var refreshing = s3[0]; var setRefreshing = s3[1];
+  var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
 
   var load = async function() {
     if (!user) return;
@@ -113,7 +114,9 @@ export default function RendaFixaScreen(props) {
           </TouchableOpacity>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={styles.title}>Renda Fixa</Text>
-            <InfoTip text="CDB, LCI/LCA, Tesouro Direto e debêntures. Indexadores: CDI, IPCA, Selic ou prefixado." />
+            <TouchableOpacity onPress={function() { setInfoModal({ title: 'Renda Fixa', text: 'CDB, LCI/LCA, Tesouro Direto e debêntures. Indexadores: CDI, IPCA, Selic ou prefixado.' }); }}>
+              <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+            </TouchableOpacity>
           </View>
           <TouchableOpacity onPress={function() { navigation.navigate('AddRendaFixa'); }}>
             <Text style={styles.addIcon}>+</Text>
@@ -239,6 +242,26 @@ export default function RendaFixaScreen(props) {
         </TouchableOpacity>
 
         <View style={{ height: SIZE.tabBarHeight + 20 }} />
+
+        <Modal visible={infoModal !== null} animationType="fade" transparent={true}
+          onRequestClose={function() { setInfoModal(null); }}>
+          <TouchableOpacity activeOpacity={1} onPress={function() { setInfoModal(null); }}
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 30 }}>
+            <TouchableOpacity activeOpacity={1}
+              style={{ backgroundColor: C.card, borderRadius: 14, padding: 20, maxWidth: 340, width: '100%', borderWidth: 1, borderColor: C.border }}>
+              <Text style={{ fontSize: 13, color: C.text, fontFamily: F.display, fontWeight: '700', marginBottom: 10 }}>
+                {infoModal && infoModal.title || ''}
+              </Text>
+              <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body, lineHeight: 18 }}>
+                {infoModal && infoModal.text || ''}
+              </Text>
+              <TouchableOpacity onPress={function() { setInfoModal(null); }}
+                style={{ marginTop: 14, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 8, borderRadius: 8, backgroundColor: C.accent }}>
+                <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono, fontWeight: '600' }}>Fechar</Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
       </ScrollView>
   );
 }

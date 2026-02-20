@@ -34,6 +34,7 @@ src/
     analise/       Dashboard analitico + Rebalanceamento hierarquico
     auth/          Login + Onboarding
     carteira/      Portfolio (Carteira, AddOperacao, EditOperacao, AssetDetail)
+    gestao/        Gestao (GestaoScreen, CaixaView, AddMovimentacao, Extrato, AddConta)
     home/          Dashboard principal (donuts, grafico patrimonio, alertas)
     mais/          Menu + Configs (Meta, Corretoras, Alertas, Selic, Guia, Sobre, Historico)
     opcoes/        Opcoes (lista, add, edit, simulador BS)
@@ -54,7 +55,7 @@ supabase/
 
 ### Tabs (5 abas)
 1. **Home** - Patrimonio, renda mensal, alertas, eventos, historico
-2. **Carteira** - Donut alocacao, treemap, benchmark CDI, rebalanceamento, cards expandiveis
+2. **Gestão** - Sub-tabs "Carteira" (portfolio) + "Caixa" (fluxo de caixa). Ícone briefcase
 3. **Opcoes** - Cards com gregas BS, moneyness, cobertura, simulador, historico
 4. **Analise** - Graficos avancados e metricas
 5. **Mais** - Menu de configuracoes e utilidades
@@ -64,6 +65,7 @@ supabase/
 - AddOpcao, EditOpcao
 - AddRendaFixa, EditRendaFixa
 - AddProvento, EditProvento
+- AddMovimentacao, Extrato, AddConta
 - ConfigMeta, ConfigCorretoras, ConfigAlertas, ConfigSelic
 - Historico, Guia, Sobre
 
@@ -84,6 +86,7 @@ supabase/
 | `indicators` | HV, RSI, SMA, EMA, Beta, ATR, BB, MaxDD por ticker (UNIQUE user_id+ticker) |
 | `rebalance_targets` | class_targets(JSONB), sector_targets(JSONB), ticker_targets(JSONB) — metas de rebalanceamento persistidas |
 | `patrimonio_snapshots` | user_id, data(DATE), valor — snapshot diario/semanal do patrimonio real (UNIQUE user_id+data) |
+| `movimentacoes` | conta, tipo(entrada/saida/transferencia), categoria, valor, descricao, referencia_id, ticker, conta_destino, saldo_apos, data — fluxo de caixa completo |
 
 ### Status de opcoes
 `ativa`, `exercida`, `expirada`, `fechada`, `expirou_po`
@@ -110,6 +113,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Indicadores**: getIndicators, getIndicatorByTicker, upsertIndicator, upsertIndicatorsBatch
 - **Rebalanceamento**: getRebalanceTargets, upsertRebalanceTargets
 - **Snapshots**: getPatrimonioSnapshots, upsertPatrimonioSnapshot
+- **Movimentações**: getMovimentacoes, addMovimentacao, addMovimentacaoComSaldo, deleteMovimentacao, getMovimentacoesSummary, buildMovDescricao
 
 ### priceService.js - Funcoes exportadas
 - `fetchPrices(tickers)` - Cotacoes atuais (cache 60s)
@@ -186,7 +190,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Multi-corretora**: posicoes agregadas por ticker, campo `por_corretora` com qty por corretora
 - Cards de RF com botoes Editar/Excluir
 - Corretora removida do header do card (mostrada no expandido com qty por corretora)
-- **Saldo livre — 4 acoes discretas**: Depositar (verde, soma ao saldo), Deduzir (amarelo, subtrai), Transferir (roxo, move entre contas com picker de destino), Excluir (vermelho). Botoes compactos fontSize 10, sem fill, apenas borderColor sutil
+- **Saldo livre**: movido para Gestao > Caixa (CaixaView). Acoes Depositar/Retirar/Transferir/Excluir agora logam movimentacoes automaticamente
 
 ### Opcoes (OpcoesScreen)
 - **Black-Scholes completo**: pricing, gregas (delta, gamma, theta, vega), IV implicita
@@ -284,6 +288,7 @@ Ao configurar um novo ambiente, executar `supabase-migration.sql` no SQL Editor 
 - Tabela `rebalance_targets` com JSONB para class/sector/ticker targets
 - Tabela `patrimonio_snapshots` com UNIQUE(user_id, data)
 - pg_cron setup para snapshot semanal via Edge Function
+- Tabela `movimentacoes` com indexes + RLS (fluxo de caixa)
 
 ## Padroes Importantes
 
@@ -308,6 +313,7 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 
 - [x] **Sistema de Indicadores Tecnicos** (implementado: indicatorService.js, tabela indicators, integrado em Opcoes/AssetDetail/Analise/Home)
 - [x] **Auto-sync de dividendos** (implementado: dividendService.js, cross-check brapi+StatusInvest, auto-trigger Home, sync manual Proventos, dedup por ticker+data+valor)
+- [x] **Gestao Financeira / Fluxo de Caixa** (implementado: tab Gestao com sub-tabs Carteira+Caixa, movimentacoes, integracao com operacoes/opcoes/dividendos)
 - [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
 - [ ] Grafico de P&L de opcoes por mes (premios recebidos historico)
 - [ ] Notificacoes push para vencimentos proximos
@@ -487,3 +493,58 @@ Revisao geral de textos UI para portugues correto com acentos. Todas as strings 
 | `src/screens/mais/config/ConfigSelicScreen.js` | HISTORICO DE ALTERACOES |
 | `src/services/dividendService.js` | 4 catches silenciosos → console.warn |
 | `src/screens/opcoes/OpcoesScreen.js` | positions null guard |
+
+## Gestao Financeira / Fluxo de Caixa (Implementado)
+
+Tab "Carteira" renomeada para "Gestão" (ícone briefcase) com sub-tabs "Carteira" + "Caixa". Sistema completo de fluxo de caixa com registro de movimentações financeiras integrado ao resto do app.
+
+### Estrutura
+- **GestaoScreen**: wrapper com sub-tabs Pill (Carteira / Caixa), renderiza CarteiraScreen ou CaixaView
+- **CaixaView**: dashboard de caixa com hero saldo, accordion de contas, resumo mensal, últimas movimentações, gráficos
+- **AddMovimentacaoScreen**: form manual (tipo entrada/saída, categoria, conta, valor R$, ticker opcional, descrição, data)
+- **ExtratoScreen**: extrato completo com filtros por período/conta, agrupado por mês, long-press para excluir manuais
+- **AddContaScreen**: criar nova conta (nome, tipo corretora/banco/outro, saldo inicial)
+
+### Tabela `movimentacoes`
+- **tipo**: `entrada`, `saida`, `transferencia`
+- **categoria**: `deposito`, `retirada`, `transferencia`, `compra_ativo`, `venda_ativo`, `premio_opcao`, `recompra_opcao`, `exercicio_opcao`, `dividendo`, `jcp`, `rendimento_fii`, `rendimento_rf`, `ajuste_manual`, `salario`, `despesa_fixa`, `despesa_variavel`, `outro`
+- **referencia_id/referencia_tipo**: link para operação/opção/provento que gerou a movimentação
+- **saldo_apos**: saldo da conta após a movimentação (calculado por `addMovimentacaoComSaldo`)
+
+### Integração automática
+| Tela | Ação | Movimentação |
+|------|------|-------------|
+| AddOperacaoScreen | Compra/venda ativo | Alert "Atualizar saldo em CORRETORA?" → `compra_ativo`/`venda_ativo` |
+| AddOpcaoScreen | Venda opção | Alert "Creditar prêmio R$ X em CORRETORA?" → `premio_opcao` |
+| OpcoesScreen | Recompra (handleClose) | `recompra_opcao` via `addMovimentacaoComSaldo` ao descontar do saldo |
+| OpcoesScreen | Exercício | `exercicio_opcao` fire-and-forget após criar operação na carteira |
+| OpcoesScreen | Expirou PÓ | `premio_opcao` informativo (prêmio mantido) |
+| dividendService | Auto-sync dividendos | `dividendo`/`jcp`/`rendimento_fii` na primeira conta cadastrada |
+
+### CaixaView — Seções
+1. **Hero**: Glass card com saldo total + chips horizontais por conta
+2. **Contas (Accordion)**: cada conta com ícone 2 letras, expandível com últimas 5 movimentações + botões Depositar/Retirar/Transferir/Excluir
+3. **Resumo Mensal**: total entradas vs saídas vs saldo do período, comparação com mês anterior
+4. **Últimas Movimentações**: 15 últimas com ícone colorido, descrição, valor, badge conta
+5. **Gráfico Entradas vs Saídas**: barras lado a lado (verde/vermelho) últimos 6 meses
+6. **Resumo por Categoria**: barras horizontais com % por categoria do mês atual
+
+### Saldo livre removido da Carteira
+A seção "SALDO DISPONÍVEL" foi removida do CarteiraScreen e movida para CaixaView no tab Gestão > Caixa. Todas as operações de saldo (depositar, deduzir, transferir, excluir) agora logam movimentações automaticamente.
+
+### Arquivos criados/modificados
+| Arquivo | Mudança |
+|---------|---------|
+| `supabase-migration.sql` | Tabela `movimentacoes` + indexes + RLS |
+| `src/services/database.js` | 6 funções CRUD movimentações + helper `buildMovDescricao` |
+| `src/navigation/AppNavigator.js` | Tab "Gestão" (briefcase), stack screens AddMovimentacao/Extrato/AddConta |
+| `src/screens/gestao/GestaoScreen.js` | **Criado** — wrapper sub-tabs Carteira/Caixa |
+| `src/screens/gestao/CaixaView.js` | **Criado** — dashboard de caixa completo + gráficos |
+| `src/screens/gestao/AddMovimentacaoScreen.js` | **Criado** — form manual de movimentação |
+| `src/screens/gestao/ExtratoScreen.js` | **Criado** — extrato com filtros e agrupamento por mês |
+| `src/screens/gestao/AddContaScreen.js` | **Criado** — cadastro de nova conta |
+| `src/screens/carteira/CarteiraScreen.js` | Removida seção saldo livre (movida para Caixa) |
+| `src/screens/carteira/AddOperacaoScreen.js` | Alert de atualização de saldo + movimentação |
+| `src/screens/opcoes/AddOpcaoScreen.js` | Alert creditar prêmio + movimentação |
+| `src/screens/opcoes/OpcoesScreen.js` | Log movimentação em recompra/exercício/expirou PÓ |
+| `src/services/dividendService.js` | Log movimentação no auto-sync de dividendos |
