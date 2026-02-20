@@ -676,12 +676,17 @@ export default function CaixaView(props) {
                                   return (
                                     <TouchableOpacity key={d.id}
                                       onPress={function() {
-                                        setTrDest(sel ? null : d.id);
+                                        var destId = sel ? null : d.id;
+                                        setTrDest(destId);
                                         if (!sel && sMoeda !== dMoeda) {
-                                          var rateFrom = rates[sMoeda] || 1;
-                                          var rateTo = rates[dMoeda] || 1;
-                                          var cambioAuto = rateTo > 0 ? (rateFrom / rateTo) : 1;
-                                          setTrCambio(cambioAuto.toFixed(4).replace('.', ','));
+                                          // Buscar câmbio atualizado
+                                          var moedasNecessarias = [sMoeda, dMoeda].filter(function(m) { return m !== 'BRL'; });
+                                          fetchExchangeRates(moedasNecessarias).then(function(freshRates) {
+                                            var rateFrom = freshRates[sMoeda] || 1;
+                                            var rateTo = freshRates[dMoeda] || 1;
+                                            var cambioAuto = rateTo > 0 ? (rateFrom / rateTo) : 1;
+                                            setTrCambio(cambioAuto.toFixed(4).replace('.', ','));
+                                          });
                                         } else {
                                           setTrCambio('');
                                         }
