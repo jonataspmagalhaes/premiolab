@@ -140,7 +140,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - `shouldCalculateToday(lastCalcDate)` - Verifica dia util + hora >= 18 BRT + nao calculou hoje
 
 ### currencyService.js - Funcoes exportadas
-- `fetchExchangeRates(moedas)` - Busca cambio via brapi.dev `/api/v2/currency` (cache 30min)
+- `fetchExchangeRates(moedas)` - Busca cambio via brapi.dev (principal) + open.er-api.com (fallback para moedas nao suportadas como QAR). Cache 30min
 - `convertToBRL(valor, moeda, rates)` - Converte valor para BRL usando rates
 - `getSymbol(moeda)` - Retorna simbolo da moeda (USD→US$, EUR→€, etc.)
 - `MOEDAS` - Lista de moedas suportadas com code, symbol, name
@@ -201,6 +201,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Multi-moeda**: contas podem ser cadastradas em moedas estrangeiras (USD, EUR, GBP, QAR, ARS, JPY, CHF). Cambio automatico via brapi.dev (cache 30min). Patrimonio total soma tudo em BRL. CaixaView exibe valor na moeda original + ≈ R$ convertido
 - **Transferencia cross-currency**: transferir entre contas de moedas diferentes exibe campo editavel de cambio (auto-preenchido via rates do currencyService) + preview do valor convertido. Descricao da movimentacao inclui taxa usada
 - **Editar saldo direto**: botao "Editar saldo" no card expandido permite definir novo valor, registra movimentacao `ajuste_manual` com diff
+- **Excluir movimentacao com reversao**: long press em movimentacao exclui e reverte saldo automaticamente (entrada excluida = subtrai, saida excluida = soma de volta). Movimentacoes auto-geradas (compra/venda, premio, dividendo etc) sao bloqueadas
 
 ### Opcoes (OpcoesScreen)
 - **Black-Scholes completo**: pricing, gregas (delta, gamma, theta, vega), IV implicita
