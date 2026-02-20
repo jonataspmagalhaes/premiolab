@@ -609,6 +609,7 @@ function OpCard(props) {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
           <Text style={styles.opTicker}>{op.ativo_base}</Text>
           <Badge text={tipoLabel} color={tipoLabel === 'CALL' ? C.green : C.red} />
+          <Badge text={isVenda ? 'VENDA' : 'COMPRA'} color={isVenda ? C.etfs : C.rf} />
           <Badge text={cobertura} color={coberturaColor} />
           {moneyness ? <Badge text={moneyness.label} color={moneyness.color} /> : null}
           <Badge text={daysLeft + 'd'} color={dayColor} />
