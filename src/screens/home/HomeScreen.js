@@ -1074,7 +1074,9 @@ export default function HomeScreen({ navigation }) {
                 <Text style={{ fontSize: 14, color: rendaMediaAnual >= meta ? '#22c55e' : 'rgba(255,255,255,0.45)', fontFamily: F.mono, fontWeight: '700' }}>
                   {'Média ' + new Date().getFullYear() + ': R$ ' + fmt(rendaMediaAnual) + '/mês'}
                 </Text>
-                <InfoTip text="Média calculada com base nos meses completos do ano. O mês atual (incompleto) não entra no denominador para não distorcer o resultado." size={12} />
+                <TouchableOpacity onPress={function() { Alert.alert('Média Anual', 'Média calculada com base nos meses completos do ano. O mês atual (incompleto) não entra no denominador para não distorcer o resultado.'); }}>
+                  <Text style={{ fontSize: 12, color: C.accent }}>ⓘ</Text>
+                </TouchableOpacity>
               </View>
             </View>
             <View style={{ alignItems: 'center' }}>
