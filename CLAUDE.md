@@ -81,7 +81,7 @@ supabase/
 | `opcoes` | ativo_base, ticker_opcao, tipo(call/put), direcao(venda/compra/lancamento), strike, premio, quantidade, vencimento, data_abertura, status, corretora, premio_fechamento, data_fechamento |
 | `proventos` | ticker, tipo_provento, valor_por_cota, quantidade, valor_total, data_pagamento |
 | `renda_fixa` | tipo(cdb/lci_lca/tesouro_*), emissor, taxa, indexador, valor_aplicado, vencimento |
-| `saldos_corretora` | name, saldo, tipo(corretora/banco) |
+| `saldos_corretora` | name, saldo, tipo(corretora/banco), moeda(BRL/USD/EUR/etc, default BRL) |
 | `user_corretoras` | name, count |
 | `alertas_config` | flags de alertas + thresholds |
 | `indicators` | HV, RSI, SMA, EMA, Beta, ATR, BB, MaxDD por ticker (UNIQUE user_id+ticker) |
@@ -139,6 +139,12 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - `runDailyCalculation(userId)` - Orquestrador: posicoes → historicos → calcula → upsert
 - `shouldCalculateToday(lastCalcDate)` - Verifica dia util + hora >= 18 BRT + nao calculou hoje
 
+### currencyService.js - Funcoes exportadas
+- `fetchExchangeRates(moedas)` - Busca cambio via brapi.dev `/api/v2/currency` (cache 30min)
+- `convertToBRL(valor, moeda, rates)` - Converte valor para BRL usando rates
+- `getSymbol(moeda)` - Retorna simbolo da moeda (USD→US$, EUR→€, etc.)
+- `MOEDAS` - Lista de moedas suportadas com code, symbol, name
+
 ### dividendService.js - Funcoes exportadas
 - `fetchDividendsBrapi(ticker)` - Busca dividendos do ticker via brapi.dev (`?dividends=true`)
 - `fetchDividends(ticker)` - Alias de `fetchDividendsBrapi` (compatibilidade)
@@ -191,7 +197,9 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Multi-corretora**: posicoes agregadas por ticker, campo `por_corretora` com qty por corretora
 - Cards de RF com botoes Editar/Excluir
 - Corretora removida do header do card (mostrada no expandido com qty por corretora)
-- **Saldo livre**: movido para Gestao > Caixa (CaixaView). Acoes Depositar/Retirar/Transferir/Excluir agora logam movimentacoes automaticamente
+- **Saldo livre**: movido para Gestao > Caixa (CaixaView). Acoes Depositar/Retirar/Transferir/Editar saldo/Excluir conta agora logam movimentacoes automaticamente
+- **Multi-moeda**: contas podem ser cadastradas em moedas estrangeiras (USD, EUR, GBP, QAR, ARS, JPY, CHF). Cambio automatico via brapi.dev (cache 30min). Patrimonio total soma tudo em BRL. CaixaView exibe valor na moeda original + ≈ R$ convertido. Transferencias entre moedas diferentes sao bloqueadas
+- **Editar saldo direto**: botao "Editar saldo" no card expandido permite definir novo valor, registra movimentacao `ajuste_manual` com diff
 
 ### Opcoes (OpcoesScreen)
 - **Black-Scholes completo**: pricing, gregas (delta, gamma, theta, vega), IV implicita
@@ -290,6 +298,7 @@ Ao configurar um novo ambiente, executar `supabase-migration.sql` no SQL Editor 
 - Tabela `patrimonio_snapshots` com UNIQUE(user_id, data)
 - pg_cron setup para snapshot semanal via Edge Function
 - Tabela `movimentacoes` com indexes + RLS (fluxo de caixa)
+- Coluna `saldos_corretora.moeda` (TEXT DEFAULT 'BRL') para multi-moeda
 
 ## Padroes Importantes
 
@@ -582,3 +591,34 @@ Funções `computeIR()` e `computeTaxByMonth()` copiadas do AnaliseScreen. Calcu
 | `src/screens/relatorios/RelatoriosScreen.js` | **Criado** — tela completa com 4 sub-tabs + gráficos |
 | `src/navigation/AppNavigator.js` | Stack screen Relatorios |
 | `src/screens/mais/MaisScreen.js` | Item "Relatórios" no menu (substituiu "Calculo IR") |
+
+## Multi-Moeda para Saldos (Implementado)
+
+Permite cadastrar contas em moedas estrangeiras (USD, EUR, GBP, QAR, ARS, JPY, CHF). O sistema converte automaticamente para BRL ao somar no patrimonio total, mas exibe o valor na moeda original na tela da conta.
+
+### Cambio
+- brapi.dev API: `GET /api/v2/currency?currency=USD-BRL,EUR-BRL&token=...`
+- Cache em memoria 30 minutos
+- Fallback gracioso: se API falhar, usa cache anterior ou rate=1
+
+### Comportamento
+- **AddContaScreen**: picker de moeda (Pills: BRL, USD, EUR, GBP, QAR + "Outras"), prefixo dinamico
+- **CaixaView**: saldo total em BRL (convertido), cards mostram moeda original + ≈ R$ convertido, badge de moeda
+- **getDashboard**: converte saldos estrangeiros para BRL antes de somar ao patrimonio
+- **Transferencias**: bloqueadas entre contas de moedas diferentes
+- **Depositar/Retirar**: opera na moeda original da conta
+
+### Editar saldo direto
+Botao "Editar saldo" no card expandido da conta. Permite definir novo valor diretamente. Registra movimentacao `ajuste_manual` com diff (entrada se aumentou, saida se diminuiu). Descricao mostra valor anterior → novo.
+
+### Excluir conta
+Confirmacao com valor do saldo na mensagem. Error handling com Alert se falhar. Fecha expanded antes de excluir.
+
+### Arquivos criados/modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/services/currencyService.js` | **Criado** — fetchExchangeRates, convertToBRL, getSymbol, MOEDAS |
+| `src/services/database.js` | upsertSaldo aceita moeda, getDashboard converte saldos estrangeiros |
+| `src/screens/gestao/AddContaScreen.js` | Picker moeda, prefixo dinamico, passa moeda ao criar |
+| `src/screens/gestao/CaixaView.js` | Multi-moeda display, editar saldo, excluir melhorado |
+| `supabase-migration.sql` | Coluna `moeda TEXT DEFAULT 'BRL'` em saldos_corretora |

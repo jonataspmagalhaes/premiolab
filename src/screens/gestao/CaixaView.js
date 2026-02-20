@@ -13,6 +13,7 @@ import {
   getMovimentacoes, addMovimentacaoComSaldo, getMovimentacoesSummary,
   buildMovDescricao,
 } from '../../services/database';
+import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/currencyService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen } from '../../components/States';
 
@@ -177,6 +178,7 @@ export default function CaixaView(props) {
   var _actVal = useState(''); var actVal = _actVal[0]; var setActVal = _actVal[1];
   var _trDest = useState(null); var trDest = _trDest[0]; var setTrDest = _trDest[1];
   var _hist6m = useState([]); var hist6m = _hist6m[0]; var setHist6m = _hist6m[1];
+  var _rates = useState({ BRL: 1 }); var rates = _rates[0]; var setRates = _rates[1];
 
   var load = async function() {
     if (!user) return;
@@ -205,7 +207,8 @@ export default function CaixaView(props) {
       getMovimentacoesSummary(user.id, mesAnt, anoAnt),
     ].concat(histPromises));
 
-    setSaldos(results[0].data || []);
+    var saldosArr = results[0].data || [];
+    setSaldos(saldosArr);
     setMovs(results[1].data || []);
     setSummary(results[2]);
     setSummaryAnt(results[3]);
@@ -217,6 +220,21 @@ export default function CaixaView(props) {
       h6.push({ label: histLabels[hj], entradas: hSummary.totalEntradas, saidas: hSummary.totalSaidas });
     }
     setHist6m(h6);
+
+    // Buscar câmbio para moedas estrangeiras
+    var moedasEstrangeiras = [];
+    for (var mi = 0; mi < saldosArr.length; mi++) {
+      var moedaItem = saldosArr[mi].moeda || 'BRL';
+      if (moedaItem !== 'BRL' && moedasEstrangeiras.indexOf(moedaItem) === -1) {
+        moedasEstrangeiras.push(moedaItem);
+      }
+    }
+    var newRates = { BRL: 1 };
+    if (moedasEstrangeiras.length > 0) {
+      try { newRates = await fetchExchangeRates(moedasEstrangeiras); } catch (e) { /* fallback */ }
+    }
+    setRates(newRates);
+
     setLoading(false);
   };
 
@@ -228,9 +246,12 @@ export default function CaixaView(props) {
     setRefreshing(false);
   };
 
+  // Saldo total em BRL (convertido)
   var totalSaldos = 0;
   for (var si = 0; si < saldos.length; si++) {
-    totalSaldos += (saldos[si].saldo || 0);
+    var sMoeda = saldos[si].moeda || 'BRL';
+    var sOriginal = saldos[si].saldo || 0;
+    totalSaldos += convertToBRL(sOriginal, sMoeda, rates);
   }
 
   function toggleExpand(id) {
@@ -284,6 +305,7 @@ export default function CaixaView(props) {
       conta: sName, tipo: 'entrada', categoria: 'deposito',
       valor: num, descricao: buildMovDescricao('deposito', null, sName),
       data: new Date().toISOString().substring(0, 10),
+      moeda: s.moeda || 'BRL',
     }).then(function() { load(); });
   }
 
@@ -296,6 +318,7 @@ export default function CaixaView(props) {
       conta: sName, tipo: 'saida', categoria: 'retirada',
       valor: num, descricao: buildMovDescricao('retirada', null, sName),
       data: new Date().toISOString().substring(0, 10),
+      moeda: s.moeda || 'BRL',
     }).then(function() { load(); });
   }
 
@@ -310,6 +333,15 @@ export default function CaixaView(props) {
     var dest = saldos.find(function(x) { return x.id === trDest; });
     if (!dest) return;
     var destName = dest.corretora || dest.name || '';
+
+    // Bloquear transferência entre moedas diferentes
+    var sMoeda = s.moeda || 'BRL';
+    var dMoeda = dest.moeda || 'BRL';
+    if (sMoeda !== dMoeda) {
+      Alert.alert('Moedas diferentes', 'Não é possível transferir entre contas de moedas diferentes (' + sMoeda + ' → ' + dMoeda + ').');
+      return;
+    }
+
     resetAction();
     Promise.all([
       addMovimentacaoComSaldo(user.id, {
@@ -326,17 +358,65 @@ export default function CaixaView(props) {
     ]).then(function() { load(); });
   }
 
+  function handleEditar(s) {
+    var num = parseVal();
+    var sName = s.corretora || s.name || '';
+    var saldoAntigo = s.saldo || 0;
+    var diff = num - saldoAntigo;
+    resetAction();
+    setExpanded(null);
+
+    // Atualizar saldo direto no banco
+    upsertSaldo(user.id, {
+      corretora: sName,
+      saldo: num,
+      moeda: s.moeda || 'BRL',
+    }).then(function(res) {
+      if (res.error) {
+        Alert.alert('Erro', 'Falha ao atualizar saldo.');
+        return;
+      }
+      // Registrar ajuste manual como movimentacao
+      if (diff !== 0) {
+        addMovimentacaoComSaldo(user.id, {
+          conta: sName,
+          tipo: diff > 0 ? 'entrada' : 'saida',
+          categoria: 'ajuste_manual',
+          valor: Math.abs(diff),
+          descricao: 'Ajuste manual de saldo (' + getSymbol(s.moeda || 'BRL') + ' ' + fmt(saldoAntigo) + ' → ' + getSymbol(s.moeda || 'BRL') + ' ' + fmt(num) + ')',
+          saldo_apos: num,
+          data: new Date().toISOString().substring(0, 10),
+        });
+      }
+      load();
+    });
+  }
+
   function handleExcluir(s) {
     var sName = s.corretora || s.name || '';
-    Alert.alert('Excluir conta', 'Remover ' + sName + '?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Excluir', style: 'destructive',
-        onPress: function() {
-          deleteSaldo(s.id).then(function() { load(); });
+    Alert.alert(
+      'Excluir conta',
+      'Remover ' + sName + ' e todo o saldo (' + getSymbol(s.moeda || 'BRL') + ' ' + fmt(s.saldo || 0) + ')? Esta ação não pode ser desfeita.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir', style: 'destructive',
+          onPress: function() {
+            setExpanded(null);
+            setActMode(null);
+            deleteSaldo(s.id).then(function(res) {
+              if (res && res.error) {
+                Alert.alert('Erro', 'Falha ao excluir conta. Tente novamente.');
+              }
+              load();
+            }).catch(function() {
+              Alert.alert('Erro', 'Falha ao excluir conta.');
+              load();
+            });
+          },
         },
-      },
-    ]);
+      ]
+    );
   }
 
   function handleAddConta() {
@@ -352,7 +432,7 @@ export default function CaixaView(props) {
 
   if (loading) return <View style={styles.container}><LoadingScreen /></View>;
 
-  var modeColor = actMode === 'depositar' ? C.green : actMode === 'transferir' ? C.accent : C.yellow;
+  var modeColor = actMode === 'depositar' ? C.green : actMode === 'transferir' ? C.accent : actMode === 'editar' ? C.acoes : C.yellow;
 
   return (
   <View style={{ flex: 1 }}>
@@ -370,12 +450,19 @@ export default function CaixaView(props) {
             {saldos.map(function(s, i) {
               var bc = [C.opcoes, C.acoes, C.fiis, C.etfs, C.rf, C.accent][i % 6];
               var sName = s.corretora || s.name || '';
+              var sMoeda = s.moeda || 'BRL';
+              var simbolo = getSymbol(sMoeda);
               return (
                 <View key={s.id || i} style={[styles.chipConta, { borderColor: bc + '30' }]}>
-                  <Text style={[styles.chipName, { color: bc }]}>
-                    {sName.length > 10 ? sName.substring(0, 10) : sName}
-                  </Text>
-                  <Text style={styles.chipVal}>R$ {fmt(s.saldo || 0)}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={[styles.chipName, { color: bc }]}>
+                      {sName.length > 10 ? sName.substring(0, 10) : sName}
+                    </Text>
+                    {sMoeda !== 'BRL' ? (
+                      <Badge text={sMoeda} color={C.etfs} />
+                    ) : null}
+                  </View>
+                  <Text style={styles.chipVal}>{simbolo} {fmt(s.saldo || 0)}</Text>
                 </View>
               );
             })}
@@ -406,6 +493,9 @@ export default function CaixaView(props) {
         var bc = [C.opcoes, C.acoes, C.fiis, C.etfs, C.rf, C.accent][i % 6];
         var sName = s.corretora || s.name || '';
         var isExp = expanded === s.id;
+        var sMoeda = s.moeda || 'BRL';
+        var simbolo = getSymbol(sMoeda);
+        var saldoBRL = convertToBRL(s.saldo || 0, sMoeda, rates);
 
         // Get last 5 movs for this conta
         var contaMovs = [];
@@ -429,13 +519,25 @@ export default function CaixaView(props) {
                     </Text>
                   </View>
                   <View>
-                    <Text style={styles.contaName}>{sName}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={styles.contaName}>{sName}</Text>
+                      {sMoeda !== 'BRL' ? (
+                        <Badge text={sMoeda} color={C.etfs} />
+                      ) : null}
+                    </View>
                     {s.tipo ? (
                       <Text style={styles.contaTipo}>{s.tipo === 'corretora' ? 'Corretora' : s.tipo === 'banco' ? 'Banco' : s.tipo}</Text>
                     ) : null}
                   </View>
                 </View>
-                <Text style={[styles.contaSaldo, { color: bc }]}>R$ {fmt(s.saldo || 0)}</Text>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={[styles.contaSaldo, { color: bc }]}>{simbolo} {fmt(s.saldo || 0)}</Text>
+                  {sMoeda !== 'BRL' ? (
+                    <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                      {'≈'} R$ {fmt(saldoBRL)}
+                    </Text>
+                  ) : null}
+                </View>
               </View>
 
               {/* EXPANDED */}
@@ -455,7 +557,7 @@ export default function CaixaView(props) {
                               {m.descricao || CAT_LABELS[m.categoria] || m.categoria}
                             </Text>
                             <Text style={[styles.miniMovVal, { color: movColor }]}>
-                              {isEntrada ? '+' : '-'}R$ {fmt(m.valor)}
+                              {isEntrada ? '+' : '-'}{simbolo} {fmt(m.valor)}
                             </Text>
                           </View>
                         );
@@ -469,23 +571,31 @@ export default function CaixaView(props) {
 
                   {/* Action buttons */}
                   {!actMode ? (
-                    <View style={{ flexDirection: 'row', gap: 6 }}>
-                      <TouchableOpacity onPress={function() { openMode('depositar'); }} activeOpacity={0.7}
-                        style={[styles.saldoBtn, { borderColor: C.green + '30' }]}>
-                        <Text style={[styles.saldoBtnText, { color: C.green + 'CC' }]}>Depositar</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={function() { openMode('deduzir'); }} activeOpacity={0.7}
-                        style={[styles.saldoBtn, { borderColor: C.yellow + '30' }]}>
-                        <Text style={[styles.saldoBtnText, { color: C.yellow + 'CC' }]}>Retirar</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={function() { openMode('transferir'); }} activeOpacity={0.7}
-                        style={[styles.saldoBtn, { borderColor: C.accent + '30' }]}>
-                        <Text style={[styles.saldoBtnText, { color: C.accent + 'CC' }]}>Transferir</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={function() { handleExcluir(s); }} activeOpacity={0.7}
-                        style={[styles.saldoBtn, { borderColor: C.red + '30' }]}>
-                        <Text style={[styles.saldoBtnText, { color: C.red + 'CC' }]}>Excluir</Text>
-                      </TouchableOpacity>
+                    <View style={{ gap: 6 }}>
+                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                        <TouchableOpacity onPress={function() { openMode('depositar'); }} activeOpacity={0.7}
+                          style={[styles.saldoBtn, { borderColor: C.green + '30' }]}>
+                          <Text style={[styles.saldoBtnText, { color: C.green + 'CC' }]}>Depositar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={function() { openMode('deduzir'); }} activeOpacity={0.7}
+                          style={[styles.saldoBtn, { borderColor: C.yellow + '30' }]}>
+                          <Text style={[styles.saldoBtnText, { color: C.yellow + 'CC' }]}>Retirar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={function() { openMode('transferir'); }} activeOpacity={0.7}
+                          style={[styles.saldoBtn, { borderColor: C.accent + '30' }]}>
+                          <Text style={[styles.saldoBtnText, { color: C.accent + 'CC' }]}>Transferir</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                        <TouchableOpacity onPress={function() { openMode('editar'); }} activeOpacity={0.7}
+                          style={[styles.saldoBtn, { borderColor: C.acoes + '30' }]}>
+                          <Text style={[styles.saldoBtnText, { color: C.acoes + 'CC' }]}>Editar saldo</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={function() { handleExcluir(s); }} activeOpacity={0.7}
+                          style={[styles.saldoBtn, { borderColor: C.red + '30' }]}>
+                          <Text style={[styles.saldoBtnText, { color: C.red + 'CC' }]}>Excluir conta</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   ) : (
                     <View style={{ gap: 8 }}>
@@ -495,8 +605,13 @@ export default function CaixaView(props) {
                         </Text>
                       ) : (
                         <View style={{ gap: 8 }}>
+                          {actMode === 'editar' ? (
+                            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>
+                              NOVO SALDO (atual: {simbolo} {fmt(s.saldo || 0)})
+                            </Text>
+                          ) : null}
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.mono }}>R$</Text>
+                            <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.mono }}>{simbolo}</Text>
                             <TextInput
                               value={actVal}
                               onChangeText={onChangeVal}
@@ -513,13 +628,15 @@ export default function CaixaView(props) {
                               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                                 {destOptions.map(function(d) {
                                   var sel = trDest === d.id;
+                                  var dMoeda = d.moeda || 'BRL';
+                                  var sameMoeda = sMoeda === dMoeda;
                                   return (
                                     <TouchableOpacity key={d.id}
                                       onPress={function() { setTrDest(sel ? null : d.id); }}
                                       activeOpacity={0.7}
-                                      style={[styles.destPill, sel && { borderColor: C.accent, backgroundColor: C.accent + '18' }]}>
+                                      style={[styles.destPill, sel && { borderColor: C.accent, backgroundColor: C.accent + '18' }, !sameMoeda && { opacity: 0.4 }]}>
                                       <Text style={[styles.destPillText, sel && { color: C.accent, fontWeight: '700' }]}>
-                                        {d.corretora || d.name || ''}
+                                        {(d.corretora || d.name || '') + (dMoeda !== 'BRL' ? ' (' + dMoeda + ')' : '')}
                                       </Text>
                                     </TouchableOpacity>
                                   );
@@ -538,6 +655,7 @@ export default function CaixaView(props) {
                           onPress={function() {
                             if (actMode === 'depositar') handleDepositar(s);
                             else if (actMode === 'transferir') handleTransferir(s);
+                            else if (actMode === 'editar') handleEditar(s);
                             else handleDeduzir(s);
                           }}
                           activeOpacity={0.7}
@@ -595,7 +713,7 @@ export default function CaixaView(props) {
       </Glass>
 
       {/* ══════ 4. ÚLTIMAS MOVIMENTAÇÕES ══════ */}
-      <SectionLabel>ÚLTIMAS MOVIMENTAÇÕES</SectionLabel>
+      <SectionLabel>{'ÚLTIMAS MOVIMENTAÇÕES'}</SectionLabel>
       {movs.length === 0 ? (
         <Glass padding={16}>
           <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>

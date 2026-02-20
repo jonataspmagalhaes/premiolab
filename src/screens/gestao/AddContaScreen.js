@@ -7,6 +7,7 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { upsertSaldo, addMovimentacao, buildMovDescricao } from '../../services/database';
 import { Glass, Pill } from '../../components';
+import { MOEDAS, getSymbol } from '../../services/currencyService';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -20,15 +21,20 @@ var TIPOS = [
 
 var SUGESTOES = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial', 'Banco do Brasil', 'Itaú', 'Bradesco'];
 
+// Moedas principais para exibir como pills
+var MOEDAS_PRINCIPAIS = ['BRL', 'USD', 'EUR', 'GBP', 'QAR'];
+
 export default function AddContaScreen(props) {
   var navigation = props.navigation;
   var user = useAuth().user;
 
   var _nome = useState(''); var nome = _nome[0]; var setNome = _nome[1];
   var _tipo = useState('corretora'); var tipo = _tipo[0]; var setTipo = _tipo[1];
+  var _moeda = useState('BRL'); var moeda = _moeda[0]; var setMoeda = _moeda[1];
   var _saldo = useState(''); var saldoInit = _saldo[0]; var setSaldoInit = _saldo[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
+  var _showAllMoedas = useState(false); var showAllMoedas = _showAllMoedas[0]; var setShowAllMoedas = _showAllMoedas[1];
 
   function onChangeSaldo(t) {
     var nums = t.replace(/\D/g, '');
@@ -57,6 +63,7 @@ export default function AddContaScreen(props) {
       var result = await upsertSaldo(user.id, {
         corretora: nomeNorm,
         saldo: saldoNum,
+        moeda: moeda,
       });
 
       if (result.error) {
@@ -86,11 +93,18 @@ export default function AddContaScreen(props) {
     setLoading(false);
   };
 
+  // Moedas a exibir
+  var moedasVisiveis = showAllMoedas ? MOEDAS : MOEDAS.filter(function(m) {
+    return MOEDAS_PRINCIPAIS.indexOf(m.code) !== -1;
+  });
+
+  var simbolo = getSymbol(moeda);
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <TouchableOpacity onPress={function() { navigation.goBack(); }}>
-          <Text style={styles.back}>‹</Text>
+          <Text style={styles.back}>{'‹'}</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Nova Conta</Text>
         <View style={{ width: 32 }} />
@@ -132,10 +146,28 @@ export default function AddContaScreen(props) {
         })}
       </View>
 
+      {/* Moeda */}
+      <Text style={styles.label}>MOEDA</Text>
+      <View style={styles.pillRow}>
+        {moedasVisiveis.map(function(m) {
+          return (
+            <Pill key={m.code} active={moeda === m.code} color={C.etfs}
+              onPress={function() { setMoeda(m.code); }}>
+              {m.symbol + ' ' + m.code}
+            </Pill>
+          );
+        })}
+        {!showAllMoedas ? (
+          <TouchableOpacity onPress={function() { setShowAllMoedas(true); }} activeOpacity={0.7}>
+            <Text style={{ fontSize: 11, color: C.accent, fontFamily: F.body, paddingVertical: 6 }}>+ Outras</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
       {/* Saldo inicial */}
       <Text style={styles.label}>SALDO INICIAL (OPCIONAL)</Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.mono }}>R$</Text>
+        <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.mono }}>{simbolo}</Text>
         <TextInput
           value={saldoInit}
           onChangeText={onChangeSaldo}

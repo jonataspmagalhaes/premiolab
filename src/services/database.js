@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabase';
 import { enrichPositionsWithPrices } from './priceService';
+import { fetchExchangeRates, convertToBRL } from './currencyService';
 
 // ═══════════ PROFILES ═══════════
 export async function getProfile(userId) {
@@ -273,13 +274,17 @@ export async function getSaldos(userId) {
 }
 
 export async function upsertSaldo(userId, data) {
+  var payload = {
+    user_id: userId,
+    corretora: data.corretora,
+    saldo: data.saldo,
+  };
+  if (data.moeda) {
+    payload.moeda = data.moeda;
+  }
   var result = await supabase
     .from('saldos_corretora')
-    .upsert({
-      user_id: userId,
-      corretora: data.corretora,
-      saldo: data.saldo,
-    }, { onConflict: 'user_id,corretora' });
+    .upsert(payload, { onConflict: 'user_id,corretora' });
   return { error: result.error };
 }
 
@@ -547,9 +552,13 @@ export async function addMovimentacaoComSaldo(userId, mov) {
       .update({ saldo: novoSaldo, updated_at: new Date().toISOString() })
       .eq('id', saldoResult.data.id);
   } else {
+    var insertPayload = { user_id: userId, name: mov.conta, saldo: novoSaldo };
+    if (mov.moeda) {
+      insertPayload.moeda = mov.moeda;
+    }
     await supabase
       .from('saldos_corretora')
-      .insert({ user_id: userId, name: mov.conta, saldo: novoSaldo });
+      .insert(insertPayload);
   }
 
   return { data: movResult.data, error: null };
@@ -656,11 +665,24 @@ export async function getDashboard(userId) {
       rfRendaMensal += (valor * taxa / 100 / 12);
     }
 
-    // ── Saldo livre (corretoras/bancos) ──
+    // ── Saldo livre (corretoras/bancos) com conversão multi-moeda ──
     var saldosData = saldos.data || [];
+    var moedasEstrangeiras = [];
+    for (var mi = 0; mi < saldosData.length; mi++) {
+      var moedaItem = saldosData[mi].moeda || 'BRL';
+      if (moedaItem !== 'BRL' && moedasEstrangeiras.indexOf(moedaItem) === -1) {
+        moedasEstrangeiras.push(moedaItem);
+      }
+    }
+    var exchangeRates = { BRL: 1 };
+    if (moedasEstrangeiras.length > 0) {
+      try { exchangeRates = await fetchExchangeRates(moedasEstrangeiras); } catch (e) { /* fallback */ }
+    }
     var saldoLivreTotal = 0;
     for (var si = 0; si < saldosData.length; si++) {
-      saldoLivreTotal += (saldosData[si].saldo || 0);
+      var sMoeda = saldosData[si].moeda || 'BRL';
+      var sOriginal = saldosData[si].saldo || 0;
+      saldoLivreTotal += convertToBRL(sOriginal, sMoeda, exchangeRates);
     }
 
     // ── Patrimônio total ──
@@ -894,11 +916,13 @@ export async function getDashboard(userId) {
     var rendaTotalMes = dividendosMes + plMes + rfRendaMensal;
     var rendaTotalMesAnterior = dividendosMesAnterior + plMesAnterior + rfRendaMensal;
 
-    // ── Saldos ──
-    var saldosData = saldos.data || [];
+    // ── Saldos (convertidos para BRL) ──
+    // Reutiliza exchangeRates ja calculado acima
     var saldoTotal = 0;
-    for (var si = 0; si < saldosData.length; si++) {
-      saldoTotal += (saldosData[si].saldo || 0);
+    for (var sti = 0; sti < saldosData.length; sti++) {
+      var stMoeda = saldosData[sti].moeda || 'BRL';
+      var stOriginal = saldosData[sti].saldo || 0;
+      saldoTotal += convertToBRL(stOriginal, stMoeda, exchangeRates);
     }
 
     // ── Rentabilidade mensal estimada ──

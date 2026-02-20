@@ -351,3 +351,6 @@ CREATE INDEX IF NOT EXISTS idx_mov_data ON movimentacoes(user_id, data);
 CREATE INDEX IF NOT EXISTS idx_mov_ref ON movimentacoes(referencia_id);
 ALTER TABLE movimentacoes ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "mov_own" ON movimentacoes FOR ALL USING (auth.uid() = user_id);
+
+-- 16. MULTI-MOEDA (saldos em moeda estrangeira)
+ALTER TABLE saldos_corretora ADD COLUMN IF NOT EXISTS moeda TEXT DEFAULT 'BRL';
