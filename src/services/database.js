@@ -656,8 +656,15 @@ export async function getDashboard(userId) {
       rfRendaMensal += (valor * taxa / 100 / 12);
     }
 
+    // ── Saldo livre (corretoras/bancos) ──
+    var saldosData = saldos.data || [];
+    var saldoLivreTotal = 0;
+    for (var si = 0; si < saldosData.length; si++) {
+      saldoLivreTotal += (saldosData[si].saldo || 0);
+    }
+
     // ── Patrimônio total ──
-    var patrimonio = patrimonioAcoes + rfTotalAplicado;
+    var patrimonio = patrimonioAcoes + rfTotalAplicado + saldoLivreTotal;
 
     // ── Mes anterior ──
     var mesAnterior = mesAtual === 0 ? 11 : mesAtual - 1;
