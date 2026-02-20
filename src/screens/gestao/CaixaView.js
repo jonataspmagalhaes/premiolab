@@ -355,6 +355,7 @@ export default function CaixaView(props) {
   var modeColor = actMode === 'depositar' ? C.green : actMode === 'transferir' ? C.accent : C.yellow;
 
   return (
+  <View style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />}>
@@ -661,16 +662,17 @@ export default function CaixaView(props) {
         </View>
       ) : null}
 
-      {/* FAB + Nova Movimentação */}
-      <TouchableOpacity
-        onPress={function() { navigation.navigate('AddMovimentacao'); }}
-        activeOpacity={0.8}
-        style={styles.fab}>
-        <Text style={styles.fabText}>+</Text>
-      </TouchableOpacity>
-
       <View style={{ height: SIZE.tabBarHeight + 20 }} />
     </ScrollView>
+
+    {/* FAB + Nova Movimentação — fora do ScrollView para ficar fixo */}
+    <TouchableOpacity
+      onPress={function() { navigation.navigate('AddMovimentacao'); }}
+      activeOpacity={0.8}
+      style={styles.fab}>
+      <Text style={styles.fabText}>+</Text>
+    </TouchableOpacity>
+  </View>
   );
 }
 

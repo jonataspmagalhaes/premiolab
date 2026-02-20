@@ -1327,7 +1327,6 @@ export default function HomeScreen({ navigation }) {
               { label: '⚡ Opção', color: P.opcao.color, screen: 'AddOpcao' },
               { label: '◈ Provento', color: P.fii.color, screen: 'AddProvento' },
               { label: '🏦 Renda Fixa', color: P.rf.color, screen: 'AddRendaFixa' },
-              { label: '💵 Saldo Livre', color: C.accent, screen: 'AddSaldo' },
             ].map(function (item, i) {
               return (
                 <TouchableOpacity key={i} activeOpacity={0.7}
