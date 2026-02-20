@@ -373,7 +373,7 @@ export default function RelatoriosScreen(props) {
     setProventos(results[0].data || []);
     setOpcoes(results[1].data || []);
     setOperacoes(results[2].data || []);
-    setPositions(results[3] || []);
+    setPositions(results[3].data || []);
     setLoading(false);
   };
 
