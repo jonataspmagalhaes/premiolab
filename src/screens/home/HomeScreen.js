@@ -557,6 +557,7 @@ export default function HomeScreen({ navigation }) {
   var [chartTouching, setChartTouching] = useState(false);
   var [chartPeriod, setChartPeriod] = useState('ALL');
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
+  var _alertsExpanded = useState(false); var alertsExpanded = _alertsExpanded[0]; var setAlertsExpanded = _alertsExpanded[1];
 
   var load = async function () {
     if (!user) return;
@@ -1177,35 +1178,32 @@ export default function HomeScreen({ navigation }) {
           </View>
         </GlassCard>
 
-        {/* RESUMO DO PORTFÓLIO — dados reais e úteis */}
-        <GlassCard>
-          <SLabel>RESUMO DO PORTFÓLIO</SLabel>
-          <StatRow
-            label="Rentabilidade estimada"
-            sub="renda mensal / patrimônio"
-            value={rentabilidadeMes.toFixed(2) + '% a.m.'}
-            color={rentabilidadeMes > 1 ? '#22c55e' : '#f59e0b'}
-          />
-          <StatRow
-            label="Posições em carteira"
-            sub={positions.length + ' ativos + ' + rendaFixa.length + ' títulos RF'}
-            value={positions.length + rendaFixa.length}
-            color="#fff"
-          />
-          <StatRow
-            label="Opções ativas"
-            sub={opsVenc7d > 0 ? opsVenc7d + ' vencem em 7 dias' : opsVenc15d > 0 ? opsVenc15d + ' vencem em 15 dias' : opsVenc30d > 0 ? opsVenc30d + ' vencem em 30 dias' : 'nenhuma vencendo'}
-            value={opsAtivas}
-            color={P.opcao.color}
-          />
-          <StatRow
-            label="Saldo disponível"
-            sub={saldos.length + (saldos.length === 1 ? ' corretora' : ' corretoras')}
-            value={fmt(saldoTotal)}
-            color={C.accent}
-            last={true}
-          />
-        </GlassCard>
+        {/* KPI BAR — resumo compacto horizontal */}
+        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 14 }}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+            <Text style={{ fontSize: 9, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>RENT. MÊS</Text>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: rentabilidadeMes > 1 ? C.green : C.yellow, fontFamily: F.mono, marginTop: 2 }}>
+              {rentabilidadeMes.toFixed(2) + '%'}
+            </Text>
+          </View>
+          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+            <Text style={{ fontSize: 9, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>POSIÇÕES</Text>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, fontFamily: F.mono, marginTop: 2 }}>
+              {positions.length + rendaFixa.length}
+            </Text>
+          </View>
+          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+            <Text style={{ fontSize: 9, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>OPÇÕES</Text>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: P.opcao.color, fontFamily: F.mono, marginTop: 2 }}>
+              {opsAtivas}
+            </Text>
+            {opsVenc7d > 0 ? (
+              <Text style={{ fontSize: 9, color: C.red, fontFamily: F.mono }}>
+                {opsVenc7d + ' venc. 7d'}
+              </Text>
+            ) : null}
+          </View>
+        </View>
 
         {/* ALERTAS */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -1219,15 +1217,42 @@ export default function HomeScreen({ navigation }) {
             {alerts.length} {alerts.length === 1 ? 'novo' : 'novos'}
           </Text>
         </View>
-        {alerts.map(function (a, i) {
-          var alertOnPress = null;
-          if (a.detailType === 'proventos' && phDetailData) {
-            alertOnPress = function() {
-              setInfoModal({ title: 'Proventos Pagos Hoje', detailType: 'proventos', detail: phDetailData });
-            };
+        {(function() {
+          var criticalAlerts = [];
+          var infoAlerts = [];
+          for (var ai = 0; ai < alerts.length; ai++) {
+            var al = alerts[ai];
+            if (al.type === 'critico' || al.type === 'warning' || al.detailType) {
+              criticalAlerts.push(al);
+            } else {
+              infoAlerts.push(al);
+            }
           }
-          return <AlertRow key={i} type={a.type} title={a.title} desc={a.desc} badge={a.badge} onPress={alertOnPress} />;
-        })}
+          var showCollapse = alerts.length > 2 && infoAlerts.length > 0;
+          var visibleAlerts = showCollapse && !alertsExpanded ? criticalAlerts : alerts;
+
+          return (
+            <View>
+              {visibleAlerts.map(function(a, i) {
+                var alertOnPress = null;
+                if (a.detailType === 'proventos' && phDetailData) {
+                  alertOnPress = function() {
+                    setInfoModal({ title: 'Proventos Pagos Hoje', detailType: 'proventos', detail: phDetailData });
+                  };
+                }
+                return <AlertRow key={i} type={a.type} title={a.title} desc={a.desc} badge={a.badge} onPress={alertOnPress} />;
+              })}
+              {showCollapse ? (
+                <TouchableOpacity onPress={function() { setAlertsExpanded(!alertsExpanded); }}
+                  style={{ alignItems: 'center', paddingVertical: 6, marginBottom: 8 }}>
+                  <Text style={{ fontSize: 11, color: C.accent, fontFamily: F.body, fontWeight: '600' }}>
+                    {alertsExpanded ? 'Mostrar menos' : infoAlerts.length + (infoAlerts.length === 1 ? ' alerta' : ' alertas') + ' info ▾'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          );
+        })()}
 
         {/* MAIORES ALTAS */}
         {topGainers.length > 0 ? (

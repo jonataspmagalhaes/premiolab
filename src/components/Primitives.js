@@ -30,7 +30,7 @@ export function Pill(props) {
           : { backgroundColor: C.surface, borderColor: C.border },
       ]}
     >
-      <Text style={[styles.pillText, { color: active ? color : C.dim }]}>
+      <Text style={[styles.pillText, { color: active ? color : C.textSecondary }]}>
         {children}
       </Text>
     </TouchableOpacity>
@@ -92,8 +92,8 @@ var styles = StyleSheet.create({
   // Badge
   badge: {
     paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 5,
+    paddingVertical: 4,
+    borderRadius: 6,
     borderWidth: 1,
   },
   badgeText: {
@@ -106,9 +106,11 @@ var styles = StyleSheet.create({
   // Pill
   pill: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
+    minHeight: 36,
+    justifyContent: 'center',
   },
   pillText: {
     fontSize: 12,
@@ -125,7 +127,7 @@ var styles = StyleSheet.create({
   },
   sectionText: {
     fontSize: SIZE.xs,
-    color: C.dim,
+    color: C.textSecondary,
     fontFamily: F.mono,
     letterSpacing: 0.8,
     fontWeight: '600',
@@ -154,7 +156,7 @@ var styles = StyleSheet.create({
     borderColor: C.border,
     borderRadius: SIZE.radiusSm,
     paddingHorizontal: 10,
-    height: 42,
+    height: 44,
   },
   fieldPrefix: {
     fontSize: 12,

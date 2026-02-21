@@ -6,7 +6,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getSaldos, getMovimentacoes, deleteMovimentacao } from '../../services/database';
+import { getSaldos, getMovimentacoes, deleteMovimentacao, upsertSaldo } from '../../services/database';
 import { Glass, Pill, Badge, SectionLabel } from '../../components';
 import { LoadingScreen } from '../../components/States';
 
@@ -126,20 +126,49 @@ export default function ExtratoScreen(props) {
       Alert.alert('Não permitido', 'Movimentações automáticas não podem ser excluídas.');
       return;
     }
-    Alert.alert('Excluir movimentação?', 'Essa ação não pode ser desfeita. O saldo NÃO será revertido automaticamente.', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Excluir', style: 'destructive',
-        onPress: async function() {
-          var result = await deleteMovimentacao(mov.id);
-          if (!result.error) {
-            setMovs(movs.filter(function(x) { return x.id !== mov.id; }));
-          } else {
-            Alert.alert('Erro', 'Falha ao excluir.');
-          }
+    var desc = mov.descricao || CAT_LABELS[mov.categoria] || mov.categoria;
+    Alert.alert(
+      'Excluir movimentação?',
+      desc + '\nR$ ' + fmt(mov.valor) + '\n\nO saldo será revertido automaticamente.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir e reverter', style: 'destructive',
+          onPress: function() {
+            deleteMovimentacao(mov.id).then(function(res) {
+              if (res && res.error) {
+                Alert.alert('Erro', 'Falha ao excluir.');
+                return;
+              }
+              var conta = mov.conta || '';
+              var saldoAtual = null;
+              for (var si = 0; si < saldos.length; si++) {
+                var sName = saldos[si].corretora || saldos[si].name || '';
+                if (sName === conta) {
+                  saldoAtual = saldos[si];
+                  break;
+                }
+              }
+              if (saldoAtual) {
+                var saldoNovo = saldoAtual.saldo || 0;
+                if (mov.tipo === 'entrada') {
+                  saldoNovo = saldoNovo - (mov.valor || 0);
+                } else {
+                  saldoNovo = saldoNovo + (mov.valor || 0);
+                }
+                upsertSaldo(user.id, {
+                  corretora: conta,
+                  saldo: Math.max(0, saldoNovo),
+                  moeda: saldoAtual.moeda || 'BRL',
+                }).then(function() { load(); });
+              } else {
+                setMovs(movs.filter(function(x) { return x.id !== mov.id; }));
+              }
+            });
+          },
         },
-      },
-    ]);
+      ]
+    );
   }
 
   if (loading) return <View style={styles.container}><LoadingScreen /></View>;

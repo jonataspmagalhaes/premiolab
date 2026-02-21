@@ -16,7 +16,7 @@ export default function InfoTip(props) {
 
   return (
     <View style={[{ flexShrink: 1 }, style]}>
-      <TouchableOpacity onPress={function() { setOpen(true); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+      <TouchableOpacity onPress={function() { setOpen(true); }} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
         <Ionicons name="information-circle-outline" size={size} color={color} />
       </TouchableOpacity>
       <Modal visible={open} animationType="fade" transparent={true}

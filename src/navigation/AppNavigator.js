@@ -104,13 +104,13 @@ function TabIcon(props) {
   var badge = props.badge;
   return (
     <View style={styles.tabItem}>
-      <Ionicons name={iconName} size={22} color={focused ? C.accent : C.dim} />
+      <Ionicons name={iconName} size={22} color={focused ? C.accent : C.textTertiary} />
       {badge > 0 && (
         <View style={styles.tabBadge}>
           <Text style={styles.tabBadgeText}>{badge}</Text>
         </View>
       )}
-      <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.tabLabel, { color: focused ? C.accent : C.dim }]}>
+      <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.tabLabel, { color: focused ? C.accent : C.textTertiary }]}>
         {label}
       </Text>
       {focused && <View style={styles.tabIndicator} />}
@@ -273,7 +273,7 @@ var styles = StyleSheet.create({
     position: 'relative',
   },
   tabLabel: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '600',
     fontFamily: F.body,
   },
@@ -296,7 +296,7 @@ var styles = StyleSheet.create({
     alignItems: 'center',
   },
   tabBadgeText: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '800',
     color: 'white',
     fontFamily: F.mono,

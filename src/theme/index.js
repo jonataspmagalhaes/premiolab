@@ -11,6 +11,8 @@ export var C = {
   // Text
   text: '#f1f1f4',
   sub: '#9999aa',
+  textSecondary: '#8888aa',
+  textTertiary: '#666688',
   dim: '#555577',
   // Accent
   accent: '#6C5CE7',

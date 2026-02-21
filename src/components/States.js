@@ -68,25 +68,55 @@ export function SkeletonRow() {
 
 // ═══════════ LOADING SCREEN ═══════════
 export function LoadingScreen() {
-  var miniCards = [1, 2, 3];
-  var skelRows = [1, 2, 3, 4];
   return (
     <View style={styles.loadingWrap}>
-      <SkeletonCard height={120} />
-      <View style={styles.loadingRow}>
-        {miniCards.map(function(i) {
+      {/* Hero patrimônio card */}
+      <View style={[styles.skelCard, { height: 140 }]}>
+        <Skeleton width="50%" height={10} />
+        <View style={{ height: 10 }} />
+        <Skeleton width="65%" height={28} />
+        <View style={{ height: 10 }} />
+        <Skeleton width="100%" height={6} radius={3} />
+        <View style={{ height: 10 }} />
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Skeleton width={50} height={10} />
+          <Skeleton width={50} height={10} />
+          <Skeleton width={50} height={10} />
+          <Skeleton width={50} height={10} />
+        </View>
+      </View>
+
+      {/* KPI bar (3 compact cards) */}
+      <View style={{ flexDirection: 'row', gap: 6 }}>
+        {[1, 2, 3].map(function(i) {
           return (
-            <View key={i} style={styles.loadingMiniCard}>
+            <View key={i} style={[styles.loadingMiniCard, { padding: 10 }]}>
               <Skeleton width="60%" height={8} />
-              <View style={{ height: 4 }} />
-              <Skeleton width="80%" height={16} />
+              <View style={{ height: 6 }} />
+              <Skeleton width="45%" height={16} />
             </View>
           );
         })}
       </View>
-      {skelRows.map(function(i) {
-        return <SkeletonRow key={i} />;
-      })}
+
+      {/* Donuts row */}
+      <View style={{ flexDirection: 'row', gap: 6 }}>
+        {[1, 2].map(function(i) {
+          return (
+            <View key={i} style={[styles.loadingMiniCard, { flex: 1, height: 110, alignItems: 'center', justifyContent: 'center' }]}>
+              <Skeleton width={60} height={60} radius={30} />
+              <View style={{ height: 8 }} />
+              <Skeleton width="50%" height={8} />
+            </View>
+          );
+        })}
+      </View>
+
+      {/* Alert skeleton */}
+      <SkeletonCard height={60} />
+
+      {/* Chart skeleton */}
+      <SkeletonCard height={160} />
     </View>
   );
 }

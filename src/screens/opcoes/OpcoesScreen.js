@@ -649,7 +649,6 @@ function OpCard(props) {
           { l: 'Delta', v: greeks.delta.toFixed(2) },
           { l: 'Theta', v: (greeks.theta * (op.quantidade || 1) >= 0 ? '+' : '') + 'R$ ' + fmt(greeks.theta * (op.quantidade || 1)) + '/d' },
           { l: 'IV', v: greeks.iv.toFixed(0) + '%' },
-          { l: 'DTE', v: daysLeft + 'd' },
         ].map(function(g, i) {
           return (
             <View key={i} style={{ alignItems: 'center', flex: 1 }}>
@@ -693,14 +692,8 @@ function OpCard(props) {
         );
       })()}
 
-      {/* Bottom: corretora + actions */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          {op.corretora ? (
-            <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>{op.corretora}</Text>
-          ) : null}
-          <Badge text={daysLeft + 'd'} color={dayColor} />
-        </View>
+      {/* Bottom: actions */}
+      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 8 }}>
         <View style={{ flexDirection: 'row', gap: 14 }}>
           <TouchableOpacity onPress={function() { setShowPayoff(!showPayoff); }}>
             <Text style={[styles.actionLink, { color: C.opcoes }]}>Payoff</Text>
