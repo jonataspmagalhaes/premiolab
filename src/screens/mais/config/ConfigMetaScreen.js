@@ -39,7 +39,7 @@ export default function ConfigMetaScreen(props) {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={function() { navigation.goBack(); }}>

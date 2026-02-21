@@ -991,7 +991,7 @@ export default function HomeScreen({ navigation }) {
               <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
             </TouchableOpacity>
           </View>
-          <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.20)', fontFamily: F.mono, letterSpacing: 0.5, textAlign: 'center', marginTop: -6, marginBottom: 10 }}>
+          <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.20)', fontFamily: F.mono, letterSpacing: 0.5, textAlign: 'center', marginTop: -6, marginBottom: 10 }}>
             {new Date().toLocaleString('pt-BR', { month: 'short' }).toUpperCase() + ' ' + new Date().getFullYear() + '  ·  ATUAL vs ANTERIOR'}
           </Text>
 
@@ -1108,7 +1108,7 @@ export default function HomeScreen({ navigation }) {
                 fontSize: 22, fontWeight: '800', fontFamily: F.mono,
                 color: metaPct >= 100 ? '#22c55e' : metaPct >= 50 ? '#f59e0b' : C.accent,
               }}>{metaPct.toFixed(0)}%</Text>
-              <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, letterSpacing: 0.5, marginTop: 2 }}>DA META</Text>
+              <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, letterSpacing: 0.5, marginTop: 2 }}>DA META</Text>
             </View>
           </View>
           <View style={{ height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.03)', marginTop: 10, overflow: 'hidden' }}>
@@ -1132,7 +1132,7 @@ export default function HomeScreen({ navigation }) {
               {ganhosTotal >= 0 ? '+' : ''}{fmt(ganhosTotal)}
             </Text>
           }>GANHOS ACUMULADOS</SLabel>
-          <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.20)', fontFamily: F.mono, letterSpacing: 0.5, textAlign: 'center', marginTop: -6, marginBottom: 10 }}>
+          <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.20)', fontFamily: F.mono, letterSpacing: 0.5, textAlign: 'center', marginTop: -6, marginBottom: 10 }}>
             {new Date().toLocaleString('pt-BR', { month: 'short' }).toUpperCase() + ' ' + new Date().getFullYear() + '  ·  ATUAL vs ANTERIOR'}
           </Text>
 
@@ -1204,24 +1204,24 @@ export default function HomeScreen({ navigation }) {
         {/* KPI BAR — resumo compacto horizontal */}
         <View style={{ flexDirection: 'row', gap: 6, marginBottom: 14 }}>
           <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
-            <Text style={{ fontSize: 9, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>RENT. MÊS</Text>
+            <Text style={{ fontSize: 10, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>RENT. MÊS</Text>
             <Text style={{ fontSize: 15, fontWeight: '800', color: rentabilidadeMes > 1 ? C.green : C.yellow, fontFamily: F.mono, marginTop: 2 }}>
               {rentabilidadeMes.toFixed(2) + '%'}
             </Text>
           </View>
           <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
-            <Text style={{ fontSize: 9, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>POSIÇÕES</Text>
+            <Text style={{ fontSize: 10, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>POSIÇÕES</Text>
             <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, fontFamily: F.mono, marginTop: 2 }}>
               {positions.length + rendaFixa.length}
             </Text>
           </View>
           <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
-            <Text style={{ fontSize: 9, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>OPÇÕES</Text>
+            <Text style={{ fontSize: 10, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>OPÇÕES</Text>
             <Text style={{ fontSize: 15, fontWeight: '800', color: P.opcao.color, fontFamily: F.mono, marginTop: 2 }}>
               {opsAtivas}
             </Text>
             {opsVenc7d > 0 ? (
-              <Text style={{ fontSize: 9, color: C.red, fontFamily: F.mono }}>
+              <Text style={{ fontSize: 10, color: C.red, fontFamily: F.mono }}>
                 {opsVenc7d + ' venc. 7d'}
               </Text>
             ) : null}

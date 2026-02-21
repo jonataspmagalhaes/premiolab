@@ -212,6 +212,7 @@ export default function AssetDetailScreen(props) {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             var result = await deleteOperacao(id);
             if (!result.error) {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
               var updated = txns.filter(function(t) { return t.id !== id; });
               setTxns(updated);
             } else {
@@ -717,18 +718,18 @@ var styles = StyleSheet.create({
   priceHeroValue: { fontSize: 28, fontWeight: '800', color: C.text, fontFamily: F.display, letterSpacing: -0.5 },
   plRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border },
   plItem: { alignItems: 'center', flex: 1 },
-  plLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 },
+  plLabel: { fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 },
   plValue: { fontSize: 13, fontWeight: '700', fontFamily: F.mono, marginTop: 2 },
   updateTime: { fontSize: 11, color: C.dim, fontFamily: F.mono, marginTop: 8, textAlign: 'right' },
 
   // Position
   posGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
   posItem: { width: '48%', backgroundColor: C.surface, borderRadius: SIZE.radiusSm, padding: 10, borderWidth: 1, borderColor: C.border },
-  posItemLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 },
+  posItemLabel: { fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 },
   posItemValue: { fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.display, marginTop: 2 },
 
   // Filter
-  filterLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5, marginBottom: 4 },
+  filterLabel: { fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5, marginBottom: 4 },
   filterInput: {
     backgroundColor: C.surface, borderRadius: SIZE.radiusSm, borderWidth: 1, borderColor: C.border,
     paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, color: C.text, fontFamily: F.mono,
@@ -767,6 +768,6 @@ var styles = StyleSheet.create({
   // Indicators grid
   indGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
   indItem: { width: '48%', backgroundColor: C.surface, borderRadius: SIZE.radiusSm, padding: 10, borderWidth: 1, borderColor: C.border },
-  indLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 },
+  indLabel: { fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 },
   indValue: { fontSize: 14, fontWeight: '700', fontFamily: F.display, marginTop: 2 },
 });

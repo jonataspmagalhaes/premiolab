@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, RefreshControl,
   TouchableOpacity, Alert, Modal, ActivityIndicator,
+  LayoutAnimation, Platform, UIManager,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
@@ -11,6 +12,10 @@ import { runDividendSync } from '../../services/dividendService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import * as Haptics from 'expo-haptics';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 var TIPO_LABELS = {
   dividendo: 'Dividendo',
@@ -132,6 +137,7 @@ export default function ProventosScreen(props) {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             var result = await deleteProvento(id);
             if (!result.error) {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
               setItems(items.filter(function(i) { return i.id !== id; }));
             } else {
               Alert.alert('Erro', 'Falha ao excluir.');
@@ -217,7 +223,7 @@ export default function ProventosScreen(props) {
                 </Text>
               </TouchableOpacity>
               {lastSync ? (
-                <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>
+                <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>
                   {(function() { var p = (lastSync || '').split('-'); return p.length >= 3 ? p[2] + '/' + p[1] + '/' + p[0] : lastSync; })()}
                 </Text>
               ) : null}

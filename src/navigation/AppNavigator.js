@@ -40,11 +40,11 @@ import AddMovimentacaoScreen from '../screens/gestao/AddMovimentacaoScreen';
 import ExtratoScreen from '../screens/gestao/ExtratoScreen';
 import AddContaScreen from '../screens/gestao/AddContaScreen';
 
-// SafeArea HOC — protege telas stack contra notch/camera/relogio
+// SafeArea HOC — protege telas stack contra notch/camera/relogio/home indicator
 function withSafeArea(Screen) {
   function SafeScreen(props) {
     return (
-      <SafeAreaView style={safeStyle} edges={['top']}>
+      <SafeAreaView style={safeStyle} edges={['top', 'bottom']}>
         <Screen navigation={props.navigation} route={props.route} />
       </SafeAreaView>
     );

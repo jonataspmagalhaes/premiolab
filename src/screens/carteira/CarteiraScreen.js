@@ -843,7 +843,7 @@ var styles = StyleSheet.create({
   heroPL: { fontSize: 18, fontWeight: '700', fontFamily: F.mono, marginTop: 2 },
   heroPLSub: { fontSize: 11, fontFamily: F.mono, marginTop: 1 },
   heroStats: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border },
-  heroStatLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 },
+  heroStatLabel: { fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 },
   heroStatVal: { fontSize: 13, fontWeight: '700', fontFamily: F.mono, marginTop: 1 },
 
   // Section
@@ -867,7 +867,7 @@ var styles = StyleSheet.create({
   cardTicker: { fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.display },
   typeBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   typeBadgeText: { fontSize: 10, fontWeight: '600', fontFamily: F.mono },
-  cardCorretora: { fontSize: 9, color: C.dim, fontFamily: F.mono },
+  cardCorretora: { fontSize: 10, color: C.dim, fontFamily: F.mono },
   cardPL: { fontSize: 13, fontWeight: '700', fontFamily: F.mono },
   cardPLPct: { fontSize: 11, fontFamily: F.mono, marginTop: 1 },
   cardPriceMain: { fontSize: 13, color: C.text, fontWeight: '600', fontFamily: F.mono },
@@ -879,7 +879,7 @@ var styles = StyleSheet.create({
   expandedWrap: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border },
   expandedStats: { flexDirection: 'row', justifyContent: 'space-between' },
   expandedStatItem: { alignItems: 'center', flex: 1 },
-  expandedStatLabel: { fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 },
+  expandedStatLabel: { fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 },
   expandedStatValue: { fontSize: 12, color: C.sub, fontWeight: '600', fontFamily: F.mono, marginTop: 2 },
   expandedActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
   actionBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, alignItems: 'center' },

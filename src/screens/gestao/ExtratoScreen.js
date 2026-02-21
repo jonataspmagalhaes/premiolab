@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, FlatList, StyleSheet, RefreshControl,
-  TouchableOpacity, Alert,
+  TouchableOpacity, Alert, LayoutAnimation, Platform, UIManager,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
@@ -10,6 +10,10 @@ import { getSaldos, getMovimentacoes, deleteMovimentacao, upsertSaldo } from '..
 import { Glass, Pill, Badge, SectionLabel } from '../../components';
 import { LoadingScreen } from '../../components/States';
 import * as Haptics from 'expo-haptics';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -162,8 +166,9 @@ export default function ExtratoScreen(props) {
                   corretora: conta,
                   saldo: Math.max(0, saldoNovo),
                   moeda: saldoAtual.moeda || 'BRL',
-                }).then(function() { load(); });
+                }).then(function() { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); load(); });
               } else {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                 setMovs(movs.filter(function(x) { return x.id !== mov.id; }));
               }
             });
@@ -351,5 +356,5 @@ var styles = StyleSheet.create({
   movDesc: { fontSize: 12, fontWeight: '600', color: C.text, fontFamily: F.body },
   movDate: { fontSize: 10, color: C.dim, fontFamily: F.mono },
   movVal: { fontSize: 13, fontWeight: '700', fontFamily: F.mono },
-  movSaldoApos: { fontSize: 9, color: C.dim, fontFamily: F.mono, marginTop: 1 },
+  movSaldoApos: { fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 1 },
 });

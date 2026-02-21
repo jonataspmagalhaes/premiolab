@@ -156,7 +156,7 @@ export default function HistoricoScreen(props) {
             ].map(function(d, i) {
               return (
                 <View key={i} style={{ alignItems: 'center' }}>
-                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{d.l}</Text>
+                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{d.l}</Text>
                   <Text style={{ fontSize: 18, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }}>{d.v}</Text>
                 </View>
               );

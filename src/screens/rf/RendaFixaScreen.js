@@ -1,7 +1,8 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, Alert, Modal,
+  TouchableOpacity, Alert, Modal, LayoutAnimation,
+  Platform, UIManager,
 } from 'react-native';
 
 import { useFocusEffect } from '@react-navigation/native';
@@ -12,6 +13,10 @@ import { supabase } from '../../config/supabase';
 import { Glass, Badge, SectionLabel } from '../../components';
 import * as Haptics from 'expo-haptics';
 import { LoadingScreen, EmptyState } from '../../components/States';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 var TIPO_LABELS = {
   cdb: 'CDB',
@@ -87,6 +92,7 @@ export default function RendaFixaScreen(props) {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             var result = await supabase.from('renda_fixa').delete().eq('id', id);
             if (!result.error) {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
               setItems(items.filter(function(i) { return i.id !== id; }));
             } else {
               Alert.alert('Erro', 'Falha ao excluir.');
