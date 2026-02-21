@@ -73,6 +73,15 @@ export default function EditOpcaoScreen(props) {
   var dataAberturaValid = dataAbertura.length === 0 || (dataAbertura.length === 10 && isValidDate(dataAbertura));
   var canSubmit = ativoBase.length >= 4 && parseFloat(strike) > 0 && prem > 0 && qty > 0 && dateValid && dataAberturaValid && corretora;
 
+  var ativoBaseValid = ativoBase.length >= 4;
+  var ativoBaseError = ativoBase.length > 0 && ativoBase.length < 4;
+  var strikeValid = parseFloat(strike) > 0;
+  var strikeError = strike.length > 0 && parseFloat(strike) <= 0;
+  var premioValid = prem > 0;
+  var premioError = premio.length > 0 && prem <= 0;
+  var qtyValid = qty > 0;
+  var qtyError = quantidade.length > 0 && qty <= 0;
+
   var handleSave = async function() {
     if (!canSubmit) return;
     setLoading(true);
@@ -161,7 +170,9 @@ export default function EditOpcaoScreen(props) {
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>ATIVO BASE *</Text>
-          <TextInput value={ativoBase} onChangeText={function(t) { setAtivoBase(t.toUpperCase()); }} placeholder="Ex: PETR4" placeholderTextColor={C.dim} autoCapitalize="characters" style={styles.input} />
+          <TextInput value={ativoBase} onChangeText={function(t) { setAtivoBase(t.toUpperCase()); }} placeholder="Ex: PETR4" placeholderTextColor={C.dim} autoCapitalize="characters"
+            style={[styles.input, ativoBaseValid && { borderColor: C.green }, ativoBaseError && { borderColor: C.red }]} />
+          {ativoBaseError ? <Text style={styles.fieldError}>Mínimo 4 caracteres</Text> : null}
         </View>
         <View style={{ width: 12 }} />
         <View style={{ flex: 1 }}>
@@ -174,12 +185,16 @@ export default function EditOpcaoScreen(props) {
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>STRIKE (R$) *</Text>
-          <TextInput value={strike} onChangeText={setStrike} placeholder="36.00" placeholderTextColor={C.dim} keyboardType="decimal-pad" style={styles.input} />
+          <TextInput value={strike} onChangeText={setStrike} placeholder="36.00" placeholderTextColor={C.dim} keyboardType="decimal-pad"
+            style={[styles.input, strikeValid && { borderColor: C.green }, strikeError && { borderColor: C.red }]} />
+          {strikeError ? <Text style={styles.fieldError}>Deve ser maior que 0</Text> : null}
         </View>
         <View style={{ width: 12 }} />
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>PRÊMIO (R$) *</Text>
-          <TextInput value={premio} onChangeText={setPremio} placeholder="1.20" placeholderTextColor={C.dim} keyboardType="decimal-pad" style={styles.input} />
+          <TextInput value={premio} onChangeText={setPremio} placeholder="1.20" placeholderTextColor={C.dim} keyboardType="decimal-pad"
+            style={[styles.input, premioValid && { borderColor: C.green }, premioError && { borderColor: C.red }]} />
+          {premioError ? <Text style={styles.fieldError}>Deve ser maior que 0</Text> : null}
         </View>
       </View>
 
@@ -187,7 +202,9 @@ export default function EditOpcaoScreen(props) {
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>QTD OPÇÕES *</Text>
-          <TextInput value={quantidade} onChangeText={setQuantidade} placeholder="100" placeholderTextColor={C.dim} keyboardType="numeric" style={styles.input} />
+          <TextInput value={quantidade} onChangeText={setQuantidade} placeholder="100" placeholderTextColor={C.dim} keyboardType="numeric"
+            style={[styles.input, qtyValid && { borderColor: C.green }, qtyError && { borderColor: C.red }]} />
+          {qtyError ? <Text style={styles.fieldError}>Deve ser maior que 0</Text> : null}
         </View>
       </View>
 
@@ -301,4 +318,5 @@ var styles = StyleSheet.create({
   submitBtn: { backgroundColor: C.opcoes, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8 },
   submitText: { fontSize: 15, fontWeight: '700', color: 'white', fontFamily: F.display },
   dateError: { fontSize: 11, color: C.red, fontFamily: F.mono, marginTop: 2 },
+  fieldError: { fontSize: 11, color: C.red, fontFamily: F.mono, marginTop: 2 },
 });

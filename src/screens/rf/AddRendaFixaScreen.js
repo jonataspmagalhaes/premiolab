@@ -122,6 +122,10 @@ export default function AddRendaFixaScreen(props) {
   }
 
   var vencValido = isValidFutureDate(vencimento);
+  var taxaValid = taxaNum > 0;
+  var taxaError = taxa.length > 0 && taxaNum <= 0;
+  var valorValid = valorNum > 0;
+  var valorError = valorAplicado.length > 0 && valorNum <= 0;
   var canSubmit = tipo && taxaNum > 0 && valorNum > 0 && vencValido && corretora;
 
   var handleSubmit = async function() {
@@ -238,7 +242,10 @@ export default function AddRendaFixaScreen(props) {
                 placeholder={indexador === 'cdi' ? '110' : indexador === 'ipca' ? '6.5' : indexador === 'selic' ? '100' : '14.5'}
                 placeholderTextColor={C.dim}
                 keyboardType="decimal-pad"
-                style={[styles.input, { flex: 1 }]}
+                style={[styles.input, { flex: 1 },
+                  taxaValid && { borderColor: C.green },
+                  taxaError && { borderColor: C.red },
+                ]}
               />
               <Text style={styles.inputSuffix}>
                 {indexador === 'prefixado' ? '% a.a.' : indexador === 'cdi' ? '% CDI' : indexador === 'ipca' ? '% + IPCA' : '% Selic'}
@@ -262,8 +269,12 @@ export default function AddRendaFixaScreen(props) {
               placeholder="0,00"
               placeholderTextColor={C.dim}
               keyboardType="numeric"
-              style={styles.input}
+              style={[styles.input,
+                valorValid && { borderColor: C.green },
+                valorError && { borderColor: C.red },
+              ]}
             />
+            {valorError ? <Text style={styles.error}>Deve ser maior que 0</Text> : null}
           </View>
         </View>
 

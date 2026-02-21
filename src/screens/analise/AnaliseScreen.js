@@ -5527,6 +5527,8 @@ export default function AnaliseScreen() {
   var _catShowAllEnc = useState(false); var catShowAllEnc = _catShowAllEnc[0]; var setCatShowAllEnc = _catShowAllEnc[1];
   var _catPLBarView = useState('mensal'); var catPLBarView = _catPLBarView[0]; var setCatPLBarView = _catPLBarView[1];
   var _catPLBarSelected = useState(-1); var catPLBarSelected = _catPLBarSelected[0]; var setCatPLBarSelected = _catPLBarSelected[1];
+  var _showDrawdown = useState(false); var showDrawdown = _showDrawdown[0]; var setShowDrawdown = _showDrawdown[1];
+  var _showPnlClasse = useState(false); var showPnlClasse = _showPnlClasse[0]; var setShowPnlClasse = _showPnlClasse[1];
 
   // ── Data loading ──
   var load = async function() {
@@ -7465,16 +7467,22 @@ export default function AnaliseScreen() {
                 </Glass>
               )}
 
-              {/* Drawdown Chart */}
+              {/* Drawdown Chart (collapsible) */}
               {drawdownData.length >= 2 && (
                 <>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>DRAWDOWN</Text>
+                  <TouchableOpacity onPress={function() { setShowDrawdown(!showDrawdown); }} activeOpacity={0.7}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: showDrawdown ? 12 : 0 }}>
+                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>
+                      {showDrawdown ? '▾' : '▸'} DRAWDOWN
+                    </Text>
                     <TouchableOpacity onPress={function() { setInfoModal({ title: 'Drawdown', text: 'Maior queda percentual do patrimônio desde o pico histórico. Mede o risco de perdas da carteira. Quanto menor (mais negativo), maior foi a perda máxima no período.' }); }}>
                       <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
                     </TouchableOpacity>
-                  </View>
-                  <Glass padding={12}>
+                    {!showDrawdown && maxDD > 0 ? (
+                      <Text style={{ fontSize: 10, color: C.red, fontFamily: F.mono, marginLeft: 4 }}>Max: -{maxDD.toFixed(1)}%</Text>
+                    ) : null}
+                  </TouchableOpacity>
+                  {showDrawdown && <Glass padding={12}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 10 }}>
                       <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>QUEDA PICO-A-VALE</Text>
                       <View style={{ flex: 1 }} />
@@ -7575,7 +7583,7 @@ export default function AnaliseScreen() {
 
                       return React.createElement(Svg, { width: chartW, height: chartH }, els);
                     })()}
-                  </Glass>
+                  </Glass>}
                 </>
               )}
 
@@ -7702,16 +7710,19 @@ export default function AnaliseScreen() {
                 </>
               )}
 
-              {/* P&L por classe */}
+              {/* P&L por classe (collapsible) */}
               {pnlClassList.length > 0 && (
                 <>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>P&L POR CLASSE</Text>
+                  <TouchableOpacity onPress={function() { setShowPnlClasse(!showPnlClasse); }} activeOpacity={0.7}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: showPnlClasse ? 12 : 0 }}>
+                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>
+                      {showPnlClasse ? '▾' : '▸'} P&L POR CLASSE
+                    </Text>
                     <TouchableOpacity onPress={function() { setInfoModal({ title: 'P&L por Classe', text: 'Contribuição de cada classe de ativo (Ações, FIIs, ETFs, RF) para o resultado total da carteira em reais.' }); }}>
                       <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
                     </TouchableOpacity>
-                  </View>
-                  <Glass padding={14}>
+                  </TouchableOpacity>
+                  {showPnlClasse && <Glass padding={14}>
                     {pnlClassList.map(function(c, i) {
                       var isPos = c.val >= 0;
                       var barColor = isPos ? C.green : C.red;
@@ -7744,7 +7755,7 @@ export default function AnaliseScreen() {
                         );
                       })()}
                     </View>
-                  </Glass>
+                  </Glass>}
                 </>
               )}
 

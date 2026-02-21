@@ -97,6 +97,11 @@ export default function AddMovimentacaoScreen(props) {
   var valorNum = parseVal();
   var canSubmit = conta && valorNum > 0 && isoDate;
 
+  var valorValid = valorNum > 0;
+  var valorError = valor.length > 0 && valorNum <= 0;
+  var dateValid = isoDate !== null;
+  var dateError = data.length === 10 && isoDate === null;
+
   // Show ticker field for investment categories
   var showTicker = ['compra_ativo', 'venda_ativo', 'premio_opcao', 'recompra_opcao',
     'exercicio_opcao', 'dividendo', 'jcp', 'rendimento_fii'].indexOf(categoria) >= 0;
@@ -214,7 +219,10 @@ export default function AddMovimentacaoScreen(props) {
           placeholder="0,00"
           placeholderTextColor={C.dim}
           keyboardType="numeric"
-          style={[styles.input, { flex: 1 }]}
+          style={[styles.input, { flex: 1 },
+            valorValid && { borderColor: C.green },
+            valorError && { borderColor: C.red },
+          ]}
         />
       </View>
 
@@ -252,8 +260,12 @@ export default function AddMovimentacaoScreen(props) {
         placeholderTextColor={C.dim}
         keyboardType="numeric"
         maxLength={10}
-        style={styles.input}
+        style={[styles.input,
+          dateValid && { borderColor: C.green },
+          dateError && { borderColor: C.red },
+        ]}
       />
+      {dateError ? <Text style={styles.fieldError}>Data inválida</Text> : null}
 
       {/* Resumo */}
       {valorNum > 0 ? (
@@ -307,4 +319,5 @@ var styles = StyleSheet.create({
   resumoSmall: { fontSize: 12, fontWeight: '600', color: C.text, fontFamily: F.mono },
   submitBtn: { backgroundColor: C.green, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8 },
   submitText: { fontSize: 15, fontWeight: '700', color: 'white', fontFamily: F.display },
+  fieldError: { fontSize: 11, color: C.red, fontFamily: F.mono, marginTop: 2 },
 });

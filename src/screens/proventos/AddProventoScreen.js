@@ -88,6 +88,13 @@ export default function AddProventoScreen(props) {
 
   var canSubmit = ticker.length >= 4 && valorNum > 0 && isValidDate(data);
 
+  var tickerValid = ticker.length >= 4;
+  var tickerError = ticker.length > 0 && ticker.length < 4;
+  var valorValid = valorNum > 0;
+  var valorError = valor.length > 0 && valorNum <= 0;
+  var dateValid = data.length === 10 && isValidDate(data);
+  var dateError = data.length === 10 && !isValidDate(data);
+
   var tipoLabel = TIPOS.filter(function(t) { return t.key === tipo; })[0];
 
   var handleSubmit = async function() {
@@ -167,8 +174,12 @@ export default function AddProventoScreen(props) {
         placeholder="Ex: PETR4"
         placeholderTextColor={C.dim}
         autoCapitalize="characters"
-        style={styles.input}
+        style={[styles.input,
+          tickerValid && { borderColor: C.green },
+          tickerError && { borderColor: C.red },
+        ]}
       />
+      {tickerError ? <Text style={styles.fieldError}>Mínimo 4 caracteres</Text> : null}
 
       {/* Valor + Qtd */}
       <View style={styles.row}>
@@ -180,8 +191,12 @@ export default function AddProventoScreen(props) {
             placeholder="150.00"
             placeholderTextColor={C.dim}
             keyboardType="decimal-pad"
-            style={styles.input}
+            style={[styles.input,
+              valorValid && { borderColor: C.green },
+              valorError && { borderColor: C.red },
+            ]}
           />
+          {valorError ? <Text style={styles.fieldError}>Deve ser maior que 0</Text> : null}
         </View>
         <View style={{ width: 12 }} />
         <View style={{ flex: 1 }}>
@@ -216,8 +231,12 @@ export default function AddProventoScreen(props) {
         placeholderTextColor={C.dim}
         keyboardType="numeric"
         maxLength={10}
-        style={styles.input}
+        style={[styles.input,
+          dateValid && { borderColor: C.green },
+          dateError && { borderColor: C.red },
+        ]}
       />
+      {dateError ? <Text style={styles.fieldError}>Data inválida</Text> : null}
 
       {/* Corretora */}
       <Text style={styles.label}>CORRETORA</Text>
@@ -286,4 +305,5 @@ var styles = StyleSheet.create({
   infoValue: { fontSize: 16, fontWeight: '700', color: C.text, fontFamily: F.display },
   submitBtn: { backgroundColor: C.fiis, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8 },
   submitText: { fontSize: 15, fontWeight: '700', color: 'white', fontFamily: F.display },
+  fieldError: { fontSize: 11, color: C.red, fontFamily: F.mono, marginTop: 2 },
 });

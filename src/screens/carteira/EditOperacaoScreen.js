@@ -77,6 +77,15 @@ export default function EditOperacaoScreen(props) {
 
   var canSubmit = ticker.length >= 4 && qty > 0 && prc > 0 && corretora && data.length === 10;
 
+  var tickerValid = ticker.length >= 4;
+  var tickerError = ticker.length > 0 && ticker.length < 4;
+  var qtyValid = qty > 0;
+  var qtyError = quantidade.length > 0 && qty <= 0;
+  var prcValid = prc > 0;
+  var prcError = preco.length > 0 && prc <= 0;
+  var dateValid = data.length === 10 && brToIso(data) !== null;
+  var dateError = data.length === 10 && brToIso(data) === null;
+
   var handleSave = async function() {
     if (!canSubmit) return;
     setLoading(true);
@@ -157,19 +166,33 @@ export default function EditOperacaoScreen(props) {
         placeholder="Ex: PETR4"
         placeholderTextColor={C.dim}
         autoCapitalize="characters"
-        style={styles.input}
+        style={[styles.input,
+          tickerValid && { borderColor: C.green },
+          tickerError && { borderColor: C.red },
+        ]}
       />
+      {tickerError ? <Text style={styles.fieldError}>Mínimo 4 caracteres</Text> : null}
 
       {/* Qtd + Preço */}
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>QUANTIDADE</Text>
-          <TextInput value={quantidade} onChangeText={setQuantidade} placeholder="100" placeholderTextColor={C.dim} keyboardType="numeric" style={styles.input} />
+          <TextInput value={quantidade} onChangeText={setQuantidade} placeholder="100" placeholderTextColor={C.dim} keyboardType="numeric"
+            style={[styles.input,
+              qtyValid && { borderColor: C.green },
+              qtyError && { borderColor: C.red },
+            ]} />
+          {qtyError ? <Text style={styles.fieldError}>Deve ser maior que 0</Text> : null}
         </View>
         <View style={{ width: 12 }} />
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>PREÇO (R$)</Text>
-          <TextInput value={preco} onChangeText={setPreco} placeholder="34.50" placeholderTextColor={C.dim} keyboardType="decimal-pad" style={styles.input} />
+          <TextInput value={preco} onChangeText={setPreco} placeholder="34.50" placeholderTextColor={C.dim} keyboardType="decimal-pad"
+            style={[styles.input,
+              prcValid && { borderColor: C.green },
+              prcError && { borderColor: C.red },
+            ]} />
+          {prcError ? <Text style={styles.fieldError}>Deve ser maior que 0</Text> : null}
         </View>
       </View>
 
@@ -182,8 +205,12 @@ export default function EditOperacaoScreen(props) {
         placeholderTextColor={C.dim}
         keyboardType="numeric"
         maxLength={10}
-        style={styles.input}
+        style={[styles.input,
+          dateValid && { borderColor: C.green },
+          dateError && { borderColor: C.red },
+        ]}
       />
+      {dateError ? <Text style={styles.fieldError}>Data inválida</Text> : null}
 
       {/* Custos */}
       <TouchableOpacity onPress={function() { setShowCustos(!showCustos); }} style={styles.custoToggle}>
@@ -301,4 +328,5 @@ var styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: C.border, marginVertical: 6 },
   submitBtn: { backgroundColor: C.accent, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8 },
   submitText: { fontSize: 15, fontWeight: '700', color: 'white', fontFamily: F.display },
+  fieldError: { fontSize: 11, color: C.red, fontFamily: F.mono, marginTop: 2 },
 });

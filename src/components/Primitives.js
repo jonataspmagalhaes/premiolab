@@ -30,7 +30,7 @@ export function Pill(props) {
           : { backgroundColor: C.surface, borderColor: C.border },
       ]}
     >
-      <Text style={[styles.pillText, { color: active ? color : C.textSecondary }]}>
+      <Text style={[styles.pillText, { color: active ? color : C.textSecondary, fontWeight: active ? '700' : '500' }]}>
         {children}
       </Text>
     </TouchableOpacity>

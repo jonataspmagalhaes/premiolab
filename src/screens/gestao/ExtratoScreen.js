@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, RefreshControl,
+  View, Text, ScrollView, FlatList, StyleSheet, RefreshControl,
   TouchableOpacity, Alert,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -180,137 +180,148 @@ export default function ExtratoScreen(props) {
     if (cn && contaNames.indexOf(cn) === -1) contaNames.push(cn);
   }
 
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />}>
-
-      <View style={styles.header}>
-        <TouchableOpacity onPress={function() { navigation.goBack(); }}>
-          <Text style={styles.back}>‹</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Extrato</Text>
-        <View style={{ width: 32 }} />
-      </View>
-
-      {/* Resumo top */}
-      <Glass padding={12}>
-        <View style={styles.resumoRow}>
-          <View style={{ alignItems: 'center', flex: 1 }}>
-            <Text style={styles.resumoLabel}>Entradas</Text>
-            <Text style={[styles.resumoVal, { color: C.green }]}>+R$ {fmt(totalEntradas)}</Text>
-          </View>
-          <View style={{ width: 1, height: 30, backgroundColor: C.border }} />
-          <View style={{ alignItems: 'center', flex: 1 }}>
-            <Text style={styles.resumoLabel}>Saídas</Text>
-            <Text style={[styles.resumoVal, { color: C.red }]}>-R$ {fmt(totalSaidas)}</Text>
-          </View>
-          <View style={{ width: 1, height: 30, backgroundColor: C.border }} />
-          <View style={{ alignItems: 'center', flex: 1 }}>
-            <Text style={styles.resumoLabel}>Saldo</Text>
-            <Text style={[styles.resumoVal, { color: (totalEntradas - totalSaidas) >= 0 ? C.green : C.red }]}>
-              R$ {fmt(totalEntradas - totalSaidas)}
-            </Text>
-          </View>
+  var renderHeader = function() {
+    return (
+      <View style={{ gap: SIZE.gap }}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={function() { navigation.goBack(); }}>
+            <Text style={styles.back}>‹</Text>
+          </TouchableOpacity>
+          <Text style={styles.title}>Extrato</Text>
+          <View style={{ width: 32 }} />
         </View>
-      </Glass>
 
-      {/* Period filter */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 6, paddingBottom: 2 }}>
-        {PERIODOS.map(function(p) {
-          return (
-            <Pill key={p.k} active={periodo === p.k} color={C.accent}
-              onPress={function() { setPeriodo(p.k); }}>
-              {p.l}
-            </Pill>
-          );
-        })}
-      </ScrollView>
+        <Glass padding={12}>
+          <View style={styles.resumoRow}>
+            <View style={{ alignItems: 'center', flex: 1 }}>
+              <Text style={styles.resumoLabel}>Entradas</Text>
+              <Text style={[styles.resumoVal, { color: C.green }]}>+R$ {fmt(totalEntradas)}</Text>
+            </View>
+            <View style={{ width: 1, height: 30, backgroundColor: C.border }} />
+            <View style={{ alignItems: 'center', flex: 1 }}>
+              <Text style={styles.resumoLabel}>Saídas</Text>
+              <Text style={[styles.resumoVal, { color: C.red }]}>-R$ {fmt(totalSaidas)}</Text>
+            </View>
+            <View style={{ width: 1, height: 30, backgroundColor: C.border }} />
+            <View style={{ alignItems: 'center', flex: 1 }}>
+              <Text style={styles.resumoLabel}>Saldo</Text>
+              <Text style={[styles.resumoVal, { color: (totalEntradas - totalSaidas) >= 0 ? C.green : C.red }]}>
+                R$ {fmt(totalEntradas - totalSaidas)}
+              </Text>
+            </View>
+          </View>
+        </Glass>
 
-      {/* Conta filter */}
-      {contaNames.length > 2 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ gap: 6, paddingBottom: 2 }}>
-          {contaNames.map(function(cn) {
+          {PERIODOS.map(function(p) {
             return (
-              <Pill key={cn} active={contaFilter === cn} color={C.fiis}
-                onPress={function() { setContaFilter(cn); }}>
-                {cn === 'todos' ? 'Todas' : cn}
+              <Pill key={p.k} active={periodo === p.k} color={C.accent}
+                onPress={function() { setPeriodo(p.k); }}>
+                {p.l}
               </Pill>
             );
           })}
         </ScrollView>
-      ) : null}
 
-      {/* Grouped list */}
-      {monthKeys.length === 0 ? (
-        <Glass padding={16}>
-          <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
-            Nenhuma movimentação no período
-          </Text>
-        </Glass>
-      ) : monthKeys.map(function(mk) {
-        var group = grouped[mk];
-        var saldoMes = group.entradas - group.saidas;
-        return (
-          <View key={mk}>
-            {/* Month header */}
-            <View style={styles.monthHeader}>
-              <Text style={styles.monthLabel}>{formatMonthLabel(mk)}</Text>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <Text style={[styles.monthSub, { color: C.green }]}>+{fmt(group.entradas)}</Text>
-                <Text style={[styles.monthSub, { color: C.red }]}>-{fmt(group.saidas)}</Text>
-                <Text style={[styles.monthSub, { color: saldoMes >= 0 ? C.green : C.red, fontWeight: '700' }]}>
-                  = {fmt(saldoMes)}
-                </Text>
-              </View>
-            </View>
-            <Glass padding={0}>
-              {group.movs.map(function(mov, mi) {
-                var isEntrada = mov.tipo === 'entrada';
-                var isTransf = mov.tipo === 'transferencia' || mov.categoria === 'transferencia';
-                var movColor = isEntrada ? C.green : isTransf ? C.accent : C.red;
-                var movIcon = isEntrada ? '↓' : isTransf ? '→' : '↑';
-                var isAuto = AUTO_CATEGORIAS.indexOf(mov.categoria) >= 0;
+        {contaNames.length > 2 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 6, paddingBottom: 2 }}>
+            {contaNames.map(function(cn) {
+              return (
+                <Pill key={cn} active={contaFilter === cn} color={C.fiis}
+                  onPress={function() { setContaFilter(cn); }}>
+                  {cn === 'todos' ? 'Todas' : cn}
+                </Pill>
+              );
+            })}
+          </ScrollView>
+        ) : null}
 
-                return (
-                  <TouchableOpacity key={mov.id || mi}
-                    onLongPress={function() { handleDelete(mov); }}
-                    activeOpacity={0.8}
-                    style={[styles.movRow, mi > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
-                    <View style={[styles.movIconWrap, { backgroundColor: movColor + '12' }]}>
-                      <Text style={[styles.movIconText, { color: movColor }]}>{movIcon}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.movDesc} numberOfLines={1}>
-                        {mov.descricao || CAT_LABELS[mov.categoria] || mov.categoria}
-                      </Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={styles.movDate}>{formatDate(mov.data)}</Text>
-                        <Badge text={mov.conta} color={C.dim} />
-                        {mov.ticker ? <Badge text={mov.ticker} color={C.acoes} /> : null}
-                        {isAuto ? <Badge text="auto" color={C.accent} /> : null}
-                      </View>
-                    </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={[styles.movVal, { color: movColor }]}>
-                        {isEntrada ? '+' : '-'}R$ {fmt(mov.valor)}
-                      </Text>
-                      {mov.saldo_apos != null ? (
-                        <Text style={styles.movSaldoApos}>Saldo: R$ {fmt(mov.saldo_apos)}</Text>
-                      ) : null}
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </Glass>
+        {monthKeys.length === 0 ? (
+          <Glass padding={16}>
+            <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
+              Nenhuma movimentação no período
+            </Text>
+          </Glass>
+        ) : null}
+      </View>
+    );
+  };
+
+  var renderMonthGroup = function(info) {
+    var mk = info.item;
+    var group = grouped[mk];
+    var saldoMes = group.entradas - group.saidas;
+    return (
+      <View>
+        <View style={styles.monthHeader}>
+          <Text style={styles.monthLabel}>{formatMonthLabel(mk)}</Text>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <Text style={[styles.monthSub, { color: C.green }]}>+{fmt(group.entradas)}</Text>
+            <Text style={[styles.monthSub, { color: C.red }]}>-{fmt(group.saidas)}</Text>
+            <Text style={[styles.monthSub, { color: saldoMes >= 0 ? C.green : C.red, fontWeight: '700' }]}>
+              = {fmt(saldoMes)}
+            </Text>
           </View>
-        );
-      })}
+        </View>
+        <Glass padding={0}>
+          {group.movs.map(function(mov, mi) {
+            var isEntrada = mov.tipo === 'entrada';
+            var isTransf = mov.tipo === 'transferencia' || mov.categoria === 'transferencia';
+            var movColor = isEntrada ? C.green : isTransf ? C.accent : C.red;
+            var movIcon = isEntrada ? '↓' : isTransf ? '→' : '↑';
+            var isAuto = AUTO_CATEGORIAS.indexOf(mov.categoria) >= 0;
 
-      <View style={{ height: SIZE.tabBarHeight + 20 }} />
-    </ScrollView>
+            return (
+              <TouchableOpacity key={mov.id || mi}
+                onLongPress={function() { handleDelete(mov); }}
+                activeOpacity={0.8}
+                style={[styles.movRow, mi > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+                <View style={[styles.movIconWrap, { backgroundColor: movColor + '12' }]}>
+                  <Text style={[styles.movIconText, { color: movColor }]}>{movIcon}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.movDesc} numberOfLines={1}>
+                    {mov.descricao || CAT_LABELS[mov.categoria] || mov.categoria}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={styles.movDate}>{formatDate(mov.data)}</Text>
+                    <Badge text={mov.conta} color={C.dim} />
+                    {mov.ticker ? <Badge text={mov.ticker} color={C.acoes} /> : null}
+                    {isAuto ? <Badge text="auto" color={C.accent} /> : null}
+                  </View>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={[styles.movVal, { color: movColor }]}>
+                    {isEntrada ? '+' : '-'}R$ {fmt(mov.valor)}
+                  </Text>
+                  {mov.saldo_apos != null ? (
+                    <Text style={styles.movSaldoApos}>Saldo: R$ {fmt(mov.saldo_apos)}</Text>
+                  ) : null}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </Glass>
+      </View>
+    );
+  };
+
+  var monthKeyExtractor = function(item) { return item; };
+
+  return (
+    <FlatList
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+      data={monthKeys}
+      keyExtractor={monthKeyExtractor}
+      renderItem={renderMonthGroup}
+      ListHeaderComponent={renderHeader}
+      ListFooterComponent={<View style={{ height: SIZE.tabBarHeight + 20 }} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />}
+    />
   );
 }
 

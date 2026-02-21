@@ -51,6 +51,8 @@ export default function AddContaScreen(props) {
   }
 
   var canSubmit = nome.trim().length >= 2;
+  var nomeValid = nome.trim().length >= 2;
+  var nomeError = nome.length > 0 && nome.trim().length < 2;
 
   var handleSubmit = async function() {
     if (!canSubmit || submitted) return;
@@ -117,8 +119,12 @@ export default function AddContaScreen(props) {
         onChangeText={setNome}
         placeholder="Ex: Clear, Nubank..."
         placeholderTextColor={C.dim}
-        style={styles.input}
+        style={[styles.input,
+          nomeValid && { borderColor: C.green },
+          nomeError && { borderColor: C.red },
+        ]}
       />
+      {nomeError ? <Text style={styles.fieldError}>Mínimo 2 caracteres</Text> : null}
 
       {/* Sugestões */}
       <Text style={styles.label}>SUGESTÕES</Text>
@@ -208,4 +214,5 @@ var styles = StyleSheet.create({
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   submitBtn: { backgroundColor: C.accent, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8 },
   submitText: { fontSize: 15, fontWeight: '700', color: 'white', fontFamily: F.display },
+  fieldError: { fontSize: 11, color: C.red, fontFamily: F.mono, marginTop: 2 },
 });

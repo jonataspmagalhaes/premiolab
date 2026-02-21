@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity,
+  View, Text, FlatList, StyleSheet, TouchableOpacity,
   RefreshControl,
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
@@ -25,9 +25,11 @@ export default function HistoricoScreen(props) {
   var _operacoes = useState([]); var operacoes = _operacoes[0]; var setOperacoes = _operacoes[1];
   var _opcoes = useState([]); var opcoes = _opcoes[0]; var setOpcoes = _opcoes[1];
   var _proventos = useState([]); var proventos = _proventos[0]; var setProventos = _proventos[1];
+  var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
 
   var load = async function() {
     if (!user) return;
+    setLoadError(false);
     try {
       var results = await Promise.all([
         getOperacoes(user.id),
@@ -39,6 +41,7 @@ export default function HistoricoScreen(props) {
       setProventos(results[2].data || []);
     } catch (e) {
       console.warn('HistoricoScreen load error:', e);
+      setLoadError(true);
     }
     setLoading(false);
   };
@@ -116,114 +119,135 @@ export default function HistoricoScreen(props) {
 
   var MONTH_LABELS = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
+  var sortedMonthKeys = Object.keys(grouped).sort(function(a, b) { return b.localeCompare(a); });
+
   if (loading) return <LoadingScreen />;
 
+  if (loadError) return (
+    <View style={styles.container}>
+      <EmptyState
+        icon="!"
+        title="Erro ao carregar"
+        description="Não foi possível carregar o histórico. Verifique sua conexão e tente novamente."
+        cta="Tentar novamente"
+        onCta={function() { setLoading(true); load(); }}
+        color={C.red}
+      />
+    </View>
+  );
+
+  var renderHeader = function() {
+    return (
+      <View style={{ gap: SIZE.gap }}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={function() { navigation.goBack(); }}>
+            <Text style={styles.back}>‹</Text>
+          </TouchableOpacity>
+          <Text style={styles.title}>Histórico</Text>
+          <View style={{ width: 32 }} />
+        </View>
+
+        <Glass glow={C.accent} padding={14}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+            {[
+              { l: 'OPERAÇÕES', v: String(operacoes.length), c: C.acoes },
+              { l: 'OPÇÕES', v: String(opcoes.length), c: C.opcoes },
+              { l: 'PROVENTOS', v: String(proventos.length), c: C.fiis },
+            ].map(function(d, i) {
+              return (
+                <View key={i} style={{ alignItems: 'center' }}>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{d.l}</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }}>{d.v}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </Glass>
+
+        <View style={{ flexDirection: 'row', gap: 5 }}>
+          {[
+            { k: 'todos', l: 'Todos (' + timeline.length + ')' },
+            { k: 'operacoes', l: 'Operações' },
+            { k: 'opcoes', l: 'Opções' },
+            { k: 'proventos', l: 'Proventos' },
+          ].map(function(f) {
+            return (
+              <Pill key={f.k} active={filter === f.k} color={C.accent}
+                onPress={function() { setFilter(f.k); }}>
+                {f.l}
+              </Pill>
+            );
+          })}
+        </View>
+
+        {filtered.length === 0 ? (
+          <EmptyState
+            icon="\u2630"
+            title="Sem registros"
+            description="Adicione operações, opções ou proventos para ver o histórico"
+            color={C.accent}
+          />
+        ) : null}
+      </View>
+    );
+  };
+
+  var renderMonthGroup = function(info) {
+    var monthKey = info.item;
+    var items = grouped[monthKey];
+    var parts = monthKey.split('-');
+    var label = parts.length === 2
+      ? MONTH_LABELS[parseInt(parts[1])] + '/' + parts[0]
+      : monthKey;
+    return (
+      <Glass padding={0}>
+        <View style={styles.monthHeader}>
+          <Text style={styles.monthLabel}>{label}</Text>
+          <Badge text={items.length + ' reg.'} color={C.dim} />
+        </View>
+        {items.map(function(item, i) {
+          return (
+            <View key={i} style={[styles.itemRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                <View style={{ width: 3, height: 24, borderRadius: 2, backgroundColor: item.catColor }} />
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={styles.itemTicker}>{item.ticker}</Text>
+                    <Badge text={item.type} color={item.color} />
+                  </View>
+                  <Text style={styles.itemDetail}>{item.detail}</Text>
+                </View>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={[styles.itemValue, { color: item.color }]}>
+                  R$ {fmt(item.value)}
+                </Text>
+                <Text style={styles.itemDate}>{item.date.substring(8, 10) || ''}</Text>
+              </View>
+            </View>
+          );
+        })}
+      </Glass>
+    );
+  };
+
+  var monthKeyExtractor = function(item) { return item; };
+
   return (
-    <ScrollView
+    <FlatList
       style={styles.container}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
+      data={sortedMonthKeys}
+      keyExtractor={monthKeyExtractor}
+      renderItem={renderMonthGroup}
+      ListHeaderComponent={renderHeader}
+      ListFooterComponent={<View style={{ height: 40 }} />}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
           tintColor={C.accent} colors={[C.accent]} />
       }
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={function() { navigation.goBack(); }}>
-          <Text style={styles.back}>‹</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Histórico</Text>
-        <View style={{ width: 32 }} />
-      </View>
-
-      {/* Stats */}
-      <Glass glow={C.accent} padding={14}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-          {[
-            { l: 'OPERAÇÕES', v: String(operacoes.length), c: C.acoes },
-            { l: 'OPÇÕES', v: String(opcoes.length), c: C.opcoes },
-            { l: 'PROVENTOS', v: String(proventos.length), c: C.fiis },
-          ].map(function(d, i) {
-            return (
-              <View key={i} style={{ alignItems: 'center' }}>
-                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{d.l}</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }}>{d.v}</Text>
-              </View>
-            );
-          })}
-        </View>
-      </Glass>
-
-      {/* Filters */}
-      <View style={{ flexDirection: 'row', gap: 5 }}>
-        {[
-          { k: 'todos', l: 'Todos (' + timeline.length + ')' },
-          { k: 'operacoes', l: 'Operações' },
-          { k: 'opcoes', l: 'Opções' },
-          { k: 'proventos', l: 'Proventos' },
-        ].map(function(f) {
-          return (
-            <Pill key={f.k} active={filter === f.k} color={C.accent}
-              onPress={function() { setFilter(f.k); }}>
-              {f.l}
-            </Pill>
-          );
-        })}
-      </View>
-
-      {/* Timeline */}
-      {filtered.length === 0 ? (
-        <EmptyState
-          icon="\u2630"
-          title="Sem registros"
-          description="Adicione operações, opções ou proventos para ver o histórico"
-          color={C.accent}
-        />
-      ) : (
-        Object.keys(grouped)
-          .sort(function(a, b) { return b.localeCompare(a); })
-          .map(function(monthKey) {
-            var items = grouped[monthKey];
-            var parts = monthKey.split('-');
-            var label = parts.length === 2
-              ? MONTH_LABELS[parseInt(parts[1])] + '/' + parts[0]
-              : monthKey;
-            return (
-              <Glass key={monthKey} padding={0}>
-                <View style={styles.monthHeader}>
-                  <Text style={styles.monthLabel}>{label}</Text>
-                  <Badge text={items.length + ' reg.'} color={C.dim} />
-                </View>
-                {items.map(function(item, i) {
-                  return (
-                    <View key={i} style={[styles.itemRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                        <View style={{ width: 3, height: 24, borderRadius: 2, backgroundColor: item.catColor }} />
-                        <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                            <Text style={styles.itemTicker}>{item.ticker}</Text>
-                            <Badge text={item.type} color={item.color} />
-                          </View>
-                          <Text style={styles.itemDetail}>{item.detail}</Text>
-                        </View>
-                      </View>
-                      <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={[styles.itemValue, { color: item.color }]}>
-                          R$ {fmt(item.value)}
-                        </Text>
-                        <Text style={styles.itemDate}>{item.date.substring(8, 10) || ''}</Text>
-                      </View>
-                    </View>
-                  );
-                })}
-              </Glass>
-            );
-          })
-      )}
-
-      <View style={{ height: 40 }} />
-    </ScrollView>
+    />
   );
 }
 

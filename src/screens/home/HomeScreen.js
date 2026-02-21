@@ -558,9 +558,11 @@ export default function HomeScreen({ navigation }) {
   var [chartPeriod, setChartPeriod] = useState('ALL');
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
   var _alertsExpanded = useState(false); var alertsExpanded = _alertsExpanded[0]; var setAlertsExpanded = _alertsExpanded[1];
+  var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
 
   var load = async function () {
     if (!user) return;
+    setLoadError(false);
 
     // Sync dividendos ANTES do dashboard para numeros atualizados
     try {
@@ -574,8 +576,13 @@ export default function HomeScreen({ navigation }) {
       console.warn('Home dividend sync failed:', e);
     }
 
-    var result = await getDashboard(user.id);
-    setData(result);
+    try {
+      var result = await getDashboard(user.id);
+      setData(result);
+    } catch (e) {
+      console.warn('Home dashboard load failed:', e);
+      setLoadError(true);
+    }
     setLoading(false);
 
     // Save patrimonio snapshot (real market value) for chart history
@@ -610,6 +617,19 @@ export default function HomeScreen({ navigation }) {
   };
 
   if (loading) return <View style={st.container}><LoadingScreen /></View>;
+
+  if (loadError) return (
+    <View style={st.container}>
+      <EmptyState
+        icon="!"
+        title="Erro ao carregar"
+        description="Não foi possível carregar o dashboard. Verifique sua conexão e tente novamente."
+        cta="Tentar novamente"
+        onCta={function() { setLoading(true); load(); }}
+        color={C.red}
+      />
+    </View>
+  );
 
   if (!data || data.patrimonio === 0) {
     return (
