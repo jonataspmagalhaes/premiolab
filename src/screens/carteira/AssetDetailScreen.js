@@ -10,6 +10,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getOperacoes, getProventos, deleteOperacao, getIndicatorByTicker } from '../../services/database';
 import { fetchPrices, fetchPriceHistory, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
+import * as Haptics from 'expo-haptics';
 import InteractiveChart from '../../components/InteractiveChart';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -194,15 +195,21 @@ export default function AssetDetailScreen(props) {
   };
 
   var handleDelete = function(id, idx) {
+    var txn = null;
+    for (var di = 0; di < txns.length; di++) { if (txns[di].id === id) { txn = txns[di]; break; } }
+    var detailMsg = txn
+      ? (txn.tipo === 'compra' ? 'Compra' : 'Venda') + ' ' + (txn.quantidade || '') + 'x R$ ' + fmt(txn.preco || 0) + '\n\nEssa ação não pode ser desfeita.'
+      : 'Essa ação não pode ser desfeita.';
     Alert.alert(
       'Excluir operação?',
-      'Essa ação não pode ser desfeita.',
+      detailMsg,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Excluir',
           style: 'destructive',
           onPress: async function() {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             var result = await deleteOperacao(id);
             if (!result.error) {
               var updated = txns.filter(function(t) { return t.id !== id; });

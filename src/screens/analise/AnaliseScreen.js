@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, TextInput, LayoutAnimation,
@@ -9,7 +9,7 @@ import Svg, {
   Text as SvgText, Line as SvgLine, Path,
   Defs, LinearGradient as SvgLinearGradient, Stop,
 } from 'react-native-svg';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -5469,6 +5469,9 @@ function RendaPassivaTotalChart(props) {
 export default function AnaliseScreen() {
   var _auth = useAuth(); var user = _auth.user;
 
+  var scrollRef = useRef(null);
+  useScrollToTop(scrollRef);
+
   // State
   var _sub = useState('perf'); var sub = _sub[0]; var setSub = _sub[1];
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
@@ -7178,6 +7181,7 @@ export default function AnaliseScreen() {
       style={{ flex: 1 }}
     >
     <ScrollView
+      ref={scrollRef}
       style={styles.container}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}

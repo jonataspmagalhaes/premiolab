@@ -17,6 +17,7 @@ import {
 import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/currencyService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen } from '../../components/States';
+import * as Haptics from 'expo-haptics';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -417,6 +418,7 @@ export default function CaixaView(props) {
         {
           text: 'Excluir', style: 'destructive',
           onPress: function() {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             setExpanded(null);
             setActMode(null);
             deleteSaldo(s.id).then(function(res) {
@@ -448,6 +450,7 @@ export default function CaixaView(props) {
         {
           text: 'Reconciliar',
           onPress: function() {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             setReconciling(true);
             reconciliarVendasAntigas(user.id).then(function(res) {
               // Recalcular saldos baseado em todas as movimentacoes
@@ -493,6 +496,7 @@ export default function CaixaView(props) {
         {
           text: 'Excluir e reverter', style: 'destructive',
           onPress: function() {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             deleteMovimentacao(mov.id).then(function(res) {
               if (res && res.error) {
                 Alert.alert('Erro', 'Falha ao excluir.');

@@ -8,6 +8,7 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getSaldos, addMovimentacaoComSaldo, buildMovDescricao } from '../../services/database';
 import { Glass, Pill, Badge } from '../../components';
+import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -125,6 +126,7 @@ export default function AddMovimentacaoScreen(props) {
         Alert.alert('Erro', result.error.message || 'Falha ao salvar.');
         setSubmitted(false);
       } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert('Sucesso!', 'Movimentação registrada.', [
           {
             text: 'Adicionar outra',

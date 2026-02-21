@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, RefreshControl,
-  TouchableOpacity, Alert, Modal,
+  TouchableOpacity, Alert, Modal, ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
@@ -10,6 +10,7 @@ import { getProventos, deleteProvento, getProfile } from '../../services/databas
 import { runDividendSync } from '../../services/dividendService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
+import * as Haptics from 'expo-haptics';
 
 var TIPO_LABELS = {
   dividendo: 'Dividendo',
@@ -100,6 +101,7 @@ export default function ProventosScreen(props) {
     try {
       var result = await runDividendSync(user.id);
       setLastSync(new Date().toISOString().substring(0, 10));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (result.inserted > 0) {
         Alert.alert('Sincronizado', result.inserted + ' provento' + (result.inserted > 1 ? 's' : '') + ' importado' + (result.inserted > 1 ? 's' : '') + '.\n\n' + (result.checked || 0) + ' ticker' + (result.checked > 1 ? 's' : '') + ' verificado' + (result.checked > 1 ? 's' : '') + '.');
         await load();
@@ -113,15 +115,21 @@ export default function ProventosScreen(props) {
   };
 
   var handleDelete = function(id) {
+    var prov = null;
+    for (var di = 0; di < items.length; di++) { if (items[di].id === id) { prov = items[di]; break; } }
+    var detailMsg = prov
+      ? (prov.ticker || '') + ' — R$ ' + fmt((prov.valor_por_cota || 0) * (prov.quantidade || 1)) + '\n\nEssa ação não pode ser desfeita.'
+      : 'Essa ação não pode ser desfeita.';
     Alert.alert(
       'Excluir provento?',
-      'Essa ação não pode ser desfeita.',
+      detailMsg,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Excluir',
           style: 'destructive',
           onPress: async function() {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             var result = await deleteProvento(id);
             if (!result.error) {
               setItems(items.filter(function(i) { return i.id !== id; }));
@@ -202,7 +210,8 @@ export default function ProventosScreen(props) {
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
             <View style={{ alignItems: 'center' }}>
-              <TouchableOpacity onPress={handleSync} disabled={syncing} style={{ opacity: syncing ? 0.4 : 1 }}>
+              <TouchableOpacity onPress={handleSync} disabled={syncing} style={{ opacity: syncing ? 0.5 : 1, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                {syncing ? <ActivityIndicator size="small" color={C.accent} /> : null}
                 <Text style={{ fontSize: 13, color: C.accent, fontWeight: '700', fontFamily: F.mono }}>
                   {syncing ? 'Sincronizando...' : 'Sincronizar'}
                 </Text>

@@ -7,6 +7,7 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { addOpcao, addMovimentacaoComSaldo, buildMovDescricao } from '../../services/database';
 import { Glass, Pill, Badge } from '../../components';
+import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -127,6 +128,7 @@ export default function AddOpcaoScreen(props) {
         Alert.alert('Erro', result.error.message);
         setSubmitted(false);
       } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         var resetFields = function() {
           setAtivoBase('');
           setTickerOpcao('');

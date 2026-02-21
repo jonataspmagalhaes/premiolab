@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, LayoutAnimation,
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../config/supabase';
 import { Glass, Pill, Badge } from '../../components';
+import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -110,6 +111,7 @@ export default function EditOperacaoScreen(props) {
       if (result.error) {
         Alert.alert('Erro', result.error.message);
       } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert('Salvo!', 'Operação atualizada.', [
           { text: 'OK', onPress: function() { navigation.goBack(); } },
         ]);
@@ -215,7 +217,7 @@ export default function EditOperacaoScreen(props) {
       {dateError ? <Text style={styles.fieldError}>Data inválida</Text> : null}
 
       {/* Custos */}
-      <TouchableOpacity onPress={function() { setShowCustos(!showCustos); }} style={styles.custoToggle}>
+      <TouchableOpacity onPress={function() { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setShowCustos(!showCustos); }} style={styles.custoToggle}>
         <Text style={styles.custoToggleText}>{showCustos ? '▾ Custos operacionais' : '▸ Custos operacionais (opcional)'}</Text>
         {totalCustos > 0 && (
           <Badge text={'R$ ' + fmt(totalCustos)} color={C.yellow} />

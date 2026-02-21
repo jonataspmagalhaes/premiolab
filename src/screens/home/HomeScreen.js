@@ -1,10 +1,10 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, Dimensions, Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getDashboard, getIndicators, getProfile, upsertPatrimonioSnapshot } from '../../services/database';
@@ -556,6 +556,8 @@ export default function HomeScreen({ navigation }) {
   var [fabOpen, setFabOpen] = useState(false);
   var [chartTouching, setChartTouching] = useState(false);
   var [chartPeriod, setChartPeriod] = useState('ALL');
+  var scrollRef = useRef(null);
+  useScrollToTop(scrollRef);
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
   var _alertsExpanded = useState(false); var alertsExpanded = _alertsExpanded[0]; var setAlertsExpanded = _alertsExpanded[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
@@ -836,6 +838,7 @@ export default function HomeScreen({ navigation }) {
   return (
     <View style={st.container}>
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={st.scroll}
         showsVerticalScrollIndicator={false}
         scrollEnabled={!chartTouching}

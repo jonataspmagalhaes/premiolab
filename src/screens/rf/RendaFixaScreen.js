@@ -10,6 +10,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getRendaFixa } from '../../services/database';
 import { supabase } from '../../config/supabase';
 import { Glass, Badge, SectionLabel } from '../../components';
+import * as Haptics from 'expo-haptics';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
 var TIPO_LABELS = {
@@ -69,15 +70,21 @@ export default function RendaFixaScreen(props) {
   };
 
   var handleDelete = function(id) {
+    var rf = null;
+    for (var di = 0; di < items.length; di++) { if (items[di].id === id) { rf = items[di]; break; } }
+    var detailMsg = rf
+      ? (TIPO_LABELS[rf.tipo] || rf.tipo) + (rf.emissor ? ' — ' + rf.emissor : '') + '\nR$ ' + fmt(rf.valor_aplicado || 0) + '\n\nEssa ação não pode ser desfeita.'
+      : 'Essa ação não pode ser desfeita.';
     Alert.alert(
       'Excluir título?',
-      'Essa ação não pode ser desfeita.',
+      detailMsg,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Excluir',
           style: 'destructive',
           onPress: async function() {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             var result = await supabase.from('renda_fixa').delete().eq('id', id);
             if (!result.error) {
               setItems(items.filter(function(i) { return i.id !== id; }));

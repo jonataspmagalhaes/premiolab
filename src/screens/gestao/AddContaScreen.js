@@ -8,6 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { upsertSaldo, addMovimentacao, buildMovDescricao } from '../../services/database';
 import { Glass, Pill } from '../../components';
 import { MOEDAS, getSymbol } from '../../services/currencyService';
+import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -84,6 +85,7 @@ export default function AddContaScreen(props) {
             data: new Date().toISOString().substring(0, 10),
           });
         }
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert('Sucesso!', 'Conta ' + nomeNorm + ' criada.', [
           { text: 'OK', onPress: function() { navigation.goBack(); } },
         ]);

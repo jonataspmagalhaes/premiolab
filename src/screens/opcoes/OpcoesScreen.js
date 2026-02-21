@@ -1,10 +1,10 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, TextInput, Alert, Dimensions, Modal,
 } from 'react-native';
 import Svg, { Line, Rect, Path, Text as SvgText } from 'react-native-svg';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators, getProfile, addMovimentacaoComSaldo, addMovimentacao } from '../../services/database';
@@ -13,6 +13,7 @@ import { runDailyCalculation, shouldCalculateToday, calcHV, calcSMA, calcEMA, ca
 import { supabase } from '../../config/supabase';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
+import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1285,6 +1286,9 @@ export default function OpcoesScreen() {
   var navigation = useNavigation();
   var user = useAuth().user;
 
+  var scrollRef = useRef(null);
+  useScrollToTop(scrollRef);
+
   var s1 = useState('ativas'); var sub = s1[0]; var setSub = s1[1];
   var s2 = useState([]); var opcoes = s2[0]; var setOpcoes = s2[1];
   var s3 = useState(true); var loading = s3[0]; var setLoading = s3[1];
@@ -1547,11 +1551,17 @@ export default function OpcoesScreen() {
   };
 
   var handleDelete = function(id) {
-    Alert.alert('Excluir opção?', 'Essa ação não pode ser desfeita.', [
+    var op = null;
+    for (var di = 0; di < opcoes.length; di++) { if (opcoes[di].id === id) { op = opcoes[di]; break; } }
+    var detailMsg = op
+      ? (op.tipo || '').toUpperCase() + ' ' + (op.ativo_base || '') + ' @ R$ ' + fmt(op.strike || 0) + '\n\nEssa ação não pode ser desfeita.'
+      : 'Essa ação não pode ser desfeita.';
+    Alert.alert('Excluir opção?', detailMsg, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Excluir', style: 'destructive',
         onPress: async function() {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           var result = await supabase.from('opcoes').delete().eq('id', id);
           if (!result.error) {
             setOpcoes(opcoes.filter(function(o) { return o.id !== id; }));
@@ -1667,6 +1677,7 @@ export default function OpcoesScreen() {
       }
       setOpcoes(updated2);
     }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     var plText = pl >= 0 ? '+R$ ' + fmt(pl) : '-R$ ' + fmt(Math.abs(pl));
     var partialText = isPartial ? ' (' + qtyClose + ' de ' + (original.quantidade || 0) + ')' : '';
 
@@ -1904,6 +1915,7 @@ export default function OpcoesScreen() {
   return (
     <>
     <ScrollView
+      ref={scrollRef}
       style={styles.container}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}

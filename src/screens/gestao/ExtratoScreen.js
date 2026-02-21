@@ -9,6 +9,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getSaldos, getMovimentacoes, deleteMovimentacao, upsertSaldo } from '../../services/database';
 import { Glass, Pill, Badge, SectionLabel } from '../../components';
 import { LoadingScreen } from '../../components/States';
+import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -135,6 +136,7 @@ export default function ExtratoScreen(props) {
         {
           text: 'Excluir e reverter', style: 'destructive',
           onPress: function() {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             deleteMovimentacao(mov.id).then(function(res) {
               if (res && res.error) {
                 Alert.alert('Erro', 'Falha ao excluir.');

@@ -571,7 +571,12 @@ export default function CarteiraScreen(props) {
   }
 
   function handleDeleteRF(rfId) {
-    Alert.alert('Excluir título?', 'Essa ação não pode ser desfeita.', [
+    var rf = null;
+    for (var di = 0; di < rfItems.length; di++) { if (rfItems[di].id === rfId) { rf = rfItems[di]; break; } }
+    var detailMsg = rf
+      ? (rf.tipo || '').toUpperCase() + (rf.emissor ? ' — ' + rf.emissor : '') + '\nR$ ' + fmt(rf.valor_aplicado || 0) + '\n\nEssa ação não pode ser desfeita.'
+      : 'Essa ação não pode ser desfeita.';
+    Alert.alert('Excluir título?', detailMsg, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Excluir', style: 'destructive',

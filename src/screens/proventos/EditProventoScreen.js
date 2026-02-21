@@ -8,6 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../config/supabase';
 import { getUserCorretoras } from '../../services/database';
 import { Glass, Pill, Badge } from '../../components';
+import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -120,6 +121,7 @@ export default function EditProventoScreen(props) {
       if (result.error) {
         Alert.alert('Erro', result.error.message);
       } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert('Salvo!', 'Provento atualizado.', [
           { text: 'OK', onPress: function() { navigation.goBack(); } },
         ]);
