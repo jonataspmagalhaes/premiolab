@@ -337,6 +337,7 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 - [x] **Auto-sync de dividendos** (implementado: dividendService.js, cross-check brapi+StatusInvest, auto-trigger Home, sync manual Proventos, dedup por ticker+data+valor)
 - [x] **Gestao Financeira / Fluxo de Caixa** (implementado: tab Gestao com sub-tabs Carteira+Caixa, movimentacoes, integracao com operacoes/opcoes/dividendos)
 - [x] **Relatorios Detalhados** (implementado: tela Relatorios com sub-tabs Dividendos/Opcoes/Operacoes/IR, graficos, agrupamentos)
+- [x] **Melhorias UX P0-P7** (implementado: contraste, touch targets, validacao inline, skeleton, haptics, keyboard, error states, beforeRemove, double-tap guard)
 - [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
 - [ ] Notificacoes push para vencimentos proximos
 - [ ] Importacao de operacoes via CSV/Excel
@@ -634,3 +635,113 @@ Confirmacao com valor do saldo na mensagem. Error handling com Alert se falhar. 
 | `src/screens/gestao/AddContaScreen.js` | Picker moeda, prefixo dinamico, passa moeda ao criar |
 | `src/screens/gestao/CaixaView.js` | Multi-moeda display, editar saldo, excluir melhorado |
 | `supabase-migration.sql` | Coluna `moeda TEXT DEFAULT 'BRL'` em saldos_corretora |
+
+## Melhorias UX P0-P7 (Implementado)
+
+Oito rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, feedback, keyboard handling e consistencia visual.
+
+### P0 — Contraste e Touch Targets
+- **Theme**: tokens `C.textSecondary` (#8888aa, WCAG AA) e `C.textTertiary` (#666688)
+- **Tab labels**: fontSize 9→11px, icone/label unfocused usa `C.textTertiary`
+- **Primitives**: Badge paddingVertical 3→4, Pill paddingVertical 6→8 + minHeight 36, Field height 42→44
+- **Pill inactive text**: `C.dim` → `C.textSecondary`
+- **SectionLabel**: `C.dim` → `C.textSecondary`
+- **InfoTip hitSlop**: 8→12
+
+### P1 — Home, Opcoes, Extrato
+- **Home KPI bar**: substituiu GlassCard 4-StatRow por 3 chips horizontais (Rent. Mes, Posicoes, Opcoes)
+- **Home alertas agrupados**: `alertsExpanded` state, separa criticos de info, colapsa info se >2
+- **Skeleton loading**: espelha layout real da Home (hero, KPIs, donuts, alertas, grafico)
+- **OpcoesScreen**: removeu DTE duplicado dos greeks e corretora duplicada do bottom row
+- **ExtratoScreen**: reverter saldo automaticamente ao excluir movimentacao (iguala CaixaView)
+
+### P2 — Validacao e Acessibilidade
+- **Validacao inline**: bordas verde/vermelha + mensagens erro em AddOperacaoScreen
+- **Error handling**: try/catch + user-friendly alerts em telas de dados
+- **FlatList**: substituiu ScrollView em listas longas para melhor performance
+- **Acessibilidade**: accessibilityLabel e accessibilityRole em botoes interativos
+
+### P3 — Keyboard e Focus
+- **autoFocus**: primeiro campo dos formularios recebe foco automatico
+- **returnKeyType**: "next" entre campos, "done" no ultimo campo
+- **keyboardType**: tipos corretos (decimal-pad, numeric, email-address)
+- **KeyboardAvoidingView**: behavior correto por plataforma (padding iOS, undefined Android)
+
+### P4 — Haptics e Animacoes
+- **Haptics**: feedback tatil em submit sucesso (notificationAsync Success)
+- **LayoutAnimation**: transicoes suaves em expand/collapse
+- **Scroll-to-top**: ScrollView volta ao topo ao mudar filtros/tabs
+- **Confirmacoes**: Alert.alert antes de acoes destrutivas (excluir, descartar)
+- **Loading states**: ActivityIndicator em todos os botoes de submit
+
+### P5 — Font Sizes e Layout
+- **Font size bump**: fontSize 8-9px → 10px em labels user-facing (Home, Proventos, Carteira, AssetDetail, Extrato, Historico)
+- **Safe area**: respeita insets em todas as telas
+
+### P6 — StatusBar e Error States
+- **StatusBar**: `barStyle="light-content"` global no AppNavigator
+- **Keyboard.dismiss()**: primeira linha de todos os handleSubmit (11 telas)
+- **Error states com retry**: loadError + try/catch + EmptyState "Tentar novamente" em CarteiraScreen, OpcoesScreen, CaixaView, ProventosScreen
+
+### P7 — Guards e Consistencia
+- **beforeRemove**: warning "Descartar alteracoes?" em 6 telas Add (Operacao, Opcao, Provento, RendaFixa, Movimentacao, Conta)
+- **Back button**: fontSize 34→28 em 3 telas RF (consistencia)
+- **keyboardType**: numeric→decimal-pad em campos de valor (AddRendaFixa, EditRendaFixa, AddConta)
+- **Double-tap guard**: useRef + useFocusEffect no CarteiraScreen previne navegacao duplicada
+
+### Arquivos modificados (resumo)
+| Arquivo | Mudancas principais |
+|---------|-------------------|
+| `src/theme/index.js` | Tokens textSecondary, textTertiary |
+| `src/navigation/AppNavigator.js` | Tab labels 11px, StatusBar light-content |
+| `src/components/Primitives.js` | Touch targets, contraste |
+| `src/components/InfoTip.js` | hitSlop 12 |
+| `src/components/States.js` | Skeleton espelhando Home |
+| `src/screens/home/HomeScreen.js` | KPI bar, alertas agrupados, font bumps |
+| `src/screens/opcoes/OpcoesScreen.js` | DTE/corretora dedup |
+| `src/screens/gestao/ExtratoScreen.js` | Reverter saldo ao excluir |
+| `src/screens/carteira/CarteiraScreen.js` | Error state, double-tap guard, font bumps |
+| `src/screens/carteira/AddOperacaoScreen.js` | Validacao inline, beforeRemove |
+| `src/screens/carteira/AssetDetailScreen.js` | Font bumps |
+| `src/screens/proventos/ProventosScreen.js` | Error state, font bump |
+| `src/screens/rf/AddRendaFixaScreen.js` | keyboardType, back button, beforeRemove |
+| `src/screens/rf/EditRendaFixaScreen.js` | keyboardType, back button |
+| `src/screens/rf/RendaFixaScreen.js` | Back button consistencia |
+| `src/screens/gestao/CaixaView.js` | Error state |
+| `src/screens/gestao/AddContaScreen.js` | keyboardType, beforeRemove |
+| `src/screens/gestao/AddMovimentacaoScreen.js` | beforeRemove |
+| `src/screens/opcoes/AddOpcaoScreen.js` | beforeRemove |
+| `src/screens/proventos/AddProventoScreen.js` | beforeRemove |
+
+## Melhorias UX Pendentes (TODO)
+
+Melhorias identificadas mas nao implementadas, organizadas por prioridade.
+
+### P8 — Pull-to-refresh e Feedback
+- [ ] **Pull-to-refresh**: RefreshControl em CarteiraScreen, OpcoesScreen, ProventosScreen, RendaFixaScreen, CaixaView, HomeScreen
+- [ ] **Toast/Snackbar**: substituir Alert.alert de sucesso por toast nao-bloqueante (ex: react-native-toast-message)
+- [ ] **Swipe-to-delete**: em listas de movimentacoes/proventos/opcoes (substituir long-press)
+
+### P9 — Performance e Listas
+- [ ] **Paginacao**: listas longas (movimentacoes, proventos, operacoes) com infinite scroll
+- [ ] **Memoizacao**: React.memo em cards repetidos (OpCard, position cards, movimentacao items)
+- [ ] **Lazy loading tabs**: carregar dados apenas quando tab fica visivel (nao no mount)
+
+### P10 — Formularios Avancados
+- [ ] **beforeRemove em telas Edit**: adicionar warning de dados nao salvos em EditOperacao, EditOpcao, EditProvento, EditRendaFixa
+- [ ] **Undo/desfazer**: ao excluir item, mostrar toast "Excluido" com botao "Desfazer" (soft delete temporario)
+- [ ] **Autocomplete ticker**: sugestoes de ticker ao digitar (cache de tickers ja usados pelo usuario)
+- [ ] **Mascara de valor em AddProvento**: usar mesmo pattern onChangeVal (centavos) dos outros forms
+
+### P11 — Visual e Animacoes
+- [ ] **Skeleton por tela**: cada tela com skeleton espelhando seu proprio layout (hoje so Home tem)
+- [ ] **Transicoes de navegacao**: slide horizontal entre stacks, fade entre tabs
+- [ ] **Card press animation**: scale 0.98 com Animated.spring ao pressionar cards expandiveis
+- [ ] **Empty state ilustracoes**: icones/ilustracoes customizadas nos EmptyState por contexto
+
+### P12 — Acessibilidade Avancada
+- [ ] **accessibilityLabel**: em TODOS os TouchableOpacity/Pressable (muitos ainda faltam)
+- [ ] **accessibilityHint**: dicas de acao ("Toque duas vezes para expandir")
+- [ ] **Font scaling**: respeitar preferencias de tamanho do sistema (allowFontScaling)
+- [ ] **Reduced motion**: respeitar AccessibilityInfo.isReduceMotionEnabled para desabilitar animacoes
+- [ ] **Screen reader flow**: testar e ajustar ordem de leitura com accessibilityOrder
