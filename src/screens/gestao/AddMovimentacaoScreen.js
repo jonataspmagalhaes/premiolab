@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
@@ -153,6 +153,7 @@ export default function AddMovimentacaoScreen(props) {
   }
 
   return (
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <TouchableOpacity onPress={function() { navigation.goBack(); }}>
@@ -260,6 +261,7 @@ export default function AddMovimentacaoScreen(props) {
         placeholderTextColor={C.dim}
         keyboardType="numeric"
         maxLength={10}
+        returnKeyType="done"
         style={[styles.input,
           dateValid && { borderColor: C.green },
           dateError && { borderColor: C.red },
@@ -295,6 +297,7 @@ export default function AddMovimentacaoScreen(props) {
 
       <View style={{ height: 40 }} />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

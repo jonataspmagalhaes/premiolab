@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -121,6 +121,7 @@ export default function EditOperacaoScreen(props) {
   };
 
   return (
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <TouchableOpacity onPress={function() { navigation.goBack(); }}>
@@ -163,6 +164,7 @@ export default function EditOperacaoScreen(props) {
       <TextInput
         value={ticker}
         onChangeText={function(t) { setTicker(t.toUpperCase()); }}
+        returnKeyType="next"
         placeholder="Ex: PETR4"
         placeholderTextColor={C.dim}
         autoCapitalize="characters"
@@ -235,7 +237,7 @@ export default function EditOperacaoScreen(props) {
             <View style={{ width: 10 }} />
             <View style={{ flex: 1 }}>
               <Text style={styles.label}>IMPOSTOS</Text>
-              <TextInput value={impostos} onChangeText={setImpostos} placeholder="0.00" placeholderTextColor={C.dim} keyboardType="decimal-pad" style={styles.input} />
+              <TextInput value={impostos} onChangeText={setImpostos} placeholder="0.00" placeholderTextColor={C.dim} keyboardType="decimal-pad" returnKeyType="done" style={styles.input} />
             </View>
           </View>
         </Glass>
@@ -299,6 +301,7 @@ export default function EditOperacaoScreen(props) {
 
       <View style={{ height: 40 }} />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

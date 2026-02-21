@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -119,6 +119,7 @@ export default function EditOpcaoScreen(props) {
   };
 
   return (
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <TouchableOpacity onPress={function() { navigation.goBack(); }}>
@@ -170,7 +171,7 @@ export default function EditOpcaoScreen(props) {
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>ATIVO BASE *</Text>
-          <TextInput value={ativoBase} onChangeText={function(t) { setAtivoBase(t.toUpperCase()); }} placeholder="Ex: PETR4" placeholderTextColor={C.dim} autoCapitalize="characters"
+          <TextInput value={ativoBase} onChangeText={function(t) { setAtivoBase(t.toUpperCase()); }} placeholder="Ex: PETR4" placeholderTextColor={C.dim} autoCapitalize="characters" returnKeyType="next"
             style={[styles.input, ativoBaseValid && { borderColor: C.green }, ativoBaseError && { borderColor: C.red }]} />
           {ativoBaseError ? <Text style={styles.fieldError}>Mínimo 4 caracteres</Text> : null}
         </View>
@@ -235,6 +236,7 @@ export default function EditOpcaoScreen(props) {
           <TextInput
             value={vencimento}
             onChangeText={function(t) { setVencimento(maskDate(t)); }}
+            returnKeyType="done"
             placeholder="DD/MM/AAAA"
             placeholderTextColor={C.dim}
             keyboardType="numeric"
@@ -288,6 +290,7 @@ export default function EditOpcaoScreen(props) {
 
       <View style={{ height: 40 }} />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -103,6 +103,7 @@ export default function AddContaScreen(props) {
   var simbolo = getSymbol(moeda);
 
   return (
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <TouchableOpacity onPress={function() { navigation.goBack(); }}>
@@ -119,6 +120,8 @@ export default function AddContaScreen(props) {
         onChangeText={setNome}
         placeholder="Ex: Clear, Nubank..."
         placeholderTextColor={C.dim}
+        autoFocus={true}
+        returnKeyType="next"
         style={[styles.input,
           nomeValid && { borderColor: C.green },
           nomeError && { borderColor: C.red },
@@ -180,6 +183,7 @@ export default function AddContaScreen(props) {
           placeholder="0,00"
           placeholderTextColor={C.dim}
           keyboardType="numeric"
+          returnKeyType="done"
           style={[styles.input, { flex: 1 }]}
         />
       </View>
@@ -196,6 +200,7 @@ export default function AddContaScreen(props) {
 
       <View style={{ height: 40 }} />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

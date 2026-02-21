@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -131,6 +131,7 @@ export default function EditProventoScreen(props) {
   };
 
   return (
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <TouchableOpacity onPress={function() { navigation.goBack(); }}>
@@ -157,6 +158,7 @@ export default function EditProventoScreen(props) {
       <TextInput
         value={ticker}
         onChangeText={function(t) { setTicker(t.toUpperCase()); }}
+        returnKeyType="next"
         placeholder="Ex: PETR4"
         placeholderTextColor={C.dim}
         autoCapitalize="characters"
@@ -205,6 +207,7 @@ export default function EditProventoScreen(props) {
       <TextInput
         value={data}
         onChangeText={function(t) { setData(maskDate(t)); }}
+        returnKeyType="done"
         placeholder="DD/MM/AAAA"
         placeholderTextColor={C.dim}
         keyboardType="numeric"
@@ -257,6 +260,7 @@ export default function EditProventoScreen(props) {
 
       <View style={{ height: 40 }} />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

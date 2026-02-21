@@ -7,7 +7,8 @@ export function Badge(props) {
   var text = props.text;
   var color = props.color || C.accent;
   return (
-    <View style={[styles.badge, { backgroundColor: color + '15', borderColor: color + '25' }]}>
+    <View accessibilityRole="text" accessibilityLabel={text}
+      style={[styles.badge, { backgroundColor: color + '15', borderColor: color + '25' }]}>
       <Text style={[styles.badgeText, { color: color }]}>{text}</Text>
     </View>
   );
@@ -23,6 +24,9 @@ export function Pill(props) {
     <TouchableOpacity
       onPress={onPress}
       activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={typeof children === 'string' ? children : undefined}
       style={[
         styles.pill,
         active
@@ -80,6 +84,7 @@ export function Field(props) {
           placeholder={placeholder}
           placeholderTextColor={C.dim}
           keyboardType={keyboardType}
+          accessibilityLabel={label || placeholder}
           style={styles.fieldTextInput}
         />
         {suffix && <Text style={styles.fieldSuffix}>{suffix}</Text>}

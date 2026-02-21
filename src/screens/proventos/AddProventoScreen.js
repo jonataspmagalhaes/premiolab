@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -145,6 +145,7 @@ export default function AddProventoScreen(props) {
   };
 
   return (
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <TouchableOpacity onPress={function() { navigation.goBack(); }}>
@@ -174,6 +175,7 @@ export default function AddProventoScreen(props) {
         placeholder="Ex: PETR4"
         placeholderTextColor={C.dim}
         autoCapitalize="characters"
+        returnKeyType="next"
         style={[styles.input,
           tickerValid && { borderColor: C.green },
           tickerError && { borderColor: C.red },
@@ -231,6 +233,7 @@ export default function AddProventoScreen(props) {
         placeholderTextColor={C.dim}
         keyboardType="numeric"
         maxLength={10}
+        returnKeyType="done"
         style={[styles.input,
           dateValid && { borderColor: C.green },
           dateError && { borderColor: C.red },
@@ -283,6 +286,7 @@ export default function AddProventoScreen(props) {
 
       <View style={{ height: 40 }} />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

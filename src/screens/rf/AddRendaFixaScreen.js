@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 
 import { C, F, SIZE } from '../../theme';
@@ -184,6 +184,7 @@ export default function AddRendaFixaScreen(props) {
   };
 
   return (
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         {/* Header */}
         <View style={styles.header}>
@@ -350,6 +351,7 @@ export default function AddRendaFixaScreen(props) {
           value={emissor}
           onChangeText={setEmissor}
           placeholder="Ex: Banco Inter, XP, Tesouro Nacional"
+          returnKeyType="done"
           placeholderTextColor={C.dim}
           style={styles.input}
         />
@@ -405,6 +407,7 @@ export default function AddRendaFixaScreen(props) {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

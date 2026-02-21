@@ -15,6 +15,7 @@ export default function Glass(props) {
   if (onPress) {
     wrapperProps.onPress = onPress;
     wrapperProps.activeOpacity = 0.7;
+    wrapperProps.accessibilityRole = 'button';
   }
 
   wrapperProps.style = [

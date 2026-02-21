@@ -78,6 +78,8 @@ export default function LoginScreen() {
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
+              autoFocus={true}
+              returnKeyType="next"
               style={styles.input}
             />
           </View>
@@ -90,6 +92,7 @@ export default function LoginScreen() {
               placeholder="••••••••"
               placeholderTextColor={C.dim}
               secureTextEntry
+              returnKeyType="go"
               style={styles.input}
             />
           </View>

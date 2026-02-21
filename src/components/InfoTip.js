@@ -16,7 +16,8 @@ export default function InfoTip(props) {
 
   return (
     <View style={[{ flexShrink: 1 }, style]}>
-      <TouchableOpacity onPress={function() { setOpen(true); }} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+      <TouchableOpacity onPress={function() { setOpen(true); }} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        accessibilityRole="button" accessibilityLabel="Mais informações">
         <Ionicons name="information-circle-outline" size={size} color={color} />
       </TouchableOpacity>
       <Modal visible={open} animationType="fade" transparent={true}
@@ -43,6 +44,7 @@ export default function InfoTip(props) {
               fontFamily: F.body, lineHeight: 20,
             }}>{text}</Text>
             <TouchableOpacity onPress={function() { setOpen(false); }}
+              accessibilityRole="button" accessibilityLabel="Fechar"
               style={{
                 marginTop: 16, alignSelf: 'flex-end',
                 paddingHorizontal: 16, paddingVertical: 8,
