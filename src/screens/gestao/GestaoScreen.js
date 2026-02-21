@@ -6,10 +6,12 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Pill } from '../../components';
 import CarteiraScreen from '../carteira/CarteiraScreen';
 import CaixaView from './CaixaView';
+import RelatoriosScreen from '../relatorios/RelatoriosScreen';
 
 var SUB_TABS = [
   { k: 'carteira', l: 'Carteira', color: C.acoes },
   { k: 'caixa', l: 'Caixa', color: C.green },
+  { k: 'relatorios', l: 'Relatórios', color: C.yellow },
 ];
 
 export default function GestaoScreen(props) {
@@ -33,8 +35,10 @@ export default function GestaoScreen(props) {
       {/* Content */}
       {sub === 'carteira' ? (
         <CarteiraScreen navigation={navigation} />
-      ) : (
+      ) : sub === 'caixa' ? (
         <CaixaView navigation={navigation} />
+      ) : (
+        <RelatoriosScreen navigation={navigation} />
       )}
     </View>
   );

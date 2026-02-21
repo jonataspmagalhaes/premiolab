@@ -13,7 +13,7 @@ import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa } from '../../services/database';
 import { enrichPositionsWithPrices, fetchPriceHistory, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
-import { Glass, Badge, Pill, SectionLabel } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
 import { MiniLineChart } from '../../components/InteractiveChart';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
@@ -207,6 +207,8 @@ function PositionCard(props) {
   var pnlPct = custoTotal > 0 ? (pnl / custoTotal) * 100 : 0;
   var isPos = pnl >= 0;
   var pnlColor = isPos ? C.green : C.red;
+  var plReal = pos.pl_realizado || 0;
+  var temVendas = pos.total_vendido > 0;
   var sparkData = history || [];
   var pctCarteira = totalCarteira > 0 ? (valorAtual / totalCarteira) * 100 : 0;
 
@@ -261,6 +263,14 @@ function PositionCard(props) {
                 {pos.change_day > 0 ? '▲' : '▼'} {Math.abs(pos.change_day).toFixed(2)}% dia
               </Text>
             ) : null}
+            {temVendas ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                <Text style={{ fontSize: 10, color: plReal >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                  P&L realizado: {plReal >= 0 ? '+' : ''}R$ {fmt(plReal)} ({pos.total_vendido} un vendida(s))
+                </Text>
+                <InfoTip text="Resultado das vendas já realizadas, usando o preço médio da corretora onde cada venda ocorreu." size={11} />
+              </View>
+            ) : null}
           </View>
           {sparkData.length >= 2 ? (
             <View style={styles.sparkWrap}>
@@ -287,6 +297,24 @@ function PositionCard(props) {
                 );
               })}
             </View>
+            {temVendas ? (
+              <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, fontWeight: '600' }}>VENDAS REALIZADAS</Text>
+                    <InfoTip text="Calculado com o PM da corretora onde a venda ocorreu. Se você comprou barato em uma corretora e caro em outra, cada venda reflete o custo real daquela posição. Para IR, o PM geral é usado (veja Relatórios > IR)." size={11} />
+                  </View>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: plReal >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                    {plReal >= 0 ? '+' : ''}R$ {fmt(plReal)}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                  <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>
+                    {pos.total_vendido} un vendida(s) · Receita R$ {fmt(pos.receita_vendas)}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
             <View style={styles.expandedActions}>
               <TouchableOpacity style={[styles.actionBtn, { borderColor: C.green + '30', backgroundColor: C.green + '08' }]}
                 onPress={onBuy}>
@@ -406,6 +434,9 @@ export default function CarteiraScreen(props) {
   var _hist = useState({}); var priceHistory = _hist[0]; var setPriceHistory = _hist[1];
   var _exp = useState(null); var expanded = _exp[0]; var setExpanded = _exp[1];
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
+  var _enc = useState([]); var encerradas = _enc[0]; var setEncerradas = _enc[1];
+  var _showEnc = useState(false); var showEnc = _showEnc[0]; var setShowEnc = _showEnc[1];
+  var _showAllEnc = useState(false); var showAllEnc = _showAllEnc[0]; var setShowAllEnc = _showAllEnc[1];
 
   var load = async function () {
     if (!user) return;
@@ -415,6 +446,7 @@ export default function CarteiraScreen(props) {
       getRendaFixa(user.id),
     ]);
     var rawPos = results[0].data || [];
+    setEncerradas(results[0].encerradas || []);
     setSaldos(results[1].data || []);
     setRfItems(results[2].data || []);
     setLoading(false);
@@ -466,6 +498,18 @@ export default function CarteiraScreen(props) {
   var totalPL = totalPositions - totalCusto;
   var totalPLPct = totalCusto > 0 ? (totalPL / totalCusto) * 100 : 0;
   var isPosTotal = totalPL >= 0;
+
+  // P&L realizado (encerradas + vendas parciais de ativas)
+  var plEncerradas = encerradas.reduce(function (s, e) { return s + (e.pl_realizado || 0); }, 0);
+  var plAtivas = positions.reduce(function (s, p) { return s + (p.pl_realizado || 0); }, 0);
+  var plRealizado = plEncerradas + plAtivas;
+  var custoEncerradas = encerradas.reduce(function (s, e) { return s + (e.custo_compras || 0); }, 0);
+  var custoVendasAtivas = positions.reduce(function (s, p) {
+    return s + ((p.total_vendido || 0) > 0 ? (p.custo_compras || 0) * ((p.total_vendido || 0) / ((p.total_comprado || 0) || 1)) : 0);
+  }, 0);
+  var custoTotalVendas = custoEncerradas + custoVendasAtivas;
+  var plRealizadoPct = custoTotalVendas > 0 ? (plRealizado / custoTotalVendas) * 100 : 0;
+  var isPosRealizado = plRealizado >= 0;
 
   // Allocation by class
   var allocMap = { acao: 0, fii: 0, etf: 0, rf: totalRF };
@@ -567,7 +611,10 @@ export default function CarteiraScreen(props) {
             <Text style={styles.heroValue}>R$ {fmt(totalValue)}</Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
-            <Text style={styles.heroLabel}>P&L TOTAL</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={styles.heroLabel}>P&L ABERTO</Text>
+              <InfoTip text="Ganho ou perda das posições que você ainda tem em carteira, comparando o preço atual com o preço médio de compra." size={12} />
+            </View>
             <Text style={[styles.heroPL, { color: isPosTotal ? C.green : C.red }]}>
               {isPosTotal ? '+' : '-'}R$ {fmt(Math.abs(totalPL))}
             </Text>
@@ -576,10 +623,30 @@ export default function CarteiraScreen(props) {
             </Text>
           </View>
         </View>
+        {encerradas.length > 0 ? (
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+            marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border }}>
+            <View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={styles.heroLabel}>P&L REALIZADO</Text>
+                <InfoTip text="Lucro ou prejuízo das ações já vendidas. Calculado usando o preço médio de cada corretora, que reflete o resultado real de cada operação. O IR usa o preço médio geral (veja Relatórios > IR)." size={12} />
+              </View>
+              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{encerradas.length} encerrada(s) + vendas parciais</Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={[styles.heroPL, { color: isPosRealizado ? C.green : C.red }]}>
+                {isPosRealizado ? '+' : '-'}R$ {fmt(Math.abs(plRealizado))}
+              </Text>
+              <Text style={[styles.heroPLSub, { color: isPosRealizado ? C.green : C.red }]}>
+                {isPosRealizado ? '▲' : '▼'} {Math.abs(plRealizadoPct).toFixed(1)}%
+              </Text>
+            </View>
+          </View>
+        ) : null}
         <View style={styles.heroStats}>
           {[
             { l: 'ATIVOS', v: String(positions.length + rfAtivos.length), c: C.accent },
-            { l: 'CLASSES', v: String(allocSegments.length), c: C.accent },
+            { l: 'ENCERRADAS', v: String(encerradas.length), c: encerradas.length > 0 ? C.yellow : C.dim },
             { l: 'CORRETORAS', v: String(saldos.length || 1), c: C.accent },
           ].map(function (m, i) {
             return (
@@ -668,6 +735,72 @@ export default function CarteiraScreen(props) {
       ) : null}
 
       {/* Saldos moved to Gestão > Caixa */}
+
+      {/* ══════ POSIÇÕES ENCERRADAS ══════ */}
+      {filter === 'todos' && encerradas.length > 0 ? (
+        <View>
+          <TouchableOpacity activeOpacity={0.7} onPress={function() { setShowEnc(!showEnc); }}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+            <SectionLabel>POSIÇÕES ENCERRADAS ({encerradas.length})</SectionLabel>
+            <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.body }}>{showEnc ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+          {showEnc ? (
+            <View>
+              {encerradas.slice(0, showAllEnc ? encerradas.length : 3).map(function(e, i) {
+                var plColor = e.pl_realizado >= 0 ? C.green : C.red;
+                var plIcon = e.pl_realizado >= 0 ? '▲' : '▼';
+                var plLabel = e.pl_realizado >= 0 ? 'LUCRO' : 'PREJUÍZO';
+                var catColor = e.categoria === 'acao' ? C.acoes : e.categoria === 'fii' ? C.fiis : e.categoria === 'etf' ? C.etfs : C.accent;
+                var pmCompra = e.total_comprado > 0 ? e.custo_compras / e.total_comprado : 0;
+                var pmVenda = e.total_vendido > 0 ? e.receita_vendas / e.total_vendido : 0;
+                var plPct = e.custo_compras > 0 ? (e.pl_realizado / e.custo_compras) * 100 : 0;
+                return (
+                  <Glass key={'enc_' + i} padding={12} style={{ marginTop: i > 0 ? 6 : 0, borderLeftWidth: 3, borderLeftColor: plColor }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.display }}>{e.ticker}</Text>
+                        <Badge text={e.categoria ? e.categoria.toUpperCase() : ''} color={catColor} />
+                      </View>
+                      <Badge text={plLabel} color={plColor} />
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8 }}>
+                      <Text style={{ fontSize: 18, fontWeight: '700', color: plColor, fontFamily: F.mono }}>
+                        {e.pl_realizado >= 0 ? '+' : ''}R$ {fmt(e.pl_realizado)}
+                      </Text>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: plColor, fontFamily: F.mono }}>
+                        {plIcon} {Math.abs(plPct).toFixed(1)}%
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8,
+                      paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border }}>
+                      <View>
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>COMPRA</Text>
+                        <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>{e.total_comprado} un · PM R$ {fmt(pmCompra)}</Text>
+                        <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>Total R$ {fmt(e.custo_compras)}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>VENDA</Text>
+                        <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>{e.total_vendido} un · PM R$ {fmt(pmVenda)}</Text>
+                        <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>Total R$ {fmt(e.receita_vendas)}</Text>
+                      </View>
+                    </View>
+                  </Glass>
+                );
+              })}
+              {encerradas.length > 3 ? (
+                <TouchableOpacity activeOpacity={0.7}
+                  onPress={function() { setShowAllEnc(!showAllEnc); }}
+                  style={{ alignSelf: 'center', marginTop: 8, paddingHorizontal: 16, paddingVertical: 6,
+                    backgroundColor: C.accent + '12', borderRadius: 8, borderWidth: 1, borderColor: C.accent + '25' }}>
+                  <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.body }}>
+                    {showAllEnc ? 'Mostrar menos' : 'Ver todas (' + encerradas.length + ')'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       <View style={{ height: SIZE.tabBarHeight + 20 }} />
 

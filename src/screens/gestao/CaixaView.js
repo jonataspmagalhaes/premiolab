@@ -11,7 +11,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   getSaldos, upsertSaldo, deleteSaldo,
   getMovimentacoes, addMovimentacaoComSaldo, deleteMovimentacao,
-  getMovimentacoesSummary, buildMovDescricao,
+  getMovimentacoesSummary, buildMovDescricao, reconciliarVendasAntigas,
+  recalcularSaldos,
 } from '../../services/database';
 import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/currencyService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
@@ -435,6 +436,42 @@ export default function CaixaView(props) {
 
   function handleAddConta() {
     navigation.navigate('AddConta');
+  }
+
+  var _reconciling = useState(false); var reconciling = _reconciling[0]; var setReconciling = _reconciling[1];
+  function handleReconciliar() {
+    Alert.alert(
+      'Reconciliar vendas antigas',
+      'Isso vai creditar nas contas o valor de vendas que não tiveram movimentação registrada e recalcular os saldos. Deseja continuar?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Reconciliar',
+          onPress: function() {
+            setReconciling(true);
+            reconciliarVendasAntigas(user.id).then(function(res) {
+              // Recalcular saldos baseado em todas as movimentacoes
+              return recalcularSaldos(user.id).then(function(sRes) {
+                setReconciling(false);
+                if (res.pendentes === 0) {
+                  Alert.alert('Tudo certo', 'Nenhuma venda pendente.\nSaldos recalculados (' + sRes.atualizadas + ' conta(s)).');
+                } else {
+                  Alert.alert(
+                    'Reconciliação concluída',
+                    res.creditadas + ' venda(s) creditada(s).\nSaldos recalculados (' + sRes.atualizadas + ' conta(s)).' +
+                    (res.erros > 0 ? '\n' + res.erros + ' erro(s) (sem corretora ou valor inválido).' : '')
+                  );
+                }
+                load();
+              });
+            }).catch(function(e) {
+              setReconciling(false);
+              Alert.alert('Erro', 'Falha na reconciliação: ' + (e.message || e));
+            });
+          },
+        },
+      ]
+    );
   }
 
   var AUTO_CATEGORIAS = ['compra_ativo', 'venda_ativo', 'premio_opcao', 'recompra_opcao',
@@ -877,14 +914,25 @@ export default function CaixaView(props) {
         </Glass>
       )}
 
-      {/* Ver extrato completo */}
+      {/* Ver extrato + Reconciliar */}
       {movs.length > 0 ? (
-        <TouchableOpacity
-          onPress={function() { navigation.navigate('Extrato'); }}
-          activeOpacity={0.7}
-          style={styles.extratoBtn}>
-          <Text style={styles.extratoBtnText}>Ver extrato completo</Text>
-        </TouchableOpacity>
+        <View style={{ gap: 8 }}>
+          <TouchableOpacity
+            onPress={function() { navigation.navigate('Extrato'); }}
+            activeOpacity={0.7}
+            style={styles.extratoBtn}>
+            <Text style={styles.extratoBtnText}>Ver extrato completo</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleReconciliar}
+            activeOpacity={0.7}
+            disabled={reconciling}
+            style={[styles.extratoBtn, { borderColor: C.yellow + '30' }]}>
+            <Text style={[styles.extratoBtnText, { color: C.yellow }]}>
+              {reconciling ? 'Reconciliando...' : 'Reconciliar vendas antigas'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       ) : null}
 
       {/* ══════ 5. GRÁFICO ENTRADAS VS SAÍDAS (6 meses) ══════ */}

@@ -5,7 +5,7 @@ import Svg, { Rect as SvgRect, Line as SvgLine, Text as SvgText } from 'react-na
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getProventos, getOpcoes, getOperacoes, getPositions, getMovimentacoes } from '../../services/database';
-import { Glass, Badge, Pill, SectionLabel } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
 // ═══════════ CONSTANTS ═══════════
@@ -362,6 +362,7 @@ export default function RelatoriosScreen(props) {
   var _opcoes = useState([]); var opcoes = _opcoes[0]; var setOpcoes = _opcoes[1];
   var _operacoes = useState([]); var operacoes = _operacoes[0]; var setOperacoes = _operacoes[1];
   var _positions = useState([]); var positions = _positions[0]; var setPositions = _positions[1];
+  var _encerradas = useState([]); var encerradas = _encerradas[0]; var setEncerradas = _encerradas[1];
   var _movimentacoes = useState([]); var movimentacoes = _movimentacoes[0]; var setMovimentacoes = _movimentacoes[1];
 
   var load = async function() {
@@ -377,6 +378,7 @@ export default function RelatoriosScreen(props) {
     setOpcoes(results[1].data || []);
     setOperacoes(results[2].data || []);
     setPositions(results[3].data || []);
+    setEncerradas(results[3].encerradas || []);
     setMovimentacoes(results[4].data || []);
     setLoading(false);
   };
@@ -600,6 +602,34 @@ export default function RelatoriosScreen(props) {
       else opsByMonth[mKey].vendas += total;
     }
   });
+
+  // P&L realizado por ticker (de getPositions)
+  var plPorTicker = {};
+  var plRealizadoTotal = 0;
+  var allPosForPL = positions.concat(encerradas);
+  for (var pi = 0; pi < allPosForPL.length; pi++) {
+    var pp = allPosForPL[pi];
+    if (pp.pl_realizado && pp.total_vendido > 0) {
+      plPorTicker[pp.ticker] = {
+        pl: pp.pl_realizado,
+        receita: pp.receita_vendas || 0,
+        custo: pp.custo_compras || 0,
+        qtyVendida: pp.total_vendido,
+        encerrada: pp.quantidade === 0,
+      };
+      plRealizadoTotal += pp.pl_realizado;
+    }
+  }
+
+  // Merge P&L nos opsByTicker
+  var plTickers = Object.keys(plPorTicker);
+  for (var pti = 0; pti < plTickers.length; pti++) {
+    var ptk = plTickers[pti];
+    if (opsByTicker[ptk]) {
+      opsByTicker[ptk].pl_realizado = plPorTicker[ptk].pl;
+      opsByTicker[ptk].encerrada = plPorTicker[ptk].encerrada;
+    }
+  }
 
   var opsTickerKeys = Object.keys(opsByTicker).sort(function(a, b) {
     var aTotal = opsByTicker[a].compras + opsByTicker[a].vendas;
@@ -1132,6 +1162,21 @@ export default function RelatoriosScreen(props) {
                 <Text style={[styles.resumoVal, { color: C.yellow }]}>{'R$ ' + fmt(opsCustos)}</Text>
               </View>
             </View>
+            {plRealizadoTotal !== 0 ? (
+              <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.border,
+                flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={styles.resumoLabel}>P&L REALIZADO</Text>
+                    <InfoTip text="Resultado real das vendas, usando o preço médio de cada corretora. Se comprou a R$20 na Clear e vendeu a R$22 na Clear, o lucro é R$2/ação — mesmo que o PM geral seja diferente." size={12} />
+                  </View>
+                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>PM por corretora</Text>
+                </View>
+                <Text style={[styles.resumoVal, { color: plRealizadoTotal >= 0 ? C.green : C.red }]}>
+                  {plRealizadoTotal >= 0 ? '+' : ''}{'R$ ' + fmt(plRealizadoTotal)}
+                </Text>
+              </View>
+            ) : null}
           </Glass>
 
           {/* Evolução Mensal */}
@@ -1208,6 +1253,24 @@ export default function RelatoriosScreen(props) {
                     <Text style={[styles.itemVal, { color: C.green }]}>{'R$ ' + fmt(info.vendas)}</Text>
                   </View>
                 )}
+                {info.pl_realizado != null && (
+                  <View style={[styles.itemRow, { borderTopWidth: 1, borderTopColor: C.border,
+                    backgroundColor: info.pl_realizado >= 0 ? C.green + '08' : C.red + '08' }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.itemLabel, { color: info.pl_realizado >= 0 ? C.green : C.red, fontWeight: '700' }]}>
+                        {info.pl_realizado >= 0 ? 'Lucro realizado' : 'Prejuízo realizado'}
+                      </Text>
+                      {info.encerrada ? (
+                        <Text style={[styles.itemDetail, { color: C.dim }]}>Posição encerrada</Text>
+                      ) : (
+                        <Text style={[styles.itemDetail, { color: C.dim }]}>Vendas parciais</Text>
+                      )}
+                    </View>
+                    <Text style={[styles.itemVal, { color: info.pl_realizado >= 0 ? C.green : C.red, fontWeight: '700', fontSize: 14 }]}>
+                      {info.pl_realizado >= 0 ? '+' : ''}{'R$ ' + fmt(info.pl_realizado)}
+                    </Text>
+                  </View>
+                )}
               </Glass>
             );
           })}
@@ -1238,6 +1301,13 @@ export default function RelatoriosScreen(props) {
                   {irMesesAlerta}
                 </Text>
               </View>
+            </View>
+            <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border,
+              flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <InfoTip text="O cálculo de IR usa o preço médio geral do ativo (todas as corretoras juntas), conforme exigido pela Receita Federal. Ações com vendas até R$20 mil/mês são isentas. Alíquotas: ações 15%, FIIs 20%, ETFs 15%. Prejuízos acumulados são compensados nos meses seguintes." size={12} />
+              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, flex: 1 }}>
+                IR calculado com PM geral (Receita Federal). O P&L em Operações usa PM por corretora.
+              </Text>
             </View>
           </Glass>
 

@@ -94,33 +94,62 @@ export async function getPositions(userId) {
         custo_total: 0,
         pm: 0,
         por_corretora: {},
+        custo_por_corretora: {},
+        total_comprado: 0,
+        custo_compras: 0,
+        total_vendido: 0,
+        receita_vendas: 0,
+        pl_realizado: 0,
+        pl_realizado_ir: 0,
       };
     }
     var p = positions[tickerKey];
     var corr = op.corretora || 'Sem corretora';
     if (!p.por_corretora[corr]) {
       p.por_corretora[corr] = 0;
+      p.custo_por_corretora[corr] = 0;
     }
     if (op.tipo === 'compra') {
       var custos = (op.custo_corretagem || 0) + (op.custo_emolumentos || 0) + (op.custo_impostos || 0);
-      p.custo_total += op.quantidade * op.preco + custos;
+      var custoOp = op.quantidade * op.preco + custos;
+      p.custo_total += custoOp;
       p.quantidade += op.quantidade;
       p.por_corretora[corr] += op.quantidade;
+      p.custo_por_corretora[corr] += custoOp;
+      p.total_comprado += op.quantidade;
+      p.custo_compras += custoOp;
     } else {
-      p.quantidade -= op.quantidade;
+      var custosVenda = (op.custo_corretagem || 0) + (op.custo_emolumentos || 0) + (op.custo_impostos || 0);
+      var receitaLiq = op.quantidade * op.preco - custosVenda;
+      // PM por corretora para P&L real
+      var pmCorr = p.por_corretora[corr] > 0 ? p.custo_por_corretora[corr] / p.por_corretora[corr] : p.pm;
+      p.pl_realizado += op.quantidade * (op.preco - pmCorr) - custosVenda;
+      // PM geral para IR
+      p.pl_realizado_ir += op.quantidade * (op.preco - p.pm) - custosVenda;
+      p.receita_vendas += receitaLiq;
+      p.total_vendido += op.quantidade;
+      // Reduzir custo proporcional ao PM da corretora
+      p.custo_por_corretora[corr] -= op.quantidade * pmCorr;
       p.por_corretora[corr] -= op.quantidade;
+      // Reduzir custo geral pelo PM geral
+      p.custo_total -= op.quantidade * p.pm;
+      p.quantidade -= op.quantidade;
     }
     p.pm = p.quantidade > 0 ? p.custo_total / p.quantidade : 0;
   }
 
   var tickers = Object.keys(positions);
   var resultArr = [];
+  var encerradas = [];
   for (var j = 0; j < tickers.length; j++) {
-    if (positions[tickers[j]].quantidade > 0) {
-      resultArr.push(positions[tickers[j]]);
+    var pos = positions[tickers[j]];
+    if (pos.quantidade > 0) {
+      resultArr.push(pos);
+    } else if (pos.total_vendido > 0) {
+      encerradas.push(pos);
     }
   }
-  return { data: resultArr, error: null };
+  return { data: resultArr, encerradas: encerradas, error: null };
 }
 
 // ═══════════ PROVENTOS ═══════════
@@ -479,6 +508,115 @@ function buildMovDescricao(categoria, ticker, extra) {
 
 export { buildMovDescricao };
 
+// ═══════════ RECONCILIACAO ═══════════
+export async function reconciliarVendasAntigas(userId) {
+  // 1. Buscar todas as vendas
+  var opsResult = await getOperacoes(userId, { tipo: 'venda' });
+  var vendas = (opsResult.data || []).filter(function(op) { return op.tipo === 'venda'; });
+
+  // 2. Buscar movimentacoes de venda_ativo existentes
+  var movsResult = await getMovimentacoes(userId, { categoria: 'venda_ativo' });
+  var movsExist = movsResult.data || [];
+
+  // 3. Montar set de chaves ja reconciliadas: ticker+data+valor_arredondado
+  var jaReconciliado = {};
+  for (var m = 0; m < movsExist.length; m++) {
+    var mv = movsExist[m];
+    var chave = (mv.ticker || '').toUpperCase() + '|' + (mv.data || '') + '|' + Math.round((mv.valor || 0) * 100);
+    jaReconciliado[chave] = true;
+  }
+
+  // 4. Encontrar vendas sem movimentacao correspondente
+  var pendentes = [];
+  for (var v = 0; v < vendas.length; v++) {
+    var op = vendas[v];
+    var ticker = (op.ticker || '').toUpperCase().trim();
+    var data = op.data || '';
+    var custos = (op.custo_corretagem || 0) + (op.custo_emolumentos || 0) + (op.custo_impostos || 0);
+    var totalVenda = op.quantidade * op.preco - custos;
+    var chaveOp = ticker + '|' + data + '|' + Math.round(totalVenda * 100);
+    if (!jaReconciliado[chaveOp]) {
+      pendentes.push({
+        op: op,
+        ticker: ticker,
+        data: data,
+        valor: totalVenda,
+        corretora: op.corretora || '',
+      });
+    }
+  }
+
+  // 5. Creditar cada venda pendente na conta da corretora
+  var creditadas = 0;
+  var erros = 0;
+  for (var p = 0; p < pendentes.length; p++) {
+    var item = pendentes[p];
+    if (!item.corretora || item.valor <= 0) { erros++; continue; }
+    try {
+      await addMovimentacaoComSaldo(userId, {
+        conta: item.corretora,
+        tipo: 'entrada',
+        categoria: 'venda_ativo',
+        valor: item.valor,
+        descricao: 'Venda ' + item.ticker + ' x' + item.op.quantidade + ' (reconciliação)',
+        ticker: item.ticker,
+        referencia_tipo: 'operacao',
+        data: item.data,
+      });
+      creditadas++;
+    } catch (e) {
+      console.warn('Reconciliação falhou para', item.ticker, e);
+      erros++;
+    }
+  }
+
+  return { total: vendas.length, pendentes: pendentes.length, creditadas: creditadas, erros: erros };
+}
+
+export async function recalcularSaldos(userId) {
+  // 1. Buscar todas as movimentacoes
+  var movsResult = await getMovimentacoes(userId, {});
+  var allMovs = movsResult.data || [];
+
+  // 2. Somar por conta
+  var saldoPorConta = {};
+  for (var i = 0; i < allMovs.length; i++) {
+    var m = allMovs[i];
+    var conta = m.conta || '';
+    if (!conta) continue;
+    if (!saldoPorConta[conta]) saldoPorConta[conta] = 0;
+    if (m.tipo === 'entrada') {
+      saldoPorConta[conta] += (m.valor || 0);
+    } else if (m.tipo === 'saida') {
+      saldoPorConta[conta] -= (m.valor || 0);
+    }
+  }
+
+  // 3. Atualizar cada conta
+  var contas = Object.keys(saldoPorConta);
+  var atualizadas = 0;
+  for (var c = 0; c < contas.length; c++) {
+    var nome = contas[c];
+    var novoSaldo = saldoPorConta[nome];
+    // Buscar conta existente
+    var contaResult = await supabase
+      .from('saldos_corretora')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('corretora', nome)
+      .maybeSingle();
+    if (contaResult.data) {
+      await supabase
+        .from('saldos_corretora')
+        .update({ saldo: novoSaldo, updated_at: new Date().toISOString() })
+        .eq('id', contaResult.data.id);
+      atualizadas++;
+    }
+  }
+
+  return { contas: contas.length, atualizadas: atualizadas, saldos: saldoPorConta };
+}
+
 export async function getMovimentacoes(userId, filters) {
   if (!filters) filters = {};
   var query = supabase
@@ -520,7 +658,7 @@ export async function addMovimentacaoComSaldo(userId, mov) {
     .from('saldos_corretora')
     .select('*')
     .eq('user_id', userId)
-    .eq('name', mov.conta)
+    .eq('corretora', mov.conta)
     .maybeSingle();
 
   var saldoAtual = (saldoResult.data && saldoResult.data.saldo) || 0;
@@ -552,7 +690,7 @@ export async function addMovimentacaoComSaldo(userId, mov) {
       .update({ saldo: novoSaldo, updated_at: new Date().toISOString() })
       .eq('id', saldoResult.data.id);
   } else {
-    var insertPayload = { user_id: userId, name: mov.conta, saldo: novoSaldo };
+    var insertPayload = { user_id: userId, corretora: mov.conta, saldo: novoSaldo };
     if (mov.moeda) {
       insertPayload.moeda = mov.moeda;
     }
@@ -635,6 +773,7 @@ export async function getDashboard(userId) {
 
     // ── Posições ──
     var posDataRaw = positions.data || [];
+    var posEncerradas = positions.encerradas || [];
 
     // Buscar preços atuais e calcular variação
     var posData;
@@ -1100,6 +1239,7 @@ export async function getDashboard(userId) {
       opsVenc30d: opsVenc30d.length,
       meta: metaMensal,
       positions: posData,
+      encerradas: posEncerradas,
       saldos: saldosData,
       saldoTotal: saldoTotal,
       rendaFixa: rfData,

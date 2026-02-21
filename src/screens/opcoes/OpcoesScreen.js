@@ -1444,6 +1444,20 @@ export default function OpcoesScreen() {
               corretora: autoOp.corretora || 'Clear',
               data: new Date().toISOString().split('T')[0],
             });
+            // Log movimentacao no caixa
+            var autoExValor = (autoOp.strike || 0) * (autoOp.quantidade || 0);
+            if (autoExValor > 0 && autoOp.corretora) {
+              addMovimentacaoComSaldo(user.id, {
+                conta: autoOp.corretora,
+                tipo: autoOpTipo === 'compra' ? 'saida' : 'entrada',
+                categoria: 'exercicio_opcao',
+                valor: autoExValor,
+                descricao: 'Exercício auto ' + (autoOp.tipo || '').toUpperCase() + ' ' + (autoOp.ativo_base || ''),
+                ticker: autoOp.ativo_base || null,
+                referencia_tipo: 'opcao',
+                data: new Date().toISOString().substring(0, 10),
+              }).catch(function(e) { console.warn('Mov auto-exercicio failed:', e); });
+            }
             var autoCopy = {};
             var autoKeys = Object.keys(autoOp);
             for (var ak = 0; ak < autoKeys.length; ak++) { autoCopy[autoKeys[ak]] = autoOp[autoKeys[ak]]; }
