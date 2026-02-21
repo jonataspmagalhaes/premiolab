@@ -16,7 +16,7 @@ import {
 } from '../../services/database';
 import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/currencyService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
-import { LoadingScreen } from '../../components/States';
+import { LoadingScreen, EmptyState } from '../../components/States';
 import * as Haptics from 'expo-haptics';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -182,9 +182,11 @@ export default function CaixaView(props) {
   var _trCambio = useState(''); var trCambio = _trCambio[0]; var setTrCambio = _trCambio[1];
   var _hist6m = useState([]); var hist6m = _hist6m[0]; var setHist6m = _hist6m[1];
   var _rates = useState({ BRL: 1 }); var rates = _rates[0]; var setRates = _rates[1];
+  var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
 
   var load = async function() {
     if (!user) return;
+    setLoadError(false);
     var now = new Date();
     var mesAtual = now.getMonth() + 1;
     var anoAtual = now.getFullYear();
@@ -203,12 +205,20 @@ export default function CaixaView(props) {
       histLabels.push(MESES_NOMES[hm - 1]);
     }
 
-    var results = await Promise.all([
-      getSaldos(user.id),
-      getMovimentacoes(user.id, { limit: 15 }),
-      getMovimentacoesSummary(user.id, mesAtual, anoAtual),
-      getMovimentacoesSummary(user.id, mesAnt, anoAnt),
-    ].concat(histPromises));
+    var results;
+    try {
+      results = await Promise.all([
+        getSaldos(user.id),
+        getMovimentacoes(user.id, { limit: 15 }),
+        getMovimentacoesSummary(user.id, mesAtual, anoAtual),
+        getMovimentacoesSummary(user.id, mesAnt, anoAnt),
+      ].concat(histPromises));
+    } catch (e) {
+      console.warn('CaixaView load failed:', e);
+      setLoadError(true);
+      setLoading(false);
+      return;
+    }
 
     var saldosArr = results[0].data || [];
     setSaldos(saldosArr);
@@ -543,6 +553,11 @@ export default function CaixaView(props) {
   }
 
   if (loading) return <View style={styles.container}><LoadingScreen /></View>;
+  if (loadError) return (
+    <View style={styles.container}>
+      <EmptyState icon="!" title="Erro ao carregar" description="Não foi possível carregar o caixa. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { setLoading(true); load(); }} color={C.red} />
+    </View>
+  );
 
   var modeColor = actMode === 'depositar' ? C.green : actMode === 'transferir' ? C.accent : actMode === 'editar' ? C.acoes : C.yellow;
 

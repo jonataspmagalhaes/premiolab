@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -96,6 +96,7 @@ export default function EditProventoScreen(props) {
   var tipoObj = TIPOS.filter(function(t) { return t.key === tipo; })[0];
 
   var handleSave = async function() {
+    Keyboard.dismiss();
     if (!canSubmit) return;
     setLoading(true);
     try {

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -56,6 +56,7 @@ export default function AddContaScreen(props) {
   var nomeError = nome.length > 0 && nome.trim().length < 2;
 
   var handleSubmit = async function() {
+    Keyboard.dismiss();
     if (!canSubmit || submitted) return;
     setSubmitted(true);
     setLoading(true);

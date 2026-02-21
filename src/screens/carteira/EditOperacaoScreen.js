@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, LayoutAnimation,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, LayoutAnimation, Keyboard,
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -88,6 +88,7 @@ export default function EditOperacaoScreen(props) {
   var dateError = data.length === 10 && brToIso(data) === null;
 
   var handleSave = async function() {
+    Keyboard.dismiss();
     if (!canSubmit) return;
     setLoading(true);
     try {

@@ -1307,16 +1307,26 @@ export default function OpcoesScreen() {
   var _searchLoading = useState(false); var searchLoading = _searchLoading[0]; var setSearchLoading = _searchLoading[1];
   var _searchResult = useState(null); var searchResult = _searchResult[0]; var setSearchResult = _searchResult[1];
   var _searchError = useState(''); var searchError = _searchError[0]; var setSearchError = _searchError[1];
+  var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
 
   var load = async function() {
     if (!user) return;
-    var results = await Promise.all([
-      getOpcoes(user.id),
-      getPositions(user.id),
-      getSaldos(user.id),
-      getIndicators(user.id),
-      getProfile(user.id),
-    ]);
+    setLoadError(false);
+    var results;
+    try {
+      results = await Promise.all([
+        getOpcoes(user.id),
+        getPositions(user.id),
+        getSaldos(user.id),
+        getIndicators(user.id),
+        getProfile(user.id),
+      ]);
+    } catch (e) {
+      console.warn('OpcoesScreen load failed:', e);
+      setLoadError(true);
+      setLoading(false);
+      return;
+    }
 
     var prof = results[4] && results[4].data ? results[4].data : null;
     if (prof && prof.selic) setSelicRate(prof.selic);
@@ -1911,6 +1921,11 @@ export default function OpcoesScreen() {
   }
 
   if (loading) return <View style={styles.container}><LoadingScreen /></View>;
+  if (loadError) return (
+    <View style={styles.container}>
+      <EmptyState icon="!" title="Erro ao carregar" description="Não foi possível carregar as opções. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { setLoading(true); load(); }} color={C.red} />
+    </View>
+  );
 
   return (
     <>

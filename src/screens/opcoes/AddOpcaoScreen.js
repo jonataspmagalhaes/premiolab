@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -101,6 +101,7 @@ export default function AddOpcaoScreen(props) {
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
 
   var handleSubmit = async function() {
+    Keyboard.dismiss();
     if (!canSubmit || submitted) return;
     if (!dateValid) {
       Alert.alert('Data inválida', 'O vencimento deve ser uma data futura no formato DD/MM/AAAA.');

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -99,6 +99,7 @@ export default function AddProventoScreen(props) {
   var tipoLabel = TIPOS.filter(function(t) { return t.key === tipo; })[0];
 
   var handleSubmit = async function() {
+    Keyboard.dismiss();
     if (!canSubmit || !user || submitted) return;
     setSubmitted(true);
     setLoading(true);

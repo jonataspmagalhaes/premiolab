@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -84,6 +84,7 @@ export default function EditOpcaoScreen(props) {
   var qtyError = quantidade.length > 0 && qty <= 0;
 
   var handleSave = async function() {
+    Keyboard.dismiss();
     if (!canSubmit) return;
     setLoading(true);
     try {

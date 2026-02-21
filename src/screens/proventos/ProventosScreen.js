@@ -79,16 +79,23 @@ export default function ProventosScreen(props) {
   var _syncing = useState(false); var syncing = _syncing[0]; var setSyncing = _syncing[1];
   var _lastSync = useState(null); var lastSync = _lastSync[0]; var setLastSync = _lastSync[1];
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
+  var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
 
   var load = async function() {
     if (!user) return;
-    var results = await Promise.all([
-      getProventos(user.id),
-      getProfile(user.id),
-    ]);
-    setItems(results[0].data || []);
-    var prof = results[1] && results[1].data ? results[1].data : null;
-    if (prof && prof.last_dividend_sync) setLastSync(prof.last_dividend_sync);
+    setLoadError(false);
+    try {
+      var results = await Promise.all([
+        getProventos(user.id),
+        getProfile(user.id),
+      ]);
+      setItems(results[0].data || []);
+      var prof = results[1] && results[1].data ? results[1].data : null;
+      if (prof && prof.last_dividend_sync) setLastSync(prof.last_dividend_sync);
+    } catch (e) {
+      console.warn('ProventosScreen load failed:', e);
+      setLoadError(true);
+    }
     setLoading(false);
   };
 
@@ -198,6 +205,11 @@ export default function ProventosScreen(props) {
   }
 
   if (loading) return <View style={{ flex: 1, backgroundColor: C.bg, padding: 18 }}><LoadingScreen /></View>;
+  if (loadError) return (
+    <View style={{ flex: 1, backgroundColor: C.bg, padding: 18 }}>
+      <EmptyState icon="!" title="Erro ao carregar" description="Não foi possível carregar os proventos. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { setLoading(true); load(); }} color={C.red} />
+    </View>
+  );
 
   var isPendente = tab === 'pendente';
 

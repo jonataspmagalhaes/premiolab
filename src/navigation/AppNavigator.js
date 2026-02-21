@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, StatusBar } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -243,6 +243,7 @@ export default function AppNavigator() {
 
   return (
     <NavigationContainer theme={PremioLabTheme}>
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
       {!user ? (
         <AuthStack />
       ) : !onboarded ? (

@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
@@ -108,6 +108,7 @@ export default function AddMovimentacaoScreen(props) {
     'exercicio_opcao', 'dividendo', 'jcp', 'rendimento_fii'].indexOf(categoria) >= 0;
 
   var handleSubmit = async function() {
+    Keyboard.dismiss();
     if (!canSubmit || submitted) return;
     setSubmitted(true);
     setLoading(true);

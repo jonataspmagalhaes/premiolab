@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
 
 import { C, F, SIZE } from '../../theme';
@@ -130,6 +130,7 @@ export default function AddRendaFixaScreen(props) {
   var canSubmit = tipo && taxaNum > 0 && valorNum > 0 && vencValido && corretora;
 
   var handleSubmit = async function() {
+    Keyboard.dismiss();
     if (!canSubmit || submitted) return;
     setSubmitted(true);
     setLoading(true);

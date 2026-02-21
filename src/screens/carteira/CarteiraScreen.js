@@ -437,20 +437,30 @@ export default function CarteiraScreen(props) {
   var _enc = useState([]); var encerradas = _enc[0]; var setEncerradas = _enc[1];
   var _showEnc = useState(false); var showEnc = _showEnc[0]; var setShowEnc = _showEnc[1];
   var _showAllEnc = useState(false); var showAllEnc = _showAllEnc[0]; var setShowAllEnc = _showAllEnc[1];
+  var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
 
   var load = async function () {
     if (!user) return;
-    var results = await Promise.all([
-      getPositions(user.id),
-      getSaldos(user.id),
-      getRendaFixa(user.id),
-    ]);
-    var rawPos = results[0].data || [];
-    setEncerradas(results[0].encerradas || []);
-    setSaldos(results[1].data || []);
-    setRfItems(results[2].data || []);
+    setLoadError(false);
+    var rawPos;
+    try {
+      var results = await Promise.all([
+        getPositions(user.id),
+        getSaldos(user.id),
+        getRendaFixa(user.id),
+      ]);
+      rawPos = results[0].data || [];
+      setEncerradas(results[0].encerradas || []);
+      setSaldos(results[1].data || []);
+      setRfItems(results[2].data || []);
+      setPositions(rawPos);
+    } catch (e) {
+      console.warn('CarteiraScreen load failed:', e);
+      setLoadError(true);
+      setLoading(false);
+      return;
+    }
     setLoading(false);
-    setPositions(rawPos);
 
     setPricesLoading(true);
     try {
@@ -593,6 +603,11 @@ export default function CarteiraScreen(props) {
   }
 
   if (loading) return <View style={styles.container}><LoadingScreen /></View>;
+  if (loadError) return (
+    <View style={styles.container}>
+      <EmptyState icon="!" title="Erro ao carregar" description="Não foi possível carregar a carteira. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { setLoading(true); load(); }} color={C.red} />
+    </View>
+  );
   if (positions.length === 0 && rfAtivos.length === 0 && saldos.length === 0) {
     return (
       <View style={styles.container}>

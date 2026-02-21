@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
+  KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Keyboard,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, F, SIZE } from '../../theme';
@@ -15,6 +15,7 @@ export default function LoginScreen() {
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
 
   var handleSubmit = async function() {
+    Keyboard.dismiss();
     if (!email || !password) {
       Alert.alert('Erro', 'Preencha email e senha');
       return;
