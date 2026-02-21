@@ -276,6 +276,15 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Performance — KPIs**: Carteira %, CDI %, Melhor Mes, Pior Mes
 - **Performance — Benchmark**: Carteira vs CDI (retorno acumulado %)
 - **Performance — Rentabilidade por ativo**: barras horizontais com P&L % por ticker
+- **Performance — P&L Detalhado por categoria** (Acao/FII/ETF):
+  - Secao **P&L ABERTO vs REALIZADO**: cards lado a lado com InfoTips, total com contagem encerradas + vendas parciais
+  - Secao **P&L REALIZADO POR PERIODO**: grafico `PLBarChart` com barras positivas (verde) e negativas (vermelho), toggle Mensal/Anual, tooltip interativo com detalhes por ticker
+  - Secao **POSICOES ENCERRADAS**: lista com PM compra/venda, P&L %, borda colorida, expand/collapse (3 por padrao, "Ver todas")
+  - **Proventos Mensais (12M)**: grafico `ProvVertBarChart` por categoria com cor dinamica
+  - **Renda Mensal Media**: KPI "RENDA/MES" (media 3 meses) ao lado de YoC e DY
+  - Funcoes: `computeCatPLByMonth(ops, categoria)`, componente `PLBarChart`, helper `fmtCompact`
+  - EmptyState so aparece se nao ha posicoes ativas NEM encerradas na categoria
+  - Secoes condicionais: Hero/Stats so com ativas, Proventos so com dados, Ranking so com posicoes
 - **Rebalanceamento hierarquico**: Classe → Setor → Ticker (FIIs/ETFs/RF) ou Classe → Market Cap → Setor → Ticker (Acoes)
   - Classificacao por market cap via brapi: Large Cap (>R$40B), Mid Cap (>R$10B), Small Cap (>R$2B), Micro Cap (<R$2B)
   - Setores dinamicos via `fetchTickerProfile` (brapi summaryProfile) com fallback para TICKER_SECTORS
