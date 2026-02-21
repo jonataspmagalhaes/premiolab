@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, LayoutAnimation, Keyboard,
@@ -89,6 +89,18 @@ export default function AddOperacaoScreen(props) {
   var dateError = data.length === 10 && brToIso(data) === null;
 
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
+
+  useEffect(function() {
+    return navigation.addListener('beforeRemove', function(e) {
+      if (submitted) return;
+      if (!quantidade && !preco) return;
+      e.preventDefault();
+      Alert.alert('Descartar alterações?', 'Você tem dados não salvos.', [
+        { text: 'Continuar editando', style: 'cancel' },
+        { text: 'Descartar', style: 'destructive', onPress: function() { navigation.dispatch(e.data.action); } },
+      ]);
+    });
+  }, [navigation, submitted, quantidade, preco]);
 
   var handleSubmit = async function() {
     Keyboard.dismiss();

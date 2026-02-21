@@ -98,6 +98,18 @@ export default function AddProventoScreen(props) {
 
   var tipoLabel = TIPOS.filter(function(t) { return t.key === tipo; })[0];
 
+  useEffect(function() {
+    return navigation.addListener('beforeRemove', function(e) {
+      if (submitted) return;
+      if (!ticker && !valor) return;
+      e.preventDefault();
+      Alert.alert('Descartar alterações?', 'Você tem dados não salvos.', [
+        { text: 'Continuar editando', style: 'cancel' },
+        { text: 'Descartar', style: 'destructive', onPress: function() { navigation.dispatch(e.data.action); } },
+      ]);
+    });
+  }, [navigation, submitted, ticker, valor]);
+
   var handleSubmit = async function() {
     Keyboard.dismiss();
     if (!canSubmit || !user || submitted) return;

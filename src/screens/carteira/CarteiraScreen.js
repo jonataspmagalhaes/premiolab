@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, ActivityIndicator, LayoutAnimation,
@@ -423,6 +423,15 @@ function RFCard(props) {
 export default function CarteiraScreen(props) {
   var navigation = props.navigation;
   var user = useAuth().user;
+  var _navigating = useRef(false);
+
+  useFocusEffect(useCallback(function() { _navigating.current = false; }, []));
+
+  function nav(screen, params) {
+    if (_navigating.current) return;
+    _navigating.current = true;
+    navigation.navigate(screen, params);
+  }
 
   var _pos = useState([]); var positions = _pos[0]; var setPositions = _pos[1];
   var _sal = useState([]); var saldos = _sal[0]; var setSaldos = _sal[1];
@@ -613,7 +622,7 @@ export default function CarteiraScreen(props) {
       <View style={styles.container}>
         <EmptyState icon="◫" title="Carteira vazia"
           description="Nenhum ativo na carteira. Registre compras de ações, FIIs, ETFs ou renda fixa."
-          cta="Adicionar ativo" onCta={function () { navigation.navigate('AddOperacao'); }} color={C.acoes} />
+          cta="Adicionar ativo" onCta={function () { nav('AddOperacao'); }} color={C.acoes} />
       </View>
     );
   }
@@ -715,10 +724,10 @@ export default function CarteiraScreen(props) {
           <PositionCard key={key} pos={pos} history={priceHistory[pos.ticker] || null}
             totalCarteira={totalValue} expanded={expanded === key}
             onToggle={function () { toggleExpand(key); }}
-            onBuy={function () { navigation.navigate('AddOperacao', { ticker: pos.ticker, tipo: 'compra', categoria: pos.categoria }); }}
-            onSell={function () { navigation.navigate('AddOperacao', { ticker: pos.ticker, tipo: 'venda', categoria: pos.categoria }); }}
-            onLancarOpcao={function () { navigation.navigate('AddOpcao', { ativo_base: pos.ticker }); }}
-            onTransacoes={function () { navigation.navigate('AssetDetail', { ticker: pos.ticker }); }} />
+            onBuy={function () { nav('AddOperacao', { ticker: pos.ticker, tipo: 'compra', categoria: pos.categoria }); }}
+            onSell={function () { nav('AddOperacao', { ticker: pos.ticker, tipo: 'venda', categoria: pos.categoria }); }}
+            onLancarOpcao={function () { nav('AddOpcao', { ativo_base: pos.ticker }); }}
+            onTransacoes={function () { nav('AssetDetail', { ticker: pos.ticker }); }} />
         );
       })}
 
@@ -732,7 +741,7 @@ export default function CarteiraScreen(props) {
               <View key={key} style={{ marginTop: i > 0 ? 6 : 0 }}>
                 <RFCard rf={rf} expanded={expanded === key}
                   onToggle={function () { toggleExpand(key); }}
-                  onEdit={function () { navigation.navigate('EditRendaFixa', { rf: rf }); }}
+                  onEdit={function () { nav('EditRendaFixa', { rf: rf }); }}
                   onDelete={function () { handleDeleteRF(rf.id); }} />
               </View>
             );
@@ -744,7 +753,7 @@ export default function CarteiraScreen(props) {
       {filter === 'rf' && rfAtivos.length === 0 ? (
         <EmptyState icon="◉" title="Nenhum título"
           description="Cadastre seus investimentos de renda fixa."
-          cta="Novo título" onCta={function () { navigation.navigate('AddRendaFixa'); }} color={C.rf} />
+          cta="Novo título" onCta={function () { nav('AddRendaFixa'); }} color={C.rf} />
       ) : null}
       {filter !== 'todos' && filter !== 'rf' && filteredPositions.length === 0 ? (
         <Glass padding={20}>

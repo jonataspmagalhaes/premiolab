@@ -286,7 +286,7 @@ var styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'center', paddingVertical: 8,
   },
-  back: { fontSize: 34, color: C.accent, fontWeight: '300' },
+  back: { fontSize: 28, color: C.accent, fontWeight: '300' },
   title: { fontSize: 20, fontWeight: '800', color: C.text, fontFamily: F.display },
   addIcon: { fontSize: 28, color: C.rf, fontWeight: '300' },
 

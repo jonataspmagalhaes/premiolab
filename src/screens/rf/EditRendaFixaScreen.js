@@ -246,7 +246,7 @@ export default function EditRendaFixaScreen(props) {
               }}
               placeholder="0,00"
               placeholderTextColor={C.dim}
-              keyboardType="numeric"
+              keyboardType="decimal-pad"
               style={styles.input}
             />
           </View>
@@ -366,7 +366,7 @@ var styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'center', paddingVertical: 8,
   },
-  back: { fontSize: 34, color: C.accent, fontWeight: '300' },
+  back: { fontSize: 28, color: C.accent, fontWeight: '300' },
   title: { fontSize: 20, fontWeight: '800', color: C.text, fontFamily: F.display },
   label: { fontSize: 12, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginTop: 6 },
   hint: { fontSize: 13, color: C.sub, fontFamily: F.body, fontStyle: 'italic', marginTop: -4 },

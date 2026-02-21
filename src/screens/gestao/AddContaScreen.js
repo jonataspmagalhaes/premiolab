@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
@@ -54,6 +54,18 @@ export default function AddContaScreen(props) {
   var canSubmit = nome.trim().length >= 2;
   var nomeValid = nome.trim().length >= 2;
   var nomeError = nome.length > 0 && nome.trim().length < 2;
+
+  useEffect(function() {
+    return navigation.addListener('beforeRemove', function(e) {
+      if (submitted) return;
+      if (!nome) return;
+      e.preventDefault();
+      Alert.alert('Descartar alterações?', 'Você tem dados não salvos.', [
+        { text: 'Continuar editando', style: 'cancel' },
+        { text: 'Descartar', style: 'destructive', onPress: function() { navigation.dispatch(e.data.action); } },
+      ]);
+    });
+  }, [navigation, submitted, nome]);
 
   var handleSubmit = async function() {
     Keyboard.dismiss();
@@ -185,7 +197,7 @@ export default function AddContaScreen(props) {
           onChangeText={onChangeSaldo}
           placeholder="0,00"
           placeholderTextColor={C.dim}
-          keyboardType="numeric"
+          keyboardType="decimal-pad"
           returnKeyType="done"
           style={[styles.input, { flex: 1 }]}
         />

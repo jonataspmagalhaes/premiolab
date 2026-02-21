@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
@@ -128,6 +128,18 @@ export default function AddRendaFixaScreen(props) {
   var valorValid = valorNum > 0;
   var valorError = valorAplicado.length > 0 && valorNum <= 0;
   var canSubmit = tipo && taxaNum > 0 && valorNum > 0 && vencValido && corretora;
+
+  useEffect(function() {
+    return navigation.addListener('beforeRemove', function(e) {
+      if (submitted) return;
+      if (!taxa && !valorAplicado) return;
+      e.preventDefault();
+      Alert.alert('Descartar alterações?', 'Você tem dados não salvos.', [
+        { text: 'Continuar editando', style: 'cancel' },
+        { text: 'Descartar', style: 'destructive', onPress: function() { navigation.dispatch(e.data.action); } },
+      ]);
+    });
+  }, [navigation, submitted, taxa, valorAplicado]);
 
   var handleSubmit = async function() {
     Keyboard.dismiss();
@@ -272,7 +284,7 @@ export default function AddRendaFixaScreen(props) {
               }}
               placeholder="0,00"
               placeholderTextColor={C.dim}
-              keyboardType="numeric"
+              keyboardType="decimal-pad"
               style={[styles.input,
                 valorValid && { borderColor: C.green },
                 valorError && { borderColor: C.red },
@@ -421,7 +433,7 @@ var styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'center', paddingVertical: 8,
   },
-  back: { fontSize: 34, color: C.accent, fontWeight: '300' },
+  back: { fontSize: 28, color: C.accent, fontWeight: '300' },
   title: { fontSize: 20, fontWeight: '800', color: C.text, fontFamily: F.display },
   label: {
     fontSize: 12, color: C.dim, fontFamily: F.mono,

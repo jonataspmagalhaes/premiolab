@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
@@ -106,6 +106,18 @@ export default function AddMovimentacaoScreen(props) {
   // Show ticker field for investment categories
   var showTicker = ['compra_ativo', 'venda_ativo', 'premio_opcao', 'recompra_opcao',
     'exercicio_opcao', 'dividendo', 'jcp', 'rendimento_fii'].indexOf(categoria) >= 0;
+
+  useEffect(function() {
+    return navigation.addListener('beforeRemove', function(e) {
+      if (submitted) return;
+      if (!valor) return;
+      e.preventDefault();
+      Alert.alert('Descartar alterações?', 'Você tem dados não salvos.', [
+        { text: 'Continuar editando', style: 'cancel' },
+        { text: 'Descartar', style: 'destructive', onPress: function() { navigation.dispatch(e.data.action); } },
+      ]);
+    });
+  }, [navigation, submitted, valor]);
 
   var handleSubmit = async function() {
     Keyboard.dismiss();
