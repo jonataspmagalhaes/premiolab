@@ -100,10 +100,11 @@ export default function EditOperacaoScreen(props) {
   var custoTotal = tipo === 'compra' ? total + totalCustos : total - totalCustos;
   var pmComCustos = qty > 0 ? (tipo === 'compra' ? (total + totalCustos) / qty : (total - totalCustos) / qty) : 0;
 
-  var canSubmit = ticker.length >= 4 && qty > 0 && prc > 0 && corretora && data.length === 10;
+  var minTickerLen = isINT ? 1 : 4;
+  var canSubmit = ticker.length >= minTickerLen && qty > 0 && prc > 0 && corretora && data.length === 10;
 
-  var tickerValid = ticker.length >= 4;
-  var tickerError = ticker.length > 0 && ticker.length < 4;
+  var tickerValid = ticker.length >= minTickerLen;
+  var tickerError = ticker.length > 0 && ticker.length < minTickerLen;
   var qtyValid = qty > 0;
   var qtyError = quantidade.length > 0 && qty <= 0;
   var prcValid = prc > 0;
@@ -205,7 +206,7 @@ export default function EditOperacaoScreen(props) {
           tickerError && { borderColor: C.red },
         ]}
       />
-      {tickerError ? <Text style={styles.fieldError}>Mínimo 4 caracteres</Text> : null}
+      {tickerError ? <Text style={styles.fieldError}>{'Mínimo ' + minTickerLen + ' caracteres'}</Text> : null}
 
       {/* Qtd + Preço */}
       <View style={styles.row}>
