@@ -7,7 +7,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getSaldos, getMovimentacoes, deleteMovimentacao, upsertSaldo } from '../../services/database';
-import { Glass, Pill, Badge, SectionLabel } from '../../components';
+import { Glass, Pill, Badge, SectionLabel, SwipeableRow } from '../../components';
 import { LoadingScreen } from '../../components/States';
 import * as Haptics from 'expo-haptics';
 
@@ -281,33 +281,32 @@ export default function ExtratoScreen(props) {
             var isAuto = AUTO_CATEGORIAS.indexOf(mov.categoria) >= 0;
 
             return (
-              <TouchableOpacity key={mov.id || mi}
-                onLongPress={function() { handleDelete(mov); }}
-                activeOpacity={0.8}
-                style={[styles.movRow, mi > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
-                <View style={[styles.movIconWrap, { backgroundColor: movColor + '12' }]}>
-                  <Text style={[styles.movIconText, { color: movColor }]}>{movIcon}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.movDesc} numberOfLines={1}>
-                    {mov.descricao || CAT_LABELS[mov.categoria] || mov.categoria}
-                  </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.movDate}>{formatDate(mov.data)}</Text>
-                    <Badge text={mov.conta} color={C.dim} />
-                    {mov.ticker ? <Badge text={mov.ticker} color={C.acoes} /> : null}
-                    {isAuto ? <Badge text="auto" color={C.accent} /> : null}
+              <SwipeableRow key={mov.id || mi} enabled={!isAuto} onDelete={function() { handleDelete(mov); }}>
+                <View style={[styles.movRow, mi > 0 && { borderTopWidth: 1, borderTopColor: C.border }, { backgroundColor: C.cardSolid }]}>
+                  <View style={[styles.movIconWrap, { backgroundColor: movColor + '12' }]}>
+                    <Text style={[styles.movIconText, { color: movColor }]}>{movIcon}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.movDesc} numberOfLines={1}>
+                      {mov.descricao || CAT_LABELS[mov.categoria] || mov.categoria}
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={styles.movDate}>{formatDate(mov.data)}</Text>
+                      <Badge text={mov.conta} color={C.dim} />
+                      {mov.ticker ? <Badge text={mov.ticker} color={C.acoes} /> : null}
+                      {isAuto ? <Badge text="auto" color={C.accent} /> : null}
+                    </View>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={[styles.movVal, { color: movColor }]}>
+                      {isEntrada ? '+' : '-'}R$ {fmt(mov.valor)}
+                    </Text>
+                    {mov.saldo_apos != null ? (
+                      <Text style={styles.movSaldoApos}>Saldo: R$ {fmt(mov.saldo_apos)}</Text>
+                    ) : null}
                   </View>
                 </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[styles.movVal, { color: movColor }]}>
-                    {isEntrada ? '+' : '-'}R$ {fmt(mov.valor)}
-                  </Text>
-                  {mov.saldo_apos != null ? (
-                    <Text style={styles.movSaldoApos}>Saldo: R$ {fmt(mov.saldo_apos)}</Text>
-                  ) : null}
-                </View>
-              </TouchableOpacity>
+              </SwipeableRow>
             );
           })}
         </Glass>

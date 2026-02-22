@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Keyboard,
 } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -40,7 +41,7 @@ export default function LoginScreen() {
         }
         Alert.alert('Erro', msg);
       } else if (mode === 'register') {
-        Alert.alert('Sucesso', 'Conta criada! Faça login para continuar.');
+        Toast.show({ type: 'success', text1: 'Conta criada!', text2: 'Faça login para continuar.' });
         setMode('login');
       }
     } catch (err) {

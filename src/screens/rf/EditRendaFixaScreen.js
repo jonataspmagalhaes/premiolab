@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
+import Toast from 'react-native-toast-message';
 
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -164,9 +165,8 @@ export default function EditRendaFixaScreen(props) {
         Alert.alert('Erro', result.error.message);
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Salvo!', 'Titulo atualizado com sucesso.', [
-          { text: 'OK', onPress: function() { navigation.goBack(); } },
-        ]);
+        Toast.show({ type: 'success', text1: 'Título atualizado' });
+        navigation.goBack();
       }
     } catch (err) {
       Alert.alert('Erro', 'Falha ao salvar.');

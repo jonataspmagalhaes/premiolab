@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   Switch, TextInput, Alert,
 } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../../theme';
 import { useAuth } from '../../../contexts/AuthContext';
 import { getAlertasConfig, updateAlertasConfig } from '../../../services/database';
@@ -48,7 +49,7 @@ export default function ConfigAlertasScreen(props) {
     var result = await updateAlertasConfig(user.id, config);
     if (result.error) Alert.alert('Erro', 'Falha ao salvar');
     else {
-      Alert.alert('Salvo', 'Alertas atualizados');
+      Toast.show({ type: 'success', text1: 'Alertas atualizados' });
       navigation.goBack();
     }
   };

@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, LayoutAnimation, Keyboard,
 } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../config/supabase';
@@ -113,9 +114,8 @@ export default function EditOperacaoScreen(props) {
         Alert.alert('Erro', result.error.message);
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Salvo!', 'Operação atualizada.', [
-          { text: 'OK', onPress: function() { navigation.goBack(); } },
-        ]);
+        Toast.show({ type: 'success', text1: 'Operação atualizada' });
+        navigation.goBack();
       }
     } catch (err) {
       Alert.alert('Erro', 'Falha ao salvar.');

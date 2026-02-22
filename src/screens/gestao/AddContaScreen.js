@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { upsertSaldo, addMovimentacao, buildMovDescricao } from '../../services/database';
@@ -99,9 +100,8 @@ export default function AddContaScreen(props) {
           });
         }
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Sucesso!', 'Conta ' + nomeNorm + ' criada.', [
-          { text: 'OK', onPress: function() { navigation.goBack(); } },
-        ]);
+        Toast.show({ type: 'success', text1: 'Conta ' + nomeNorm + ' criada' });
+        navigation.goBack();
       }
     } catch (err) {
       Alert.alert('Erro', 'Falha ao salvar.');

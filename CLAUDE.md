@@ -337,7 +337,7 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 - [x] **Auto-sync de dividendos** (implementado: dividendService.js, cross-check brapi+StatusInvest, auto-trigger Home, sync manual Proventos, dedup por ticker+data+valor)
 - [x] **Gestao Financeira / Fluxo de Caixa** (implementado: tab Gestao com sub-tabs Carteira+Caixa, movimentacoes, integracao com operacoes/opcoes/dividendos)
 - [x] **Relatorios Detalhados** (implementado: tela Relatorios com sub-tabs Dividendos/Opcoes/Operacoes/IR, graficos, agrupamentos)
-- [x] **Melhorias UX P0-P7** (implementado: contraste, touch targets, validacao inline, skeleton, haptics, keyboard, error states, beforeRemove, double-tap guard)
+- [x] **Melhorias UX P0-P8** (implementado: contraste, touch targets, validacao inline, skeleton, haptics, keyboard, error states, beforeRemove, double-tap guard, toast, swipe-to-delete)
 - [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
 - [ ] Notificacoes push para vencimentos proximos
 - [ ] Importacao de operacoes via CSV/Excel
@@ -636,9 +636,9 @@ Confirmacao com valor do saldo na mensagem. Error handling com Alert se falhar. 
 | `src/screens/gestao/CaixaView.js` | Multi-moeda display, editar saldo, excluir melhorado |
 | `supabase-migration.sql` | Coluna `moeda TEXT DEFAULT 'BRL'` em saldos_corretora |
 
-## Melhorias UX P0-P7 (Implementado)
+## Melhorias UX P0-P8 (Implementado)
 
-Oito rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, feedback, keyboard handling e consistencia visual.
+Nove rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, feedback, keyboard handling, consistencia visual, toast e swipe-to-delete.
 
 ### P0 — Contraste e Touch Targets
 - **Theme**: tokens `C.textSecondary` (#8888aa, WCAG AA) e `C.textTertiary` (#666688)
@@ -689,6 +689,11 @@ Oito rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, fee
 - **keyboardType**: numeric→decimal-pad em campos de valor (AddRendaFixa, EditRendaFixa, AddConta)
 - **Double-tap guard**: useRef + useFocusEffect no CarteiraScreen previne navegacao duplicada
 
+### P8 — Toast/Snackbar e Swipe-to-delete
+- **Pull-to-refresh**: ja estava implementado em todas as 6 telas (HomeScreen, CarteiraScreen, OpcoesScreen, ProventosScreen, RendaFixaScreen, CaixaView)
+- **Toast/Snackbar**: `react-native-toast-message` com visual dark/glass customizado (ToastConfig.js). Substitui Alert.alert de sucesso por toast nao-bloqueante em 10 telas (Edit*, Config*, AddConta, LoginScreen, ProventosScreen sync). Alerts com escolha "Adicionar outro/a" mantidos em telas Add
+- **Swipe-to-delete**: componente `SwipeableRow` reutilizavel usando `Swipeable` de react-native-gesture-handler. Revela botao "Excluir" vermelho ao arrastar para esquerda. Haptic feedback ao revelar. Implementado em ExtratoScreen, CaixaView (2 locais) e ProventosScreen. Movimentacoes automaticas (auto) recebem `enabled={false}` — sem swipe
+
 ### Arquivos modificados (resumo)
 | Arquivo | Mudancas principais |
 |---------|-------------------|
@@ -712,15 +717,31 @@ Oito rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, fee
 | `src/screens/gestao/AddMovimentacaoScreen.js` | beforeRemove |
 | `src/screens/opcoes/AddOpcaoScreen.js` | beforeRemove |
 | `src/screens/proventos/AddProventoScreen.js` | beforeRemove |
+| `src/components/ToastConfig.js` | **Novo** — config visual toast dark/glass |
+| `src/components/SwipeableRow.js` | **Novo** — wrapper Swipeable com botao Excluir |
+| `src/components/index.js` | Export ToastConfig, SwipeableRow |
+| `src/navigation/AppNavigator.js` | Toast component integrado |
+| `src/screens/auth/LoginScreen.js` | Alert → Toast (registro) |
+| `src/screens/carteira/EditOperacaoScreen.js` | Alert → Toast + goBack |
+| `src/screens/opcoes/EditOpcaoScreen.js` | Alert → Toast + goBack |
+| `src/screens/proventos/EditProventoScreen.js` | Alert → Toast + goBack |
+| `src/screens/proventos/ProventosScreen.js` | Alert sync → Toast, SwipeableRow em proventos |
+| `src/screens/rf/EditRendaFixaScreen.js` | Alert → Toast + goBack |
+| `src/screens/gestao/AddContaScreen.js` | Alert → Toast + goBack |
+| `src/screens/gestao/ExtratoScreen.js` | SwipeableRow em movimentacoes (remove onLongPress) |
+| `src/screens/gestao/CaixaView.js` | SwipeableRow em 2 locais (remove onLongPress) |
+| `src/screens/mais/config/ConfigSelicScreen.js` | Alert → Toast + goBack |
+| `src/screens/mais/config/ConfigMetaScreen.js` | Alert → Toast + goBack |
+| `src/screens/mais/config/ConfigAlertasScreen.js` | Alert → Toast + goBack |
 
 ## Melhorias UX Pendentes (TODO)
 
 Melhorias identificadas mas nao implementadas, organizadas por prioridade.
 
-### P8 — Pull-to-refresh e Feedback
-- [ ] **Pull-to-refresh**: RefreshControl em CarteiraScreen, OpcoesScreen, ProventosScreen, RendaFixaScreen, CaixaView, HomeScreen
-- [ ] **Toast/Snackbar**: substituir Alert.alert de sucesso por toast nao-bloqueante (ex: react-native-toast-message)
-- [ ] **Swipe-to-delete**: em listas de movimentacoes/proventos/opcoes (substituir long-press)
+### P8 — Pull-to-refresh e Feedback (IMPLEMENTADO)
+- [x] **Pull-to-refresh**: RefreshControl em CarteiraScreen, OpcoesScreen, ProventosScreen, RendaFixaScreen, CaixaView, HomeScreen
+- [x] **Toast/Snackbar**: react-native-toast-message com visual dark/glass em 10 telas
+- [x] **Swipe-to-delete**: SwipeableRow em ExtratoScreen, CaixaView, ProventosScreen
 
 ### P9 — Performance e Listas
 - [ ] **Paginacao**: listas longas (movimentacoes, proventos, operacoes) com infinite scroll

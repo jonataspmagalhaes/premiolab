@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, TextInput,
   TouchableOpacity, Alert, ActivityIndicator, Switch, Modal,
 } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, F, SIZE } from '../../../theme';
@@ -98,7 +99,7 @@ export default function ConfigSelicScreen(props) {
       Alert.alert('Erro', 'Falha ao salvar: ' + (result.error.message || 'tente novamente'));
     } else {
       setHistory(updates.selic_history || newHistory);
-      Alert.alert('Salvo', 'Taxa Selic atualizada para ' + newRate + '%');
+      Toast.show({ type: 'success', text1: 'Taxa Selic atualizada para ' + newRate + '%' });
       navigation.goBack();
     }
     setSaving(false);

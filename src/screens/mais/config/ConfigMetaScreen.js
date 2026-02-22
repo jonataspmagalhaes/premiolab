@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, TextInput,
   TouchableOpacity, Alert, Modal,
 } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, F, SIZE } from '../../../theme';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -33,7 +34,7 @@ export default function ConfigMetaScreen(props) {
     if (result.error) {
       Alert.alert('Erro', 'Falha ao salvar');
     } else {
-      Alert.alert('Salvo', 'Meta atualizada com sucesso');
+      Toast.show({ type: 'success', text1: 'Meta atualizada' });
       navigation.goBack();
     }
   };

@@ -15,7 +15,7 @@ import {
   recalcularSaldos,
 } from '../../services/database';
 import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/currencyService';
-import { Glass, Badge, Pill, SectionLabel } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, SwipeableRow } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import * as Haptics from 'expo-haptics';
 
@@ -677,11 +677,10 @@ export default function CaixaView(props) {
                         var isEntrada = m.tipo === 'entrada';
                         var movColor = isEntrada ? C.green : m.tipo === 'transferencia' ? C.accent : C.red;
                         var movIcon = isEntrada ? '↓' : m.tipo === 'transferencia' ? '→' : '↑';
+                        var isAutoMini = AUTO_CATEGORIAS.indexOf(m.categoria) >= 0;
                         return (
-                          <TouchableOpacity key={m.id || mi} activeOpacity={0.7}
-                            onLongPress={function() { handleDeleteMov(m); }}
-                            delayLongPress={400}>
-                            <View style={styles.miniMovRow}>
+                          <SwipeableRow key={m.id || mi} enabled={!isAutoMini} onDelete={function() { handleDeleteMov(m); }}>
+                            <View style={[styles.miniMovRow, { backgroundColor: C.cardSolid }]}>
                               <Text style={[styles.miniMovIcon, { color: movColor }]}>{movIcon}</Text>
                               <Text style={styles.miniMovDesc} numberOfLines={1}>
                                 {m.descricao || CAT_LABELS[m.categoria] || m.categoria}
@@ -690,7 +689,7 @@ export default function CaixaView(props) {
                                 {isEntrada ? '+' : '-'}{simbolo} {fmt(m.valor)}
                               </Text>
                             </View>
-                          </TouchableOpacity>
+                          </SwipeableRow>
                         );
                       })}
                     </View>
@@ -906,10 +905,8 @@ export default function CaixaView(props) {
             var movIcon = isEntrada ? '↓' : isTransf ? '→' : '↑';
             var isAuto = AUTO_CATEGORIAS.indexOf(m.categoria) >= 0;
             return (
-              <TouchableOpacity key={m.id || i} activeOpacity={0.7}
-                onLongPress={function() { handleDeleteMov(m); }}
-                delayLongPress={400}>
-                <View style={[styles.movRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
+              <SwipeableRow key={m.id || i} enabled={!isAuto} onDelete={function() { handleDeleteMov(m); }}>
+                <View style={[styles.movRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }, { backgroundColor: C.cardSolid }]}>
                   <View style={[styles.movIconWrap, { backgroundColor: movColor + '12' }]}>
                     <Text style={[styles.movIconText, { color: movColor }]}>{movIcon}</Text>
                   </View>
@@ -927,7 +924,7 @@ export default function CaixaView(props) {
                     {isEntrada ? '+' : '-'}R$ {fmt(m.valor)}
                   </Text>
                 </View>
-              </TouchableOpacity>
+              </SwipeableRow>
             );
           })}
         </Glass>

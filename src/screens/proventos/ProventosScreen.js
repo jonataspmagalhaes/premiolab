@@ -5,11 +5,12 @@ import {
   LayoutAnimation, Platform, UIManager,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getProventos, deleteProvento, getProfile } from '../../services/database';
 import { runDividendSync } from '../../services/dividendService';
-import { Glass, Badge, Pill, SectionLabel } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, SwipeableRow } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import * as Haptics from 'expo-haptics';
 
@@ -115,7 +116,7 @@ export default function ProventosScreen(props) {
       setLastSync(new Date().toISOString().substring(0, 10));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (result.inserted > 0) {
-        Alert.alert('Sincronizado', result.inserted + ' provento' + (result.inserted > 1 ? 's' : '') + ' importado' + (result.inserted > 1 ? 's' : '') + '.\n\n' + (result.checked || 0) + ' ticker' + (result.checked > 1 ? 's' : '') + ' verificado' + (result.checked > 1 ? 's' : '') + '.');
+        Toast.show({ type: 'success', text1: result.inserted + ' provento' + (result.inserted > 1 ? 's' : '') + ' importado' + (result.inserted > 1 ? 's' : ''), text2: (result.checked || 0) + ' ticker' + (result.checked > 1 ? 's' : '') + ' verificado' + (result.checked > 1 ? 's' : '') });
         await load();
       } else {
         Alert.alert('Nenhum provento novo', result.message || 'Nenhum provento novo encontrado.');
@@ -323,41 +324,35 @@ export default function ProventosScreen(props) {
             var days = isPendente ? daysUntil(p.data_pagamento) : 0;
 
             return (
-              <View
-                key={p.id || idx}
-                style={[styles.provRow, idx > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}
-              >
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Text style={styles.provTicker}>{p.ticker}</Text>
-                    <Badge text={tipoLabel} color={tipoColor} />
-                    {isPendente && days > 0 && (
-                      <Badge text={days + 'd'} color={days <= 7 ? C.yellow : C.dim} />
+              <SwipeableRow key={p.id || idx} onDelete={function() { handleDelete(p.id); }}>
+                <View style={[styles.provRow, idx > 0 && { borderTopWidth: 1, borderTopColor: C.border }, { backgroundColor: C.cardSolid }]}>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={styles.provTicker}>{p.ticker}</Text>
+                      <Badge text={tipoLabel} color={tipoColor} />
+                      {isPendente && days > 0 && (
+                        <Badge text={days + 'd'} color={days <= 7 ? C.yellow : C.dim} />
+                      )}
+                    </View>
+                    <Text style={styles.provDate}>{isoToBr(p.data_pagamento)}</Text>
+                    {p.quantidade > 0 && p.valor_por_cota > 0 && (
+                      <Text style={styles.provDetail}>
+                        {p.quantidade + ' x R$ ' + fmt4(p.valor_por_cota)}
+                      </Text>
                     )}
                   </View>
-                  <Text style={styles.provDate}>{isoToBr(p.data_pagamento)}</Text>
-                  {p.quantidade > 0 && p.valor_por_cota > 0 && (
-                    <Text style={styles.provDetail}>
-                      {p.quantidade + ' x R$ ' + fmt4(p.valor_por_cota)}
+                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                    <Text style={[styles.provValor, isPendente && { color: C.yellow }]}>
+                      {(isPendente ? '' : '+') + 'R$ ' + fmt(valorTotal)}
                     </Text>
-                  )}
-                </View>
-                <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                  <Text style={[styles.provValor, isPendente && { color: C.yellow }]}>
-                    {(isPendente ? '' : '+') + 'R$ ' + fmt(valorTotal)}
-                  </Text>
-                  <View style={{ flexDirection: 'row', gap: 10 }}>
                     <TouchableOpacity onPress={function() {
                       navigation.navigate('EditProvento', { provento: p });
                     }}>
                       <Text style={styles.actionLink}>Editar</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={function() { handleDelete(p.id); }}>
-                      <Text style={[styles.actionLink, { color: C.red }]}>Excluir</Text>
-                    </TouchableOpacity>
                   </View>
                 </View>
-              </View>
+              </SwipeableRow>
             );
           })}
         </Glass>

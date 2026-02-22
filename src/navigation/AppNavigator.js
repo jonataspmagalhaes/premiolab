@@ -5,8 +5,10 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Toast from 'react-native-toast-message';
 import { useAuth } from '../contexts/AuthContext';
 import { C, F, SIZE } from '../theme';
+import toastConfig from '../components/ToastConfig';
 
 // Screens
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -242,18 +244,21 @@ export default function AppNavigator() {
   }
 
   return (
-    <NavigationContainer theme={PremioLabTheme}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-      {!user ? (
-        <AuthStack />
-      ) : !onboarded ? (
-        <Stack.Navigator screenOptions={screenOptions}>
-          <Stack.Screen name="Onboarding" component={SafeOnboardingScreen} />
-        </Stack.Navigator>
-      ) : (
-        <AppStack />
-      )}
-    </NavigationContainer>
+    <View style={{ flex: 1 }}>
+      <NavigationContainer theme={PremioLabTheme}>
+        <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+        {!user ? (
+          <AuthStack />
+        ) : !onboarded ? (
+          <Stack.Navigator screenOptions={screenOptions}>
+            <Stack.Screen name="Onboarding" component={SafeOnboardingScreen} />
+          </Stack.Navigator>
+        ) : (
+          <AppStack />
+        )}
+      </NavigationContainer>
+      <Toast config={toastConfig} position="top" topOffset={54} visibilityTime={2200} />
+    </View>
   );
 }
 
