@@ -34,19 +34,20 @@ src/
     analise/       Dashboard analitico + Rebalanceamento hierarquico
     auth/          Login + Onboarding
     carteira/      Portfolio (Carteira, AddOperacao, EditOperacao, AssetDetail)
-    gestao/        Gestao (GestaoScreen, CaixaView, AddMovimentacao, Extrato, AddConta)
+    gestao/        Gestao (GestaoScreen wrapper Ativos/Caixa, CaixaView, AddMovimentacao, Extrato, AddConta)
     home/          Dashboard principal (patrimonio, renda, KPIs, alertas, eventos)
-    mais/          Menu + Configs (Meta, Corretoras, Alertas, Selic, Guia, Sobre, Historico)
+    mais/          Menu + Configs (Meta, Corretoras, Alertas, Selic, Guia, Sobre, Historico) + acesso a Analise
     opcoes/        Opcoes (lista, add, edit, simulador BS)
-    proventos/     Proventos (lista, add, edit)
-    relatorios/    Relatorios (dividendos, opcoes, operacoes, IR)
+    proventos/     Proventos (lista, add, edit) — embedded na tab Renda
+    relatorios/    Relatorios (dividendos, opcoes, operacoes, IR) — embedded na tab Renda
+    renda/         Tab Renda (RendaScreen wrapper, RendaResumoView)
     rf/            Renda Fixa (lista, add, edit)
   services/
     database.js    Todas as funcoes CRUD do Supabase
     priceService.js Cotacoes em tempo real + cache + marketCap + routing BR/INT
-    yahooService.js Cotacoes internacionais via Yahoo Finance (cache + OHLCV)
+    yahooService.js Cotacoes internacionais via Yahoo Finance (cache + OHLCV + dividendos)
     indicatorService.js Calculo HV, RSI, SMA, EMA, Beta, ATR, BB, MaxDD
-    dividendService.js Auto-sync de dividendos via brapi.dev + StatusInvest
+    dividendService.js Auto-sync de dividendos via brapi.dev + StatusInvest + Yahoo Finance (INT)
     currencyService.js Cambio multi-moeda via brapi.dev + fallback
   theme/
     index.js       Cores (C), Fontes (F), Tamanhos (SIZE), Sombras (SHADOW)
@@ -61,10 +62,10 @@ supabase/
 
 ### Tabs (5 abas)
 1. **Home** - Patrimonio, renda mensal, alertas, eventos, historico
-2. **Gestão** - Sub-tabs "Carteira" (portfolio) + "Caixa" (fluxo de caixa). Ícone briefcase
-3. **Opcoes** - Cards com gregas BS, moneyness, cobertura, simulador, historico
-4. **Analise** - Graficos avancados e metricas
-5. **Mais** - Menu de configuracoes e utilidades
+2. **Carteira** - Sub-tabs "Ativos" (portfolio via CarteiraScreen) + "Caixa" (fluxo de caixa via CaixaView). Icone briefcase. Componente: GestaoScreen
+3. **Opcoes** - Cards com gregas BS, moneyness, cobertura, simulador, historico. 5 sub-tabs (ativas, pendentes, sim, cadeia, hist)
+4. **Renda** - Sub-tabs "Resumo" (RendaResumoView) + "Proventos" (ProventosScreen embedded) + "Relatorios" (RelatoriosScreen embedded). Icone cash. Componente: RendaScreen
+5. **Mais** - Menu de configuracoes, utilidades + acesso a Analise Completa (stack screen)
 
 ### Stacks modais
 - AddOperacao, EditOperacao, AssetDetail
@@ -72,7 +73,7 @@ supabase/
 - AddRendaFixa, EditRendaFixa
 - AddProvento, EditProvento
 - AddMovimentacao, Extrato, AddConta
-- Relatorios
+- Analise (stack screen com back button, acessado via Mais)
 - ConfigMeta, ConfigCorretoras, ConfigAlertas, ConfigSelic
 - Historico, Guia, Sobre
 
@@ -158,7 +159,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - `mergeDividends(brapiDivs, statusInvestDivs)` - Merge sem duplicatas, brapi como base
 - `mapLabelToTipo(label)` - "DIVIDENDO" → "dividendo", "JCP" → "jcp", "RENDIMENTO" → "rendimento"
 - `shouldSyncDividends(lastSyncDate)` - Verifica dia util + hora >= 18 BRT + nao sincronizou hoje
-- `runDividendSync(userId)` - Orquestrador: posicoes → dividendos brapi+StatusInvest → merge → dedup → addProvento → updateProfile
+- `runDividendSync(userId)` - Orquestrador: posicoes BR → brapi+StatusInvest, posicoes INT → Yahoo Finance + USD→BRL → merge → dedup → addProvento → updateProfile
 
 ## Componentes
 
@@ -213,7 +214,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Editar saldo direto**: botao "Editar saldo" no card expandido permite definir novo valor, registra movimentacao `ajuste_manual` com diff
 - **Excluir movimentacao com reversao**: long press em movimentacao exclui e reverte saldo automaticamente (entrada excluida = subtrai, saida excluida = soma de volta). Movimentacoes auto-geradas (compra/venda, premio, dividendo etc) sao bloqueadas
 
-### Opcoes (OpcoesScreen)
+### Opcoes (OpcoesScreen) — 5 sub-tabs (ativas, pendentes, sim, cadeia, hist)
 - **Black-Scholes completo**: pricing, gregas (delta, gamma, theta, vega), IV implicita
 - **Moneyness**: badges ITM/ATM/OTM com cor por direcao e texto "Strike R$ X . Y% acima/abaixo"
 - **Cobertura inteligente** (usa `por_corretora` das transacoes, nao do card):
@@ -251,11 +252,12 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - Indexadores: prefixado, CDI, IPCA, Selic
 - Contagem regressiva de vencimento com cores de urgencia
 
-### Proventos (ProventosScreen)
+### Proventos (ProventosScreen) — embedded na tab Renda
 - Tipos: dividendo, JCP, rendimento, juros RF, amortizacao, bonificacao
 - Filtros por tipo
 - Valor por cota + total
 - **Botao "Sincronizar"**: sync manual de dividendos via brapi.dev + StatusInvest no header
+- **Modo embedded**: prop `embedded` oculta header com back button, mostra apenas sync + add buttons
 
 ### AssetDetail (AssetDetailScreen)
 - Card "INDICADORES TECNICOS" com grid 2x4: HV 20d, RSI 14, SMA 20, EMA 9, Beta, ATR 14, Max DD, BB Width
@@ -263,7 +265,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - Data do ultimo calculo no rodape
 - **Proventos por corretora**: proventos aparecem DENTRO de cada grupo de corretora na secao TRANSACOES, com qty ajustada por corretora (usa `por_corretora` computado dos txns). Separador visual "PROVENTOS (X cotas)" em verde. Secao separada de proventos removida.
 
-### Analise (AnaliseScreen)
+### Analise (AnaliseScreen) — acessado via Mais → Analise Completa (stack screen com back button)
 - Sub-tab **Indicadores** com tabela resumo (Ticker, HV, RSI, Beta, Max DD) + cards detalhados por ativo (14 indicadores)
 - Botao "Recalcular indicadores" para calculo manual
 - Auto-trigger de calculo se dados desatualizados
@@ -336,15 +338,15 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 ## Features Principais Implementadas (Resumo)
 
 - **Sistema de Indicadores Tecnicos**: indicatorService.js, tabela indicators, integrado em Opcoes/AssetDetail/Analise/Home
-- **Auto-sync de dividendos**: dividendService.js, cross-check brapi+StatusInvest, auto-trigger Home, sync manual Proventos
-- **Gestao Financeira / Fluxo de Caixa**: tab Gestao com sub-tabs Carteira+Caixa, movimentacoes, integracao com operacoes/opcoes/dividendos
-- **Relatorios Detalhados**: tela Relatorios com sub-tabs Dividendos/Opcoes/Operacoes/IR, graficos, agrupamentos
+- **Auto-sync de dividendos**: dividendService.js, cross-check brapi+StatusInvest (BR) + Yahoo Finance (INT com conversao USD→BRL), auto-trigger Home, sync manual Proventos
+- **Gestao Financeira / Fluxo de Caixa**: tab Carteira com sub-tabs Ativos+Caixa, movimentacoes, integracao com operacoes/opcoes/dividendos
+- **Relatorios Detalhados**: embedded na tab Renda, sub-tabs Dividendos/Opcoes/Operacoes/IR, graficos, agrupamentos
 - **Multi-Moeda**: contas em USD/EUR/GBP/QAR/etc, cambio automatico via brapi.dev
 - **Melhorias UX P0-P12**: 13 rodadas cobrindo contraste, validacao, haptics, keyboard, toast, swipe-to-delete, performance, React.memo, autocomplete, undo, PressableCard, skeletons, animacoes, accessibilityLabel/Hint/Role, ReduceMotion, maxFontSizeMultiplier
 
 ## Sistema de Indicadores Tecnicos (Implementado)
 
-Calcula HV, RSI, SMA, EMA, Beta, ATR, Bollinger, IV Rank, Max Drawdown diariamente apos 18h BRT. Dados OHLCV via brapi.dev (6 meses). Trigger automatico fire-and-forget na Home e OpcoesScreen via `shouldCalculateToday()`.
+Calcula HV, RSI, SMA, EMA, Beta, ATR, Bollinger, IV Rank, Max Drawdown diariamente apos 18h BRT. Dados OHLCV via brapi.dev (6 meses). Trigger automatico fire-and-forget na Home e OpcoesScreen via `shouldCalculateToday()`. Resultados visiveis nos cards de opcoes (HV/IV), AssetDetail (grid 2x4) e AnaliseScreen (sub-tab Indicadores, acessado via Mais).
 
 ### Arquivos modificados/criados
 | Arquivo | Mudanca |
@@ -352,7 +354,7 @@ Calcula HV, RSI, SMA, EMA, Beta, ATR, Bollinger, IV Rank, Max Drawdown diariamen
 | `src/services/indicatorService.js` | Criado — 12 funcoes de calculo + orquestrador |
 | `src/services/database.js` | CRUD indicators (get, getByTicker, upsert, upsertBatch) |
 | `src/services/priceService.js` | `fetchPriceHistoryLong()` (6mo OHLCV, cache 1h) |
-| `src/screens/opcoes/OpcoesScreen.js` | HV como IV default na Cadeia, HV/IV nos cards, auto-trigger |
+| `src/screens/opcoes/OpcoesScreen.js` | HV como IV default na Cadeia, HV/IV nos cards, auto-trigger (sub-tab Indicadores removida — agora so em AnaliseScreen) |
 | `src/screens/carteira/AssetDetailScreen.js` | Grid 2x4 indicadores por ativo |
 | `src/screens/analise/AnaliseScreen.js` | Sub-tab "Indicadores" com tabela + cards detalhados |
 | `src/screens/home/HomeScreen.js` | Auto-trigger fire-and-forget |
@@ -360,25 +362,26 @@ Calcula HV, RSI, SMA, EMA, Beta, ATR, Bollinger, IV Rank, Max Drawdown diariamen
 
 ## Auto-sync de Dividendos (Implementado)
 
-Importa automaticamente dividendos, JCP e rendimentos de FIIs para tickers na carteira do usuario. Usa **cross-check de duas fontes** para cobertura maxima:
+Importa automaticamente dividendos, JCP e rendimentos de FIIs para tickers na carteira do usuario. Posicoes BR usam **cross-check de duas fontes** (brapi+StatusInvest). Posicoes INT usam **Yahoo Finance** com conversao USD→BRL.
 
 ### Fontes de dados
-1. **brapi.dev**: endpoint `?dividends=true`, retorna `dividendsData.cashDividends[]` com `rate`, `paymentDate`, `lastDatePrior`, `label`. Cobre acoes mas nao FIIs.
-2. **StatusInvest**: endpoint `GET /acao/companytickerprovents?ticker={TICKER}&chartProvType=2` (ou `/fii/` para FIIs). Retorna `assetEarningsModels[]` com `v` (rate), `pd` (pagamento DD/MM/YYYY), `ed` (data-ex DD/MM/YYYY), `et` (tipo). Header `User-Agent` obrigatorio. Sem token. Cobre acoes E FIIs.
+1. **brapi.dev** (BR): endpoint `?dividends=true`, retorna `dividendsData.cashDividends[]` com `rate`, `paymentDate`, `lastDatePrior`, `label`. Cobre acoes mas nao FIIs.
+2. **StatusInvest** (BR): endpoint `GET /acao/companytickerprovents?ticker={TICKER}&chartProvType=2` (ou `/fii/` para FIIs). Retorna `assetEarningsModels[]` com `v` (rate), `pd` (pagamento DD/MM/YYYY), `ed` (data-ex DD/MM/YYYY), `et` (tipo). Header `User-Agent` obrigatorio. Sem token. Cobre acoes E FIIs.
+3. **Yahoo Finance** (INT): endpoint `?interval=1d&range=1y&events=div`, retorna `chart.result[0].events.dividends` (objeto keyed por timestamp UNIX, cada entry tem `amount` e `date`). Cache 24h. Cobre stocks e ETFs internacionais.
 
-### Estrategia de merge
-- Busca de ambas as fontes em paralelo (cada uma com try/catch proprio retornando `[]`)
-- `mergeDividends()` usa brapi como base, StatusInvest preenche gaps
-- Dedup por `paymentDate (YYYY-MM-DD) + round(rate, 4)` — mesmo dividendo em ambas fontes nao duplica
-- Se uma fonte falhar, a outra funciona sozinha
+### Estrategia de sync
+- **BR**: busca brapi + StatusInvest em paralelo, `mergeDividends()` usa brapi como base, StatusInvest preenche gaps. Dedup por `paymentDate + round(rate, 4)`
+- **INT**: busca Yahoo Finance via `fetchYahooDividends(ticker)`, converte `rate` USD→BRL via `fetchExchangeRates(['USD'])` do currencyService. Valores salvos em BRL. Descricao da movimentacao inclui valor original USD + taxa de cambio
+- Se uma fonte falhar, as outras funcionam sozinhas
 
 ### Deduplicacao (insercao)
-Chave composta: `ticker (upper) + data_pagamento (YYYY-MM-DD) + round(valor_por_cota, 4)`. Se match com provento existente, pula. Proventos manuais coexistem sem conflito.
+Chave composta: `ticker (upper) + data_pagamento (YYYY-MM-DD) + round(valor_por_cota, 4)`. Se match com provento existente, pula. Proventos manuais coexistem sem conflito. Para INT, `valor_por_cota` ja esta em BRL (convertido).
 
 Trigger automatico fire-and-forget na Home apos 18h BRT via `shouldSyncDividends()`. Sync manual via botao "Sincronizar" na tela de Proventos.
 
 ### Limitacoes
-- **Quantidade**: usa posicao HISTORICA na data-com via `positionAtDate()` (reconstroi qty a partir das operacoes). Pula dividendos com data-com futura ou sem posicao na data-ex
+- **Quantidade BR**: usa posicao HISTORICA na data-com via `positionAtDate()` (reconstroi qty a partir das operacoes). Pula dividendos com data-com futura ou sem posicao na data-ex
+- **Quantidade INT**: usa posicao ATUAL (Yahoo nao fornece ex-date confiavel)
 - **Corretora**: auto-sync nao preenche campo corretora
 - **Escopo**: filtra dividendos dos ultimos 12 meses com paymentDate valido
 - **StatusInvest**: pode ter rate limiting sem aviso; User-Agent necessario
@@ -386,8 +389,10 @@ Trigger automatico fire-and-forget na Home apos 18h BRT via `shouldSyncDividends
 ### Arquivos modificados/criados
 | Arquivo | Mudanca |
 |---------|---------|
-| `src/services/dividendService.js` | Criado — fetchDividendsBrapi, fetchDividendsStatusInvest, mergeDividends, mapLabelToTipo, shouldSyncDividends, runDividendSync |
-| `src/screens/home/HomeScreen.js` | Auto-trigger fire-and-forget dividend sync |
+| `src/services/yahooService.js` | +fetchYahooDividends (cache 24h, &events=div) |
+| `src/services/dividendService.js` | Criado — fetchDividendsBrapi, fetchDividendsStatusInvest, mergeDividends, mapLabelToTipo, shouldSyncDividends, runDividendSync (BR+INT) |
+| `src/screens/home/HomeScreen.js` | Auto-trigger fire-and-forget dividend sync, linha stock_int no breakdown |
+| `src/screens/renda/RendaResumoView.js` | Linha stock_int no breakdown de dividendos |
 | `src/screens/proventos/ProventosScreen.js` | Botao "Sincronizar" no header + handleSync |
 | `supabase-migration.sql` | Coluna `profiles.last_dividend_sync` |
 
@@ -464,6 +469,7 @@ Componente `InfoTip` com icone Ionicons `information-circle-outline` (14px, cor 
 | HomeScreen | Patrimonio Total, Renda do Mes, Alertas |
 | CarteiraScreen | Posicoes (PM) |
 | OpcoesScreen | Summary bar (moneyness/cobertura/DTE), Gregas BS, HV/IV |
+| RendaResumoView | Renda do Mes, Media Anual |
 | AnaliseScreen (Todos) | Retorno Mensal/Semanal, Drawdown, Rentabilidade por Ativo |
 | AnaliseScreen (Indicadores) | Tabela resumo (HV, RSI, Beta, Max DD) |
 | AnaliseScreen (Rebalanceamento) | Metas de alocacao |
@@ -516,10 +522,10 @@ Revisao geral de textos UI para portugues correto com acentos. Todas as strings 
 
 ## Gestao Financeira / Fluxo de Caixa (Implementado)
 
-Tab "Carteira" renomeada para "Gestão" (ícone briefcase) com sub-tabs "Carteira" + "Caixa". Sistema completo de fluxo de caixa com registro de movimentações financeiras integrado ao resto do app.
+Tab "Carteira" (icone briefcase) com sub-tabs "Ativos" + "Caixa". Sistema completo de fluxo de caixa com registro de movimentações financeiras integrado ao resto do app.
 
 ### Estrutura
-- **GestaoScreen**: wrapper com sub-tabs Pill (Carteira / Caixa), renderiza CarteiraScreen ou CaixaView
+- **GestaoScreen**: wrapper com sub-tabs Pill (Ativos / Caixa), renderiza CarteiraScreen ou CaixaView
 - **CaixaView**: dashboard de caixa com hero saldo, accordion de contas, resumo mensal, últimas movimentações, gráficos
 - **AddMovimentacaoScreen**: form manual (tipo entrada/saída, categoria, conta, valor R$, ticker opcional, descrição, data)
 - **ExtratoScreen**: extrato completo com filtros por período/conta, agrupado por mês, long-press para excluir manuais
@@ -550,15 +556,15 @@ Tab "Carteira" renomeada para "Gestão" (ícone briefcase) com sub-tabs "Carteir
 6. **Resumo por Categoria**: barras horizontais com % por categoria do mês atual
 
 ### Saldo livre removido da Carteira
-A seção "SALDO DISPONÍVEL" foi removida do CarteiraScreen e movida para CaixaView no tab Gestão > Caixa. Todas as operações de saldo (depositar, deduzir, transferir, excluir) agora logam movimentações automaticamente.
+A seção "SALDO DISPONÍVEL" foi removida do CarteiraScreen e movida para CaixaView no tab Carteira > Caixa. Todas as operações de saldo (depositar, deduzir, transferir, excluir) agora logam movimentações automaticamente.
 
 ### Arquivos criados/modificados
 | Arquivo | Mudança |
 |---------|---------|
 | `supabase-migration.sql` | Tabela `movimentacoes` + indexes + RLS |
 | `src/services/database.js` | 6 funções CRUD movimentações + helper `buildMovDescricao` |
-| `src/navigation/AppNavigator.js` | Tab "Gestão" (briefcase), stack screens AddMovimentacao/Extrato/AddConta |
-| `src/screens/gestao/GestaoScreen.js` | **Criado** — wrapper sub-tabs Carteira/Caixa |
+| `src/navigation/AppNavigator.js` | Tab "Carteira" (briefcase), stack screens AddMovimentacao/Extrato/AddConta |
+| `src/screens/gestao/GestaoScreen.js` | **Criado** — wrapper sub-tabs Ativos/Caixa |
 | `src/screens/gestao/CaixaView.js` | **Criado** — dashboard de caixa completo + gráficos |
 | `src/screens/gestao/AddMovimentacaoScreen.js` | **Criado** — form manual de movimentação |
 | `src/screens/gestao/ExtratoScreen.js` | **Criado** — extrato com filtros e agrupamento por mês |
@@ -571,7 +577,7 @@ A seção "SALDO DISPONÍVEL" foi removida do CarteiraScreen e movida para Caixa
 
 ## Relatórios Detalhados (Implementado)
 
-Tela dedicada de relatórios financeiros acessível via menu Mais → Relatórios. Quatro sub-tabs com filtros de período e gráficos.
+Tela de relatorios financeiros embedded na tab Renda (sub-tab "Relatórios"). Tambem acessivel como stack screen standalone. Prop `embedded` oculta header com back button. Quatro sub-tabs com filtros de periodo e graficos.
 
 ### Sub-tabs
 
@@ -599,9 +605,9 @@ Funções `computeIR()` e `computeTaxByMonth()` copiadas do AnaliseScreen. Calcu
 ### Arquivos criados/modificados
 | Arquivo | Mudança |
 |---------|---------|
-| `src/screens/relatorios/RelatoriosScreen.js` | **Criado** — tela completa com 4 sub-tabs + gráficos |
-| `src/navigation/AppNavigator.js` | Stack screen Relatorios |
-| `src/screens/mais/MaisScreen.js` | Item "Relatórios" no menu (substituiu "Calculo IR") |
+| `src/screens/relatorios/RelatoriosScreen.js` | **Criado** — tela completa com 4 sub-tabs + graficos, prop `embedded` |
+| `src/navigation/AppNavigator.js` | Embedded na tab Renda via RendaScreen |
+| `src/screens/mais/MaisScreen.js` | Item "Relatorios" removido do menu (agora na tab Renda) |
 
 ## Multi-Moeda para Saldos (Implementado)
 
@@ -850,6 +856,7 @@ Suporte a stocks e ETFs internacionais (NYSE/NASDAQ) com cotacoes via Yahoo Fina
 - `fetchYahooPrices(tickers)` — Cotacoes atuais (cache 60s)
 - `fetchYahooHistory(tickers)` — Historico 1 mes closes (cache 5min)
 - `fetchYahooHistoryLong(tickers)` — Historico 6 meses OHLCV (cache 1h)
+- `fetchYahooDividends(ticker)` — Dividendos ultimo ano via `&events=div` (cache 24h)
 - API: `https://query1.finance.yahoo.com/v8/finance/chart/{TICKER}`
 - Precos retornados em USD (moeda original)
 - Fetch um ticker por vez com timeout 8s
@@ -864,7 +871,8 @@ Suporte a stocks e ETFs internacionais (NYSE/NASDAQ) com cotacoes via Yahoo Fina
 ### UI
 - **AddOperacaoScreen**: 5 categorias (Acao, FII, ETF BR, Stocks, ETF INT), moeda dinamica R$/US$, corretoras BR vs INT, taxa_cambio salva na operacao
 - **CarteiraScreen**: filtro "Stocks" (fuchsia), badge INT/BR nos cards, dual price "US$ X ≈ R$ Y", corretoras INT (Avenue, Nomad, Interactive Brokers, etc.)
-- **HomeScreen**: categoria stock_int na alocacao e renda mensal
+- **HomeScreen**: categoria stock_int na alocacao e renda mensal, linha "Dividendos Stocks" no breakdown
+- **RendaResumoView**: linha "Dividendos Stocks" (fuchsia) no breakdown de dividendos
 - **AnaliseScreen**: stock_int em performance, IR (15% sem isencao 20k), rebalanceamento (perfis atualizados)
 - **RelatoriosScreen**: IR com secao "Stocks Internacionais"
 - **AssetDetailScreen**: routing Yahoo para ativos INT, precos em US$
@@ -891,12 +899,12 @@ Suporte a stocks e ETFs internacionais (NYSE/NASDAQ) com cotacoes via Yahoo Fina
 | `src/services/priceService.js` | Routing BR/INT, enrichPositionsWithPrices, funcoes Routed |
 | `src/services/database.js` | getPositions com mercado, getDashboard com stock_int |
 | `src/services/indicatorService.js` | Routing BR/INT, benchmark S&P 500 |
-| `src/services/dividendService.js` | Filtrar posicoes INT do sync |
+| `src/services/dividendService.js` | Sync BR (brapi+StatusInvest) + INT (Yahoo Finance + USD→BRL) |
 | `src/screens/carteira/AddOperacaoScreen.js` | 5 categorias, moeda dinamica, corretoras INT |
 | `src/screens/carteira/CarteiraScreen.js` | Filtro Stocks, badge INT, dual price, allocMap |
 | `src/screens/carteira/EditOperacaoScreen.js` | stock_int label, badge INT, mercado persist |
 | `src/screens/carteira/AssetDetailScreen.js` | Routing Yahoo, moeda US$ |
-| `src/screens/home/HomeScreen.js` | stock_int na alocacao e renda |
+| `src/screens/home/HomeScreen.js` | stock_int na alocacao, renda e breakdown dividendos |
 | `src/screens/analise/AnaliseScreen.js` | ~15 locais: categorias, IR 15%, rebalance, perfSub |
 | `src/screens/relatorios/RelatoriosScreen.js` | IR stock_int, catColor |
 | `supabase/functions/weekly-snapshot/index.ts` | Yahoo prices + cambio USD |
@@ -930,6 +938,50 @@ Refactor para reduzir complexidade visual e scroll depth da HomeScreen. Reduziu 
 | Componentes SVG | DonutMini (300 linhas) | 0 |
 | Scroll depth | 5+ telas | ~2 telas |
 | Secoes removidas | 0 | 4 |
+
+## Reestruturacao Navegacao (Implementado)
+
+Reorganizacao das 5 tabs para acesso direto a features core. Motivacao: Carteira enterrada sob "Gestao" (nome vago), Proventos/Renda enterrados no menu "Mais", Analise (10.4k linhas) como tab de uso ocasional ocupando espaco primario.
+
+### Mudanca de tabs
+
+| Posicao | Antes | Depois |
+|---------|-------|--------|
+| 1 | Home | Home (inalterada) |
+| 2 | Gestao (Carteira/Caixa/Relatorios) | **Carteira** (Ativos/Caixa) |
+| 3 | Opcoes (6 sub-tabs) | **Opcoes** (5 sub-tabs, sem Indicadores) |
+| 4 | Analise (4 sub-tabs) | **Renda** (Resumo/Proventos/Relatorios) |
+| 5 | Mais (Config/Operacoes/Aprender/App) | **Mais** (+Analise Completa, -Proventos) |
+
+### Novos arquivos
+- `src/screens/renda/RendaScreen.js` — wrapper com 3 sub-tabs Pill (Resumo/Proventos/Relatorios)
+- `src/screens/renda/RendaResumoView.js` — dashboard de renda com 3 GlassCards (Hero renda do mes + Dividendos recebidos/a receber + KPIs), dados via `getDashboard`, pull-to-refresh
+
+### Prop `embedded`
+ProventosScreen e RelatoriosScreen aceitam prop `embedded` que oculta o header com back button. Usado quando renderizados dentro da tab Renda.
+
+### AnaliseScreen como stack
+AnaliseScreen agora aceita `props` (navigation), exibe header com back button, acessado via Mais → Analise Completa.
+
+### OpcoesScreen — Indicadores removido
+Sub-tab "Indicadores" removida (~300 linhas). Indicadores continuam disponiveis na AnaliseScreen (via Mais) e nos cards de opcoes (HV/IV). Auto-trigger de `runDailyCalculation` mantido.
+
+### MaisScreen reestruturado
+- Adicionada secao "ANALISE" com item "Analise Completa" (navega para stack screen)
+- Removido item "Proventos" de OPERACOES (agora na tab Renda)
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/renda/RendaScreen.js` | **Criado** — wrapper 3 sub-tabs |
+| `src/screens/renda/RendaResumoView.js` | **Criado** — dashboard renda completo |
+| `src/screens/proventos/ProventosScreen.js` | Prop `embedded` — condiciona header |
+| `src/screens/relatorios/RelatoriosScreen.js` | Prop `embedded` — condiciona header |
+| `src/screens/analise/AnaliseScreen.js` | Aceita props, header com back button |
+| `src/screens/gestao/GestaoScreen.js` | Simplificado para 2 sub-tabs (Ativos/Caixa) |
+| `src/screens/mais/MaisScreen.js` | +secao Analise, -item Proventos |
+| `src/navigation/AppNavigator.js` | Tabs renomeadas, +import RendaScreen, +stack Analise, -stacks Proventos/Relatorios |
+| `src/screens/opcoes/OpcoesScreen.js` | Removido sub-tab Indicadores (~300 linhas) |
 
 ## Proximas Melhorias Possiveis
 
