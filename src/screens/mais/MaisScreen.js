@@ -17,10 +17,15 @@ var SECTIONS = [
     ],
   },
   {
+    title: 'ANÁLISE',
+    items: [
+      { icon: '📈', label: 'Análise Completa', value: 'Performance, Alocação, Indicadores', color: C.accent, route: 'Analise' },
+    ],
+  },
+  {
     title: 'OPERAÇÕES',
     items: [
       { icon: '📋', label: 'Histórico Completo', value: '', color: C.acoes, route: 'Historico' },
-      { icon: '💰', label: 'Proventos', value: 'Gerenciar', color: C.fiis, route: 'Proventos' },
       { icon: '🏦', label: 'Renda Fixa', value: 'Gerenciar', color: C.rf, route: 'RendaFixa' },
       { icon: '📤', label: 'Exportar CSV', value: '', color: C.sub, action: 'export_csv' },
     ],

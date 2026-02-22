@@ -5481,7 +5481,8 @@ function RendaPassivaTotalChart(props) {
 
 // ═══════════ MAIN COMPONENT ═══════════
 
-export default function AnaliseScreen() {
+export default function AnaliseScreen(props) {
+  var navigation = props.navigation;
   var _auth = useAuth(); var user = _auth.user;
 
   var scrollRef = useRef(null);
@@ -7207,6 +7208,16 @@ export default function AnaliseScreen() {
           tintColor={C.accent} colors={[C.accent]} />
       }
     >
+      {/* Header */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, paddingHorizontal: SIZE.padding }}>
+        <TouchableOpacity onPress={function() { navigation.goBack(); }}
+          accessibilityLabel="Voltar" accessibilityRole="button">
+          <Text style={{ fontSize: 28, color: C.accent, fontWeight: '300' }}>{'‹'}</Text>
+        </TouchableOpacity>
+        <Text style={{ fontSize: 18, fontWeight: '800', color: C.text, fontFamily: F.display }}>Análise</Text>
+        <View style={{ width: 32 }} />
+      </View>
+
       {/* Sub-tabs */}
       <View style={styles.subTabs}>
         {[

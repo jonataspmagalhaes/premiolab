@@ -19,6 +19,7 @@ import AssetDetailScreen from '../screens/carteira/AssetDetailScreen';
 import AddOperacaoScreen from '../screens/carteira/AddOperacaoScreen';
 import OpcoesScreen from '../screens/opcoes/OpcoesScreen';
 import AnaliseScreen from '../screens/analise/AnaliseScreen';
+import RendaScreen from '../screens/renda/RendaScreen';
 import MaisScreen from '../screens/mais/MaisScreen';
 import ConfigMetaScreen from '../screens/mais/config/ConfigMetaScreen';
 import ConfigCorretorasScreen from '../screens/mais/config/ConfigCorretorasScreen';
@@ -34,10 +35,8 @@ import HistoricoScreen from '../screens/mais/HistoricoScreen';
 import SobreScreen from '../screens/mais/SobreScreen';
 import GuiaScreen from '../screens/mais/GuiaScreen';
 import AddProventoScreen from '../screens/proventos/AddProventoScreen';
-import ProventosScreen from '../screens/proventos/ProventosScreen';
 import EditProventoScreen from '../screens/proventos/EditProventoScreen';
 import AddSaldoScreen from '../screens/carteira/AddSaldoScreen';
-import RelatoriosScreen from '../screens/relatorios/RelatoriosScreen';
 import AddMovimentacaoScreen from '../screens/gestao/AddMovimentacaoScreen';
 import ExtratoScreen from '../screens/gestao/ExtratoScreen';
 import AddContaScreen from '../screens/gestao/AddContaScreen';
@@ -75,10 +74,9 @@ var SafeHistoricoScreen = withSafeArea(HistoricoScreen);
 var SafeSobreScreen = withSafeArea(SobreScreen);
 var SafeGuiaScreen = withSafeArea(GuiaScreen);
 var SafeAddProventoScreen = withSafeArea(AddProventoScreen);
-var SafeProventosScreen = withSafeArea(ProventosScreen);
 var SafeEditProventoScreen = withSafeArea(EditProventoScreen);
 var SafeAddSaldoScreen = withSafeArea(AddSaldoScreen);
-var SafeRelatoriosScreen = withSafeArea(RelatoriosScreen);
+var SafeAnaliseScreen = withSafeArea(AnaliseScreen);
 var SafeAddMovimentacaoScreen = withSafeArea(AddMovimentacaoScreen);
 var SafeExtratoScreen = withSafeArea(ExtratoScreen);
 var SafeAddContaScreen = withSafeArea(AddContaScreen);
@@ -140,11 +138,11 @@ function MainTabs() {
           }}
         />
         <Tab.Screen
-          name="Gestao"
+          name="Carteira"
           component={GestaoScreen}
           options={{
             tabBarIcon: function(p) {
-              return <TabIcon iconFocused="briefcase" iconDefault="briefcase-outline" label="Gestão" focused={p.focused} />;
+              return <TabIcon iconFocused="briefcase" iconDefault="briefcase-outline" label="Carteira" focused={p.focused} />;
             },
           }}
         />
@@ -158,11 +156,11 @@ function MainTabs() {
           }}
         />
         <Tab.Screen
-          name="Analise"
-          component={AnaliseScreen}
+          name="Renda"
+          component={RendaScreen}
           options={{
             tabBarIcon: function(p) {
-              return <TabIcon iconFocused="stats-chart" iconDefault="stats-chart-outline" label="Análise" focused={p.focused} />;
+              return <TabIcon iconFocused="cash" iconDefault="cash-outline" label="Renda" focused={p.focused} />;
             },
           }}
         />
@@ -217,10 +215,9 @@ function AppStack() {
       <Stack.Screen name="Sobre" component={SafeSobreScreen} />
       <Stack.Screen name="Guia" component={SafeGuiaScreen} />
       <Stack.Screen name="AddProvento" component={SafeAddProventoScreen} options={{ animation: 'slide_from_bottom' }} />
-      <Stack.Screen name="Proventos" component={SafeProventosScreen} />
       <Stack.Screen name="EditProvento" component={SafeEditProventoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="AddSaldo" component={SafeAddSaldoScreen} options={{ animation: 'slide_from_bottom' }} />
-      <Stack.Screen name="Relatorios" component={SafeRelatoriosScreen} />
+      <Stack.Screen name="Analise" component={SafeAnaliseScreen} />
       <Stack.Screen name="AddMovimentacao" component={SafeAddMovimentacaoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="Extrato" component={SafeExtratoScreen} />
       <Stack.Screen name="AddConta" component={SafeAddContaScreen} options={{ animation: 'slide_from_bottom' }} />

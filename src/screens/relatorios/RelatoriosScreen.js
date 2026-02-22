@@ -370,6 +370,7 @@ function HBarRow(props) {
 
 export default function RelatoriosScreen(props) {
   var navigation = props.navigation;
+  var embedded = props.embedded || false;
   var user = useAuth().user;
 
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
@@ -687,13 +688,15 @@ export default function RelatoriosScreen(props) {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />}>
 
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={function() { navigation.goBack(); }}>
-          <Text style={styles.back}>{'‹'}</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Relatórios</Text>
-        <View style={{ width: 32 }} />
-      </View>
+      {!embedded && (
+        <View style={styles.header}>
+          <TouchableOpacity onPress={function() { navigation.goBack(); }}>
+            <Text style={styles.back}>{'‹'}</Text>
+          </TouchableOpacity>
+          <Text style={styles.title}>Relatórios</Text>
+          <View style={{ width: 32 }} />
+        </View>
+      )}
 
       {/* Sub-tabs */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}

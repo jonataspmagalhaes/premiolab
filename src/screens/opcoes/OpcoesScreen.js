@@ -8,8 +8,8 @@ import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators, getProfile, addMovimentacaoComSaldo, addMovimentacao } from '../../services/database';
-import { enrichPositionsWithPrices, clearPriceCache, fetchPrices, fetchPriceHistoryLong } from '../../services/priceService';
-import { runDailyCalculation, shouldCalculateToday, calcHV, calcSMA, calcEMA, calcRSI, calcBeta, calcATR, calcBollingerBands, calcMaxDrawdown } from '../../services/indicatorService';
+import { enrichPositionsWithPrices, clearPriceCache, fetchPrices } from '../../services/priceService';
+import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { supabase } from '../../config/supabase';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { SkeletonOpcoes, EmptyState } from '../../components/States';
@@ -17,10 +17,6 @@ import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function fmtC(v) {
-  return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
 function maskDate(text) {
@@ -1302,11 +1298,6 @@ export default function OpcoesScreen() {
   var s10 = useState({}); var indicators = s10[0]; var setIndicators = s10[1];
   var _selicSt = useState(13.25); var selicRate = _selicSt[0]; var setSelicRate = _selicSt[1];
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
-  var _indList = useState([]); var indList = _indList[0]; var setIndList = _indList[1];
-  var _searchTicker = useState(''); var searchTicker = _searchTicker[0]; var setSearchTicker = _searchTicker[1];
-  var _searchLoading = useState(false); var searchLoading = _searchLoading[0]; var setSearchLoading = _searchLoading[1];
-  var _searchResult = useState(null); var searchResult = _searchResult[0]; var setSearchResult = _searchResult[1];
-  var _searchError = useState(''); var searchError = _searchError[0]; var setSearchError = _searchError[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
 
   var load = async function() {
@@ -1338,7 +1329,6 @@ export default function OpcoesScreen() {
       indMap[indData[ii].ticker] = indData[ii];
     }
     setIndicators(indMap);
-    setIndList(indData);
 
     // Trigger daily calculation if stale
     var lastCalc = indData.length > 0 ? indData[0].data_calculo : null;
@@ -1354,7 +1344,6 @@ export default function OpcoesScreen() {
             newMap[calcResult.data[ci].ticker] = calcResult.data[ci];
           }
           setIndicators(newMap);
-          setIndList(calcResult.data);
         }
       }).catch(function(e) {
         console.warn('Indicator calc failed:', e);
@@ -1946,7 +1935,6 @@ export default function OpcoesScreen() {
           { k: 'sim', l: 'Simulador', c: C.opcoes },
           { k: 'cadeia', l: 'Cadeia', c: C.opcoes },
           { k: 'hist', l: 'Histórico (' + historico.length + ')', c: C.opcoes },
-          { k: 'ind', l: 'Indicadores', c: C.acoes },
         ].map(function(t) {
           return (
             <Pill key={t.k} active={sub === t.k} color={t.c} onPress={function() { setSub(t.k); }}>{t.l}</Pill>
@@ -2280,293 +2268,6 @@ export default function OpcoesScreen() {
         </View>
       )}
 
-      {/* INDICADORES TAB */}
-      {sub === 'ind' && (
-        <View style={{ gap: SIZE.gap }}>
-          {/* Consulta avulsa */}
-          <Glass padding={14}>
-            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 6 }}>CONSULTAR ATIVO AVULSO</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <TextInput
-                value={searchTicker}
-                onChangeText={function(t) { setSearchTicker(t.toUpperCase()); }}
-                placeholder="Ex: WEGE3"
-                placeholderTextColor={C.dim}
-                autoCapitalize="characters"
-                style={{
-                  flex: 1, backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border,
-                  borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
-                  fontSize: 14, color: C.text, fontFamily: F.mono,
-                }}
-              />
-              <TouchableOpacity
-                activeOpacity={0.8}
-                disabled={searchLoading || searchTicker.length < 4}
-                onPress={function() {
-                  var tk = searchTicker.trim().toUpperCase();
-                  if (tk.length < 4) return;
-                  setSearchLoading(true);
-                  setSearchError('');
-                  setSearchResult(null);
-                  fetchPriceHistoryLong([tk, '^BVSP']).then(function(histMap) {
-                    var hist = histMap[tk];
-                    if (!hist || hist.length < 20) {
-                      setSearchError('Dados insuficientes para ' + tk + ' (mínimo 20 candles)');
-                      setSearchLoading(false);
-                      return;
-                    }
-                    var closes = [];
-                    var highs = [];
-                    var lows = [];
-                    var volumes = [];
-                    for (var i = 0; i < hist.length; i++) {
-                      closes.push(hist[i].close);
-                      highs.push(hist[i].high);
-                      lows.push(hist[i].low);
-                      volumes.push(hist[i].volume || 0);
-                    }
-                    var ibovHist = histMap['^BVSP'];
-                    var ibovCloses = [];
-                    if (ibovHist) {
-                      for (var j = 0; j < ibovHist.length; j++) {
-                        ibovCloses.push(ibovHist[j].close);
-                      }
-                    }
-                    var volSum = 0;
-                    var volCount = Math.min(20, volumes.length);
-                    for (var v = volumes.length - volCount; v < volumes.length; v++) {
-                      volSum = volSum + volumes[v];
-                    }
-                    var res = {
-                      ticker: tk,
-                      preco_fechamento: closes[closes.length - 1],
-                      hv_20: closes.length >= 21 ? calcHV(closes, 20) : null,
-                      hv_60: closes.length >= 61 ? calcHV(closes, 60) : null,
-                      sma_20: closes.length >= 20 ? calcSMA(closes, 20) : null,
-                      sma_50: closes.length >= 50 ? calcSMA(closes, 50) : null,
-                      ema_9: closes.length >= 9 ? calcEMA(closes, 9) : null,
-                      ema_21: closes.length >= 21 ? calcEMA(closes, 21) : null,
-                      rsi_14: closes.length >= 15 ? calcRSI(closes, 14) : null,
-                      beta: ibovCloses.length >= 21 ? calcBeta(closes, ibovCloses, 20) : null,
-                      atr_14: closes.length >= 15 ? calcATR(highs, lows, closes, 14) : null,
-                      max_drawdown: calcMaxDrawdown(closes),
-                      bb_upper: null, bb_lower: null, bb_width: null,
-                      volume_medio_20: volCount > 0 ? volSum / volCount : null,
-                    };
-                    if (closes.length >= 20) {
-                      var bb = calcBollingerBands(closes, 20, 2);
-                      res.bb_upper = bb.upper;
-                      res.bb_lower = bb.lower;
-                      res.bb_width = bb.width;
-                    }
-                    setSearchResult(res);
-                    setSearchLoading(false);
-                  }).catch(function(e) {
-                    setSearchError('Erro ao buscar ' + tk + ': ' + e.message);
-                    setSearchLoading(false);
-                  });
-                }}
-                style={{
-                  backgroundColor: C.accent, borderRadius: 10,
-                  paddingHorizontal: 16, paddingVertical: 10,
-                  opacity: (searchLoading || searchTicker.length < 4) ? 0.4 : 1,
-                }}
-              >
-                <Text style={{ fontSize: 13, fontWeight: '700', color: 'white', fontFamily: F.display }}>
-                  {searchLoading ? 'Buscando...' : 'Buscar'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            {searchError ? (
-              <Text style={{ fontSize: 11, color: C.red, fontFamily: F.body, marginTop: 6 }}>{searchError}</Text>
-            ) : null}
-          </Glass>
-
-          {/* Search result card */}
-          {searchResult && (
-            <Glass padding={14} glow={C.accent}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={{ fontSize: 16, fontWeight: '800', color: C.text, fontFamily: F.display }}>{searchResult.ticker}</Text>
-                  <Badge text="AVULSO" color={C.accent} />
-                </View>
-                {searchResult.preco_fechamento != null ? (
-                  <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.mono }}>
-                    {'R$ ' + fmt(searchResult.preco_fechamento)}
-                  </Text>
-                ) : null}
-              </View>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                {[
-                  { l: 'HV 20d', v: searchResult.hv_20 != null ? searchResult.hv_20.toFixed(1) + '%' : '-', c: C.opcoes },
-                  { l: 'HV 60d', v: searchResult.hv_60 != null ? searchResult.hv_60.toFixed(1) + '%' : '-', c: C.opcoes },
-                  { l: 'RSI 14', v: searchResult.rsi_14 != null ? searchResult.rsi_14.toFixed(1) : '-',
-                    c: searchResult.rsi_14 != null ? (searchResult.rsi_14 > 70 ? C.red : searchResult.rsi_14 < 30 ? C.green : C.text) : C.text },
-                  { l: 'Beta', v: searchResult.beta != null ? searchResult.beta.toFixed(2) : '-',
-                    c: searchResult.beta != null ? (searchResult.beta > 1.2 ? C.red : searchResult.beta < 0.8 ? C.green : C.text) : C.text },
-                  { l: 'SMA 20', v: searchResult.sma_20 != null ? 'R$ ' + fmt(searchResult.sma_20) : '-', c: C.acoes },
-                  { l: 'SMA 50', v: searchResult.sma_50 != null ? 'R$ ' + fmt(searchResult.sma_50) : '-', c: C.acoes },
-                  { l: 'EMA 9', v: searchResult.ema_9 != null ? 'R$ ' + fmt(searchResult.ema_9) : '-', c: C.acoes },
-                  { l: 'EMA 21', v: searchResult.ema_21 != null ? 'R$ ' + fmt(searchResult.ema_21) : '-', c: C.acoes },
-                  { l: 'ATR 14', v: searchResult.atr_14 != null ? 'R$ ' + fmt(searchResult.atr_14) : '-', c: C.text },
-                  { l: 'Max DD', v: searchResult.max_drawdown != null ? searchResult.max_drawdown.toFixed(1) + '%' : '-', c: C.red },
-                  { l: 'BB Upper', v: searchResult.bb_upper != null ? 'R$ ' + fmt(searchResult.bb_upper) : '-', c: C.acoes },
-                  { l: 'BB Lower', v: searchResult.bb_lower != null ? 'R$ ' + fmt(searchResult.bb_lower) : '-', c: C.acoes },
-                  { l: 'BB Width', v: searchResult.bb_width != null ? searchResult.bb_width.toFixed(1) + '%' : '-', c: C.opcoes },
-                  { l: 'Vol Med 20', v: searchResult.volume_medio_20 != null ? fmtC(searchResult.volume_medio_20) : '-', c: C.sub },
-                ].map(function(d, di) {
-                  return (
-                    <View key={di} style={styles.indDetailItem}>
-                      <Text style={styles.indDetailLabel}>{d.l}</Text>
-                      <Text style={[styles.indDetailValue, { color: d.c }]}>{d.v}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            </Glass>
-          )}
-
-          {indList.length === 0 ? (
-            !searchResult ? (
-              <EmptyState
-                ionicon="analytics-outline" title="Sem indicadores"
-                description="Indicadores são calculados automaticamente após 18h em dias úteis. Adicione ativos na carteira para começar. Use a busca acima para consultar qualquer ativo."
-                color={C.opcoes}
-              />
-            ) : null
-          ) : (
-            <>
-              {/* Summary */}
-              <Glass padding={14}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-                  {[
-                    { l: 'ATIVOS', v: String(indList.length), c: C.acoes },
-                    { l: 'ÚLTIMO CÁLCULO', v: indList[0] && indList[0].data_calculo
-                      ? new Date(indList[0].data_calculo).toLocaleDateString('pt-BR') : '–', c: C.sub },
-                  ].map(function(m, i) {
-                    return (
-                      <View key={i} style={{ alignItems: 'center', flex: 1 }}>
-                        <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
-                        <Text style={{ fontSize: 16, fontWeight: '800', color: m.c, fontFamily: F.display, marginTop: 2 }}>{m.v}</Text>
-                      </View>
-                    );
-                  })}
-                </View>
-              </Glass>
-
-              {/* Recalculate button */}
-              <TouchableOpacity
-                activeOpacity={0.8}
-                style={{ backgroundColor: C.opcoes + '15', borderWidth: 1, borderColor: C.opcoes + '30', borderRadius: 10, paddingVertical: 10, alignItems: 'center' }}
-                onPress={function() {
-                  if (!user) return;
-                  runDailyCalculation(user.id).then(function(calcResult) {
-                    if (calcResult.data && calcResult.data.length > 0) {
-                      setIndList(calcResult.data);
-                    }
-                  }).catch(function(e) {
-                    console.warn('Manual calc failed:', e);
-                  });
-                }}
-              >
-                <Text style={{ fontSize: 12, fontWeight: '700', color: C.opcoes, fontFamily: F.display }}>Recalcular indicadores</Text>
-              </TouchableOpacity>
-
-              {/* Info tooltip */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                <TouchableOpacity onPress={function() { setInfoModal({ title: 'Indicadores Técnicos', text: 'HV: volatilidade histórica 20 dias (%). RSI: força relativa 14 dias (>70 sobrecomprado, <30 sobrevendido). Beta: sensibilidade ao IBOV (>1 mais volátil). Max DD: maior queda pico-a-vale (%).' }); }}>
-                  <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Summary table */}
-              <Glass padding={0}>
-                <View style={styles.indTableHeader}>
-                  <Text style={[styles.indTableCol, { flex: 1.2 }]}>Ticker</Text>
-                  <Text style={styles.indTableCol}>HV 20d</Text>
-                  <Text style={styles.indTableCol}>RSI</Text>
-                  <Text style={styles.indTableCol}>Beta</Text>
-                  <Text style={styles.indTableCol}>Max DD</Text>
-                </View>
-                {indList.map(function(ind, i) {
-                  var rsiColor = C.text;
-                  if (ind.rsi_14 != null) {
-                    if (ind.rsi_14 > 70) rsiColor = C.red;
-                    else if (ind.rsi_14 < 30) rsiColor = C.green;
-                  }
-                  var betaColor = C.text;
-                  if (ind.beta != null) {
-                    if (ind.beta > 1.2) betaColor = C.red;
-                    else if (ind.beta < 0.8) betaColor = C.green;
-                  }
-                  return (
-                    <View key={ind.ticker || i} style={[styles.indTableRow, i > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}>
-                      <Text style={[styles.indTableTicker, { flex: 1.2 }]}>{ind.ticker}</Text>
-                      <Text style={[styles.indTableVal, { color: C.opcoes }]}>
-                        {ind.hv_20 != null ? ind.hv_20.toFixed(1) + '%' : '–'}
-                      </Text>
-                      <Text style={[styles.indTableVal, { color: rsiColor }]}>
-                        {ind.rsi_14 != null ? ind.rsi_14.toFixed(0) : '–'}
-                      </Text>
-                      <Text style={[styles.indTableVal, { color: betaColor }]}>
-                        {ind.beta != null ? ind.beta.toFixed(2) : '–'}
-                      </Text>
-                      <Text style={[styles.indTableVal, { color: C.red }]}>
-                        {ind.max_drawdown != null ? ind.max_drawdown.toFixed(1) + '%' : '–'}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </Glass>
-
-              {/* Detailed cards per ticker */}
-              <SectionLabel>DETALHES POR ATIVO</SectionLabel>
-              {indList.map(function(ind, i) {
-                return (
-                  <Glass key={ind.ticker || i} padding={14}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, fontFamily: F.display }}>{ind.ticker}</Text>
-                      {ind.preco_fechamento != null ? (
-                        <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.mono }}>
-                          {'R$ ' + fmt(ind.preco_fechamento)}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                      {[
-                        { l: 'HV 20d', v: ind.hv_20 != null ? ind.hv_20.toFixed(1) + '%' : '–', c: C.opcoes },
-                        { l: 'HV 60d', v: ind.hv_60 != null ? ind.hv_60.toFixed(1) + '%' : '–', c: C.opcoes },
-                        { l: 'RSI 14', v: ind.rsi_14 != null ? ind.rsi_14.toFixed(1) : '–',
-                          c: ind.rsi_14 != null ? (ind.rsi_14 > 70 ? C.red : ind.rsi_14 < 30 ? C.green : C.text) : C.text },
-                        { l: 'Beta', v: ind.beta != null ? ind.beta.toFixed(2) : '–',
-                          c: ind.beta != null ? (ind.beta > 1.2 ? C.red : ind.beta < 0.8 ? C.green : C.text) : C.text },
-                        { l: 'SMA 20', v: ind.sma_20 != null ? 'R$ ' + fmt(ind.sma_20) : '–', c: C.acoes },
-                        { l: 'SMA 50', v: ind.sma_50 != null ? 'R$ ' + fmt(ind.sma_50) : '–', c: C.acoes },
-                        { l: 'EMA 9', v: ind.ema_9 != null ? 'R$ ' + fmt(ind.ema_9) : '–', c: C.acoes },
-                        { l: 'EMA 21', v: ind.ema_21 != null ? 'R$ ' + fmt(ind.ema_21) : '–', c: C.acoes },
-                        { l: 'ATR 14', v: ind.atr_14 != null ? 'R$ ' + fmt(ind.atr_14) : '–', c: C.text },
-                        { l: 'Max DD', v: ind.max_drawdown != null ? ind.max_drawdown.toFixed(1) + '%' : '–', c: C.red },
-                        { l: 'BB Upper', v: ind.bb_upper != null ? 'R$ ' + fmt(ind.bb_upper) : '–', c: C.acoes },
-                        { l: 'BB Lower', v: ind.bb_lower != null ? 'R$ ' + fmt(ind.bb_lower) : '–', c: C.acoes },
-                        { l: 'BB Width', v: ind.bb_width != null ? ind.bb_width.toFixed(1) + '%' : '–', c: C.opcoes },
-                        { l: 'Vol Med 20', v: ind.volume_medio_20 != null ? fmtC(ind.volume_medio_20) : '–', c: C.sub },
-                      ].map(function(d, di) {
-                        return (
-                          <View key={di} style={styles.indDetailItem}>
-                            <Text style={styles.indDetailLabel}>{d.l}</Text>
-                            <Text style={[styles.indDetailValue, { color: d.c }]}>{d.v}</Text>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  </Glass>
-                );
-              })}
-            </>
-          )}
-        </View>
-      )}
-
       <View style={{ height: SIZE.tabBarHeight + 20 }} />
     </ScrollView>
 
@@ -2648,13 +2349,4 @@ var styles = StyleSheet.create({
   chainItm: { backgroundColor: 'rgba(34,197,94,0.06)' },
   chainAtm: { backgroundColor: 'rgba(245,158,11,0.06)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)' },
 
-  // Indicadores
-  indTableHeader: { flexDirection: 'row', alignItems: 'center', padding: 10, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: 'rgba(255,255,255,0.02)' },
-  indTableCol: { flex: 1, fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4, textAlign: 'center' },
-  indTableRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 10 },
-  indTableTicker: { flex: 1, fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display },
-  indTableVal: { flex: 1, fontSize: 11, fontWeight: '600', fontFamily: F.mono, textAlign: 'center' },
-  indDetailItem: { width: '31%', backgroundColor: C.surface, borderRadius: 8, padding: 8, borderWidth: 1, borderColor: C.border },
-  indDetailLabel: { fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 },
-  indDetailValue: { fontSize: 12, fontWeight: '700', fontFamily: F.display, marginTop: 2 },
 });

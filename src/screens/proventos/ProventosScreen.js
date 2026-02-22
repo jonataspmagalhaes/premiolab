@@ -67,6 +67,7 @@ function daysUntil(isoDate) {
 
 export default function ProventosScreen(props) {
   var navigation = props.navigation;
+  var embedded = props.embedded || false;
   var user = useAuth().user;
   var _items = useState([]); var items = _items[0]; var setItems = _items[1];
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
@@ -239,17 +240,38 @@ export default function ProventosScreen(props) {
   var renderHeader = function() {
     return (
       <View style={{ gap: SIZE.gap }}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={function() { navigation.goBack(); }}>
-            <Text style={styles.back}>{'‹'}</Text>
-          </TouchableOpacity>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={styles.title}>Proventos</Text>
-            <TouchableOpacity onPress={function() { setInfoModal({ title: 'Proventos', text: 'Dividendos, JCP, rendimentos de FIIs e amortizações. Sincronizar importa automaticamente de brapi + StatusInvest.' }); }}>
-              <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+        {!embedded ? (
+          <View style={styles.header}>
+            <TouchableOpacity onPress={function() { navigation.goBack(); }}>
+              <Text style={styles.back}>{'‹'}</Text>
             </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.title}>Proventos</Text>
+              <TouchableOpacity onPress={function() { setInfoModal({ title: 'Proventos', text: 'Dividendos, JCP, rendimentos de FIIs e amortizações. Sincronizar importa automaticamente de brapi + StatusInvest.' }); }}>
+                <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+              <View style={{ alignItems: 'center' }}>
+                <TouchableOpacity onPress={handleSync} disabled={syncing} style={{ opacity: syncing ? 0.5 : 1, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  {syncing ? <ActivityIndicator size="small" color={C.accent} /> : null}
+                  <Text style={{ fontSize: 13, color: C.accent, fontWeight: '700', fontFamily: F.mono }}>
+                    {syncing ? 'Sincronizando...' : 'Sincronizar'}
+                  </Text>
+                </TouchableOpacity>
+                {lastSync ? (
+                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>
+                    {(function() { var p = (lastSync || '').split('-'); return p.length >= 3 ? p[2] + '/' + p[1] + '/' + p[0] : lastSync; })()}
+                  </Text>
+                ) : null}
+              </View>
+              <TouchableOpacity onPress={function() { navigation.navigate('AddProvento'); }}>
+                <Text style={styles.addIcon}>+</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+        ) : (
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 14, paddingHorizontal: SIZE.padding }}>
             <View style={{ alignItems: 'center' }}>
               <TouchableOpacity onPress={handleSync} disabled={syncing} style={{ opacity: syncing ? 0.5 : 1, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 {syncing ? <ActivityIndicator size="small" color={C.accent} /> : null}
@@ -267,7 +289,7 @@ export default function ProventosScreen(props) {
               <Text style={styles.addIcon}>+</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        )}
 
         <View style={styles.tabRow}>
           <TouchableOpacity
