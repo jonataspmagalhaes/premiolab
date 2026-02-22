@@ -337,7 +337,7 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 - [x] **Auto-sync de dividendos** (implementado: dividendService.js, cross-check brapi+StatusInvest, auto-trigger Home, sync manual Proventos, dedup por ticker+data+valor)
 - [x] **Gestao Financeira / Fluxo de Caixa** (implementado: tab Gestao com sub-tabs Carteira+Caixa, movimentacoes, integracao com operacoes/opcoes/dividendos)
 - [x] **Relatorios Detalhados** (implementado: tela Relatorios com sub-tabs Dividendos/Opcoes/Operacoes/IR, graficos, agrupamentos)
-- [x] **Melhorias UX P0-P8** (implementado: contraste, touch targets, validacao inline, skeleton, haptics, keyboard, error states, beforeRemove, double-tap guard, toast, swipe-to-delete)
+- [x] **Melhorias UX P0-P9** (implementado: contraste, touch targets, validacao inline, skeleton, haptics, keyboard, error states, beforeRemove, double-tap guard, toast, swipe-to-delete, FlatList optimization, infinite scroll, React.memo)
 - [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
 - [ ] Notificacoes push para vencimentos proximos
 - [ ] Importacao de operacoes via CSV/Excel
@@ -636,9 +636,9 @@ Confirmacao com valor do saldo na mensagem. Error handling com Alert se falhar. 
 | `src/screens/gestao/CaixaView.js` | Multi-moeda display, editar saldo, excluir melhorado |
 | `supabase-migration.sql` | Coluna `moeda TEXT DEFAULT 'BRL'` em saldos_corretora |
 
-## Melhorias UX P0-P8 (Implementado)
+## Melhorias UX P0-P9 (Implementado)
 
-Nove rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, feedback, keyboard handling, consistencia visual, toast e swipe-to-delete.
+Dez rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, feedback, keyboard handling, consistencia visual, toast, swipe-to-delete e performance.
 
 ### P0 — Contraste e Touch Targets
 - **Theme**: tokens `C.textSecondary` (#8888aa, WCAG AA) e `C.textTertiary` (#666688)
@@ -734,6 +734,23 @@ Nove rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, fee
 | `src/screens/mais/config/ConfigMetaScreen.js` | Alert → Toast + goBack |
 | `src/screens/mais/config/ConfigAlertasScreen.js` | Alert → Toast + goBack |
 
+### P9 — Performance e Listas
+- **FlatList optimization**: `initialNumToRender={8}`, `maxToRenderPerBatch={10}`, `windowSize={5}` em ExtratoScreen e ProventosScreen
+- **Infinite scroll ExtratoScreen**: paginacao com PAGE_SIZE=50, `onEndReached` carrega mais, ActivityIndicator no footer, agrupamento por mes preservado ao append
+- **Paginacao database.js**: offset/limit com `.range()` em `getMovimentacoes` e `getProventos`
+- **ProventosScreen**: limit 500 + FlatList props (infinite scroll inviavel por split pendente/historico client-side)
+- **React.memo**: PositionCard (CarteiraScreen) e OpCard (OpcoesScreen) evitam re-renders desnecessarios
+- **Lazy loading tabs**: ja implementado via useFocusEffect + render condicional (documentado)
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/services/database.js` | offset em getMovimentacoes e getProventos via `.range()` |
+| `src/screens/gestao/ExtratoScreen.js` | Infinite scroll (PAGE_SIZE=50, loadMore, onEndReached) + FlatList props |
+| `src/screens/proventos/ProventosScreen.js` | limit 500 + FlatList optimization props |
+| `src/screens/carteira/CarteiraScreen.js` | React.memo em PositionCard |
+| `src/screens/opcoes/OpcoesScreen.js` | React.memo em OpCard |
+
 ## Melhorias UX Pendentes (TODO)
 
 Melhorias identificadas mas nao implementadas, organizadas por prioridade.
@@ -743,10 +760,11 @@ Melhorias identificadas mas nao implementadas, organizadas por prioridade.
 - [x] **Toast/Snackbar**: react-native-toast-message com visual dark/glass em 10 telas
 - [x] **Swipe-to-delete**: SwipeableRow em ExtratoScreen, CaixaView, ProventosScreen
 
-### P9 — Performance e Listas
-- [ ] **Paginacao**: listas longas (movimentacoes, proventos, operacoes) com infinite scroll
-- [ ] **Memoizacao**: React.memo em cards repetidos (OpCard, position cards, movimentacao items)
-- [ ] **Lazy loading tabs**: carregar dados apenas quando tab fica visivel (nao no mount)
+### P9 — Performance e Listas (IMPLEMENTADO)
+- [x] **FlatList optimization**: props de performance em ExtratoScreen e ProventosScreen
+- [x] **Paginacao/Infinite scroll**: ExtratoScreen com PAGE_SIZE=50, ProventosScreen com limit 500
+- [x] **Memoizacao**: React.memo em PositionCard e OpCard
+- [x] **Lazy loading tabs**: ja implementado via useFocusEffect (documentado)
 
 ### P10 — Formularios Avancados
 - [ ] **beforeRemove em telas Edit**: adicionar warning de dados nao salvos em EditOperacao, EditOpcao, EditProvento, EditRendaFixa

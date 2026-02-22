@@ -87,7 +87,7 @@ export default function ProventosScreen(props) {
     setLoadError(false);
     try {
       var results = await Promise.all([
-        getProventos(user.id),
+        getProventos(user.id, { limit: 500 }),
         getProfile(user.id),
       ]);
       setItems(results[0].data || []);
@@ -388,6 +388,9 @@ export default function ProventosScreen(props) {
         renderItem={renderMonthGroup}
         ListHeaderComponent={renderHeader}
         ListFooterComponent={renderFooter}
+        initialNumToRender={8}
+        maxToRenderPerBatch={10}
+        windowSize={5}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />
         }

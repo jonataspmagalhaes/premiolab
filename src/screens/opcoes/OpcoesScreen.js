@@ -477,7 +477,7 @@ function PayoffChart(props) {
 // ═══════════════════════════════════════
 // OPTION CARD
 // ═══════════════════════════════════════
-function OpCard(props) {
+var OpCard = React.memo(function OpCard(props) {
   var op = props.op;
   var positions = props.positions || [];
   var saldos = props.saldos || [];
@@ -829,7 +829,7 @@ function OpCard(props) {
       ) : null}
     </Glass>
   );
-}
+});
 
 // ═══════════════════════════════════════
 // SIMULADOR BLACK-SCHOLES

@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, FlatList, StyleSheet, RefreshControl,
-  TouchableOpacity, Alert, LayoutAnimation, Platform, UIManager,
+  TouchableOpacity, Alert, LayoutAnimation, Platform, UIManager, ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
@@ -43,6 +43,8 @@ var PERIODOS = [
 var AUTO_CATEGORIAS = ['compra_ativo', 'venda_ativo', 'premio_opcao', 'recompra_opcao',
   'exercicio_opcao', 'dividendo', 'jcp', 'rendimento_fii', 'rendimento_rf'];
 
+var PAGE_SIZE = 50;
+
 export default function ExtratoScreen(props) {
   var navigation = props.navigation;
   var user = useAuth().user;
@@ -51,29 +53,47 @@ export default function ExtratoScreen(props) {
   var _saldos = useState([]); var saldos = _saldos[0]; var setSaldos = _saldos[1];
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
+  var _loadingMore = useState(false); var loadingMore = _loadingMore[0]; var setLoadingMore = _loadingMore[1];
+  var _hasMore = useState(true); var hasMore = _hasMore[0]; var setHasMore = _hasMore[1];
   var _contaFilter = useState('todos'); var contaFilter = _contaFilter[0]; var setContaFilter = _contaFilter[1];
   var _periodo = useState('3m'); var periodo = _periodo[0]; var setPeriodo = _periodo[1];
 
-  var load = async function() {
-    if (!user) return;
+  function buildFilters(offset) {
     var filters = {};
-
-    // Period filter
     var pDef = PERIODOS.find(function(p) { return p.k === periodo; });
     if (pDef && pDef.days > 0) {
       var dInicio = new Date();
       dInicio.setDate(dInicio.getDate() - pDef.days);
       filters.dataInicio = dInicio.toISOString().substring(0, 10);
     }
-    filters.limit = 500;
+    filters.limit = PAGE_SIZE;
+    filters.offset = offset || 0;
+    return filters;
+  }
 
+  var load = async function() {
+    if (!user) return;
     var results = await Promise.all([
-      getMovimentacoes(user.id, filters),
+      getMovimentacoes(user.id, buildFilters(0)),
       getSaldos(user.id),
     ]);
-    setMovs(results[0].data || []);
+    var newMovs = results[0].data || [];
+    setMovs(newMovs);
     setSaldos(results[1].data || []);
+    setHasMore(newMovs.length >= PAGE_SIZE);
     setLoading(false);
+  };
+
+  var loadMore = async function() {
+    if (loadingMore || !hasMore || !user) return;
+    setLoadingMore(true);
+    var result = await getMovimentacoes(user.id, buildFilters(movs.length));
+    var newMovs = result.data || [];
+    if (newMovs.length > 0) {
+      setMovs(movs.concat(newMovs));
+    }
+    setHasMore(newMovs.length >= PAGE_SIZE);
+    setLoadingMore(false);
   };
 
   useFocusEffect(useCallback(function() { load(); }, [user, periodo]));
@@ -325,7 +345,16 @@ export default function ExtratoScreen(props) {
       keyExtractor={monthKeyExtractor}
       renderItem={renderMonthGroup}
       ListHeaderComponent={renderHeader}
-      ListFooterComponent={<View style={{ height: SIZE.tabBarHeight + 20 }} />}
+      ListFooterComponent={
+        <View style={{ paddingVertical: 16, height: SIZE.tabBarHeight + 40 }}>
+          {loadingMore ? <ActivityIndicator color={C.accent} size="small" /> : null}
+        </View>
+      }
+      onEndReached={loadMore}
+      onEndReachedThreshold={0.3}
+      initialNumToRender={8}
+      maxToRenderPerBatch={10}
+      windowSize={5}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />}
     />
   );

@@ -161,7 +161,11 @@ export async function getProventos(userId, filters) {
     .eq('user_id', userId)
     .order('data_pagamento', { ascending: false });
 
-  if (filters.limit) query = query.limit(filters.limit);
+  if (filters.limit) {
+    var pLimit = filters.limit;
+    var pOffset = filters.offset || 0;
+    query = query.range(pOffset, pOffset + pLimit - 1);
+  }
 
   var result = await query;
   var data = result.data || [];
@@ -632,7 +636,9 @@ export async function getMovimentacoes(userId, filters) {
   if (filters.dataInicio) query = query.gte('data', filters.dataInicio);
   if (filters.dataFim) query = query.lte('data', filters.dataFim);
   if (filters.ticker) query = query.eq('ticker', filters.ticker.toUpperCase().trim());
-  if (filters.limit) query = query.limit(filters.limit);
+  var limit = filters.limit || 1000;
+  var offset = filters.offset || 0;
+  query = query.range(offset, offset + limit - 1);
 
   var result = await query;
   return { data: result.data || [], error: result.error };

@@ -186,7 +186,7 @@ function BenchmarkChart(props) {
 // ══════════════════════════════════════════════
 // SECTION: POSITION CARD — expandível
 // ══════════════════════════════════════════════
-function PositionCard(props) {
+var PositionCard = React.memo(function PositionCard(props) {
   var pos = props.pos;
   var history = props.history;
   var totalCarteira = props.totalCarteira;
@@ -342,7 +342,7 @@ function PositionCard(props) {
       </Glass>
     </TouchableOpacity>
   );
-}
+});
 
 // ══════════════════════════════════════════════
 // SECTION: RF CARD
