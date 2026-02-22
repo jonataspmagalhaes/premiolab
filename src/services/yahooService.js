@@ -12,13 +12,16 @@ var _cache = {
   prices: {},
   history: {},
   historyLong: {},
+  dividends: {},
   lastPrices: null,
   lastHistory: null,
   lastHistoryLong: null,
+  lastDividends: null,
 };
 var CACHE_PRICES_MS = 60000;       // 60s
 var CACHE_HISTORY_MS = 300000;     // 5min
 var CACHE_HISTORY_LONG_MS = 3600000; // 1h
+var CACHE_DIVIDENDS_MS = 86400000;   // 24h
 
 // ══════════ HELPERS ══════════
 function isCacheValid(timestamp, maxAge) {
@@ -210,12 +213,58 @@ export async function fetchYahooHistoryLong(tickers) {
   return result;
 }
 
+// ══════════ FETCH DIVIDENDS (1 ano, events=div) ══════════
+export async function fetchYahooDividends(ticker) {
+  // Cache check (por ticker, 24h)
+  if (_cache.dividends[ticker] && isCacheValid(_cache.lastDividends, CACHE_DIVIDENDS_MS)) {
+    return { data: _cache.dividends[ticker], error: null };
+  }
+
+  try {
+    var url = YAHOO_BASE + encodeURIComponent(ticker) + '?interval=1d&range=1y&events=div';
+    var response = await fetchWithTimeout(url, FETCH_TIMEOUT);
+    if (!response.ok) return { data: [], error: 'HTTP ' + response.status };
+
+    var json = await response.json();
+    var result = json.chart && json.chart.result && json.chart.result[0];
+    if (!result) return { data: [], error: null };
+
+    var events = result.events && result.events.dividends;
+    if (!events) return { data: [], error: null };
+
+    // events e um objeto keyed por timestamp, converter para array
+    var dividends = [];
+    var keys = Object.keys(events);
+    for (var i = 0; i < keys.length; i++) {
+      var ev = events[keys[i]];
+      if (ev && ev.amount > 0) {
+        var dateStr = new Date(ev.date * 1000).toISOString().substring(0, 10);
+        dividends.push({
+          paymentDate: dateStr,
+          rate: ev.amount,
+          label: 'DIVIDEND',
+          lastDatePrior: null,
+        });
+      }
+    }
+
+    _cache.dividends[ticker] = dividends;
+    _cache.lastDividends = Date.now();
+    return { data: dividends, error: null };
+  } catch (err) {
+    console.warn('fetchYahooDividends error for ' + ticker + ':', err.message);
+    return { data: [], error: err.message };
+  }
+}
+
 // ══════════ CACHE UTILS ══════════
 export function clearYahooCache() {
   _cache.prices = {};
   _cache.history = {};
   _cache.historyLong = {};
+  _cache.dividends = {};
   _cache.lastPrices = null;
   _cache.lastHistory = null;
   _cache.lastHistoryLong = null;
+  _cache.lastDividends = null;
 }

@@ -5,6 +5,8 @@
  */
 
 import { getPositions, getProventos, addProvento, getOperacoes, updateProfile, getSaldos, addMovimentacao } from './database';
+import { fetchYahooDividends } from './yahooService';
+import { fetchExchangeRates } from './currencyService';
 
 var BRAPI_URL = 'https://brapi.dev/api/quote/';
 var BRAPI_TOKEN = 'tEU8wyBixv8hCi7J3NCjsi';
@@ -216,17 +218,28 @@ export async function runDividendSync(userId) {
       return { inserted: 0, checked: 0, details: [], message: 'Nenhuma posicao encontrada' };
     }
 
-    // Filtrar posicoes internacionais (brapi/StatusInvest nao cobrem ativos INT)
+    // Separar posicoes BR e INT
     var brPositions = [];
+    var intPositions = [];
     for (var fi = 0; fi < positions.length; fi++) {
-      if (positions[fi].mercado !== 'INT') {
+      if (positions[fi].mercado === 'INT') {
+        intPositions.push(positions[fi]);
+      } else {
         brPositions.push(positions[fi]);
       }
     }
-    positions = brPositions;
 
-    if (positions.length === 0) {
-      return { inserted: 0, checked: 0, details: [], message: 'Nenhuma posicao BR encontrada' };
+    if (brPositions.length === 0 && intPositions.length === 0) {
+      return { inserted: 0, checked: 0, details: [], message: 'Nenhuma posição encontrada' };
+    }
+
+    // Buscar cambio USD→BRL se houver posicoes INT
+    var usdRate = 1;
+    if (intPositions.length > 0) {
+      try {
+        var ratesResult = await fetchExchangeRates(['USD']);
+        if (ratesResult && ratesResult['USD']) usdRate = ratesResult['USD'];
+      } catch (e) { console.warn('dividendSync USD rate error:', e.message); }
     }
 
     // 1b. Buscar saldos para saber conta destino das movimentacoes
@@ -293,9 +306,9 @@ export async function runDividendSync(userId) {
     var inserted = 0;
     var details = [];
 
-    // 5. Para cada ticker, buscar dividendos de AMBAS as fontes e inserir novos
-    for (var p = 0; p < positions.length; p++) {
-      var pos = positions[p];
+    // 5. Para cada ticker BR, buscar dividendos de AMBAS as fontes e inserir novos
+    for (var p = 0; p < brPositions.length; p++) {
+      var pos = brPositions[p];
       var ticker = pos.ticker;
       var qty = pos.quantidade || 0;
 
@@ -413,6 +426,90 @@ export async function runDividendSync(userId) {
       }
 
       details.push(tickerDetail);
+    }
+
+    // 5b. Para cada ticker INT, buscar dividendos via Yahoo Finance
+    for (var ip = 0; ip < intPositions.length; ip++) {
+      var posInt = intPositions[ip];
+      var tickerInt = posInt.ticker;
+      var qtyInt = posInt.quantidade || 0;
+      if (qtyInt <= 0) continue;
+
+      var tickerDetailInt = {
+        ticker: tickerInt,
+        brapiCount: 0,
+        brapiError: null,
+        siCount: 0,
+        siError: null,
+        merged: 0,
+        skippedDate: 0,
+        skippedBuyDate: 0,
+        skippedDedup: 0,
+        inserted: 0,
+        insertFailed: 0,
+        lastInsertError: null,
+        firstBuy: firstBuyDate[tickerInt] || null,
+        buyDateExamples: [],
+      };
+
+      var yahooResult = await fetchYahooDividends(tickerInt);
+      var yahooDivs = yahooResult.data;
+      tickerDetailInt.siCount = yahooDivs.length;
+      tickerDetailInt.siError = yahooResult.error;
+      tickerDetailInt.merged = yahooDivs.length;
+
+      for (var di = 0; di < yahooDivs.length; di++) {
+        var divInt = yahooDivs[di];
+        var paymentDateInt = divInt.paymentDate;
+        if (!paymentDateInt) continue;
+        var paymentDateStrInt = paymentDateInt.substring(0, 10);
+        if (paymentDateStrInt < cutoffStr) { tickerDetailInt.skippedDate++; continue; }
+
+        var rateInt = divInt.rate;
+        if (!rateInt || rateInt <= 0) continue;
+
+        // Yahoo nao fornece ex-date, usar posicao atual
+        var qtyForDivInt = qtyInt;
+
+        // Converter USD→BRL
+        var rateBRL = Math.round(rateInt * usdRate * 10000) / 10000;
+
+        // Dedup check
+        var dkeyInt = dedupKey(tickerInt, paymentDateStrInt, rateBRL);
+        if (existingKeys[dkeyInt]) { tickerDetailInt.skippedDedup++; continue; }
+
+        var proventoInt = {
+          ticker: tickerInt,
+          tipo: 'dividendo',
+          valor_por_cota: rateBRL,
+          quantidade: qtyForDivInt,
+          data_pagamento: paymentDateStrInt,
+        };
+
+        var addResultInt = await addProvento(userId, proventoInt);
+
+        if (!addResultInt.error) {
+          existingKeys[dkeyInt] = true;
+          inserted++;
+          tickerDetailInt.inserted++;
+          if (saldosConta && rateBRL * qtyForDivInt > 0) {
+            addMovimentacao(userId, {
+              conta: saldosConta,
+              tipo: 'entrada',
+              categoria: 'dividendo',
+              valor: rateBRL * qtyForDivInt,
+              descricao: 'Dividendo ' + tickerInt + ' (US$ ' + rateInt.toFixed(4) + ' x ' + usdRate.toFixed(2) + ')',
+              ticker: tickerInt,
+              referencia_tipo: 'provento',
+              data: paymentDateStrInt,
+            }).catch(function(e) { console.warn('dividendSync INT movimentacao failed:', e); });
+          }
+        } else {
+          tickerDetailInt.insertFailed++;
+          tickerDetailInt.lastInsertError = addResultInt.error.message || addResultInt.error.code || JSON.stringify(addResultInt.error);
+        }
+      }
+      details.push(tickerDetailInt);
     }
 
     // 6. Atualizar data do ultimo sync

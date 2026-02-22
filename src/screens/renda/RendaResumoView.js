@@ -16,6 +16,7 @@ var P = {
   fii: { color: PRODUCT_COLORS.fii || C.fiis },
   etf: { color: PRODUCT_COLORS.etf || C.etfs },
   opcao: { color: PRODUCT_COLORS.opcao || C.opcoes },
+  stock_int: { color: PRODUCT_COLORS.stock_int || '#E879F9' },
   rf: { color: C.rf },
 };
 
@@ -80,7 +81,7 @@ export default function RendaResumoView(props) {
   var plMes = data.plMes || 0;
   var plMedia3m = data.plMedia3m || 0;
   var dividendosMes = data.dividendosMes || 0;
-  var dividendosCatMes = data.dividendosCatMes || { acao: 0, fii: 0, etf: 0 };
+  var dividendosCatMes = data.dividendosCatMes || { acao: 0, fii: 0, etf: 0, stock_int: 0 };
   var dividendosRecebidosMes = data.dividendosRecebidosMes || 0;
   var dividendosAReceberMes = data.dividendosAReceberMes || 0;
   var rfRendaMensal = data.rfRendaMensal || 0;
@@ -170,6 +171,17 @@ export default function RendaResumoView(props) {
               </View>
               <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#22c55e' }]}>
                 {fmt(dividendosCatMes.etf)}
+              </Text>
+            </View>
+          ) : null}
+          {dividendosCatMes.stock_int > 0 ? (
+            <View style={st.bRow}>
+              <View style={st.bLabel}>
+                <View style={[st.dot, { backgroundColor: P.stock_int.color }]} />
+                <Text style={st.bText}>Dividendos Stocks</Text>
+              </View>
+              <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#22c55e' }]}>
+                {fmt(dividendosCatMes.stock_int)}
               </Text>
             </View>
           ) : null}

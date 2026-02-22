@@ -277,8 +277,8 @@ export default function HomeScreen({ navigation }) {
   var dividendosMesAnterior = data.dividendosMesAnterior || 0;
   var premiosMesAnterior = data.premiosMesAnterior || 0;
   var rendaTotalMesAnterior = data.rendaTotalMesAnterior || 0;
-  var dividendosCatMes = data.dividendosCatMes || { acao: 0, fii: 0, etf: 0 };
-  var dividendosCatMesAnt = data.dividendosCatMesAnt || { acao: 0, fii: 0, etf: 0 };
+  var dividendosCatMes = data.dividendosCatMes || { acao: 0, fii: 0, etf: 0, stock_int: 0 };
+  var dividendosCatMesAnt = data.dividendosCatMesAnt || { acao: 0, fii: 0, etf: 0, stock_int: 0 };
   var dividendosRecebidosMes = data.dividendosRecebidosMes || 0;
   var dividendosAReceberMes = data.dividendosAReceberMes || 0;
   var plMes = data.plMes || 0;
@@ -669,6 +669,17 @@ export default function HomeScreen({ navigation }) {
                 </View>
                 <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }}>
                   {fmt(dividendosCatMes.etf)}
+                </Text>
+              </View>
+            ) : null}
+            {dividendosCatMes.stock_int > 0 ? (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.stock_int.color }} />
+                  <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos Stocks</Text>
+                </View>
+                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }}>
+                  {fmt(dividendosCatMes.stock_int)}
                 </Text>
               </View>
             ) : null}
