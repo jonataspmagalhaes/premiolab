@@ -694,10 +694,12 @@ export async function addMovimentacaoComSaldo(userId, mov) {
     novoSaldo = saldoAtual - (mov.valor || 0);
   }
 
-  // 2. Insert movimentacao with saldo_apos
+  // 2. Insert movimentacao with saldo_apos (excluir 'moeda' — nao existe na tabela movimentacoes)
+  var moedaSalva = mov.moeda;
   var payload = { user_id: userId, saldo_apos: novoSaldo };
   var keys = Object.keys(mov);
   for (var i = 0; i < keys.length; i++) {
+    if (keys[i] === 'moeda') continue;
     payload[keys[i]] = mov[keys[i]];
   }
   var movResult = await supabase
@@ -716,8 +718,8 @@ export async function addMovimentacaoComSaldo(userId, mov) {
       .eq('id', saldoResult.data.id);
   } else {
     var insertPayload = { user_id: userId, corretora: mov.conta, saldo: novoSaldo };
-    if (mov.moeda) {
-      insertPayload.moeda = mov.moeda;
+    if (moedaSalva) {
+      insertPayload.moeda = moedaSalva;
     }
     await supabase
       .from('saldos_corretora')
