@@ -321,7 +321,7 @@ export async function getSaldos(userId) {
 export async function upsertSaldo(userId, data) {
   var payload = {
     user_id: userId,
-    corretora: data.corretora,
+    corretora: (data.corretora || '').toUpperCase().trim(),
     saldo: data.saldo,
   };
   if (data.moeda) {
@@ -671,12 +671,16 @@ export async function addMovimentacao(userId, mov) {
 }
 
 export async function addMovimentacaoComSaldo(userId, mov) {
+  // Normalizar nome da conta para uppercase (consistente com AddContaScreen)
+  var contaNorm = (mov.conta || '').toUpperCase().trim();
+  mov.conta = contaNorm;
+
   // 1. Get current saldo (match by conta + moeda when moeda provided)
   var saldoQuery = supabase
     .from('saldos_corretora')
     .select('*')
     .eq('user_id', userId)
-    .eq('corretora', mov.conta);
+    .eq('corretora', contaNorm);
   if (mov.moeda) {
     saldoQuery = saldoQuery.eq('moeda', mov.moeda);
   }
