@@ -70,6 +70,71 @@ export async function deleteOperacao(id) {
   return { error: result.error };
 }
 
+export async function deleteOperacaoComMovimentacoes(userId, operacaoId) {
+  // 1. Buscar a operacao para saber ticker, data, tipo
+  var opResult = await supabase
+    .from('operacoes')
+    .select('*')
+    .eq('id', operacaoId)
+    .maybeSingle();
+  var op = opResult.data;
+
+  // 2. Buscar movimentacoes vinculadas por ticker + data + categoria
+  var movs = [];
+  if (op) {
+    var ticker = (op.ticker || '').toUpperCase().trim();
+    var movCat = op.tipo === 'compra' ? 'compra_ativo' : 'venda_ativo';
+    var movsQuery = supabase
+      .from('movimentacoes')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('categoria', movCat)
+      .eq('ticker', ticker);
+    if (op.data) {
+      movsQuery = movsQuery.eq('data', op.data);
+    }
+    var movsResult = await movsQuery;
+    movs = (movsResult.data) || [];
+  }
+
+  // 3. Reverter saldos e excluir cada movimentacao
+  for (var i = 0; i < movs.length; i++) {
+    var mov = movs[i];
+    var conta = (mov.conta || '').toUpperCase().trim();
+    var saldoResult = await supabase
+      .from('saldos_corretora')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('corretora', conta)
+      .limit(1);
+    var saldoRow = (saldoResult.data && saldoResult.data[0]) || null;
+    if (saldoRow) {
+      var saldoAtual = saldoRow.saldo || 0;
+      var novoSaldo;
+      if (mov.tipo === 'entrada') {
+        novoSaldo = saldoAtual - (mov.valor || 0);
+      } else {
+        novoSaldo = saldoAtual + (mov.valor || 0);
+      }
+      await supabase
+        .from('saldos_corretora')
+        .update({ saldo: novoSaldo, updated_at: new Date().toISOString() })
+        .eq('id', saldoRow.id);
+    }
+    await supabase
+      .from('movimentacoes')
+      .delete()
+      .eq('id', mov.id);
+  }
+
+  // 4. Excluir a operacao
+  var result = await supabase
+    .from('operacoes')
+    .delete()
+    .eq('id', operacaoId);
+  return { error: result.error, movimentacoesExcluidas: movs.length };
+}
+
 // ═══════════ POSIÇÕES (computed view) ═══════════
 export async function getPositions(userId) {
   var result = await supabase
@@ -675,16 +740,30 @@ export async function addMovimentacaoComSaldo(userId, mov) {
   var contaNorm = (mov.conta || '').toUpperCase().trim();
   mov.conta = contaNorm;
 
-  // 1. Get current saldo (match by conta + moeda when moeda provided)
-  var saldoQuery = supabase
-    .from('saldos_corretora')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('corretora', contaNorm);
+  // 1. Get current saldo — tenta com moeda primeiro, fallback sem moeda
+  var saldoResult = { data: null, error: null };
   if (mov.moeda) {
-    saldoQuery = saldoQuery.eq('moeda', mov.moeda);
+    saldoResult = await supabase
+      .from('saldos_corretora')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('corretora', contaNorm)
+      .eq('moeda', mov.moeda)
+      .maybeSingle();
   }
-  var saldoResult = await saldoQuery.maybeSingle();
+  // Fallback: buscar sem filtro de moeda (conta pode ter moeda diferente da esperada)
+  if (!saldoResult.data) {
+    var fallbackResult = await supabase
+      .from('saldos_corretora')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('corretora', contaNorm)
+      .limit(1);
+    var fallbackRows = (fallbackResult.data) || [];
+    if (fallbackRows.length > 0) {
+      saldoResult = { data: fallbackRows[0], error: null };
+    }
+  }
 
   var saldoAtual = (saldoResult.data && saldoResult.data.saldo) || 0;
   var novoSaldo;
@@ -717,6 +796,7 @@ export async function addMovimentacaoComSaldo(userId, mov) {
       .update({ saldo: novoSaldo, updated_at: new Date().toISOString() })
       .eq('id', saldoResult.data.id);
   } else {
+    // Conta nao existe — criar nova
     var insertPayload = { user_id: userId, corretora: mov.conta, saldo: novoSaldo };
     if (moedaSalva) {
       insertPayload.moeda = moedaSalva;

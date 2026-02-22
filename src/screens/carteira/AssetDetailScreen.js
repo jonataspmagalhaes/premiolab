@@ -7,7 +7,7 @@ import { animateLayout } from '../../utils/a11y';
 
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOperacoes, getProventos, deleteOperacao, getIndicatorByTicker } from '../../services/database';
+import { getOperacoes, getProventos, deleteOperacao, deleteOperacaoComMovimentacoes, getIndicatorByTicker, getOpcoes } from '../../services/database';
 import { fetchPrices, fetchPriceHistory, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
 import { fetchYahooPrices, fetchYahooHistory } from '../../services/yahooService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
@@ -60,6 +60,63 @@ function getDateRange(key) {
   }
   if (!start) return null;
   return { start: start, end: end };
+}
+
+// ── Black-Scholes helpers (para IV média) ──
+function normCDF(x) {
+  if (x > 10) return 1;
+  if (x < -10) return 0;
+  var a1 = 0.254829592;
+  var a2 = -0.284496736;
+  var a3 = 1.421413741;
+  var a4 = -1.453152027;
+  var a5 = 1.061405429;
+  var p = 0.3275911;
+  var sign = x < 0 ? -1 : 1;
+  var absX = Math.abs(x);
+  var t = 1.0 / (1.0 + p * absX);
+  var y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-absX * absX / 2);
+  return 0.5 * (1.0 + sign * y);
+}
+
+function normPDF(x) {
+  return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+}
+
+function bsD1D2(s, k, t, r, sigma) {
+  if (t <= 0 || sigma <= 0 || s <= 0 || k <= 0) return { d1: 0, d2: 0 };
+  var d1 = (Math.log(s / k) + (r + sigma * sigma / 2) * t) / (sigma * Math.sqrt(t));
+  var d2 = d1 - sigma * Math.sqrt(t);
+  return { d1: d1, d2: d2 };
+}
+
+function bsPrice(s, k, t, r, sigma, tipo) {
+  if (t <= 0) {
+    if (tipo === 'call') return Math.max(0, s - k);
+    return Math.max(0, k - s);
+  }
+  var dd = bsD1D2(s, k, t, r, sigma);
+  if (tipo === 'call') {
+    return s * normCDF(dd.d1) - k * Math.exp(-r * t) * normCDF(dd.d2);
+  }
+  return k * Math.exp(-r * t) * normCDF(-dd.d2) - s * normCDF(-dd.d1);
+}
+
+function bsIV(s, k, t, r, marketPrice, tipo) {
+  if (marketPrice <= 0 || s <= 0 || k <= 0 || t <= 0) return 0.35;
+  var sigma = 0.30;
+  for (var i = 0; i < 20; i++) {
+    var price = bsPrice(s, k, t, r, sigma, tipo);
+    var dd = bsD1D2(s, k, t, r, sigma);
+    var vegaVal = s * Math.sqrt(t) * normPDF(dd.d1);
+    if (vegaVal < 0.0001) break;
+    var diff = price - marketPrice;
+    sigma = sigma - diff / vegaVal;
+    if (sigma < 0.01) { sigma = 0.01; break; }
+    if (sigma > 5) { sigma = 5; break; }
+    if (Math.abs(diff) < 0.001) break;
+  }
+  return Math.max(0.01, Math.min(5, sigma));
 }
 
 function isInDateRange(dateStr, range) {
@@ -140,6 +197,7 @@ export default function AssetDetailScreen(props) {
   var s11 = useState(''); var dataInicio = s11[0]; var setDataInicio = s11[1];
   var s12 = useState(''); var dataFim = s12[0]; var setDataFim = s12[1];
   var s13 = useState({}); var expandedCorretora = s13[0]; var setExpandedCorretora = s13[1];
+  var s14 = useState([]); var opcoes = s14[0]; var setOpcoes = s14[1];
 
   useEffect(function() { loadData(); }, []);
 
@@ -149,10 +207,12 @@ export default function AssetDetailScreen(props) {
       getOperacoes(user.id, { ticker: ticker }),
       getProventos(user.id, { ticker: ticker }),
       getIndicatorByTicker(user.id, ticker),
+      getOpcoes(user.id),
     ]);
     setTxns(results[0].data || []);
     setProvs(results[1].data || []);
     setIndicator(results[2].data || null);
+    setOpcoes(results[3].data || []);
     setLoading(false);
 
     // Fetch live price + history (use Yahoo for INT, brapi for BR)
@@ -210,7 +270,7 @@ export default function AssetDetailScreen(props) {
           style: 'destructive',
           onPress: async function() {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            var result = await deleteOperacao(id);
+            var result = await deleteOperacaoComMovimentacoes(user.id, id);
             if (!result.error) {
               animateLayout();
               var updated = txns.filter(function(t) { return t.id !== id; });
@@ -305,6 +365,146 @@ export default function AssetDetailScreen(props) {
   var plPct = precoAtual != null && pm > 0 ? ((precoAtual - pm) / pm) * 100 : null;
   var valorAtual = precoAtual != null ? position.qty * precoAtual : null;
   var yieldOnCost = position.custo > 0 ? (totalProvs / position.custo) * 100 : 0;
+
+  // ── Indicadores de Opções ──
+  var tickerUpper = ticker.toUpperCase().trim();
+
+  var opcoesForTicker = [];
+  for (var oi = 0; oi < opcoes.length; oi++) {
+    if ((opcoes[oi].ativo_base || '').toUpperCase().trim() === tickerUpper) {
+      opcoesForTicker.push(opcoes[oi]);
+    }
+  }
+
+  var opcoesAtivas = [];
+  for (var oai = 0; oai < opcoesForTicker.length; oai++) {
+    if (opcoesForTicker[oai].status === 'ativa') {
+      opcoesAtivas.push(opcoesForTicker[oai]);
+    }
+  }
+
+  var activeCalls = 0;
+  var activePuts = 0;
+  for (var aci = 0; aci < opcoesAtivas.length; aci++) {
+    if ((opcoesAtivas[aci].tipo || 'call').toLowerCase() === 'put') {
+      activePuts++;
+    } else {
+      activeCalls++;
+    }
+  }
+  var ativasLabel = activeCalls + 'C / ' + activePuts + 'P';
+  if (activeCalls === 0 && activePuts === 0) ativasLabel = '0';
+
+  // Cobertura: CALL vendidas vs position.qty
+  var coberturaLabel = '\u2013';
+  var coberturaColor = C.text;
+  var callsVendidasQty = 0;
+  for (var cvi = 0; cvi < opcoesAtivas.length; cvi++) {
+    var cvOp = opcoesAtivas[cvi];
+    var cvIsVenda = cvOp.direcao === 'venda' || cvOp.direcao === 'lancamento';
+    if ((cvOp.tipo || 'call').toLowerCase() === 'call' && cvIsVenda) {
+      callsVendidasQty += (cvOp.quantidade || 0);
+    }
+  }
+  if (callsVendidasQty > 0) {
+    if (position.qty >= callsVendidasQty) {
+      coberturaLabel = 'COBERTA';
+      coberturaColor = C.green;
+    } else if (position.qty > 0) {
+      coberturaLabel = 'PARCIAL';
+      coberturaColor = C.yellow;
+    } else {
+      coberturaLabel = 'DESCOBERTA';
+      coberturaColor = C.red;
+    }
+  }
+
+  // Prêmios recebidos (vendas +, compras -)
+  var premiosRecebidos = 0;
+  for (var pri = 0; pri < opcoesForTicker.length; pri++) {
+    var prOp = opcoesForTicker[pri];
+    var prIsVenda = prOp.direcao === 'venda' || prOp.direcao === 'lancamento';
+    var prVal = (prOp.premio || 0) * (prOp.quantidade || 0);
+    if (prIsVenda) {
+      premiosRecebidos += prVal;
+    } else {
+      premiosRecebidos -= prVal;
+    }
+  }
+
+  // P&L de opções encerradas
+  var plOpcoes = 0;
+  for (var pli = 0; pli < opcoesForTicker.length; pli++) {
+    var plOp = opcoesForTicker[pli];
+    if (plOp.status === 'ativa') continue;
+    var plIsVenda = plOp.direcao === 'venda' || plOp.direcao === 'lancamento';
+    if (plOp.status === 'fechada' && plOp.premio_fechamento != null) {
+      if (plIsVenda) {
+        plOpcoes += ((plOp.premio || 0) - (plOp.premio_fechamento || 0)) * (plOp.quantidade || 0);
+      } else {
+        plOpcoes += ((plOp.premio_fechamento || 0) - (plOp.premio || 0)) * (plOp.quantidade || 0);
+      }
+    } else {
+      if (plIsVenda) {
+        plOpcoes += (plOp.premio || 0) * (plOp.quantidade || 0);
+      } else {
+        plOpcoes -= (plOp.premio || 0) * (plOp.quantidade || 0);
+      }
+    }
+  }
+
+  // HV 20d da tabela indicators
+  var hv20 = indicator && indicator.hv_20 != null ? indicator.hv_20 : null;
+
+  // IV média ponderada das opções ativas via BS
+  var ivMedia = null;
+  if (opcoesAtivas.length > 0 && precoAtual && precoAtual > 0) {
+    var ivSum = 0;
+    var ivWeight = 0;
+    for (var ivi = 0; ivi < opcoesAtivas.length; ivi++) {
+      var ivOp = opcoesAtivas[ivi];
+      var ivK = ivOp.strike || 0;
+      var ivP = ivOp.premio || 0;
+      var ivDays = Math.max(1, Math.ceil((new Date(ivOp.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
+      var ivT = ivDays / 365;
+      var ivR = 0.1325;
+      var ivTipo = (ivOp.tipo || 'call').toLowerCase();
+      if (ivK > 0 && ivP > 0) {
+        var computedIV = bsIV(precoAtual, ivK, ivT, ivR, ivP, ivTipo) * 100;
+        var ivW = ivOp.quantidade || 1;
+        ivSum += computedIV * ivW;
+        ivWeight += ivW;
+      }
+    }
+    if (ivWeight > 0) {
+      ivMedia = ivSum / ivWeight;
+    }
+  }
+
+  var ivColor = C.text;
+  if (ivMedia != null && hv20 != null && hv20 > 0) {
+    var ivRatio = ivMedia / hv20;
+    if (ivRatio >= 1.3) ivColor = C.red;
+    else if (ivRatio <= 0.7) ivColor = C.green;
+  }
+
+  // Yield de opções = prêmios / custo posição
+  var yieldOpcoes = position.custo > 0 ? (premiosRecebidos / position.custo) * 100 : 0;
+
+  // Próximo vencimento (menor DTE entre ativas)
+  var proxVenc = null;
+  var proxVencColor = C.text;
+  var nowMs = new Date().getTime();
+  for (var pvi = 0; pvi < opcoesAtivas.length; pvi++) {
+    var pvDays = Math.max(0, Math.ceil((new Date(opcoesAtivas[pvi].vencimento).getTime() - nowMs) / (1000 * 60 * 60 * 24)));
+    if (proxVenc === null || pvDays < proxVenc) {
+      proxVenc = pvDays;
+    }
+  }
+  if (proxVenc != null) {
+    if (proxVenc <= 7) proxVencColor = C.red;
+    else if (proxVenc <= 21) proxVencColor = C.yellow;
+  }
 
   // Format timestamp
   var lastUpdate = getLastPriceUpdate();
@@ -539,22 +739,20 @@ export default function AssetDetailScreen(props) {
           </Glass>
         ) : null}
 
-        {/* ══════ INDICADORES TECNICOS ══════ */}
-        {indicator ? (
+        {/* ══════ INDICADORES DE OPÇÕES ══════ */}
+        {opcoesForTicker.length > 0 || (indicator && indicator.hv_20 != null) ? (
           <Glass padding={14}>
-            <SectionLabel>INDICADORES TECNICOS</SectionLabel>
+            <SectionLabel>INDICADORES DE OPÇÕES</SectionLabel>
             <View style={styles.indGrid}>
               {[
-                { l: 'HV 20d', v: indicator.hv_20 != null ? indicator.hv_20.toFixed(1) + '%' : '\u2013', c: C.opcoes },
-                { l: 'RSI 14', v: indicator.rsi_14 != null ? indicator.rsi_14.toFixed(1) : '\u2013',
-                  c: indicator.rsi_14 != null ? (indicator.rsi_14 > 70 ? C.red : indicator.rsi_14 < 30 ? C.green : C.text) : C.text },
-                { l: 'SMA 20', v: indicator.sma_20 != null ? currPrefix + fmt(indicator.sma_20) : '\u2013', c: C.acoes },
-                { l: 'EMA 9', v: indicator.ema_9 != null ? currPrefix + fmt(indicator.ema_9) : '\u2013', c: C.acoes },
-                { l: 'Beta', v: indicator.beta != null ? indicator.beta.toFixed(2) : '\u2013',
-                  c: indicator.beta != null ? (indicator.beta > 1.2 ? C.red : indicator.beta < 0.8 ? C.green : C.text) : C.text },
-                { l: 'ATR 14', v: indicator.atr_14 != null ? currPrefix + fmt(indicator.atr_14) : '\u2013', c: C.text },
-                { l: 'Max DD', v: indicator.max_drawdown != null ? indicator.max_drawdown.toFixed(1) + '%' : '\u2013', c: C.red },
-                { l: 'BB Width', v: indicator.bb_width != null ? indicator.bb_width.toFixed(1) + '%' : '\u2013', c: C.opcoes },
+                { l: 'Ativas', v: ativasLabel, c: C.opcoes },
+                { l: 'Cobertura', v: coberturaLabel, c: coberturaColor },
+                { l: 'Prêmios Rec.', v: opcoesForTicker.length > 0 ? currPrefix + fmt(premiosRecebidos) : '\u2013', c: premiosRecebidos >= 0 ? C.green : C.red },
+                { l: 'P&L Opções', v: opcoesForTicker.length > 0 ? (plOpcoes >= 0 ? '+' : '') + currPrefix + fmt(plOpcoes) : '\u2013', c: plOpcoes >= 0 ? C.green : C.red },
+                { l: 'HV 20d', v: hv20 != null ? hv20.toFixed(1) + '%' : '\u2013', c: C.opcoes },
+                { l: 'IV Média', v: ivMedia != null ? ivMedia.toFixed(1) + '%' : '\u2013', c: ivColor },
+                { l: 'Yield Opções', v: yieldOpcoes > 0 ? yieldOpcoes.toFixed(2) + '%' : '\u2013', c: yieldOpcoes > 0 ? C.green : C.text },
+                { l: 'Próx. Venc.', v: proxVenc != null ? proxVenc + 'd' : '\u2013', c: proxVencColor },
               ].map(function(d, idx) {
                 return (
                   <View key={idx} style={styles.indItem}>
@@ -564,9 +762,9 @@ export default function AssetDetailScreen(props) {
                 );
               })}
             </View>
-            {indicator.data_calculo ? (
+            {indicator && indicator.data_calculo ? (
               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, textAlign: 'right', marginTop: 6 }}>
-                {'Calculado em ' + new Date(indicator.data_calculo).toLocaleDateString('pt-BR')}
+                {'HV calculado em ' + new Date(indicator.data_calculo).toLocaleDateString('pt-BR')}
               </Text>
             ) : null}
           </Glass>

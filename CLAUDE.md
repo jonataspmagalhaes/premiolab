@@ -266,9 +266,9 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Modo embedded**: prop `embedded` oculta header com back button, mostra apenas sync + add buttons
 
 ### AssetDetail (AssetDetailScreen)
-- Card "INDICADORES TECNICOS" com grid 2x4: HV 20d, RSI 14, SMA 20, EMA 9, Beta, ATR 14, Max DD, BB Width
-- Cores semanticas por indicador (RSI >70 vermelho, <30 verde; Beta >1.2 vermelho, <0.8 verde)
-- Data do ultimo calculo no rodape
+- Card "INDICADORES DE OPÇÕES" com grid 2x4: Ativas (XC/YP), Cobertura, Prêmios Rec., P&L Opções, HV 20d, IV Média, Yield Opções, Próx. Venc.
+- Cores semanticas: cobertura (verde/amarelo/vermelho), IV vs HV (alta/baixa), DTE urgencia
+- Dados de opções via getOpcoes filtrado por ativo_base, IV calculada via Black-Scholes
 - **Proventos por corretora**: proventos aparecem DENTRO de cada grupo de corretora na secao TRANSACOES, com qty ajustada por corretora (usa `por_corretora` computado dos txns). Separador visual "PROVENTOS (X cotas)" em verde. Secao separada de proventos removida.
 
 ### Analise (AnaliseScreen) — acessado via Mais → Analise Completa (stack screen com back button)
@@ -363,7 +363,7 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 
 ## Sistema de Indicadores Tecnicos (Implementado)
 
-Calcula HV, RSI, SMA, EMA, Beta, ATR, Bollinger, IV Rank, Max Drawdown diariamente apos 18h BRT. Dados OHLCV via brapi.dev (6 meses). Trigger automatico fire-and-forget na Home e OpcoesScreen via `shouldCalculateToday()`. Resultados visiveis nos cards de opcoes (HV/IV), AssetDetail (grid 2x4) e AnaliseScreen (sub-tab Indicadores, acessado via Mais).
+Calcula HV, RSI, SMA, EMA, Beta, ATR, Bollinger, IV Rank, Max Drawdown diariamente apos 18h BRT. Dados OHLCV via brapi.dev (6 meses). Trigger automatico fire-and-forget na Home e OpcoesScreen via `shouldCalculateToday()`. Resultados visiveis nos cards de opcoes (HV/IV), AssetDetail (HV no card de indicadores de opcoes) e AnaliseScreen (sub-tab Indicadores, acessado via Mais).
 
 ### Arquivos modificados/criados
 | Arquivo | Mudanca |
