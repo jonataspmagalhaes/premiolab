@@ -812,7 +812,7 @@ export default function RelatoriosScreen(props) {
           {/* Detalhamento Mensal */}
           <SectionLabel>DETALHAMENTO MENSAL</SectionLabel>
           {caixaMonthKeys.length === 0 && (
-            <EmptyState icon="wallet-outline" title="Sem movimentações"
+            <EmptyState ionicon="wallet-outline" title="Sem movimentações"
               description="Nenhuma movimentação encontrada no período" />
           )}
           {caixaMonthKeys.slice().reverse().map(function(mk) {
@@ -920,7 +920,7 @@ export default function RelatoriosScreen(props) {
           {/* Por Ativo */}
           <SectionLabel right={'R$ ' + fmt(divTotal)}>POR ATIVO</SectionLabel>
           {divTickerKeys.length === 0 && (
-            <EmptyState icon="cash-outline" title="Sem proventos"
+            <EmptyState ionicon="cash-outline" title="Sem proventos"
               description="Nenhum provento encontrado no período selecionado" />
           )}
           {divTickerKeys.map(function(ticker) {
@@ -1083,7 +1083,7 @@ export default function RelatoriosScreen(props) {
           {/* Por Ativo Base */}
           <SectionLabel right={'R$ ' + fmt(opcPremios - opcRecompras)}>POR ATIVO BASE</SectionLabel>
           {opcBaseKeys.length === 0 && (
-            <EmptyState icon="trending-up-outline" title="Sem opções"
+            <EmptyState ionicon="trending-up-outline" title="Sem opções"
               description="Nenhuma opção encontrada no período selecionado" />
           )}
           {opcBaseKeys.map(function(base) {
@@ -1212,7 +1212,7 @@ export default function RelatoriosScreen(props) {
           {/* Por Ativo */}
           <SectionLabel right={filteredOperacoes.length + ' operações'}>POR ATIVO</SectionLabel>
           {opsTickerKeys.length === 0 && (
-            <EmptyState icon="swap-horizontal-outline" title="Sem operações"
+            <EmptyState ionicon="swap-horizontal-outline" title="Sem operações"
               description="Nenhuma operação encontrada no período selecionado" />
           )}
           {opsTickerKeys.map(function(ticker) {
@@ -1349,7 +1349,7 @@ export default function RelatoriosScreen(props) {
           {/* Por Mês */}
           <SectionLabel>DETALHAMENTO MENSAL</SectionLabel>
           {irFiltered.length === 0 && (
-            <EmptyState icon="calculator-outline" title="Sem vendas"
+            <EmptyState ionicon="calculator-outline" title="Sem vendas"
               description="Nenhuma venda de ativo encontrada no período" />
           )}
           {irFiltered.slice().reverse().map(function(r) {

@@ -15,8 +15,8 @@ import {
   recalcularSaldos,
 } from '../../services/database';
 import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/currencyService';
-import { Glass, Badge, Pill, SectionLabel, SwipeableRow } from '../../components';
-import { LoadingScreen, EmptyState } from '../../components/States';
+import { Glass, Badge, Pill, SectionLabel, SwipeableRow, PressableCard } from '../../components';
+import { SkeletonCaixa, EmptyState } from '../../components/States';
 import * as Haptics from 'expo-haptics';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -552,10 +552,10 @@ export default function CaixaView(props) {
     return parts[2] + '/' + parts[1];
   }
 
-  if (loading) return <View style={styles.container}><LoadingScreen /></View>;
+  if (loading) return <View style={styles.container}><SkeletonCaixa /></View>;
   if (loadError) return (
     <View style={styles.container}>
-      <EmptyState icon="!" title="Erro ao carregar" description="Não foi possível carregar o caixa. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { setLoading(true); load(); }} color={C.red} />
+      <EmptyState ionicon="alert-circle-outline" title="Erro ao carregar" description="Não foi possível carregar o caixa. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { setLoading(true); load(); }} color={C.red} />
     </View>
   );
 
@@ -635,7 +635,7 @@ export default function CaixaView(props) {
         var destOptions = saldos.filter(function(x) { return x.id !== s.id; });
 
         return (
-          <TouchableOpacity key={s.id || i} activeOpacity={0.8}
+          <PressableCard key={s.id || i}
             onPress={function() { toggleExpand(s.id); }}>
             <Glass padding={12} style={isExp ? { borderColor: bc + '30' } : {}}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -844,7 +844,7 @@ export default function CaixaView(props) {
                 </View>
               ) : null}
             </Glass>
-          </TouchableOpacity>
+          </PressableCard>
         );
       })}
 

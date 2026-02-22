@@ -12,7 +12,7 @@ import { enrichPositionsWithPrices, clearPriceCache, fetchPrices, fetchPriceHist
 import { runDailyCalculation, shouldCalculateToday, calcHV, calcSMA, calcEMA, calcRSI, calcBeta, calcATR, calcBollingerBands, calcMaxDrawdown } from '../../services/indicatorService';
 import { supabase } from '../../config/supabase';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
-import { LoadingScreen, EmptyState } from '../../components/States';
+import { SkeletonOpcoes, EmptyState } from '../../components/States';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -1920,10 +1920,10 @@ export default function OpcoesScreen() {
     if (sDays >= 0 && sDays <= 7) totalVenc7d++;
   }
 
-  if (loading) return <View style={styles.container}><LoadingScreen /></View>;
+  if (loading) return <View style={styles.container}><SkeletonOpcoes /></View>;
   if (loadError) return (
     <View style={styles.container}>
-      <EmptyState icon="!" title="Erro ao carregar" description="Não foi possível carregar as opções. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { setLoading(true); load(); }} color={C.red} />
+      <EmptyState ionicon="alert-circle-outline" title="Erro ao carregar" description="Não foi possível carregar as opções. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { setLoading(true); load(); }} color={C.red} />
     </View>
   );
 
@@ -2017,7 +2017,7 @@ export default function OpcoesScreen() {
             </>
           ) : (
             <EmptyState
-              icon="~" title="Nenhuma opção pendente"
+              ionicon="time-outline" title="Nenhuma opção pendente"
               description="Opções vencidas aparecerão aqui para resolução."
               color={C.yellow}
             />
@@ -2030,7 +2030,7 @@ export default function OpcoesScreen() {
         <View style={{ gap: SIZE.gap }}>
           {ativas.length === 0 ? (
             <EmptyState
-              icon="$" title="Nenhuma opção ativa"
+              ionicon="trending-up-outline" title="Nenhuma opção ativa"
               description="Lance opções para começar a receber prêmios."
               cta="Nova opção" onCta={function() { navigation.navigate('AddOpcao'); }}
               color={C.opcoes}
@@ -2429,7 +2429,7 @@ export default function OpcoesScreen() {
           {indList.length === 0 ? (
             !searchResult ? (
               <EmptyState
-                icon={'\u0394'} title="Sem indicadores"
+                ionicon="analytics-outline" title="Sem indicadores"
                 description="Indicadores são calculados automaticamente após 18h em dias úteis. Adicione ativos na carteira para começar. Use a busca acima para consultar qualquer ativo."
                 color={C.opcoes}
               />

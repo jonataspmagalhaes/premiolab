@@ -623,7 +623,7 @@ export default function HomeScreen({ navigation }) {
   if (loadError) return (
     <View style={st.container}>
       <EmptyState
-        icon="!"
+        ionicon="alert-circle-outline"
         title="Erro ao carregar"
         description="Não foi possível carregar o dashboard. Verifique sua conexão e tente novamente."
         cta="Tentar novamente"
@@ -637,7 +637,7 @@ export default function HomeScreen({ navigation }) {
     return (
       <View style={st.container}>
         <EmptyState
-          icon="◈" title="Comece sua jornada"
+          ionicon="rocket-outline" title="Comece sua jornada"
           description="Registre sua primeira operação para ver o dashboard completo."
           cta="Registrar operação"
           onCta={function () { navigation.navigate('AddOperacao'); }}

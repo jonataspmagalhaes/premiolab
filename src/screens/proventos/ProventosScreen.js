@@ -11,7 +11,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getProventos, deleteProvento, addProvento, getProfile } from '../../services/database';
 import { runDividendSync } from '../../services/dividendService';
 import { Glass, Badge, Pill, SectionLabel, SwipeableRow } from '../../components';
-import { LoadingScreen, EmptyState } from '../../components/States';
+import { SkeletonProventos, EmptyState } from '../../components/States';
 import * as Haptics from 'expo-haptics';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -231,10 +231,10 @@ export default function ProventosScreen(props) {
     return MESES[mesIdx] + ' ' + parts[0];
   }
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: C.bg, padding: 18 }}><LoadingScreen /></View>;
+  if (loading) return <View style={{ flex: 1, backgroundColor: C.bg, padding: 18 }}><SkeletonProventos /></View>;
   if (loadError) return (
     <View style={{ flex: 1, backgroundColor: C.bg, padding: 18 }}>
-      <EmptyState icon="!" title="Erro ao carregar" description="Não foi possível carregar os proventos. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { setLoading(true); load(); }} color={C.red} />
+      <EmptyState ionicon="alert-circle-outline" title="Erro ao carregar" description="Não foi possível carregar os proventos. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { setLoading(true); load(); }} color={C.red} />
     </View>
   );
 
@@ -320,7 +320,7 @@ export default function ProventosScreen(props) {
 
         {filtered.length === 0 ? (
           <EmptyState
-            icon="◈"
+            ionicon="cash-outline"
             title={isPendente ? 'Nenhum provento pendente' : 'Nenhum provento no historico'}
             description={isPendente
               ? 'Proventos a receber aparecerao aqui apos a sincronizacao.'

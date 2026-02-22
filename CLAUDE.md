@@ -337,7 +337,7 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 - [x] **Auto-sync de dividendos** (implementado: dividendService.js, cross-check brapi+StatusInvest, auto-trigger Home, sync manual Proventos, dedup por ticker+data+valor)
 - [x] **Gestao Financeira / Fluxo de Caixa** (implementado: tab Gestao com sub-tabs Carteira+Caixa, movimentacoes, integracao com operacoes/opcoes/dividendos)
 - [x] **Relatorios Detalhados** (implementado: tela Relatorios com sub-tabs Dividendos/Opcoes/Operacoes/IR, graficos, agrupamentos)
-- [x] **Melhorias UX P0-P10** (implementado: contraste, touch targets, validacao inline, skeleton, haptics, keyboard, error states, beforeRemove, double-tap guard, toast, swipe-to-delete, FlatList optimization, infinite scroll, React.memo, beforeRemove Edit, mascara valor, ticker autocomplete, undo excluir)
+- [x] **Melhorias UX P0-P11** (implementado: contraste, touch targets, validacao inline, skeleton, haptics, keyboard, error states, beforeRemove, double-tap guard, toast, swipe-to-delete, FlatList, React.memo, ticker autocomplete, undo, PressableCard, Ionicons EmptyState, skeletons por tela, transicoes navegacao)
 - [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
 - [ ] Notificacoes push para vencimentos proximos
 - [ ] Importacao de operacoes via CSV/Excel
@@ -636,7 +636,7 @@ Confirmacao com valor do saldo na mensagem. Error handling com Alert se falhar. 
 | `src/screens/gestao/CaixaView.js` | Multi-moeda display, editar saldo, excluir melhorado |
 | `supabase-migration.sql` | Coluna `moeda TEXT DEFAULT 'BRL'` em saldos_corretora |
 
-## Melhorias UX P0-P10 (Implementado)
+## Melhorias UX P0-P11 (Implementado)
 
 Onze rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, feedback, keyboard handling, consistencia visual, toast, swipe-to-delete, performance e formularios avancados.
 
@@ -773,6 +773,29 @@ Onze rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, fee
 | `src/screens/proventos/ProventosScreen.js` | Undo ao excluir provento |
 | `src/screens/gestao/ExtratoScreen.js` | Undo ao excluir movimentacao |
 
+### P11 — Visual e Animacoes
+- **PressableCard**: componente wrapper com Animated.spring scale (0.97 press in, 1.0 press out). Substituiu TouchableOpacity nos cards expandiveis de CarteiraScreen (PositionCard, RFCard) e CaixaView (contas)
+- **EmptyState com Ionicons**: prop `ionicon` renderiza Ionicons em vez de unicode chars. Atualizado em todas as ~30 telas/contextos que usam EmptyState. Mapeamento: error→alert-circle-outline, carteira→briefcase-outline, opcoes→trending-up-outline, proventos→cash-outline, rf→document-text-outline, etc.
+- **Skeleton por tela**: 5 skeletons especificos (SkeletonCarteira, SkeletonOpcoes, SkeletonCaixa, SkeletonProventos, SkeletonRendaFixa) espelhando layout real de cada tela. Substituem LoadingScreen generico
+- **Transicoes de navegacao**: `animation: 'slide_from_bottom'` em 11 telas de formulario (Add/Edit) no AppNavigator. Stacks de navegacao e config manteem slide_from_right padrao
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/components/PressableCard.js` | **Novo** — wrapper com Animated.spring scale |
+| `src/components/States.js` | Ionicons import, prop ionicon no EmptyState, 5 skeletons por tela |
+| `src/components/index.js` | Export PressableCard + 5 skeletons |
+| `src/navigation/AppNavigator.js` | slide_from_bottom em 11 Add/Edit screens |
+| `src/screens/carteira/CarteiraScreen.js` | PressableCard + SkeletonCarteira + Ionicons EmptyState |
+| `src/screens/opcoes/OpcoesScreen.js` | SkeletonOpcoes + Ionicons EmptyState |
+| `src/screens/gestao/CaixaView.js` | PressableCard + SkeletonCaixa + Ionicons EmptyState |
+| `src/screens/proventos/ProventosScreen.js` | SkeletonProventos + Ionicons EmptyState |
+| `src/screens/rf/RendaFixaScreen.js` | SkeletonRendaFixa + Ionicons EmptyState |
+| `src/screens/home/HomeScreen.js` | Ionicons EmptyState |
+| `src/screens/mais/HistoricoScreen.js` | Ionicons EmptyState |
+| `src/screens/analise/AnaliseScreen.js` | Ionicons EmptyState (~10 contextos) |
+| `src/screens/relatorios/RelatoriosScreen.js` | Ionicons EmptyState (5 contextos) |
+
 ## Melhorias UX Pendentes (TODO)
 
 Melhorias identificadas mas nao implementadas, organizadas por prioridade.
@@ -794,11 +817,11 @@ Melhorias identificadas mas nao implementadas, organizadas por prioridade.
 - [x] **Autocomplete ticker**: TickerInput com dropdown em AddOperacao, AddOpcao, AddProvento
 - [x] **Mascara de valor em AddProvento**: onChangeVal centavos + parseBR
 
-### P11 — Visual e Animacoes
-- [ ] **Skeleton por tela**: cada tela com skeleton espelhando seu proprio layout (hoje so Home tem)
-- [ ] **Transicoes de navegacao**: slide horizontal entre stacks, fade entre tabs
-- [ ] **Card press animation**: scale 0.98 com Animated.spring ao pressionar cards expandiveis
-- [ ] **Empty state ilustracoes**: icones/ilustracoes customizadas nos EmptyState por contexto
+### P11 — Visual e Animacoes (IMPLEMENTADO)
+- [x] **Card press animation**: PressableCard com Animated.spring scale em CarteiraScreen e CaixaView
+- [x] **EmptyState com Ionicons**: prop ionicon em todas as telas (~30 contextos)
+- [x] **Skeleton por tela**: 5 skeletons especificos (Carteira, Opcoes, Caixa, Proventos, RendaFixa)
+- [x] **Transicoes de navegacao**: slide_from_bottom em 11 telas Add/Edit
 
 ### P12 — Acessibilidade Avancada
 - [ ] **accessibilityLabel**: em TODOS os TouchableOpacity/Pressable (muitos ainda faltam)

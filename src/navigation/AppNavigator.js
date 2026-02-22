@@ -202,28 +202,28 @@ function AppStack() {
     <Stack.Navigator screenOptions={screenOptions}>
       <Stack.Screen name="MainTabs" component={MainTabs} />
       <Stack.Screen name="AssetDetail" component={SafeAssetDetailScreen} />
-      <Stack.Screen name="AddOperacao" component={SafeAddOperacaoScreen} />
+      <Stack.Screen name="AddOperacao" component={SafeAddOperacaoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="ConfigMeta" component={SafeConfigMetaScreen} />
       <Stack.Screen name="ConfigCorretoras" component={SafeConfigCorretorasScreen} />
       <Stack.Screen name="ConfigAlertas" component={SafeConfigAlertasScreen} />
       <Stack.Screen name="ConfigSelic" component={SafeConfigSelicScreen} />
-      <Stack.Screen name="AddOpcao" component={SafeAddOpcaoScreen} />
-      <Stack.Screen name="EditOperacao" component={SafeEditOperacaoScreen} />
-      <Stack.Screen name="EditOpcao" component={SafeEditOpcaoScreen} />
-      <Stack.Screen name="AddRendaFixa" component={SafeAddRendaFixaScreen} />
+      <Stack.Screen name="AddOpcao" component={SafeAddOpcaoScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="EditOperacao" component={SafeEditOperacaoScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="EditOpcao" component={SafeEditOpcaoScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="AddRendaFixa" component={SafeAddRendaFixaScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="RendaFixa" component={SafeRendaFixaScreen} />
-      <Stack.Screen name="EditRendaFixa" component={SafeEditRendaFixaScreen} />
+      <Stack.Screen name="EditRendaFixa" component={SafeEditRendaFixaScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="Historico" component={SafeHistoricoScreen} />
       <Stack.Screen name="Sobre" component={SafeSobreScreen} />
       <Stack.Screen name="Guia" component={SafeGuiaScreen} />
-      <Stack.Screen name="AddProvento" component={SafeAddProventoScreen} />
+      <Stack.Screen name="AddProvento" component={SafeAddProventoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="Proventos" component={SafeProventosScreen} />
-      <Stack.Screen name="EditProvento" component={SafeEditProventoScreen} />
-      <Stack.Screen name="AddSaldo" component={SafeAddSaldoScreen} />
+      <Stack.Screen name="EditProvento" component={SafeEditProventoScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="AddSaldo" component={SafeAddSaldoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="Relatorios" component={SafeRelatoriosScreen} />
-      <Stack.Screen name="AddMovimentacao" component={SafeAddMovimentacaoScreen} />
+      <Stack.Screen name="AddMovimentacao" component={SafeAddMovimentacaoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="Extrato" component={SafeExtratoScreen} />
-      <Stack.Screen name="AddConta" component={SafeAddContaScreen} />
+      <Stack.Screen name="AddConta" component={SafeAddContaScreen} options={{ animation: 'slide_from_bottom' }} />
     </Stack.Navigator>
   );
 }

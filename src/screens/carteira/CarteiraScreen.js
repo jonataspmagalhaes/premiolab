@@ -13,9 +13,9 @@ import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa } from '../../services/database';
 import { enrichPositionsWithPrices, fetchPriceHistory, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
-import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, InfoTip, PressableCard } from '../../components';
 import { MiniLineChart } from '../../components/InteractiveChart';
-import { LoadingScreen, EmptyState } from '../../components/States';
+import { SkeletonCarteira, EmptyState } from '../../components/States';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -225,7 +225,7 @@ var PositionCard = React.memo(function PositionCard(props) {
   }
 
   return (
-    <TouchableOpacity activeOpacity={0.8} onPress={onToggle}>
+    <PressableCard onPress={onToggle}>
       <Glass padding={12} style={expanded ? { borderColor: color + '30' } : {}}>
         {/* Row 1: dot + ticker + badges | P&L */}
         <View style={styles.cardRow1}>
@@ -340,7 +340,7 @@ var PositionCard = React.memo(function PositionCard(props) {
           </View>
         ) : null}
       </Glass>
-    </TouchableOpacity>
+    </PressableCard>
   );
 });
 
@@ -362,7 +362,7 @@ function RFCard(props) {
   var dayColor = daysLeft < 30 ? C.red : daysLeft < 90 ? C.yellow : daysLeft < 365 ? C.etfs : C.rf;
 
   return (
-    <TouchableOpacity activeOpacity={0.8} onPress={onToggle}>
+    <PressableCard onPress={onToggle}>
       <Glass padding={12} style={expanded ? { borderColor: C.rf + '30' } : {}}>
         <View style={styles.cardRow1}>
           <View style={styles.cardRow1Left}>
@@ -413,7 +413,7 @@ function RFCard(props) {
           </View>
         ) : null}
       </Glass>
-    </TouchableOpacity>
+    </PressableCard>
   );
 }
 
@@ -611,16 +611,16 @@ export default function CarteiraScreen(props) {
     ]);
   }
 
-  if (loading) return <View style={styles.container}><LoadingScreen /></View>;
+  if (loading) return <View style={styles.container}><SkeletonCarteira /></View>;
   if (loadError) return (
     <View style={styles.container}>
-      <EmptyState icon="!" title="Erro ao carregar" description="Não foi possível carregar a carteira. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { setLoading(true); load(); }} color={C.red} />
+      <EmptyState ionicon="alert-circle-outline" title="Erro ao carregar" description="Não foi possível carregar a carteira. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { setLoading(true); load(); }} color={C.red} />
     </View>
   );
   if (positions.length === 0 && rfAtivos.length === 0 && saldos.length === 0) {
     return (
       <View style={styles.container}>
-        <EmptyState icon="◫" title="Carteira vazia"
+        <EmptyState ionicon="briefcase-outline" title="Carteira vazia"
           description="Nenhum ativo na carteira. Registre compras de ações, FIIs, ETFs ou renda fixa."
           cta="Adicionar ativo" onCta={function () { nav('AddOperacao'); }} color={C.acoes} />
       </View>
@@ -751,7 +751,7 @@ export default function CarteiraScreen(props) {
 
       {/* Empty states */}
       {filter === 'rf' && rfAtivos.length === 0 ? (
-        <EmptyState icon="◉" title="Nenhum título"
+        <EmptyState ionicon="document-text-outline" title="Nenhum título"
           description="Cadastre seus investimentos de renda fixa."
           cta="Novo título" onCta={function () { nav('AddRendaFixa'); }} color={C.rf} />
       ) : null}

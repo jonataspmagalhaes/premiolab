@@ -12,7 +12,7 @@ import { getRendaFixa } from '../../services/database';
 import { supabase } from '../../config/supabase';
 import { Glass, Badge, SectionLabel } from '../../components';
 import * as Haptics from 'expo-haptics';
-import { LoadingScreen, EmptyState } from '../../components/States';
+import { SkeletonRendaFixa, EmptyState } from '../../components/States';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -109,7 +109,7 @@ export default function RendaFixaScreen(props) {
 
   var totalAplicado = ativos.reduce(function(s, i) { return s + (parseFloat(i.valor_aplicado) || 0); }, 0);
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: C.bg, padding: 18 }}><LoadingScreen /></View>;
+  if (loading) return <View style={{ flex: 1, backgroundColor: C.bg, padding: 18 }}><SkeletonRendaFixa /></View>;
 
   return (
     <ScrollView
@@ -147,7 +147,7 @@ export default function RendaFixaScreen(props) {
 
         {ativos.length === 0 && vencidos.length === 0 && (
           <EmptyState
-            icon="◉"
+            ionicon="document-text-outline"
             title="Nenhum título"
             description="Cadastre seus investimentos de renda fixa."
             cta="Novo título"

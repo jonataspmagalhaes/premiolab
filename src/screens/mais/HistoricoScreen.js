@@ -126,7 +126,7 @@ export default function HistoricoScreen(props) {
   if (loadError) return (
     <View style={styles.container}>
       <EmptyState
-        icon="!"
+        ionicon="alert-circle-outline"
         title="Erro ao carregar"
         description="Não foi possível carregar o histórico. Verifique sua conexão e tente novamente."
         cta="Tentar novamente"
@@ -182,7 +182,7 @@ export default function HistoricoScreen(props) {
 
         {filtered.length === 0 ? (
           <EmptyState
-            icon="\u2630"
+            ionicon="time-outline"
             title="Sem registros"
             description="Adicione operações, opções ou proventos para ver o histórico"
             color={C.accent}

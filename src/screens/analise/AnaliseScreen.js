@@ -7797,7 +7797,7 @@ export default function AnaliseScreen() {
             <>
               {catPositions.length === 0 && catEncerradas.length === 0 ? (
                 <EmptyState
-                  icon={"\u25C9"}
+                  ionicon="stats-chart-outline"
                   title={'Sem ' + (CAT_LABELS[perfSub] || perfSub)}
                   description={'Adicione operações de ' + (CAT_LABELS[perfSub] || perfSub) + ' para ver a performance'}
                   color={PERF_SUB_COLORS[perfSub]}
@@ -8195,7 +8195,7 @@ export default function AnaliseScreen() {
             <>
               {opcoes.length === 0 ? (
                 <EmptyState
-                  icon={"\u25C9"}
+                  ionicon="trending-up-outline"
                   title="Sem Opções"
                   description="Cadastre suas opções para ver a performance"
                   color={C.opcoes}
@@ -8758,7 +8758,7 @@ export default function AnaliseScreen() {
             <>
               {rfItems.length === 0 ? (
                 <EmptyState
-                  icon={"\u25C9"}
+                  ionicon="document-text-outline"
                   title="Sem Renda Fixa"
                   description="Cadastre seus titulos de renda fixa para ver a analise"
                   color={C.rf}
@@ -8935,7 +8935,7 @@ export default function AnaliseScreen() {
         <>
           {positions.length === 0 ? (
             <EmptyState
-              icon={"\u25EB"}
+              ionicon="pie-chart-outline"
               title="Sem ativos"
               description="Adicione operações para ver a alocação da carteira"
               color={C.accent}
@@ -9047,7 +9047,7 @@ export default function AnaliseScreen() {
         <>
           {positions.length === 0 ? (
             <EmptyState
-              icon={"\u25EB"}
+              ionicon="grid-outline"
               title="Sem ativos"
               description="Adicione operações para ver a composição da carteira"
               color={C.accent}
@@ -9698,7 +9698,7 @@ export default function AnaliseScreen() {
               {/* Current month proventos by corretora */}
               {provMesAtual.length === 0 ? (
                 <EmptyState
-                  icon={"\u25C9"}
+                  ionicon="cash-outline"
                   title="Sem proventos"
                   description={"Sem proventos previstos para " + currentMonthLabel}
                   color={C.fiis}
@@ -9786,7 +9786,7 @@ export default function AnaliseScreen() {
             <>
               {opcoes.length === 0 ? (
                 <EmptyState
-                  icon={"\u2B23"}
+                  ionicon="pricetag-outline"
                   title="Sem opções"
                   description="Adicione opções vendidas para ver prêmios recebidos aqui"
                   color={C.opcoes}
@@ -10008,7 +10008,7 @@ export default function AnaliseScreen() {
           {provSub === 'rendimentos' && (
             <>
               {Object.keys(fiiTickerSet).length === 0 ? (
-                <EmptyState icon={'\u25CB'} title="Sem FIIs" description="Adicione FIIs na carteira para ver rendimentos" color={C.fiis} />
+                <EmptyState ionicon="business-outline" title="Sem FIIs" description="Adicione FIIs na carteira para ver rendimentos" color={C.fiis} />
               ) : (
                 <>
                   {/* KPI Cards */}
@@ -10126,7 +10126,7 @@ export default function AnaliseScreen() {
                   {/* Current month rendimentos by corretora */}
                   {fiiMesAtual.length === 0 ? (
                     <EmptyState
-                      icon={"\u25C9"}
+                      ionicon="cash-outline"
                       title="Sem rendimentos"
                       description={"Sem rendimentos previstos para " + currentMonthLabel}
                       color={C.fiis}
@@ -10213,7 +10213,7 @@ export default function AnaliseScreen() {
           {provSub === 'rf' && (
             <>
               {rendaFixa.length === 0 ? (
-                <EmptyState icon={'\u25CB'} title="Sem renda fixa" description="Adicione aplicações de renda fixa para ver a renda estimada" color={C.rf} />
+                <EmptyState ionicon="document-text-outline" title="Sem renda fixa" description="Adicione aplicações de renda fixa para ver a renda estimada" color={C.rf} />
               ) : (
                 <>
                   {/* KPI Cards */}

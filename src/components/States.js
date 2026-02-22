@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, StyleSheet, TouchableOpacity } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, F, SIZE } from '../theme';
 
 // ═══════════ SKELETON BAR ═══════════
@@ -121,9 +122,134 @@ export function LoadingScreen() {
   );
 }
 
+// ═══════════ SKELETON CARTEIRA ═══════════
+export function SkeletonCarteira() {
+  return (
+    <View style={styles.loadingWrap}>
+      {/* Donut + stats */}
+      <View style={[styles.skelCard, { height: 160, alignItems: 'center', justifyContent: 'center' }]}>
+        <Skeleton width={120} height={120} radius={60} />
+        <View style={{ height: 10 }} />
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          <Skeleton width={60} height={10} />
+          <Skeleton width={60} height={10} />
+        </View>
+      </View>
+      {/* Stat rows */}
+      <View style={{ flexDirection: 'row', gap: 6 }}>
+        <View style={[styles.loadingMiniCard, { flex: 1 }]}>
+          <Skeleton width="50%" height={8} />
+          <View style={{ height: 4 }} />
+          <Skeleton width="70%" height={14} />
+        </View>
+        <View style={[styles.loadingMiniCard, { flex: 1 }]}>
+          <Skeleton width="50%" height={8} />
+          <View style={{ height: 4 }} />
+          <Skeleton width="70%" height={14} />
+        </View>
+      </View>
+      {/* Position cards */}
+      <SkeletonCard height={80} />
+      <SkeletonCard height={80} />
+      <SkeletonCard height={80} />
+    </View>
+  );
+}
+
+// ═══════════ SKELETON OPCOES ═══════════
+export function SkeletonOpcoes() {
+  return (
+    <View style={styles.loadingWrap}>
+      {/* Summary bar */}
+      <View style={[styles.skelCard, { height: 50 }]}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+          <Skeleton width={60} height={14} />
+          <Skeleton width={60} height={14} />
+          <Skeleton width={60} height={14} />
+        </View>
+      </View>
+      {/* Op cards */}
+      <SkeletonCard height={100} />
+      <SkeletonCard height={100} />
+      <SkeletonCard height={100} />
+    </View>
+  );
+}
+
+// ═══════════ SKELETON CAIXA ═══════════
+export function SkeletonCaixa() {
+  return (
+    <View style={styles.loadingWrap}>
+      {/* Hero saldo */}
+      <View style={[styles.skelCard, { height: 120 }]}>
+        <Skeleton width="40%" height={10} />
+        <View style={{ height: 10 }} />
+        <Skeleton width="60%" height={28} />
+        <View style={{ height: 12 }} />
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Skeleton width={80} height={24} radius={12} />
+          <Skeleton width={80} height={24} radius={12} />
+          <Skeleton width={80} height={24} radius={12} />
+        </View>
+      </View>
+      {/* Account cards */}
+      <SkeletonCard height={60} />
+      <SkeletonCard height={60} />
+      <SkeletonCard height={60} />
+      {/* Chart area */}
+      <SkeletonCard height={140} />
+    </View>
+  );
+}
+
+// ═══════════ SKELETON PROVENTOS ═══════════
+export function SkeletonProventos() {
+  return (
+    <View style={styles.loadingWrap}>
+      {/* Header */}
+      <View style={[styles.skelCard, { height: 50 }]}>
+        <Skeleton width="50%" height={10} />
+        <View style={{ height: 8 }} />
+        <Skeleton width="30%" height={16} />
+      </View>
+      {/* Filter pills */}
+      <View style={{ flexDirection: 'row', gap: 6 }}>
+        <Skeleton width={70} height={28} radius={14} />
+        <Skeleton width={70} height={28} radius={14} />
+        <Skeleton width={70} height={28} radius={14} />
+        <Skeleton width={70} height={28} radius={14} />
+      </View>
+      {/* Provento rows */}
+      <SkeletonRow />
+      <SkeletonRow />
+      <SkeletonRow />
+      <SkeletonRow />
+    </View>
+  );
+}
+
+// ═══════════ SKELETON RENDA FIXA ═══════════
+export function SkeletonRendaFixa() {
+  return (
+    <View style={styles.loadingWrap}>
+      {/* Header */}
+      <View style={[styles.skelCard, { height: 50 }]}>
+        <Skeleton width="45%" height={10} />
+        <View style={{ height: 8 }} />
+        <Skeleton width="35%" height={16} />
+      </View>
+      {/* RF cards */}
+      <SkeletonCard height={70} />
+      <SkeletonCard height={70} />
+      <SkeletonCard height={70} />
+    </View>
+  );
+}
+
 // ═══════════ EMPTY STATE ═══════════
 export function EmptyState(props) {
-  var icon = props.icon || '◫';
+  var icon = props.icon;
+  var ionicon = props.ionicon;
   var title = props.title;
   var description = props.description;
   var cta = props.cta;
@@ -133,7 +259,11 @@ export function EmptyState(props) {
   return (
     <View style={styles.emptyWrap}>
       <View style={[styles.emptyIcon, { backgroundColor: color + '08', borderColor: color + '15' }]}>
-        <Text style={[styles.emptyIconText, { color: color }]}>{icon}</Text>
+        {ionicon ? (
+          <Ionicons name={ionicon} size={28} color={color} />
+        ) : (
+          <Text style={[styles.emptyIconText, { color: color }]}>{icon || '◫'}</Text>
+        )}
       </View>
       <Text style={styles.emptyTitle}>{title}</Text>
       {description && <Text style={styles.emptyDesc}>{description}</Text>}
