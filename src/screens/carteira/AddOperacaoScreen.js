@@ -10,6 +10,7 @@ import { addOperacao, incrementCorretora, getIndicators, addMovimentacaoComSaldo
 import { runDailyCalculation } from '../../services/indicatorService';
 import { fetchExchangeRates } from '../../services/currencyService';
 import { Glass, Pill, Badge, TickerInput } from '../../components';
+import { searchTickers } from '../../services/tickerSearchService';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -292,7 +293,7 @@ export default function AddOperacaoScreen(props) {
               var wasInt = isIntCategoria(categoria);
               var nowInt = isIntCategoria(cat.key);
               setCategoria(cat.key);
-              if (wasInt !== nowInt) setCorretora('');
+              if (wasInt !== nowInt) { setCorretora(''); setTicker(''); }
             }}>
               {cat.label}
             </Pill>
@@ -308,6 +309,7 @@ export default function AddOperacaoScreen(props) {
         tickers={tickers}
         autoFocus={true}
         returnKeyType="next"
+        onSearch={function(query) { return searchTickers(query, getRealMercado(categoria)); }}
         style={[styles.input,
           tickerValid && { borderColor: C.green },
           tickerError && { borderColor: C.red },

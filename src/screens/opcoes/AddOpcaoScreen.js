@@ -7,6 +7,7 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { addOpcao, addMovimentacaoComSaldo, buildMovDescricao, getPositions } from '../../services/database';
 import { Glass, Pill, Badge, TickerInput } from '../../components';
+import { searchTickers } from '../../services/tickerSearchService';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -258,6 +259,7 @@ export default function AddOpcaoScreen(props) {
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>ATIVO BASE *</Text>
           <TickerInput value={ativoBase} onChangeText={setAtivoBase} tickers={tickers} autoFocus={true} returnKeyType="next"
+            onSearch={function(query) { return searchTickers(query, 'BR'); }}
             style={[styles.input, ativoBaseValid && { borderColor: C.green }, ativoBaseError && { borderColor: C.red }]} />
           {ativoBaseError ? <Text style={styles.fieldError}>Mínimo 4 caracteres</Text> : null}
         </View>

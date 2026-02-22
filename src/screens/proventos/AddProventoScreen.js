@@ -7,6 +7,7 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { addProvento, getUserCorretoras, getPositions } from '../../services/database';
 import { Glass, Pill, Badge, TickerInput } from '../../components';
+import { searchTickers } from '../../services/tickerSearchService';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -212,6 +213,7 @@ export default function AddProventoScreen(props) {
         onChangeText={setTicker}
         tickers={tickers}
         returnKeyType="next"
+        onSearch={function(query) { return searchTickers(query, 'BR'); }}
         style={[styles.input,
           tickerValid && { borderColor: C.green },
           tickerError && { borderColor: C.red },
