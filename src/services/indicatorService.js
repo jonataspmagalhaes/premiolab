@@ -5,6 +5,7 @@
  */
 
 import { fetchPriceHistoryLong } from './priceService';
+import { fetchYahooHistoryLong } from './yahooService';
 import { getPositions, getOpcoes, getIndicators, upsertIndicatorsBatch } from './database';
 
 // ══════════ HELPERS ══════════
@@ -377,19 +378,46 @@ export async function runDailyCalculation(userId) {
       return { data: [], error: null, message: 'Nenhuma posicao encontrada' };
     }
 
-    // 2. Coletar tickers + IBOV
+    // 2. Coletar tickers separados por mercado (BR vs INT)
     var tickers = [];
+    var tickersBR = [];
+    var tickersINT = [];
     for (var p = 0; p < positions.length; p++) {
       tickers.push(positions[p].ticker);
+      if (positions[p].mercado === 'INT') {
+        tickersINT.push(positions[p].ticker);
+      } else {
+        tickersBR.push(positions[p].ticker);
+      }
     }
 
-    var allTickers = tickers.slice();
-    if (allTickers.indexOf('^BVSP') === -1) {
-      allTickers.push('^BVSP');
+    // Adicionar indices de benchmark
+    var allTickersBR = tickersBR.slice();
+    if (allTickersBR.indexOf('^BVSP') === -1) {
+      allTickersBR.push('^BVSP');
+    }
+    var allTickersINT = tickersINT.slice();
+    if (allTickersINT.length > 0 && allTickersINT.indexOf('^GSPC') === -1) {
+      allTickersINT.push('^GSPC');
     }
 
-    // 3. Buscar historico longo (6 meses)
-    var historyData = await fetchPriceHistoryLong(allTickers);
+    // 3. Buscar historico longo (6 meses) — BR via brapi, INT via Yahoo
+    var historyData = {};
+    var brHistPromise = allTickersBR.length > 0 ? fetchPriceHistoryLong(allTickersBR) : Promise.resolve({});
+    var intHistPromise = allTickersINT.length > 0 ? fetchYahooHistoryLong(allTickersINT) : Promise.resolve({});
+    var histResults = await Promise.all([brHistPromise, intHistPromise]);
+    var brHist = histResults[0];
+    var intHist = histResults[1];
+    // Merge BR results
+    var brKeys = Object.keys(brHist);
+    for (var bk = 0; bk < brKeys.length; bk++) {
+      historyData[brKeys[bk]] = brHist[brKeys[bk]];
+    }
+    // Merge INT results
+    var intKeys = Object.keys(intHist);
+    for (var ik = 0; ik < intKeys.length; ik++) {
+      historyData[intKeys[ik]] = intHist[intKeys[ik]];
+    }
 
     // 4. Buscar opcoes do usuario (para IV media)
     var opcoesResult = await getOpcoes(userId);
@@ -405,9 +433,11 @@ export async function runDailyCalculation(userId) {
       opcoesPorAtivo[base].push(op);
     }
 
-    // 5. Extrair closes do IBOV
+    // 5. Extrair closes do IBOV e S&P 500
     var ibovOhlcv = historyData['^BVSP'] || [];
     var ibovCloses = extractCloses(ibovOhlcv);
+    var spxOhlcv = historyData['^GSPC'] || [];
+    var spxCloses = extractCloses(spxOhlcv);
 
     // 6. Calcular indicadores para cada ticker
     var indicatorsList = [];
@@ -433,7 +463,9 @@ export async function runDailyCalculation(userId) {
       var ema9 = calcEMA(closes, 9);
       var ema21 = calcEMA(closes, 21);
       var rsi14 = calcRSI(closes, 14);
-      var beta = calcBeta(closes, ibovCloses, 60);
+      var isINT = tickersINT.indexOf(ticker) !== -1;
+      var benchCloses = isINT ? spxCloses : ibovCloses;
+      var beta = calcBeta(closes, benchCloses, 60);
       var atr14 = calcATR(highs, lows, closes, 14);
       var bbands = calcBollingerBands(closes, 20, 2);
       var maxDD = calcMaxDrawdown(closes);

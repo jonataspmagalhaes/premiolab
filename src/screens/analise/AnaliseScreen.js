@@ -60,9 +60,9 @@ var TIPO_COLORS_PROV = {
 
 var MONTH_LABELS = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
-var CAT_COLORS = { acao: C.acoes, fii: C.fiis, etf: C.etfs, rf: C.rf };
-var CAT_LABELS = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs' };
-var CAT_NAMES_FULL = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs', rf: 'RF' };
+var CAT_COLORS = { acao: C.acoes, fii: C.fiis, etf: C.etfs, stock_int: C.stock_int, rf: C.rf };
+var CAT_LABELS = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs', stock_int: 'Stocks' };
+var CAT_NAMES_FULL = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs', stock_int: 'Stocks', rf: 'RF' };
 var SCREEN_W = Dimensions.get('window').width;
 var SCREEN_H = Dimensions.get('window').height;
 
@@ -348,12 +348,13 @@ var PERF_SUBS = [
   { k: 'acao', l: 'Ação' },
   { k: 'fii', l: 'FII' },
   { k: 'etf', l: 'ETF' },
+  { k: 'stock_int', l: 'Stocks' },
   { k: 'opcoes', l: 'Opções' },
   { k: 'rf', l: 'RF' },
 ];
 
 var PERF_SUB_COLORS = {
-  todos: C.accent, acao: C.acoes, fii: C.fiis, etf: C.etfs, opcoes: C.opcoes, rf: C.rf,
+  todos: C.accent, acao: C.acoes, fii: C.fiis, etf: C.etfs, stock_int: C.stock_int, opcoes: C.opcoes, rf: C.rf,
 };
 
 var OPC_STATUS_LABELS = { ativa: 'Ativa', exercida: 'Exercida', expirada: 'Expirada', fechada: 'Fechada', expirou_po: 'Virou Pó' };
@@ -591,6 +592,7 @@ function computeIR(ops) {
           vendasAcoes: 0, ganhoAcoes: 0, perdaAcoes: 0,
           vendasFII: 0, ganhoFII: 0, perdaFII: 0,
           vendasETF: 0, ganhoETF: 0, perdaETF: 0,
+          vendasStockInt: 0, ganhoStockInt: 0, perdaStockInt: 0,
         };
       }
       var mr = monthResults[mKey];
@@ -601,6 +603,9 @@ function computeIR(ops) {
       } else if (cat === 'etf') {
         mr.vendasETF += vendaTotal;
         if (ganho >= 0) mr.ganhoETF += ganho; else mr.perdaETF += Math.abs(ganho);
+      } else if (cat === 'stock_int') {
+        mr.vendasStockInt += vendaTotal;
+        if (ganho >= 0) mr.ganhoStockInt += ganho; else mr.perdaStockInt += Math.abs(ganho);
       } else {
         mr.vendasAcoes += vendaTotal;
         if (ganho >= 0) mr.ganhoAcoes += ganho; else mr.perdaAcoes += Math.abs(ganho);
@@ -659,6 +664,7 @@ function computeTaxByMonth(monthResults) {
   var prejAcumAcoes = 0;
   var prejAcumFII = 0;
   var prejAcumETF = 0;
+  var prejAcumStockInt = 0;
   var results = [];
 
   months.forEach(function(mKey) {
@@ -666,6 +672,7 @@ function computeTaxByMonth(monthResults) {
     var saldoAcoes = mr.ganhoAcoes - mr.perdaAcoes - prejAcumAcoes;
     var saldoFII = mr.ganhoFII - mr.perdaFII - prejAcumFII;
     var saldoETF = mr.ganhoETF - mr.perdaETF - prejAcumETF;
+    var saldoStockInt = mr.ganhoStockInt - mr.perdaStockInt - prejAcumStockInt;
 
     var impostoAcoes = 0;
     if (mr.vendasAcoes > 20000 && saldoAcoes > 0) {
@@ -697,17 +704,28 @@ function computeTaxByMonth(monthResults) {
       prejAcumETF = 0;
     }
 
+    var impostoStockInt = 0;
+    if (saldoStockInt > 0) {
+      impostoStockInt = saldoStockInt * 0.15;
+      prejAcumStockInt = 0;
+    } else if (saldoStockInt < 0) {
+      prejAcumStockInt = Math.abs(saldoStockInt);
+    } else {
+      prejAcumStockInt = 0;
+    }
+
     results.push({
       month: mKey,
-      vendasAcoes: mr.vendasAcoes, vendasFII: mr.vendasFII, vendasETF: mr.vendasETF,
+      vendasAcoes: mr.vendasAcoes, vendasFII: mr.vendasFII, vendasETF: mr.vendasETF, vendasStockInt: mr.vendasStockInt,
       ganhoAcoes: mr.ganhoAcoes, perdaAcoes: mr.perdaAcoes,
       ganhoFII: mr.ganhoFII, perdaFII: mr.perdaFII,
       ganhoETF: mr.ganhoETF, perdaETF: mr.perdaETF,
-      saldoAcoes: saldoAcoes, saldoFII: saldoFII, saldoETF: saldoETF,
-      impostoAcoes: impostoAcoes, impostoFII: impostoFII, impostoETF: impostoETF,
-      impostoTotal: impostoAcoes + impostoFII + impostoETF,
+      ganhoStockInt: mr.ganhoStockInt, perdaStockInt: mr.perdaStockInt,
+      saldoAcoes: saldoAcoes, saldoFII: saldoFII, saldoETF: saldoETF, saldoStockInt: saldoStockInt,
+      impostoAcoes: impostoAcoes, impostoFII: impostoFII, impostoETF: impostoETF, impostoStockInt: impostoStockInt,
+      impostoTotal: impostoAcoes + impostoFII + impostoETF + impostoStockInt,
       alertaAcoes20k: mr.vendasAcoes > 20000,
-      prejAcumAcoes: prejAcumAcoes, prejAcumFII: prejAcumFII, prejAcumETF: prejAcumETF,
+      prejAcumAcoes: prejAcumAcoes, prejAcumFII: prejAcumFII, prejAcumETF: prejAcumETF, prejAcumStockInt: prejAcumStockInt,
     });
   });
 
@@ -1269,8 +1287,8 @@ function TwoLevelDonut(props) {
 // ═══════════ REBALANCEAMENTO ═══════════
 
 function buildRebalanceTree(positions, rendaFixa, totalCarteira, classTargets, capTargets, sectorTargets, tickerTargets) {
-  var classes = ['acao', 'fii', 'etf', 'rf'];
-  var FLAT_CLASSES = { etf: true, rf: true };
+  var classes = ['acao', 'fii', 'etf', 'stock_int', 'rf'];
+  var FLAT_CLASSES = { etf: true, stock_int: true, rf: true };
   var tree = [];
 
   var positionsByClass = {};
@@ -1548,7 +1566,7 @@ function RebalanceTool(props) {
   var userId = props.userId || null;
   var savedTargets = props.savedTargets || null;
 
-  var DEFAULT_CLASS_TARGETS = { acao: 40, fii: 25, etf: 20, rf: 15 };
+  var DEFAULT_CLASS_TARGETS = { acao: 35, fii: 20, etf: 15, stock_int: 15, rf: 15 };
   var _expandedClass = useState(null);
   var expandedClass = _expandedClass[0]; var setExpandedClass = _expandedClass[1];
   var _expandedCap = useState(null);
@@ -1602,28 +1620,28 @@ function RebalanceTool(props) {
   var _showProfiles = useState(false);
   var showProfiles = _showProfiles[0]; var setShowProfiles = _showProfiles[1];
 
-  var FLAT_CLASSES = { etf: true, rf: true };
+  var FLAT_CLASSES = { etf: true, stock_int: true, rf: true };
 
   // ── Profile presets ──
   var PROFILES = {
     conservador: {
       label: 'Conservador', emoji: '🛡️',
       desc: 'Prioriza renda fixa e FIIs de papel. Menor exposicao a acoes.',
-      classes: { acao: 15, fii: 15, etf: 10, rf: 60 },
+      classes: { acao: 15, fii: 15, etf: 7, stock_int: 3, rf: 60 },
       acaoCaps: { 'Large Cap': 60, 'Mid Cap': 25, 'Small Cap': 10, 'Micro Cap': 5 },
       fiiSectors: { 'Tijolo': 30, 'Papel': 55, 'Híbrido': 15 },
     },
     moderado: {
       label: 'Moderado', emoji: '⚖️',
       desc: 'Equilibrio entre renda variavel e fixa. Diversificacao ampla.',
-      classes: { acao: 30, fii: 25, etf: 20, rf: 25 },
+      classes: { acao: 25, fii: 20, etf: 15, stock_int: 10, rf: 30 },
       acaoCaps: { 'Large Cap': 45, 'Mid Cap': 30, 'Small Cap': 20, 'Micro Cap': 5 },
       fiiSectors: { 'Tijolo': 45, 'Papel': 40, 'Híbrido': 15 },
     },
     arrojado: {
       label: 'Arrojado', emoji: '🚀',
       desc: 'Foco em acoes e ETFs para crescimento. Pouca renda fixa.',
-      classes: { acao: 45, fii: 25, etf: 25, rf: 5 },
+      classes: { acao: 30, fii: 15, etf: 20, stock_int: 20, rf: 15 },
       acaoCaps: { 'Large Cap': 30, 'Mid Cap': 30, 'Small Cap': 25, 'Micro Cap': 15 },
       fiiSectors: { 'Tijolo': 55, 'Papel': 30, 'Híbrido': 15 },
     },
@@ -1641,7 +1659,7 @@ function RebalanceTool(props) {
     var newSectorT = {};
     var newTickerT = {};
 
-    ['acao', 'fii', 'etf', 'rf'].forEach(function (cat) {
+    ['acao', 'fii', 'etf', 'stock_int', 'rf'].forEach(function (cat) {
       if (FLAT_CLASSES[cat]) {
         // Flat: equal weight tickers
         var items = [];
@@ -1777,7 +1795,7 @@ function RebalanceTool(props) {
     var initSectorT = {};
     var initTickerT = {};
 
-    ['acao', 'fii', 'etf', 'rf'].forEach(function (cat) {
+    ['acao', 'fii', 'etf', 'stock_int', 'rf'].forEach(function (cat) {
       if (FLAT_CLASSES[cat]) {
         var items = [];
         if (cat === 'rf') {
@@ -1885,7 +1903,7 @@ function RebalanceTool(props) {
   var accuracy = Math.max(0, 100 - sumDrift);
   var accColor = accuracy >= 95 ? C.green : accuracy >= 80 ? C.yellow : C.red;
 
-  var classKeys = ['acao', 'fii', 'etf', 'rf'];
+  var classKeys = ['acao', 'fii', 'etf', 'stock_int', 'rf'];
   var totalClassPct = classKeys.reduce(function (s, k) { return s + (classTargets[k] || 0); }, 0);
 
   // ── Compute aporte suggestions ──
@@ -2564,7 +2582,7 @@ function RebalanceTool(props) {
                     <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.display }}>{p.label}</Text>
                     <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body, marginTop: 2 }}>{p.desc}</Text>
                     <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
-                      {['acao', 'fii', 'etf', 'rf'].map(function (cat) {
+                      {['acao', 'fii', 'etf', 'stock_int', 'rf'].map(function (cat) {
                         return (
                           <View key={cat} style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
                             backgroundColor: (PRODUCT_COLORS[cat] || C.accent) + '15' }}>
@@ -5888,7 +5906,7 @@ export default function AnaliseScreen() {
   var catMesesPositivos = 0;
   var catMesesNegativos = 0;
 
-  if (perfSub === 'acao' || perfSub === 'fii' || perfSub === 'etf') {
+  if (perfSub === 'acao' || perfSub === 'fii' || perfSub === 'etf' || perfSub === 'stock_int') {
     for (var cp = 0; cp < positions.length; cp++) {
       if ((positions[cp].categoria || 'acao') === perfSub) {
         catPositions.push(positions[cp]);
@@ -6027,7 +6045,7 @@ export default function AnaliseScreen() {
   var catPlMonthly = [];
   var catPlAnnual = [];
 
-  if (perfSub === 'acao' || perfSub === 'fii' || perfSub === 'etf') {
+  if (perfSub === 'acao' || perfSub === 'fii' || perfSub === 'etf' || perfSub === 'stock_int') {
     // P&L Realizado (posições ativas com vendas + encerradas)
     for (var cpri = 0; cpri < positions.length; cpri++) {
       if ((positions[cpri].categoria || 'acao') === perfSub) {
@@ -7161,8 +7179,8 @@ export default function AnaliseScreen() {
   var irTotalPerdas = 0;
   var irTotalImposto = 0;
   irTaxData.forEach(function(m) {
-    irTotalGanhos += m.ganhoAcoes + m.ganhoFII + m.ganhoETF;
-    irTotalPerdas += m.perdaAcoes + m.perdaFII + m.perdaETF;
+    irTotalGanhos += m.ganhoAcoes + m.ganhoFII + m.ganhoETF + m.ganhoStockInt;
+    irTotalPerdas += m.perdaAcoes + m.perdaFII + m.perdaETF + m.perdaStockInt;
     irTotalImposto += m.impostoTotal;
   });
   var irSaldoLiquido = irTotalGanhos - irTotalPerdas;
@@ -7789,8 +7807,8 @@ export default function AnaliseScreen() {
             </>
           )}
 
-          {/* ── ACAO / FII / ETF ── */}
-          {(perfSub === 'acao' || perfSub === 'fii' || perfSub === 'etf') && (
+          {/* ── ACAO / FII / ETF / STOCK_INT ── */}
+          {(perfSub === 'acao' || perfSub === 'fii' || perfSub === 'etf' || perfSub === 'stock_int') && (
             <>
               {catPositions.length === 0 && catEncerradas.length === 0 ? (
                 <EmptyState

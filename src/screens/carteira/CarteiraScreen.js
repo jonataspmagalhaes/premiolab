@@ -13,7 +13,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa } from '../../services/database';
-import { enrichPositionsWithPrices, fetchPriceHistory, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
+import { enrichPositionsWithPrices, fetchPriceHistory, fetchHistoryRouted, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
 import { Glass, Badge, Pill, SectionLabel, InfoTip, PressableCard } from '../../components';
 import { MiniLineChart } from '../../components/InteractiveChart';
 import { SkeletonCarteira, EmptyState } from '../../components/States';
@@ -24,10 +24,11 @@ var FILTERS = [
   { k: 'acoes', l: 'Ações', cat: 'acao', color: C.acoes },
   { k: 'fiis', l: 'FIIs', cat: 'fii', color: C.fiis },
   { k: 'etfs', l: 'ETFs', cat: 'etf', color: C.etfs },
+  { k: 'stocks_int', l: 'Stocks', cat: 'stock_int', color: C.stock_int },
   { k: 'rf', l: 'RF', color: C.rf },
 ];
-var CAT_LABELS = { acao: 'Ação', fii: 'FII', etf: 'ETF', opcao: 'Opção' };
-var CAT_NAMES = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs', rf: 'RF' };
+var CAT_LABELS = { acao: 'Ação', fii: 'FII', etf: 'ETF', opcao: 'Opção', stock_int: 'Stock' };
+var CAT_NAMES = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs', stock_int: 'Stocks', rf: 'RF' };
 var TIPO_LABELS = {
   cdb: 'CDB', lci_lca: 'LCI/LCA', tesouro_selic: 'Tesouro Selic',
   tesouro_ipca: 'Tesouro IPCA+', tesouro_pre: 'Tesouro Pré', debenture: 'Debênture',
@@ -196,10 +197,13 @@ var PositionCard = React.memo(function PositionCard(props) {
 
   var color = PRODUCT_COLORS[pos.categoria] || C.accent;
   var catLabel = CAT_LABELS[pos.categoria] || (pos.categoria || '').toUpperCase();
+  var posIsInt = pos.mercado === 'INT';
+  var posSymbol = posIsInt ? 'US$' : 'R$';
   var hasPrice = pos.preco_atual != null;
-  var precoRef = hasPrice ? pos.preco_atual : pos.pm;
+  // Para INT: preco_atual ja esta em BRL (enrichPositionsWithPrices converte)
+  var precoRef = hasPrice ? pos.preco_atual : (posIsInt && pos.pm ? pos.pm * (pos.taxa_cambio || 1) : pos.pm);
   var valorAtual = pos.quantidade * precoRef;
-  var custoTotal = pos.quantidade * pos.pm;
+  var custoTotal = posIsInt ? pos.quantidade * pos.pm * (pos.taxa_cambio || 1) : pos.quantidade * pos.pm;
   var pnl = valorAtual - custoTotal;
   var pnlPct = custoTotal > 0 ? (pnl / custoTotal) * 100 : 0;
   var isPos = pnl >= 0;
@@ -232,6 +236,15 @@ var PositionCard = React.memo(function PositionCard(props) {
             <View style={[styles.typeBadge, { backgroundColor: color + '14' }]}>
               <Text style={[styles.typeBadgeText, { color: color }]}>{catLabel}</Text>
             </View>
+            {pos.mercado === 'INT' ? (
+              <View style={[styles.typeBadge, { backgroundColor: C.stock_int + '14' }]}>
+                <Text style={[styles.typeBadgeText, { color: C.stock_int }]}>INT</Text>
+              </View>
+            ) : pos.categoria === 'etf' ? (
+              <View style={[styles.typeBadge, { backgroundColor: C.etfs + '14' }]}>
+                <Text style={[styles.typeBadgeText, { color: C.etfs }]}>BR</Text>
+              </View>
+            ) : null}
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Text style={[styles.cardPL, { color: pnlColor }]}>
@@ -246,11 +259,17 @@ var PositionCard = React.memo(function PositionCard(props) {
         {/* Row 2: preço + PM + qty | sparkline */}
         <View style={styles.cardRow2}>
           <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Text style={styles.cardPriceMain}>
-                {hasPrice ? 'R$ ' + fmt(precoRef) : 'PM R$ ' + fmt(pos.pm)}
-              </Text>
-              {hasPrice ? <Text style={styles.cardPriceSub}>{'PM R$ ' + fmt(pos.pm)}</Text> : null}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {posIsInt && hasPrice && pos.preco_atual_usd != null ? (
+                <Text style={styles.cardPriceMain}>
+                  {'US$ ' + fmt(pos.preco_atual_usd) + '  ≈ R$ ' + fmt(pos.preco_atual)}
+                </Text>
+              ) : (
+                <Text style={styles.cardPriceMain}>
+                  {hasPrice ? 'R$ ' + fmt(precoRef) : 'PM ' + posSymbol + ' ' + fmt(pos.pm)}
+                </Text>
+              )}
+              {hasPrice ? <Text style={styles.cardPriceSub}>{'PM ' + posSymbol + ' ' + fmt(pos.pm)}</Text> : null}
               <Text style={styles.cardPriceSub}>Qtd: {pos.quantidade.toLocaleString('pt-BR')}</Text>
             </View>
             {hasPrice && pos.change_day != null && pos.change_day !== 0 ? (
@@ -474,7 +493,14 @@ export default function CarteiraScreen(props) {
       var enriched = await enrichPositionsWithPrices(rawPos);
       setPositions(enriched);
       if (tickers.length > 0) {
-        var hist = await fetchPriceHistory(tickers);
+        // Construir mercadoMap para rotear BR vs INT
+        var mercadoMap = {};
+        for (var mi = 0; mi < enriched.length; mi++) {
+          if (enriched[mi].ticker && enriched[mi].mercado) {
+            mercadoMap[enriched[mi].ticker] = enriched[mi].mercado;
+          }
+        }
+        var hist = await fetchHistoryRouted(tickers, mercadoMap);
         setPriceHistory(hist || {});
       }
     } catch (e) { console.warn('Price enrichment failed:', e.message); }
@@ -528,7 +554,7 @@ export default function CarteiraScreen(props) {
   var isPosRealizado = plRealizado >= 0;
 
   // Allocation by class
-  var allocMap = { acao: 0, fii: 0, etf: 0, rf: totalRF };
+  var allocMap = { acao: 0, fii: 0, etf: 0, stock_int: 0, rf: totalRF };
   positions.forEach(function (p) {
     var cat = p.categoria || '';
     if (allocMap[cat] !== undefined) allocMap[cat] += p.quantidade * (p.preco_atual || p.pm);
@@ -776,7 +802,7 @@ export default function CarteiraScreen(props) {
                 var plColor = e.pl_realizado >= 0 ? C.green : C.red;
                 var plIcon = e.pl_realizado >= 0 ? '▲' : '▼';
                 var plLabel = e.pl_realizado >= 0 ? 'LUCRO' : 'PREJUÍZO';
-                var catColor = e.categoria === 'acao' ? C.acoes : e.categoria === 'fii' ? C.fiis : e.categoria === 'etf' ? C.etfs : C.accent;
+                var catColor = e.categoria === 'acao' ? C.acoes : e.categoria === 'fii' ? C.fiis : e.categoria === 'etf' ? C.etfs : e.categoria === 'stock_int' ? C.stock_int : C.accent;
                 var pmCompra = e.total_comprado > 0 ? e.custo_compras / e.total_comprado : 0;
                 var pmVenda = e.total_vendido > 0 ? e.receita_vendas / e.total_vendido : 0;
                 var plPct = e.custo_compras > 0 ? (e.pl_realizado / e.custo_compras) * 100 : 0;

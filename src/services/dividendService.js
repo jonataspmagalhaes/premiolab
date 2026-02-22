@@ -216,6 +216,19 @@ export async function runDividendSync(userId) {
       return { inserted: 0, checked: 0, details: [], message: 'Nenhuma posicao encontrada' };
     }
 
+    // Filtrar posicoes internacionais (brapi/StatusInvest nao cobrem ativos INT)
+    var brPositions = [];
+    for (var fi = 0; fi < positions.length; fi++) {
+      if (positions[fi].mercado !== 'INT') {
+        brPositions.push(positions[fi]);
+      }
+    }
+    positions = brPositions;
+
+    if (positions.length === 0) {
+      return { inserted: 0, checked: 0, details: [], message: 'Nenhuma posicao BR encontrada' };
+    }
+
     // 1b. Buscar saldos para saber conta destino das movimentacoes
     var saldosResult = await getSaldos(userId);
     var saldosData = saldosResult.data || [];

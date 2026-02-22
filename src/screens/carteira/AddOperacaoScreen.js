@@ -8,6 +8,7 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { addOperacao, incrementCorretora, getIndicators, addMovimentacaoComSaldo, buildMovDescricao, getPositions } from '../../services/database';
 import { runDailyCalculation } from '../../services/indicatorService';
+import { fetchExchangeRates } from '../../services/currencyService';
 import { Glass, Pill, Badge, TickerInput } from '../../components';
 import * as Haptics from 'expo-haptics';
 
@@ -40,12 +41,29 @@ function todayBr() {
 }
 
 var CATEGORIAS = [
-  { key: 'acao', label: 'Ação', color: C.acoes },
-  { key: 'fii', label: 'FII', color: C.fiis },
-  { key: 'etf', label: 'ETF', color: C.etfs },
+  { key: 'acao', label: 'Ação', color: C.acoes, mercado: 'BR' },
+  { key: 'fii', label: 'FII', color: C.fiis, mercado: 'BR' },
+  { key: 'etf', label: 'ETF BR', color: C.etfs, mercado: 'BR' },
+  { key: 'stock_int', label: 'Stocks', color: C.stock_int, mercado: 'INT' },
+  { key: 'etf_int', label: 'ETF INT', color: C.etfs, mercado: 'INT' },
 ];
 
-var CORRETORAS = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];
+var CORRETORAS_BR = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];
+var CORRETORAS_INT = ['Avenue', 'Nomad', 'Interactive Brokers', 'Stake', 'Inter', 'XP Investimentos', 'BTG Pactual'];
+
+function isIntCategoria(cat) {
+  return cat === 'stock_int' || cat === 'etf_int';
+}
+
+function getRealCategoria(cat) {
+  if (cat === 'etf_int') return 'etf';
+  return cat;
+}
+
+function getRealMercado(cat) {
+  if (cat === 'stock_int' || cat === 'etf_int') return 'INT';
+  return 'BR';
+}
 
 export default function AddOperacaoScreen(props) {
   var navigation = props.navigation;
@@ -65,6 +83,20 @@ export default function AddOperacaoScreen(props) {
   var _data = useState(todayBr()); var data = _data[0]; var setData = _data[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
   var _showCustos = useState(false); var showCustos = _showCustos[0]; var setShowCustos = _showCustos[1];
+  var _usdRate = useState(null); var usdRate = _usdRate[0]; var setUsdRate = _usdRate[1];
+
+  var isInt = isIntCategoria(categoria);
+  var moedaSymbol = isInt ? 'US$' : 'R$';
+  var corretoras = isInt ? CORRETORAS_INT : CORRETORAS_BR;
+
+  // Buscar cambio ao selecionar categoria internacional
+  useEffect(function() {
+    if (isInt && !usdRate) {
+      fetchExchangeRates(['USD']).then(function(rates) {
+        if (rates && rates.USD) setUsdRate(rates.USD);
+      }).catch(function() {});
+    }
+  }, [categoria]);
 
   var qty = parseFloat(quantidade) || 0;
   var prc = parseFloat(preco) || 0;
@@ -78,10 +110,11 @@ export default function AddOperacaoScreen(props) {
   var custoTotal = tipo === 'compra' ? total + totalCustos : total - totalCustos;
   var pmComCustos = qty > 0 ? (tipo === 'compra' ? (total + totalCustos) / qty : (total - totalCustos) / qty) : 0;
 
-  var canSubmit = ticker.length >= 4 && qty > 0 && prc > 0 && corretora && data.length === 10;
+  var minTickerLen = isInt ? 1 : 4;
+  var canSubmit = ticker.length >= minTickerLen && qty > 0 && prc > 0 && corretora && data.length === 10;
 
-  var tickerValid = ticker.length >= 4;
-  var tickerError = ticker.length > 0 && ticker.length < 4;
+  var tickerValid = ticker.length >= minTickerLen;
+  var tickerError = ticker.length > 0 && ticker.length < minTickerLen;
   var qtyValid = qty > 0;
   var qtyError = quantidade.length > 0 && qty <= 0;
   var prcValid = prc > 0;
@@ -122,10 +155,13 @@ export default function AddOperacaoScreen(props) {
     setSubmitted(true);
     setLoading(true);
     try {
+      var realCat = getRealCategoria(categoria);
+      var realMercado = getRealMercado(categoria);
       var result = await addOperacao(user.id, {
         ticker: ticker.toUpperCase(),
         tipo: tipo,
-        categoria: categoria,
+        categoria: realCat,
+        mercado: realMercado,
         quantidade: parseInt(quantidade),
         preco: parseFloat(preco),
         custo_corretagem: custCorretagem,
@@ -133,6 +169,7 @@ export default function AddOperacaoScreen(props) {
         custo_impostos: custImpostos,
         corretora: corretora,
         data: brToIso(data),
+        taxa_cambio: realMercado === 'INT' ? (usdRate || null) : null,
       });
       if (result.error) {
         Alert.alert('Erro', result.error.message);
@@ -158,6 +195,11 @@ export default function AddOperacaoScreen(props) {
         var opCat = tipo === 'compra' ? 'compra_ativo' : 'venda_ativo';
         var opDescLabel = tipo === 'compra' ? 'Compra' : 'Venda';
         var opDesc = opDescLabel + ' ' + ticker.toUpperCase() + ' x' + qty;
+        if (realMercado === 'INT') {
+          opDesc = opDesc + ' (US$)';
+        }
+        // Para movimentacao de saldo, mostra em moeda original
+        var opSymbol = realMercado === 'INT' ? 'US$' : 'R$';
 
         var resetFields = function() {
           setTicker('');
@@ -173,7 +215,7 @@ export default function AddOperacaoScreen(props) {
 
         Alert.alert(
           'Operação registrada!',
-          'Atualizar saldo em ' + corretora + '? (' + (tipo === 'compra' ? '-' : '+') + 'R$ ' + fmt(opTotal) + ')',
+          'Atualizar saldo em ' + corretora + '? (' + (tipo === 'compra' ? '-' : '+') + opSymbol + ' ' + fmt(opTotal) + ')',
           [
             {
               text: 'Não',
@@ -246,7 +288,12 @@ export default function AddOperacaoScreen(props) {
       <View style={styles.pillRow}>
         {CATEGORIAS.map(function(cat) {
           return (
-            <Pill key={cat.key} active={categoria === cat.key} color={cat.color} onPress={function() { setCategoria(cat.key); }}>
+            <Pill key={cat.key} active={categoria === cat.key} color={cat.color} onPress={function() {
+              var wasInt = isIntCategoria(categoria);
+              var nowInt = isIntCategoria(cat.key);
+              setCategoria(cat.key);
+              if (wasInt !== nowInt) setCorretora('');
+            }}>
               {cat.label}
             </Pill>
           );
@@ -267,7 +314,7 @@ export default function AddOperacaoScreen(props) {
         ]}
       />
       {tickerError ? (
-        <Text style={styles.fieldError}>Mínimo 4 caracteres</Text>
+        <Text style={styles.fieldError}>{isInt ? 'Informe o ticker' : 'Mínimo 4 caracteres'}</Text>
       ) : null}
 
       {/* Qtd + Preço */}
@@ -285,7 +332,7 @@ export default function AddOperacaoScreen(props) {
         </View>
         <View style={{ width: 12 }} />
         <View style={{ flex: 1 }}>
-          <Text style={styles.label}>PREÇO (R$) *</Text>
+          <Text style={styles.label}>{'PREÇO (' + moedaSymbol + ') *'}</Text>
           <TextInput value={preco} onChangeText={setPreco} placeholder="34.50" placeholderTextColor={C.dim} keyboardType="decimal-pad"
             style={[styles.input,
               prcValid && { borderColor: C.green },
@@ -319,7 +366,7 @@ export default function AddOperacaoScreen(props) {
       <TouchableOpacity onPress={function() { animateLayout(); setShowCustos(!showCustos); }} style={styles.custoToggle}>
         <Text style={styles.custoToggleText}>{showCustos ? '▾ Custos operacionais' : '▸ Custos operacionais (opcional)'}</Text>
         {totalCustos > 0 && (
-          <Badge text={'R$ ' + fmt(totalCustos)} color={C.yellow} />
+          <Badge text={moedaSymbol + ' ' + fmt(totalCustos)} color={C.yellow} />
         )}
       </TouchableOpacity>
 
@@ -350,32 +397,38 @@ export default function AddOperacaoScreen(props) {
           <View style={styles.resumoRow}>
             <Text style={styles.resumoLabel}>TOTAL DA OPERAÇÃO</Text>
             <Text style={[styles.resumoValue, { color: tipo === 'compra' ? C.green : C.red }]}>
-              {'R$ ' + fmt(total)}
+              {moedaSymbol + ' ' + fmt(total)}
             </Text>
           </View>
+          {isInt && usdRate ? (
+            <View style={styles.resumoRow}>
+              <Text style={styles.resumoLabel}>EQUIVALENTE</Text>
+              <Text style={[styles.resumoSmall, { color: C.sub }]}>{'≈ R$ ' + fmt(total * usdRate) + ' (US$ 1 = R$ ' + fmt(usdRate) + ')'}</Text>
+            </View>
+          ) : null}
           {totalCustos > 0 && (
             <View>
               <View style={styles.resumoRow}>
                 <Text style={styles.resumoLabel}>CUSTOS TOTAIS</Text>
-                <Text style={[styles.resumoSmall, { color: C.yellow }]}>{'R$ ' + fmt(totalCustos)}</Text>
+                <Text style={[styles.resumoSmall, { color: C.yellow }]}>{moedaSymbol + ' ' + fmt(totalCustos)}</Text>
               </View>
               <View style={[styles.divider]} />
               <View style={styles.resumoRow}>
                 <Text style={styles.resumoLabel}>{tipo === 'compra' ? 'CUSTO TOTAL C/ TAXAS' : 'RECEITA LÍQUIDA'}</Text>
                 <Text style={[styles.resumoValue, { color: tipo === 'compra' ? C.green : C.red }]}>
-                  {'R$ ' + fmt(custoTotal)}
+                  {moedaSymbol + ' ' + fmt(custoTotal)}
                 </Text>
               </View>
               <View style={styles.resumoRow}>
                 <Text style={styles.resumoLabel}>{tipo === 'compra' ? 'PM COM CUSTOS' : 'PREÇO LÍQ. P/ AÇÃO'}</Text>
-                <Text style={styles.resumoPM}>{'R$ ' + fmt4(pmComCustos)}</Text>
+                <Text style={styles.resumoPM}>{moedaSymbol + ' ' + fmt4(pmComCustos)}</Text>
               </View>
             </View>
           )}
           {totalCustos === 0 && qty > 0 && (
             <View style={styles.resumoRow}>
               <Text style={styles.resumoLabel}>PM</Text>
-              <Text style={styles.resumoPM}>{'R$ ' + fmt4(prc)}</Text>
+              <Text style={styles.resumoPM}>{moedaSymbol + ' ' + fmt4(prc)}</Text>
             </View>
           )}
         </Glass>
@@ -384,9 +437,9 @@ export default function AddOperacaoScreen(props) {
       {/* Corretora */}
       <Text style={styles.label}>CORRETORA *</Text>
       <View style={styles.pillRow}>
-        {CORRETORAS.map(function(c) {
+        {corretoras.map(function(c) {
           return (
-            <Pill key={c} active={corretora === c} color={C.acoes} onPress={function() { setCorretora(c); }}>{c}</Pill>
+            <Pill key={c} active={corretora === c} color={isInt ? C.stock_int : C.acoes} onPress={function() { setCorretora(c); }}>{c}</Pill>
           );
         })}
       </View>

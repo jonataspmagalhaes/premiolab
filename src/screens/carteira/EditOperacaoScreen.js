@@ -22,6 +22,7 @@ var CATEGORIAS = [
   { key: 'acao', label: 'Ação', color: C.acoes },
   { key: 'fii', label: 'FII', color: C.fiis },
   { key: 'etf', label: 'ETF', color: C.etfs },
+  { key: 'stock_int', label: 'Stocks', color: C.stock_int },
 ];
 
 var CORRETORAS = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];
@@ -51,6 +52,9 @@ export default function EditOperacaoScreen(props) {
   var route = props.route;
   var op = route.params.operacao;
   var user = useAuth().user;
+
+  var mercado = op.mercado || 'BR';
+  var isINT = mercado === 'INT';
 
   var _tipo = useState(op.tipo || 'compra'); var tipo = _tipo[0]; var setTipo = _tipo[1];
   var _cat = useState(op.categoria || 'acao'); var categoria = _cat[0]; var setCategoria = _cat[1];
@@ -119,6 +123,7 @@ export default function EditOperacaoScreen(props) {
           ticker: ticker.toUpperCase(),
           tipo: tipo,
           categoria: categoria,
+          mercado: mercado,
           quantidade: parseInt(quantidade),
           preco: parseFloat(preco),
           custo_corretagem: custCorretagem,
@@ -150,7 +155,10 @@ export default function EditOperacaoScreen(props) {
         <TouchableOpacity onPress={function() { navigation.goBack(); }} accessibilityLabel="Voltar" accessibilityRole="button">
           <Text style={styles.back}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Editar Operação</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Text style={styles.title}>Editar Operação</Text>
+          {isINT && <Badge text="INT" color={C.stock_int} />}
+        </View>
         <View style={{ width: 32 }} />
       </View>
 

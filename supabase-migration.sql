@@ -354,3 +354,19 @@ CREATE POLICY "mov_own" ON movimentacoes FOR ALL USING (auth.uid() = user_id);
 
 -- 16. MULTI-MOEDA (saldos em moeda estrangeira)
 ALTER TABLE saldos_corretora ADD COLUMN IF NOT EXISTS moeda TEXT DEFAULT 'BRL';
+
+-- 17. ATIVOS INTERNACIONAIS (stocks + ETFs INT)
+-- Adicionar stock_int ao CHECK de categoria
+ALTER TABLE operacoes DROP CONSTRAINT IF EXISTS operacoes_categoria_check;
+ALTER TABLE operacoes ADD CONSTRAINT operacoes_categoria_check
+  CHECK (categoria IN ('acao', 'fii', 'etf', 'stock_int'));
+
+-- Campo mercado: BR (Brasil/B3) ou INT (Internacional/NYSE/NASDAQ)
+ALTER TABLE operacoes ADD COLUMN IF NOT EXISTS mercado TEXT DEFAULT 'BR'
+  CHECK (mercado IN ('BR', 'INT'));
+
+-- Taxa de cambio USD->BRL no momento da operacao (para calculo de IR)
+ALTER TABLE operacoes ADD COLUMN IF NOT EXISTS taxa_cambio NUMERIC;
+
+-- Backfill: todas as operacoes existentes sao brasileiras
+UPDATE operacoes SET mercado = 'BR' WHERE mercado IS NULL;

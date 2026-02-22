@@ -9,6 +9,7 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOperacoes, getProventos, deleteOperacao, getIndicatorByTicker } from '../../services/database';
 import { fetchPrices, fetchPriceHistory, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
+import { fetchYahooPrices, fetchYahooHistory } from '../../services/yahooService';
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import * as Haptics from 'expo-haptics';
 import InteractiveChart from '../../components/InteractiveChart';
@@ -120,6 +121,9 @@ export default function AssetDetailScreen(props) {
   var navigation = props.navigation;
   var route = props.route;
   var ticker = route.params.ticker;
+  var mercado = route.params.mercado || 'BR';
+  var isINT = mercado === 'INT';
+  var currPrefix = isINT ? 'US$ ' : 'R$ ';
   var user = useAuth().user;
 
   var s1 = useState([]); var txns = s1[0]; var setTxns = s1[1];
@@ -151,11 +155,11 @@ export default function AssetDetailScreen(props) {
     setIndicator(results[2].data || null);
     setLoading(false);
 
-    // Fetch live price + history
+    // Fetch live price + history (use Yahoo for INT, brapi for BR)
     setPriceLoading(true);
     setPriceError(null);
     try {
-      var priceResult = await fetchPrices([ticker]);
+      var priceResult = isINT ? await fetchYahooPrices([ticker]) : await fetchPrices([ticker]);
       if (priceResult[ticker]) {
         setPriceData(priceResult[ticker]);
       }
@@ -164,7 +168,7 @@ export default function AssetDetailScreen(props) {
     }
 
     try {
-      var histResult = await fetchPriceHistory([ticker]);
+      var histResult = isINT ? await fetchYahooHistory([ticker]) : await fetchPriceHistory([ticker]);
       if (histResult[ticker] && histResult[ticker].length > 0) {
         var closes = histResult[ticker];
         var chartData = [];
@@ -194,7 +198,7 @@ export default function AssetDetailScreen(props) {
     var txn = null;
     for (var di = 0; di < txns.length; di++) { if (txns[di].id === id) { txn = txns[di]; break; } }
     var detailMsg = txn
-      ? (txn.tipo === 'compra' ? 'Compra' : 'Venda') + ' ' + (txn.quantidade || '') + 'x R$ ' + fmt(txn.preco || 0) + '\n\nEssa ação não pode ser desfeita.'
+      ? (txn.tipo === 'compra' ? 'Compra' : 'Venda') + ' ' + (txn.quantidade || '') + 'x ' + currPrefix + fmt(txn.preco || 0) + '\n\nEssa ação não pode ser desfeita.'
       : 'Essa ação não pode ser desfeita.';
     Alert.alert(
       'Excluir operação?',
@@ -330,7 +334,7 @@ export default function AssetDetailScreen(props) {
         <View style={{ flex: 1 }}>
           <Text style={styles.corretoraName}>{corretora}</Text>
           {pmCorretora > 0 ? (
-            <Text style={styles.corretoraPm}>{'PM R$ ' + fmt(pmCorretora)}</Text>
+            <Text style={styles.corretoraPm}>{'PM ' + currPrefix + fmt(pmCorretora)}</Text>
           ) : null}
         </View>
         <Text style={styles.corretoraCount}>{count}</Text>
@@ -352,12 +356,12 @@ export default function AssetDetailScreen(props) {
             <Text style={styles.txnDate}>{new Date(t.data).toLocaleDateString('pt-BR')}</Text>
           </View>
           <Text style={styles.txnDetail}>
-            {t.quantidade + ' x R$ ' + fmt(t.preco || 0)}
+            {t.quantidade + ' x ' + currPrefix + fmt(t.preco || 0)}
           </Text>
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
           <Text style={[styles.txnTotal, { color: t.tipo === 'compra' ? C.acoes : C.red }]}>
-            {'R$ ' + fmt(totalTxn)}
+            {currPrefix + fmt(totalTxn)}
           </Text>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <TouchableOpacity onPress={function() {
@@ -390,7 +394,7 @@ export default function AssetDetailScreen(props) {
             <Text style={styles.txnDate}>{new Date(p.data_pagamento).toLocaleDateString('pt-BR')}</Text>
           </View>
         </View>
-        <Text style={[styles.txnTotal, { color: C.green }]}>{'+R$ ' + fmt(valProv)}</Text>
+        <Text style={[styles.txnTotal, { color: C.green }]}>{'+'  + currPrefix + fmt(valProv)}</Text>
       </View>
     );
   };
@@ -412,10 +416,10 @@ export default function AssetDetailScreen(props) {
               <Text style={styles.txnDate}>{new Date(p.data_pagamento).toLocaleDateString('pt-BR')}</Text>
             </View>
             <Text style={styles.txnDetail}>
-              {qtyCorretora + ' x R$ ' + fmt(p.valor_por_cota || 0)}
+              {qtyCorretora + ' x ' + currPrefix + fmt(p.valor_por_cota || 0)}
             </Text>
           </View>
-          <Text style={[styles.txnTotal, { color: C.green }]}>{'+R$ ' + fmt(valProv)}</Text>
+          <Text style={[styles.txnTotal, { color: C.green }]}>{'+'  + currPrefix + fmt(valProv)}</Text>
         </View>
       );
     }
@@ -473,7 +477,7 @@ export default function AssetDetailScreen(props) {
               {/* Cotacao + variacao dia */}
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
-                  <Text style={styles.priceHeroValue}>R$ {fmt(priceData.price)}</Text>
+                  <Text style={styles.priceHeroValue}>{currPrefix}{fmt(priceData.price)}</Text>
                   <Badge
                     text={(priceData.changePercent >= 0 ? '+' : '') + priceData.changePercent.toFixed(2) + '%'}
                     color={priceData.changePercent >= 0 ? C.green : C.red}
@@ -487,7 +491,7 @@ export default function AssetDetailScreen(props) {
                   <View style={styles.plItem}>
                     <Text style={styles.plLabel}>P&L TOTAL</Text>
                     <Text style={[styles.plValue, { color: plTotal >= 0 ? C.green : C.red }]}>
-                      {plTotal >= 0 ? '+' : '-'}R$ {fmt(Math.abs(plTotal))}
+                      {(plTotal >= 0 ? '+' : '-') + currPrefix + fmt(Math.abs(plTotal))}
                     </Text>
                   </View>
                   <View style={styles.plItem}>
@@ -499,7 +503,7 @@ export default function AssetDetailScreen(props) {
                   <View style={styles.plItem}>
                     <Text style={styles.plLabel}>VALOR ATUAL</Text>
                     <Text style={[styles.plValue, { color: C.text }]}>
-                      R$ {fmt(valorAtual)}
+                      {currPrefix + fmt(valorAtual)}
                     </Text>
                   </View>
                 </View>
@@ -544,11 +548,11 @@ export default function AssetDetailScreen(props) {
                 { l: 'HV 20d', v: indicator.hv_20 != null ? indicator.hv_20.toFixed(1) + '%' : '\u2013', c: C.opcoes },
                 { l: 'RSI 14', v: indicator.rsi_14 != null ? indicator.rsi_14.toFixed(1) : '\u2013',
                   c: indicator.rsi_14 != null ? (indicator.rsi_14 > 70 ? C.red : indicator.rsi_14 < 30 ? C.green : C.text) : C.text },
-                { l: 'SMA 20', v: indicator.sma_20 != null ? 'R$ ' + fmt(indicator.sma_20) : '\u2013', c: C.acoes },
-                { l: 'EMA 9', v: indicator.ema_9 != null ? 'R$ ' + fmt(indicator.ema_9) : '\u2013', c: C.acoes },
+                { l: 'SMA 20', v: indicator.sma_20 != null ? currPrefix + fmt(indicator.sma_20) : '\u2013', c: C.acoes },
+                { l: 'EMA 9', v: indicator.ema_9 != null ? currPrefix + fmt(indicator.ema_9) : '\u2013', c: C.acoes },
                 { l: 'Beta', v: indicator.beta != null ? indicator.beta.toFixed(2) : '\u2013',
                   c: indicator.beta != null ? (indicator.beta > 1.2 ? C.red : indicator.beta < 0.8 ? C.green : C.text) : C.text },
-                { l: 'ATR 14', v: indicator.atr_14 != null ? 'R$ ' + fmt(indicator.atr_14) : '\u2013', c: C.text },
+                { l: 'ATR 14', v: indicator.atr_14 != null ? currPrefix + fmt(indicator.atr_14) : '\u2013', c: C.text },
                 { l: 'Max DD', v: indicator.max_drawdown != null ? indicator.max_drawdown.toFixed(1) + '%' : '\u2013', c: C.red },
                 { l: 'BB Width', v: indicator.bb_width != null ? indicator.bb_width.toFixed(1) + '%' : '\u2013', c: C.opcoes },
               ].map(function(d, idx) {
@@ -574,10 +578,10 @@ export default function AssetDetailScreen(props) {
           <View style={styles.posGrid}>
             {[
               { l: 'Quantidade', v: String(position.qty) },
-              { l: 'Preço Médio', v: 'R$ ' + fmt(pm) },
-              { l: 'Custo Total', v: 'R$ ' + fmt(position.custo) },
-              { l: 'Proventos', v: 'R$ ' + fmt(totalProvs) },
-              valorAtual != null ? { l: 'Valor Atual', v: 'R$ ' + fmt(valorAtual) } : null,
+              { l: 'Preço Médio', v: currPrefix + fmt(pm) },
+              { l: 'Custo Total', v: currPrefix + fmt(position.custo) },
+              { l: 'Proventos', v: currPrefix + fmt(totalProvs) },
+              valorAtual != null ? { l: 'Valor Atual', v: currPrefix + fmt(valorAtual) } : null,
               yieldOnCost > 0 ? { l: 'Yield on Cost', v: yieldOnCost.toFixed(2) + '%' } : null,
             ].filter(Boolean).map(function(d, idx) {
               return (
@@ -684,7 +688,7 @@ export default function AssetDetailScreen(props) {
         {filteredProvs.length > 0 ? (
           <View style={styles.provSummary}>
             <Text style={styles.provSummaryText}>
-              {filteredProvs.length + ' proventos no periodo - Total R$ ' + fmt(filteredProvsTotal)}
+              {filteredProvs.length + ' proventos no periodo - Total ' + currPrefix + fmt(filteredProvsTotal)}
             </Text>
           </View>
         ) : null}

@@ -43,7 +43,8 @@ src/
     rf/            Renda Fixa (lista, add, edit)
   services/
     database.js    Todas as funcoes CRUD do Supabase
-    priceService.js Cotacoes em tempo real + cache + marketCap
+    priceService.js Cotacoes em tempo real + cache + marketCap + routing BR/INT
+    yahooService.js Cotacoes internacionais via Yahoo Finance (cache + OHLCV)
     indicatorService.js Calculo HV, RSI, SMA, EMA, Beta, ATR, BB, MaxDD
     dividendService.js Auto-sync de dividendos via brapi.dev + StatusInvest
     currencyService.js Cambio multi-moeda via brapi.dev + fallback
@@ -82,7 +83,7 @@ supabase/
 | Tabela | Descricao |
 |--------|-----------|
 | `profiles` | id, nome, meta_mensal, selic, last_dividend_sync |
-| `operacoes` | ticker, tipo(compra/venda), categoria(acao/fii/etf), quantidade, preco, custos, corretora, data |
+| `operacoes` | ticker, tipo(compra/venda), categoria(acao/fii/etf/stock_int), quantidade, preco, custos, corretora, data, mercado(BR/INT), taxa_cambio |
 | `opcoes` | ativo_base, ticker_opcao, tipo(call/put), direcao(venda/compra/lancamento), strike, premio, quantidade, vencimento, data_abertura, status, corretora, premio_fechamento, data_fechamento |
 | `proventos` | ticker, tipo_provento, valor_por_cota, quantidade, valor_total, data_pagamento |
 | `renda_fixa` | tipo(cdb/lci_lca/tesouro_*), emissor, taxa, indexador, valor_aplicado, vencimento |
@@ -831,6 +832,82 @@ Treze rodadas (P0-P12) de melhorias de usabilidade cobrindo contraste, touch tar
 | `src/screens/analise/AnaliseScreen.js` | animateLayout() (9 instancias) |
 | `src/screens/home/HomeScreen.js` | maxFontSizeMultiplier em ~16 valores monetarios |
 | + 8 telas Add/Edit restantes | a11y labels back/submit |
+
+## Ativos Internacionais (Implementado)
+
+Suporte a stocks e ETFs internacionais (NYSE/NASDAQ) com cotacoes via Yahoo Finance e precos em USD convertidos para BRL.
+
+### Categorias
+| Categoria | Tipo | Mercado | Moeda | API de Precos |
+|-----------|------|---------|-------|---------------|
+| `acao` | Acao BR | BR | BRL | brapi.dev |
+| `fii` | FII | BR | BRL | brapi.dev |
+| `etf` | ETF BR ou INT | BR ou INT | BRL ou USD | brapi ou Yahoo |
+| `stock_int` | Stock Internacional | INT | USD | Yahoo Finance |
+
+### Campo `mercado` (operacoes)
+- `'BR'` (default) — ativo brasileiro, cotacao via brapi.dev
+- `'INT'` — ativo internacional, cotacao via Yahoo Finance
+- ETFs internacionais usam `categoria='etf', mercado='INT'`
+
+### Campo `taxa_cambio` (operacoes)
+- Cambio USD→BRL no momento da operacao, usado para calculo de IR
+- Apenas preenchido para operacoes `mercado='INT'`
+
+### Yahoo Finance Service (`src/services/yahooService.js`)
+- `fetchYahooPrices(tickers)` — Cotacoes atuais (cache 60s)
+- `fetchYahooHistory(tickers)` — Historico 1 mes closes (cache 5min)
+- `fetchYahooHistoryLong(tickers)` — Historico 6 meses OHLCV (cache 1h)
+- API: `https://query1.finance.yahoo.com/v8/finance/chart/{TICKER}`
+- Precos retornados em USD (moeda original)
+- Fetch um ticker por vez com timeout 8s
+
+### Routing de Precos (priceService.js)
+- `enrichPositionsWithPrices` separa tickers BR vs INT pelo campo `mercado`
+- Busca BR via `fetchPrices` (brapi) e INT via `fetchYahooPrices` (Yahoo) em paralelo
+- Converte precos INT para BRL via `fetchExchangeRates(['USD'])`
+- Campos adicionais para INT: `preco_atual_usd`, `moeda`, `taxa_cambio`
+- `fetchPricesRouted`, `fetchHistoryRouted`, `fetchHistoryLongRouted` — roteamento por mercadoMap
+
+### UI
+- **AddOperacaoScreen**: 5 categorias (Acao, FII, ETF BR, Stocks, ETF INT), moeda dinamica R$/US$, corretoras BR vs INT, taxa_cambio salva na operacao
+- **CarteiraScreen**: filtro "Stocks" (fuchsia), badge INT/BR nos cards, dual price "US$ X ≈ R$ Y", corretoras INT (Avenue, Nomad, Interactive Brokers, etc.)
+- **HomeScreen**: categoria stock_int no donut e ganhos acumulados
+- **AnaliseScreen**: stock_int em performance, IR (15% sem isencao 20k), rebalanceamento (perfis atualizados)
+- **RelatoriosScreen**: IR com secao "Stocks Internacionais"
+- **AssetDetailScreen**: routing Yahoo para ativos INT, precos em US$
+
+### IR — Stocks Internacionais
+- 15% sobre ganho de capital, SEM isencao de R$20k/mes
+- Prejuizo acumulado transportado entre meses
+- P&L calculado em BRL usando taxa_cambio da operacao
+
+### Indicadores
+- `runDailyCalculation`: separa BR/INT, busca Yahoo para INT
+- Beta de stocks INT usa S&P 500 (`^GSPC`) como benchmark (vs `^BVSP` para BR)
+
+### Cor Theme
+- `C.stock_int: '#E879F9'` (fuchsia)
+- `PRODUCT_COLORS['stock_int']` mapeado
+
+### Arquivos criados/modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/services/yahooService.js` | **Criado** — Yahoo Finance API service |
+| `supabase-migration.sql` | CHECK categoria + colunas mercado, taxa_cambio |
+| `src/theme/index.js` | Cor stock_int + PRODUCT_COLORS |
+| `src/services/priceService.js` | Routing BR/INT, enrichPositionsWithPrices, funcoes Routed |
+| `src/services/database.js` | getPositions com mercado, getDashboard com stock_int |
+| `src/services/indicatorService.js` | Routing BR/INT, benchmark S&P 500 |
+| `src/services/dividendService.js` | Filtrar posicoes INT do sync |
+| `src/screens/carteira/AddOperacaoScreen.js` | 5 categorias, moeda dinamica, corretoras INT |
+| `src/screens/carteira/CarteiraScreen.js` | Filtro Stocks, badge INT, dual price, allocMap |
+| `src/screens/carteira/EditOperacaoScreen.js` | stock_int label, badge INT, mercado persist |
+| `src/screens/carteira/AssetDetailScreen.js` | Routing Yahoo, moeda US$ |
+| `src/screens/home/HomeScreen.js` | P map, ganhosPorCat com stock_int |
+| `src/screens/analise/AnaliseScreen.js` | ~15 locais: categorias, IR 15%, rebalance, perfSub |
+| `src/screens/relatorios/RelatoriosScreen.js` | IR stock_int, catColor |
+| `supabase/functions/weekly-snapshot/index.ts` | Yahoo prices + cambio USD |
 
 ## Proximas Melhorias Possiveis
 

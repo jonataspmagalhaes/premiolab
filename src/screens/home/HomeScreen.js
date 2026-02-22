@@ -20,13 +20,14 @@ var W = Dimensions.get('window').width;
 var PAD = 16;
 
 var P = {
-  acao:  { label: 'Ações',  short: 'Ações', color: '#22c55e' },
-  fii:   { label: 'FIIs',   short: 'FII', color: '#a855f7' },
-  opcao: { label: 'Opções', short: 'OP', color: '#0ea5e9' },
-  etf:   { label: 'ETFs',   short: 'ETF', color: '#f59e0b' },
-  rf:    { label: 'RF',     short: 'RF', color: '#ec4899' },
+  acao:      { label: 'Ações',  short: 'Ações', color: '#22c55e' },
+  fii:       { label: 'FIIs',   short: 'FII', color: '#a855f7' },
+  opcao:     { label: 'Opções', short: 'OP', color: '#0ea5e9' },
+  etf:       { label: 'ETFs',   short: 'ETF', color: '#f59e0b' },
+  stock_int: { label: 'Stocks', short: 'INT', color: '#E879F9' },
+  rf:        { label: 'RF',     short: 'RF', color: '#ec4899' },
 };
-var PKEYS = ['acao', 'fii', 'opcao', 'etf', 'rf'];
+var PKEYS = ['acao', 'fii', 'opcao', 'etf', 'stock_int', 'rf'];
 
 function fmt(v) {
   if (v == null || isNaN(v)) return 'R$ 0,00';
@@ -682,17 +683,17 @@ export default function HomeScreen({ navigation }) {
   var rendaMediaAnual = data.rendaMediaAnual || 0;
 
   // Ganhos acumulados por categoria (P&L posicoes)
-  var ganhosPorCat = { acao: 0, fii: 0, rf: 0, etf: 0 };
+  var ganhosPorCat = { acao: 0, fii: 0, rf: 0, etf: 0, stock_int: 0 };
   for (var gi = 0; gi < positions.length; gi++) {
     var gPos = positions[gi];
     var gCat = gPos.categoria || 'acao';
-    if (gCat !== 'acao' && gCat !== 'fii' && gCat !== 'etf') gCat = 'acao';
+    if (gCat !== 'acao' && gCat !== 'fii' && gCat !== 'etf' && gCat !== 'stock_int') gCat = 'acao';
     var gPreco = gPos.preco_atual || gPos.pm;
     ganhosPorCat[gCat] += (gPreco - gPos.pm) * gPos.quantidade;
   }
   // RF ganho = rendimento estimado mensal
   ganhosPorCat.rf = rfRendaMensal;
-  var ganhosTotal = ganhosPorCat.acao + ganhosPorCat.fii + ganhosPorCat.etf + ganhosPorCat.rf;
+  var ganhosTotal = ganhosPorCat.acao + ganhosPorCat.fii + ganhosPorCat.etf + ganhosPorCat.stock_int + ganhosPorCat.rf;
 
   var metaPct = meta > 0 ? Math.min((rendaTotalMes / meta) * 100, 150) : 0;
 
@@ -1148,6 +1149,7 @@ export default function HomeScreen({ navigation }) {
                 { value: ganhosPorCat.acao, color: P.acao.color, label: 'Ações' },
                 { value: ganhosPorCat.fii, color: P.fii.color, label: 'FIIs' },
                 { value: ganhosPorCat.etf, color: P.etf.color, label: 'ETFs' },
+                { value: ganhosPorCat.stock_int, color: P.stock_int.color, label: 'Stocks' },
                 { value: ganhosPorCat.rf, color: P.rf.color, label: 'Renda Fixa' },
               ]}
             />
@@ -1180,6 +1182,15 @@ export default function HomeScreen({ navigation }) {
               </View>
               <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.etf >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
                 {'R$ ' + fmt(ganhosPorCat.etf)}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.stock_int.color }} />
+                <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Stocks</Text>
+              </View>
+              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.stock_int >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+                {'R$ ' + fmt(ganhosPorCat.stock_int)}
               </Text>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>

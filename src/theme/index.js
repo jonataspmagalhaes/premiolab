@@ -24,6 +24,7 @@ export var C = {
   opcoes: '#8B5CF6',
   etfs: '#F59E0B',
   rf: '#06B6D4',
+  stock_int: '#E879F9',
   // Status
   green: '#22C55E',
   red: '#EF4444',
@@ -38,6 +39,7 @@ export var PRODUCT_COLORS = {
   'etf': C.etfs,
   'opcao': C.opcoes,
   'rf': C.rf,
+  'stock_int': C.stock_int,
 };
 
 export var F = {

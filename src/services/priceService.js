@@ -1,8 +1,11 @@
 /**
  * priceService.js
- * Busca cotacoes reais da B3 via brapi.dev
+ * Busca cotacoes reais da B3 via brapi.dev + internacionais via Yahoo
  * Token + cache em memoria + helpers
  */
+
+import { fetchYahooPrices, fetchYahooHistory, fetchYahooHistoryLong } from './yahooService';
+import { fetchExchangeRates, convertToBRL } from './currencyService';
 
 var BRAPI_URL = 'https://brapi.dev/api/quote/';
 var BRAPI_TOKEN = 'tEU8wyBixv8hCi7J3NCjsi';
@@ -261,21 +264,42 @@ export async function fetchTickerProfile(tickers) {
 export async function enrichPositionsWithPrices(positions) {
   if (!positions || positions.length === 0) return [];
 
-  var tickers = [];
+  // Separar tickers BR vs INT
+  var brTickers = [];
+  var intTickers = [];
   for (var i = 0; i < positions.length; i++) {
-    if (positions[i].ticker) tickers.push(positions[i].ticker);
+    if (!positions[i].ticker) continue;
+    if (positions[i].mercado === 'INT') {
+      intTickers.push(positions[i].ticker);
+    } else {
+      brTickers.push(positions[i].ticker);
+    }
   }
-  var prices = await fetchPrices(tickers);
+
+  // Buscar precos em paralelo: BR via brapi, INT via Yahoo
+  var promises = [
+    brTickers.length > 0 ? fetchPrices(brTickers) : Promise.resolve({}),
+    intTickers.length > 0 ? fetchYahooPrices(intTickers) : Promise.resolve({}),
+    intTickers.length > 0 ? fetchExchangeRates(['USD']) : Promise.resolve({ BRL: 1, USD: 1 }),
+  ];
+  var results = await Promise.all(promises);
+  var brPrices = results[0];
+  var intPrices = results[1];
+  var rates = results[2];
+  var usdRate = (rates && rates.USD) || 1;
 
   var enriched = [];
   for (var k = 0; k < positions.length; k++) {
     var p = positions[k];
-    var quote = prices[p.ticker];
+    var isInt = p.mercado === 'INT';
+    var quote = isInt ? intPrices[p.ticker] : brPrices[p.ticker];
+
     if (!quote) {
       var copy = {};
       var pKeys = Object.keys(p);
       for (var c = 0; c < pKeys.length; c++) { copy[pKeys[c]] = p[pKeys[c]]; }
       copy.preco_atual = null;
+      copy.preco_atual_usd = null;
       copy.variacao_pct = null;
       copy.pl = null;
       copy.change_day = null;
@@ -284,25 +308,103 @@ export async function enrichPositionsWithPrices(positions) {
       continue;
     }
 
-    var precoAtual = quote.price;
+    var precoOriginal = quote.price;
     var pm = p.pm || 0;
     var qty = p.quantidade || 0;
-    var variacao_pct = pm > 0 ? ((precoAtual - pm) / pm) * 100 : 0;
-    var pl = (precoAtual - pm) * qty;
+
+    // Para INT: preco em USD, PM em USD, P&L em USD depois converte
+    // preco_atual sempre em BRL (compatibilidade com todo o app)
+    var precoAtualBRL = isInt ? precoOriginal * usdRate : precoOriginal;
+    var pmBRL = isInt ? pm * usdRate : pm;
+    var variacao_pct = pm > 0 ? ((precoOriginal - pm) / pm) * 100 : 0;
+    var pl = (precoAtualBRL - pmBRL) * qty;
     var change_day = quote.changePercent || 0;
 
     var enrichedItem = {};
     var eKeys = Object.keys(p);
     for (var e = 0; e < eKeys.length; e++) { enrichedItem[eKeys[e]] = p[eKeys[e]]; }
-    enrichedItem.preco_atual = precoAtual;
+    enrichedItem.preco_atual = precoAtualBRL;
+    enrichedItem.preco_atual_usd = isInt ? precoOriginal : null;
     enrichedItem.variacao_pct = variacao_pct;
     enrichedItem.pl = pl;
     enrichedItem.change_day = change_day;
     enrichedItem.marketCap = quote.marketCap || 0;
+    enrichedItem.moeda = isInt ? 'USD' : 'BRL';
+    enrichedItem.taxa_cambio = isInt ? usdRate : null;
     enriched.push(enrichedItem);
   }
 
   return enriched;
+}
+
+// ══════════ ROUTED FETCH (BR vs INT) ══════════
+export async function fetchPricesRouted(tickers, mercadoMap) {
+  if (!tickers || tickers.length === 0) return {};
+  var brTickers = [];
+  var intTickers = [];
+  for (var i = 0; i < tickers.length; i++) {
+    if (mercadoMap && mercadoMap[tickers[i]] === 'INT') {
+      intTickers.push(tickers[i]);
+    } else {
+      brTickers.push(tickers[i]);
+    }
+  }
+  var results = await Promise.all([
+    brTickers.length > 0 ? fetchPrices(brTickers) : Promise.resolve({}),
+    intTickers.length > 0 ? fetchYahooPrices(intTickers) : Promise.resolve({}),
+  ]);
+  var merged = {};
+  var brKeys = Object.keys(results[0]);
+  for (var b = 0; b < brKeys.length; b++) { merged[brKeys[b]] = results[0][brKeys[b]]; }
+  var intKeys = Object.keys(results[1]);
+  for (var n = 0; n < intKeys.length; n++) { merged[intKeys[n]] = results[1][intKeys[n]]; }
+  return merged;
+}
+
+export async function fetchHistoryRouted(tickers, mercadoMap) {
+  if (!tickers || tickers.length === 0) return {};
+  var brTickers = [];
+  var intTickers = [];
+  for (var i = 0; i < tickers.length; i++) {
+    if (mercadoMap && mercadoMap[tickers[i]] === 'INT') {
+      intTickers.push(tickers[i]);
+    } else {
+      brTickers.push(tickers[i]);
+    }
+  }
+  var results = await Promise.all([
+    brTickers.length > 0 ? fetchPriceHistory(brTickers) : Promise.resolve({}),
+    intTickers.length > 0 ? fetchYahooHistory(intTickers) : Promise.resolve({}),
+  ]);
+  var merged = {};
+  var brKeys = Object.keys(results[0]);
+  for (var b = 0; b < brKeys.length; b++) { merged[brKeys[b]] = results[0][brKeys[b]]; }
+  var intKeys = Object.keys(results[1]);
+  for (var n = 0; n < intKeys.length; n++) { merged[intKeys[n]] = results[1][intKeys[n]]; }
+  return merged;
+}
+
+export async function fetchHistoryLongRouted(tickers, mercadoMap) {
+  if (!tickers || tickers.length === 0) return {};
+  var brTickers = [];
+  var intTickers = [];
+  for (var i = 0; i < tickers.length; i++) {
+    if (mercadoMap && mercadoMap[tickers[i]] === 'INT') {
+      intTickers.push(tickers[i]);
+    } else {
+      brTickers.push(tickers[i]);
+    }
+  }
+  var results = await Promise.all([
+    brTickers.length > 0 ? fetchPriceHistoryLong(brTickers) : Promise.resolve({}),
+    intTickers.length > 0 ? fetchYahooHistoryLong(intTickers) : Promise.resolve({}),
+  ]);
+  var merged = {};
+  var brKeys = Object.keys(results[0]);
+  for (var b = 0; b < brKeys.length; b++) { merged[brKeys[b]] = results[0][brKeys[b]]; }
+  var intKeys = Object.keys(results[1]);
+  for (var n = 0; n < intKeys.length; n++) { merged[intKeys[n]] = results[1][intKeys[n]]; }
+  return merged;
 }
 
 // ══════════ CACHE UTILS ══════════

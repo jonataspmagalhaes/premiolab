@@ -112,6 +112,7 @@ function computeIR(ops) {
           vendasAcoes: 0, ganhoAcoes: 0, perdaAcoes: 0,
           vendasFII: 0, ganhoFII: 0, perdaFII: 0,
           vendasETF: 0, ganhoETF: 0, perdaETF: 0,
+          vendasStockInt: 0, ganhoStockInt: 0, perdaStockInt: 0,
         };
       }
       var mr = monthResults[mKey];
@@ -121,6 +122,9 @@ function computeIR(ops) {
       } else if (cat === 'etf') {
         mr.vendasETF += vendaTotal;
         if (ganho >= 0) mr.ganhoETF += ganho; else mr.perdaETF += Math.abs(ganho);
+      } else if (cat === 'stock_int') {
+        mr.vendasStockInt += vendaTotal;
+        if (ganho >= 0) mr.ganhoStockInt += ganho; else mr.perdaStockInt += Math.abs(ganho);
       } else {
         mr.vendasAcoes += vendaTotal;
         if (ganho >= 0) mr.ganhoAcoes += ganho; else mr.perdaAcoes += Math.abs(ganho);
@@ -135,6 +139,7 @@ function computeTaxByMonth(monthResults) {
   var prejAcumAcoes = 0;
   var prejAcumFII = 0;
   var prejAcumETF = 0;
+  var prejAcumStockInt = 0;
   var results = [];
 
   months.forEach(function(mKey) {
@@ -142,6 +147,7 @@ function computeTaxByMonth(monthResults) {
     var saldoAcoes = mr.ganhoAcoes - mr.perdaAcoes - prejAcumAcoes;
     var saldoFII = mr.ganhoFII - mr.perdaFII - prejAcumFII;
     var saldoETF = mr.ganhoETF - mr.perdaETF - prejAcumETF;
+    var saldoStockInt = (mr.ganhoStockInt || 0) - (mr.perdaStockInt || 0) - prejAcumStockInt;
 
     var impostoAcoes = 0;
     if (mr.vendasAcoes > 20000 && saldoAcoes > 0) {
@@ -173,17 +179,30 @@ function computeTaxByMonth(monthResults) {
       prejAcumETF = 0;
     }
 
+    // Stocks internacionais: 15% flat, sem isencao de R$20k
+    var impostoStockInt = 0;
+    if (saldoStockInt > 0) {
+      impostoStockInt = saldoStockInt * 0.15;
+      prejAcumStockInt = 0;
+    } else if (saldoStockInt < 0) {
+      prejAcumStockInt = Math.abs(saldoStockInt);
+    } else {
+      prejAcumStockInt = 0;
+    }
+
     results.push({
       month: mKey,
       vendasAcoes: mr.vendasAcoes, vendasFII: mr.vendasFII, vendasETF: mr.vendasETF,
+      vendasStockInt: mr.vendasStockInt || 0,
       ganhoAcoes: mr.ganhoAcoes, perdaAcoes: mr.perdaAcoes,
       ganhoFII: mr.ganhoFII, perdaFII: mr.perdaFII,
       ganhoETF: mr.ganhoETF, perdaETF: mr.perdaETF,
-      saldoAcoes: saldoAcoes, saldoFII: saldoFII, saldoETF: saldoETF,
-      impostoAcoes: impostoAcoes, impostoFII: impostoFII, impostoETF: impostoETF,
-      impostoTotal: impostoAcoes + impostoFII + impostoETF,
+      ganhoStockInt: mr.ganhoStockInt || 0, perdaStockInt: mr.perdaStockInt || 0,
+      saldoAcoes: saldoAcoes, saldoFII: saldoFII, saldoETF: saldoETF, saldoStockInt: saldoStockInt,
+      impostoAcoes: impostoAcoes, impostoFII: impostoFII, impostoETF: impostoETF, impostoStockInt: impostoStockInt,
+      impostoTotal: impostoAcoes + impostoFII + impostoETF + impostoStockInt,
       alertaAcoes20k: mr.vendasAcoes > 20000,
-      prejAcumAcoes: prejAcumAcoes, prejAcumFII: prejAcumFII, prejAcumETF: prejAcumETF,
+      prejAcumAcoes: prejAcumAcoes, prejAcumFII: prejAcumFII, prejAcumETF: prejAcumETF, prejAcumStockInt: prejAcumStockInt,
     });
   });
   return results;
@@ -926,7 +945,7 @@ export default function RelatoriosScreen(props) {
           {divTickerKeys.map(function(ticker) {
             var info = divByTicker[ticker];
             var catBadge = info.categoria || 'acao';
-            var catColor = catBadge === 'fii' ? C.fiis : catBadge === 'etf' ? C.etfs : C.acoes;
+            var catColor = catBadge === 'fii' ? C.fiis : catBadge === 'etf' ? C.etfs : catBadge === 'stock_int' ? C.stock_int : C.acoes;
             return (
               <Glass key={ticker} padding={0}>
                 <View style={[styles.tickerHeader, { borderLeftWidth: 3, borderLeftColor: catColor }]}>
@@ -1217,7 +1236,7 @@ export default function RelatoriosScreen(props) {
           )}
           {opsTickerKeys.map(function(ticker) {
             var info = opsByTicker[ticker];
-            var catColor = info.categoria === 'fii' ? C.fiis : info.categoria === 'etf' ? C.etfs : C.acoes;
+            var catColor = info.categoria === 'fii' ? C.fiis : info.categoria === 'etf' ? C.etfs : info.categoria === 'stock_int' ? C.stock_int : C.acoes;
             var pmCompra = info.qtyCompra > 0 ? info.compras / info.qtyCompra : 0;
             var pmVenda = info.qtyVenda > 0 ? info.vendas / info.qtyVenda : 0;
             return (
@@ -1304,7 +1323,7 @@ export default function RelatoriosScreen(props) {
             </View>
             <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border,
               flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <InfoTip text="O cálculo de IR usa o preço médio geral do ativo (todas as corretoras juntas), conforme exigido pela Receita Federal. Ações com vendas até R$20 mil/mês são isentas. Alíquotas: ações 15%, FIIs 20%, ETFs 15%. Prejuízos acumulados são compensados nos meses seguintes." size={12} />
+              <InfoTip text="O cálculo de IR usa o preço médio geral do ativo (todas as corretoras juntas), conforme exigido pela Receita Federal. Ações com vendas até R$20 mil/mês são isentas. Alíquotas: ações 15%, FIIs 20%, ETFs 15%, stocks internacionais 15% (sem isenção de R$20k). Prejuízos acumulados são compensados nos meses seguintes." size={12} />
               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, flex: 1 }}>
                 IR calculado com PM geral (Receita Federal). O P&L em Operações usa PM por corretora.
               </Text>
@@ -1312,7 +1331,7 @@ export default function RelatoriosScreen(props) {
           </Glass>
 
           {/* Prejuízo acumulado */}
-          {lastIR && (lastIR.prejAcumAcoes > 0 || lastIR.prejAcumFII > 0 || lastIR.prejAcumETF > 0) && (
+          {lastIR && (lastIR.prejAcumAcoes > 0 || lastIR.prejAcumFII > 0 || lastIR.prejAcumETF > 0 || lastIR.prejAcumStockInt > 0) && (
             <Glass padding={14}>
               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 8 }}>
                 PREJUÍZO ACUMULADO
@@ -1339,6 +1358,14 @@ export default function RelatoriosScreen(props) {
                     <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>ETFs</Text>
                     <Text style={{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>
                       {'R$ ' + fmt(lastIR.prejAcumETF)}
+                    </Text>
+                  </View>
+                )}
+                {lastIR.prejAcumStockInt > 0 && (
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>Stocks INT</Text>
+                    <Text style={{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                      {'R$ ' + fmt(lastIR.prejAcumStockInt)}
                     </Text>
                   </View>
                 )}
@@ -1403,6 +1430,19 @@ export default function RelatoriosScreen(props) {
                       {r.ganhoETF > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Ganho: R$ ' + fmt(r.ganhoETF)}</Text>}
                       {r.perdaETF > 0 && <Text style={[styles.irText, { color: C.red }]}>{'Perda: R$ ' + fmt(r.perdaETF)}</Text>}
                       {r.impostoETF > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }]}>{'IR 15%: R$ ' + fmt(r.impostoETF)}</Text>}
+                    </View>
+                  </View>
+                )}
+
+                {/* Stocks Internacionais */}
+                {(r.vendasStockInt > 0 || r.ganhoStockInt > 0 || r.perdaStockInt > 0) && (
+                  <View style={[styles.irClassRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
+                    <Text style={[styles.irClassLabel, { color: C.stock_int }]}>Stocks INT</Text>
+                    <View style={styles.irClassDetail}>
+                      <Text style={styles.irText}>{'Vendas: R$ ' + fmt(r.vendasStockInt)}</Text>
+                      {r.ganhoStockInt > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Ganho: R$ ' + fmt(r.ganhoStockInt)}</Text>}
+                      {r.perdaStockInt > 0 && <Text style={[styles.irText, { color: C.red }]}>{'Perda: R$ ' + fmt(r.perdaStockInt)}</Text>}
+                      {r.impostoStockInt > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }]}>{'IR 15%: R$ ' + fmt(r.impostoStockInt)}</Text>}
                     </View>
                   </View>
                 )}

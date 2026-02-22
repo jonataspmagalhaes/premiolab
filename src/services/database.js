@@ -90,6 +90,8 @@ export async function getPositions(userId) {
       positions[tickerKey] = {
         ticker: tickerKey,
         categoria: op.categoria,
+        mercado: op.mercado || 'BR',
+        moeda: (op.mercado === 'INT') ? 'USD' : 'BRL',
         quantidade: 0,
         custo_total: 0,
         pm: 0,
@@ -878,8 +880,8 @@ export async function getDashboard(userId) {
     }
 
     // ── Dividendos por categoria (mes atual e anterior) ──
-    var dividendosCatMes = { acao: 0, fii: 0, etf: 0 };
-    var dividendosCatMesAnt = { acao: 0, fii: 0, etf: 0 };
+    var dividendosCatMes = { acao: 0, fii: 0, etf: 0, stock_int: 0 };
+    var dividendosCatMesAnt = { acao: 0, fii: 0, etf: 0, stock_int: 0 };
     var posCategoria = {};
     for (var pci = 0; pci < posDataRaw.length; pci++) {
       posCategoria[posDataRaw[pci].ticker] = posDataRaw[pci].categoria || 'acao';
@@ -888,7 +890,7 @@ export async function getDashboard(userId) {
       var dcDateStr = (proventosData[dci].data_pagamento || '').substring(0, 10);
       var dcVal = (proventosData[dci].valor_por_cota || 0) * (proventosData[dci].quantidade || 0);
       var dcCat = posCategoria[proventosData[dci].ticker] || 'acao';
-      if (dcCat !== 'acao' && dcCat !== 'fii' && dcCat !== 'etf') dcCat = 'acao';
+      if (dcCat !== 'acao' && dcCat !== 'fii' && dcCat !== 'etf' && dcCat !== 'stock_int') dcCat = 'acao';
       if (dcDateStr.substring(0, 7) === prefixMesAtual) {
         dividendosCatMes[dcCat] += dcVal;
       } else if (dcDateStr.substring(0, 7) === prefixMesAnterior) {
@@ -1275,8 +1277,8 @@ export async function getDashboard(userId) {
       rendaFixa: [], eventos: [],
       patrimonioHistory: [],
       dividendosMesAnterior: 0, premiosMesAnterior: 0, rendaTotalMesAnterior: 0,
-      dividendosCatMes: { acao: 0, fii: 0, etf: 0 },
-      dividendosCatMesAnt: { acao: 0, fii: 0, etf: 0 },
+      dividendosCatMes: { acao: 0, fii: 0, etf: 0, stock_int: 0 },
+      dividendosCatMesAnt: { acao: 0, fii: 0, etf: 0, stock_int: 0 },
       proventosHoje: [],
       dividendosRecebidosMes: 0,
       dividendosAReceberMes: 0,

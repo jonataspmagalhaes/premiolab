@@ -1,11 +1,13 @@
 // weekly-snapshot — Supabase Edge Function
 // Roda toda sexta 18h BRT via pg_cron ou Supabase Cron
-// Busca cotacoes reais da brapi e salva snapshot de patrimonio por usuario
+// Busca cotacoes reais da brapi (BR) e Yahoo (INT) e salva snapshot de patrimonio por usuario
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const BRAPI_URL = "https://brapi.dev/api/quote/";
 const BRAPI_TOKEN = "tEU8wyBixv8hCi7J3NCjsi";
+const YAHOO_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
+const BRAPI_CURRENCY_URL = "https://brapi.dev/api/v2/currency";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -47,13 +49,59 @@ async function fetchPricesFromBrapi(
   return prices;
 }
 
+// Buscar cotacoes do Yahoo Finance (ativos internacionais, um por vez)
+async function fetchPricesFromYahoo(
+  tickers: string[]
+): Promise<Record<string, number>> {
+  const prices: Record<string, number> = {};
+
+  for (const ticker of tickers) {
+    try {
+      const url = YAHOO_URL + encodeURIComponent(ticker) + "?interval=1d&range=1d";
+      const resp = await fetch(url, {
+        headers: { Accept: "application/json" },
+      });
+      if (!resp.ok) continue;
+
+      const json = await resp.json();
+      const result = json.chart?.result?.[0];
+      if (result?.meta?.regularMarketPrice) {
+        prices[ticker.toUpperCase()] = result.meta.regularMarketPrice;
+      }
+    } catch (err) {
+      console.warn("Yahoo price error for " + ticker + ":", err);
+    }
+  }
+
+  return prices;
+}
+
+// Buscar cambio USD->BRL
+async function fetchUsdRate(): Promise<number> {
+  try {
+    const url = BRAPI_CURRENCY_URL + "?currency=USD-BRL&token=" + BRAPI_TOKEN;
+    const resp = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!resp.ok) return 5.0; // fallback
+    const json = await resp.json();
+    const currencies = json.currency || [];
+    for (const c of currencies) {
+      if (c.fromCurrency === "USD" && c.bidPrice) {
+        return parseFloat(c.bidPrice);
+      }
+    }
+  } catch (err) {
+    console.warn("USD rate error:", err);
+  }
+  return 5.0; // fallback
+}
+
 async function generateSnapshots() {
   const today = new Date().toISOString().substring(0, 10);
 
   // 1. Buscar todos os tickers unicos com posicao positiva
   const { data: ops, error: opsErr } = await supabase
     .from("operacoes")
-    .select("user_id, ticker, tipo, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos");
+    .select("user_id, ticker, tipo, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, mercado");
 
   if (opsErr) {
     console.error("Error fetching operacoes:", opsErr);
@@ -63,18 +111,22 @@ async function generateSnapshots() {
   // 2. Agregar posicoes por usuario+ticker
   const userPositions: Record<
     string,
-    Record<string, { qty: number; custoTotal: number }>
+    Record<string, { qty: number; custoTotal: number; mercado: string }>
   > = {};
   const allTickers: Set<string> = new Set();
+  const tickerMercado: Record<string, string> = {};
 
   for (const op of ops || []) {
     const uid = op.user_id;
     const ticker = (op.ticker || "").toUpperCase().trim();
     if (!ticker) continue;
 
+    const mercado = op.mercado || "BR";
+    tickerMercado[ticker] = mercado;
+
     if (!userPositions[uid]) userPositions[uid] = {};
     if (!userPositions[uid][ticker])
-      userPositions[uid][ticker] = { qty: 0, custoTotal: 0 };
+      userPositions[uid][ticker] = { qty: 0, custoTotal: 0, mercado: mercado };
 
     const pos = userPositions[uid][ticker];
     const custos =
@@ -107,11 +159,34 @@ async function generateSnapshots() {
     }
   }
 
-  // 3. Buscar cotacoes reais
+  // 3. Buscar cotacoes reais (separar BR vs INT)
   const tickerList = Array.from(allTickers);
-  console.log("Fetching prices for", tickerList.length, "tickers");
-  const prices = await fetchPricesFromBrapi(tickerList);
-  console.log("Got prices for", Object.keys(prices).length, "tickers");
+  const brTickers: string[] = [];
+  const intTickers: string[] = [];
+  for (const t of tickerList) {
+    if (tickerMercado[t] === "INT") {
+      intTickers.push(t);
+    } else {
+      brTickers.push(t);
+    }
+  }
+
+  console.log("Fetching prices: BR=" + brTickers.length + ", INT=" + intTickers.length);
+
+  // Buscar em paralelo: BR via brapi, INT via Yahoo, cambio USD
+  const [brPrices, intPricesUsd, usdRate] = await Promise.all([
+    brTickers.length > 0 ? fetchPricesFromBrapi(brTickers) : Promise.resolve({}),
+    intTickers.length > 0 ? fetchPricesFromYahoo(intTickers) : Promise.resolve({}),
+    intTickers.length > 0 ? fetchUsdRate() : Promise.resolve(1),
+  ]);
+
+  // Merge: converter INT de USD para BRL
+  const prices: Record<string, number> = { ...brPrices };
+  for (const [ticker, priceUsd] of Object.entries(intPricesUsd)) {
+    prices[ticker] = priceUsd * usdRate;
+  }
+
+  console.log("Got prices for", Object.keys(prices).length, "tickers (USD rate=" + usdRate + ")");
 
   // 4. Buscar renda fixa por usuario
   const { data: rfData } = await supabase
