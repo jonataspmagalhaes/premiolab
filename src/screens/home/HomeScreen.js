@@ -11,7 +11,7 @@ import { getDashboard, getIndicators, getProfile, upsertPatrimonioSnapshot } fro
 import { clearPriceCache } from '../../services/priceService';
 import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { runDividendSync, shouldSyncDividends } from '../../services/dividendService';
-import { Badge, Logo, Wordmark, InfoTip } from '../../components';
+import { Badge, Logo, Wordmark, InfoTip, Fab } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import InteractiveChart from '../../components/InteractiveChart';
 
@@ -158,7 +158,6 @@ export default function HomeScreen({ navigation }) {
   var [data, setData] = useState(null);
   var [loading, setLoading] = useState(true);
   var [refreshing, setRefreshing] = useState(false);
-  var [fabOpen, setFabOpen] = useState(false);
   var [chartTouching, setChartTouching] = useState(false);
   var [chartPeriod, setChartPeriod] = useState('ALL');
   var scrollRef = useRef(null);
@@ -287,6 +286,13 @@ export default function HomeScreen({ navigation }) {
   var rendaMediaAnual = data.rendaMediaAnual || 0;
 
   var metaPct = meta > 0 ? Math.min((rendaTotalMes / meta) * 100, 150) : 0;
+
+  // Categorias com posições ativas (para mostrar rows relevantes na renda)
+  var hasCat = { acao: false, fii: false, etf: false, stock_int: false };
+  for (var hci = 0; hci < positions.length; hci++) {
+    var hcCat = positions[hci].categoria || 'acao';
+    if (hasCat[hcCat] !== undefined) hasCat[hcCat] = true;
+  }
 
   // Allocation
   var alloc = {};
@@ -632,66 +638,74 @@ export default function HomeScreen({ navigation }) {
             ) : null}
           </View>
 
-          {/* Discriminação por tipo */}
+          {/* Discriminação por tipo — só categorias com posições ativas */}
           <View style={{ gap: 6, marginBottom: 14 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.opcao.color }} />
-                <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>P&L Opções</Text>
+            {plMes !== 0 || opsAtivas > 0 ? (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.opcao.color }} />
+                  <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>P&L Opções</Text>
+                </View>
+                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: plMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+                  {fmt(plMes)}
+                </Text>
               </View>
-              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: plMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
-                {fmt(plMes)}
-              </Text>
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.acao.color }} />
-                <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos Ações</Text>
+            ) : null}
+            {hasCat.acao || dividendosCatMes.acao > 0 ? (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.acao.color }} />
+                  <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos Ações</Text>
+                </View>
+                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.acao > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
+                  {fmt(dividendosCatMes.acao)}
+                </Text>
               </View>
-              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.acao > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
-                {fmt(dividendosCatMes.acao)}
-              </Text>
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.fii.color }} />
-                <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Rendimentos FIIs</Text>
+            ) : null}
+            {hasCat.fii || dividendosCatMes.fii > 0 ? (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.fii.color }} />
+                  <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Rendimentos FIIs</Text>
+                </View>
+                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.fii > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
+                  {fmt(dividendosCatMes.fii)}
+                </Text>
               </View>
-              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.fii > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
-                {fmt(dividendosCatMes.fii)}
-              </Text>
-            </View>
-            {dividendosCatMes.etf > 0 ? (
+            ) : null}
+            {hasCat.etf || dividendosCatMes.etf > 0 ? (
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.etf.color }} />
                   <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos ETFs</Text>
                 </View>
-                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }}>
+                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.etf > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
                   {fmt(dividendosCatMes.etf)}
                 </Text>
               </View>
             ) : null}
-            {dividendosCatMes.stock_int > 0 ? (
+            {hasCat.stock_int || dividendosCatMes.stock_int > 0 ? (
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.stock_int.color }} />
                   <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos Stocks</Text>
                 </View>
-                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }}>
+                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.stock_int > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
                   {fmt(dividendosCatMes.stock_int)}
                 </Text>
               </View>
             ) : null}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.rf }} />
-                <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Renda Fixa</Text>
+            {rendaFixa.length > 0 || rfRendaMensal > 0 ? (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.rf }} />
+                  <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Renda Fixa</Text>
+                </View>
+                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: rfRendaMensal > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
+                  {fmt(rfRendaMensal)}
+                </Text>
               </View>
-              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: rfRendaMensal > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
-                {fmt(rfRendaMensal)}
-              </Text>
-            </View>
+            ) : null}
           </View>
 
           {/* Divider */}
@@ -819,46 +833,7 @@ export default function HomeScreen({ navigation }) {
       </ScrollView>
 
       {/* FAB */}
-      <View style={st.fabWrap}>
-        {fabOpen ? (
-          <View style={{ marginBottom: 12, gap: 8, alignItems: 'flex-end' }}>
-            {[
-              { label: '💰 Operação', color: P.acao.color, screen: 'AddOperacao' },
-              { label: '⚡ Opção', color: P.opcao.color, screen: 'AddOpcao' },
-              { label: '◈ Provento', color: P.fii.color, screen: 'AddProvento' },
-              { label: '🏦 Renda Fixa', color: P.rf.color, screen: 'AddRendaFixa' },
-            ].map(function (item, i) {
-              return (
-                <TouchableOpacity key={i} activeOpacity={0.7}
-                  onPress={function () { setFabOpen(false); navigation.navigate(item.screen); }}
-                  style={{
-                    flexDirection: 'row', alignItems: 'center',
-                    paddingHorizontal: 16, paddingVertical: 12,
-                    borderRadius: 14, borderWidth: 1,
-                    borderColor: item.color + '40', backgroundColor: item.color + '10',
-                  }}>
-                  <Text style={{ fontSize: 14, fontWeight: '700', color: item.color, fontFamily: F.display }}>{item.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ) : null}
-        <TouchableOpacity activeOpacity={0.8} onPress={function () { setFabOpen(!fabOpen); }}>
-          <LinearGradient
-            colors={fabOpen ? ['#ef4444', '#dc2626'] : ['#0ea5e9', '#a855f7']}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-            style={{
-              width: 56, height: 56, borderRadius: 28,
-              justifyContent: 'center', alignItems: 'center',
-              shadowColor: fabOpen ? '#ef4444' : '#0ea5e9',
-              shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.45, shadowRadius: 14,
-              elevation: 8,
-            }}
-          >
-            <Text style={{ fontSize: 28, color: '#fff', fontWeight: '300', lineHeight: 30 }}>{fabOpen ? '×' : '+'}</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
+      <Fab navigation={navigation} />
 
       <Modal visible={infoModal !== null} animationType="fade" transparent={true}
         onRequestClose={function() { setInfoModal(null); }}>
@@ -963,9 +938,5 @@ var st = StyleSheet.create({
   },
   heroCents: {
     fontSize: 18, fontWeight: '600', color: 'rgba(255,255,255,0.3)', fontFamily: F.display,
-  },
-  fabWrap: {
-    position: 'absolute', bottom: SIZE.tabBarHeight + 16, right: PAD,
-    alignItems: 'flex-end',
   },
 });

@@ -9,3 +9,6 @@ export { default as SwipeableRow } from './SwipeableRow';
 export { default as TickerInput } from './TickerInput';
 export { default as PressableCard } from './PressableCard';
 export { default as CorretoraSelector, DEFAULTS_RF, ALL_INSTITUTIONS, getInstitutionMeta } from './CorretoraSelector';
+export { default as FundamentalAccordion } from './FundamentalAccordion';
+export { default as FundamentalChart } from './FundamentalChart';
+export { default as Fab } from './Fab';

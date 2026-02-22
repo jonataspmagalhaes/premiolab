@@ -983,12 +983,18 @@ export async function getDashboard(userId) {
     var dividendosCatMesAnt = { acao: 0, fii: 0, etf: 0, stock_int: 0 };
     var posCategoria = {};
     for (var pci = 0; pci < posDataRaw.length; pci++) {
-      posCategoria[posDataRaw[pci].ticker] = posDataRaw[pci].categoria || 'acao';
+      posCategoria[(posDataRaw[pci].ticker || '').toUpperCase().trim()] = posDataRaw[pci].categoria || 'acao';
+    }
+    for (var pei = 0; pei < posEncerradas.length; pei++) {
+      var peKey = (posEncerradas[pei].ticker || '').toUpperCase().trim();
+      if (!posCategoria[peKey]) {
+        posCategoria[peKey] = posEncerradas[pei].categoria || 'acao';
+      }
     }
     for (var dci = 0; dci < proventosData.length; dci++) {
       var dcDateStr = (proventosData[dci].data_pagamento || '').substring(0, 10);
       var dcVal = (proventosData[dci].valor_por_cota || 0) * (proventosData[dci].quantidade || 0);
-      var dcCat = posCategoria[proventosData[dci].ticker] || 'acao';
+      var dcCat = posCategoria[(proventosData[dci].ticker || '').toUpperCase().trim()] || 'acao';
       if (dcCat !== 'acao' && dcCat !== 'fii' && dcCat !== 'etf' && dcCat !== 'stock_int') dcCat = 'acao';
       if (dcDateStr.substring(0, 7) === prefixMesAtual) {
         dividendosCatMes[dcCat] += dcVal;

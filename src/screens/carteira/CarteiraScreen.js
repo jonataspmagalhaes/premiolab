@@ -9,12 +9,14 @@ import Svg, {
   Circle as SvgCircle, Path, Defs, LinearGradient as SvgGrad,
   Stop, Line as SvgLine,
 } from 'react-native-svg';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa } from '../../services/database';
+import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa, getOpcoes, getIndicatorByTicker } from '../../services/database';
+import { fetchFundamentals } from '../../services/fundamentalService';
 import { enrichPositionsWithPrices, fetchPriceHistory, fetchHistoryRouted, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
-import { Glass, Badge, Pill, SectionLabel, InfoTip, PressableCard } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, InfoTip, PressableCard, FundamentalAccordion, Fab } from '../../components';
 import { MiniLineChart } from '../../components/InteractiveChart';
 import { SkeletonCarteira, EmptyState } from '../../components/States';
 
@@ -194,6 +196,10 @@ var PositionCard = React.memo(function PositionCard(props) {
   var onSell = props.onSell;
   var onLancarOpcao = props.onLancarOpcao;
   var onTransacoes = props.onTransacoes;
+  var fundData = props.fundamentals;
+  var fundLoading = props.fundLoading;
+  var opcoesForTicker = props.opcoesForTicker;
+  var indicatorData = props.indicator;
 
   var color = PRODUCT_COLORS[pos.categoria] || C.accent;
   var catLabel = CAT_LABELS[pos.categoria] || (pos.categoria || '').toUpperCase();
@@ -227,10 +233,35 @@ var PositionCard = React.memo(function PositionCard(props) {
     corretorasText = cParts.join(', ');
   }
 
+  // Accordion state for DESEMPENHO section
+  var _sections = useState({});
+  var sections = _sections[0];
+  var setSections = _sections[1];
+
+  function toggleSection(sKey) {
+    animateLayout();
+    var next = {};
+    var ks = Object.keys(sections);
+    for (var si = 0; si < ks.length; si++) { next[ks[si]] = sections[ks[si]]; }
+    next[sKey] = !next[sKey];
+    setSections(next);
+  }
+
+  function renderDesempenhoMetric(label, value, metricColor) {
+    return (
+      <View key={label} style={{ width: '48%', marginBottom: 8 }}>
+        <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{label}</Text>
+        <Text style={{ fontSize: 12, color: metricColor || C.text, fontFamily: F.mono, fontWeight: '600', marginTop: 1 }}>{value}</Text>
+      </View>
+    );
+  }
+
   return (
-    <PressableCard onPress={onToggle} accessibilityLabel={pos.ticker + ', P&L ' + (isPos ? '+' : '-') + 'R$ ' + fmt(Math.abs(pnl))} accessibilityHint={expanded ? 'Toque para recolher' : 'Toque para expandir'}>
-      <Glass padding={12} style={expanded ? { borderColor: color + '30' } : {}}>
-        {/* Row 1: dot + ticker + badges | P&L */}
+    <PressableCard onPress={onToggle} accessibilityLabel={pos.ticker + ', PM ' + posSymbol + ' ' + fmt(pos.pm) + ', Qtd ' + pos.quantidade} accessibilityHint={expanded ? 'Toque para recolher' : 'Toque para expandir'}>
+      <Glass padding={12} style={expanded
+        ? { borderColor: color + '30', borderLeftWidth: 3, borderLeftColor: pnlColor }
+        : { borderLeftWidth: 3, borderLeftColor: pnlColor }}>
+        {/* Row 1: dot + ticker + badges | preço atual + dia % */}
         <View style={styles.cardRow1}>
           <View style={styles.cardRow1Left}>
             <View style={[styles.dot, { backgroundColor: color }]} />
@@ -249,46 +280,34 @@ var PositionCard = React.memo(function PositionCard(props) {
             ) : null}
           </View>
           <View style={{ alignItems: 'flex-end' }}>
-            <Text style={[styles.cardPL, { color: pnlColor }]}>
-              {isPos ? '+' : '-'}R$ {fmt(Math.abs(pnl))}
+            <Text style={styles.cardPriceMain}>
+              {hasPrice ? (posIsInt && pos.preco_atual_usd != null ? 'US$ ' + fmt(pos.preco_atual_usd) : 'R$ ' + fmt(precoRef)) : '–'}
             </Text>
-            <Text style={[styles.cardPLPct, { color: pnlColor }]}>
-              {isPos ? '+' : ''}{pnlPct.toFixed(1)}%
-            </Text>
+            {hasPrice && pos.change_day != null && pos.change_day !== 0 ? (
+              <View style={[styles.typeBadge, { backgroundColor: (pos.change_day > 0 ? C.green : C.red) + '14', marginTop: 2 }]}>
+                <Text style={[styles.typeBadgeText, { color: pos.change_day > 0 ? C.green : C.red }]}>
+                  {pos.change_day > 0 ? '▲' : '▼'} {Math.abs(pos.change_day).toFixed(2) + '%'}
+                </Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
-        {/* Row 2: preço + PM + qty | sparkline */}
+        {/* Row 2: PM + Qty proeminentes | sparkline */}
         <View style={styles.cardRow2}>
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              {posIsInt && hasPrice && pos.preco_atual_usd != null ? (
-                <Text style={styles.cardPriceMain}>
-                  {'US$ ' + fmt(pos.preco_atual_usd) + '  ≈ R$ ' + fmt(pos.preco_atual)}
-                </Text>
-              ) : (
-                <Text style={styles.cardPriceMain}>
-                  {hasPrice ? 'R$ ' + fmt(precoRef) : 'PM ' + posSymbol + ' ' + fmt(pos.pm)}
-                </Text>
-              )}
-              {hasPrice ? <Text style={styles.cardPriceSub}>{'PM ' + posSymbol + ' ' + fmt(pos.pm)}</Text> : null}
-              <Text style={styles.cardPriceSub}>Qtd: {pos.quantidade.toLocaleString('pt-BR')}</Text>
-            </View>
-            {hasPrice && pos.change_day != null && pos.change_day !== 0 ? (
-              <Text style={[styles.cardDayVar, {
-                color: pos.change_day > 0 ? C.green : C.red,
-              }]}>
-                {pos.change_day > 0 ? '▲' : '▼'} {Math.abs(pos.change_day).toFixed(2)}% dia
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+            <View>
+              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>PM</Text>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }}>
+                {posSymbol + ' ' + fmt(pos.pm)}
               </Text>
-            ) : null}
-            {temVendas ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 10, color: plReal >= 0 ? C.green : C.red, fontFamily: F.mono }}>
-                  P&L realizado: {plReal >= 0 ? '+' : ''}R$ {fmt(plReal)} ({pos.total_vendido} un vendida(s))
-                </Text>
-                <InfoTip text="Resultado das vendas já realizadas, usando o preço médio da corretora onde cada venda ocorreu." size={11} />
-              </View>
-            ) : null}
+            </View>
+            <View>
+              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>QTD</Text>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }}>
+                {pos.quantidade.toLocaleString('pt-BR')}
+              </Text>
+            </View>
           </View>
           {sparkData.length >= 2 ? (
             <View style={styles.sparkWrap}>
@@ -300,40 +319,49 @@ var PositionCard = React.memo(function PositionCard(props) {
         {/* EXPANDED */}
         {expanded ? (
           <View style={styles.expandedWrap}>
-            <View style={styles.expandedStats}>
-              {[
-                { l: posIsInt ? 'Custo (US$)' : 'Custo total', v: posIsInt ? 'US$ ' + fmt(pos.quantidade * pos.pm) : 'R$ ' + custoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) },
-                { l: posIsInt ? 'Custo (R$)' : 'Valor atual', v: posIsInt ? '≈ R$ ' + custoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) : 'R$ ' + valorAtual.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) },
-                posIsInt ? { l: 'Valor atual', v: 'R$ ' + valorAtual.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) } : null,
-                { l: '% Carteira', v: pctCarteira.toFixed(1) + '%' },
-                { l: 'Corretoras', v: corretorasText || '–' },
-              ].filter(Boolean).map(function (d, j) {
-                return (
-                  <View key={j} style={styles.expandedStatItem}>
-                    <Text style={styles.expandedStatLabel}>{d.l}</Text>
-                    <Text style={styles.expandedStatValue}>{d.v}</Text>
-                  </View>
-                );
-              })}
+            {/* ▶ DESEMPENHO accordion */}
+            <View>
+              <TouchableOpacity onPress={function() { toggleSection('desempenho'); }}
+                activeOpacity={0.7}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                  paddingVertical: 8, paddingHorizontal: 2 }}
+                accessibilityRole="button"
+                accessibilityLabel={(sections['desempenho'] ? 'Recolher ' : 'Expandir ') + 'Desempenho'}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name={sections['desempenho'] ? 'chevron-down' : 'chevron-forward'} size={14} color={C.accent} />
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.accent, fontFamily: F.display }}>DESEMPENHO</Text>
+                </View>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: pnlColor, fontFamily: F.mono }}>
+                  {isPos ? '+' : ''}R$ {fmt(pnl)}
+                </Text>
+              </TouchableOpacity>
+              {sections['desempenho'] ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: 2, paddingTop: 4, paddingBottom: 4 }}>
+                  {renderDesempenhoMetric('P&L Aberto', (isPos ? '+' : '') + 'R$ ' + fmt(pnl), pnlColor)}
+                  {renderDesempenhoMetric('P&L %', (isPos ? '+' : '') + pnlPct.toFixed(1) + '%', pnlColor)}
+                  {renderDesempenhoMetric(posIsInt ? 'Custo (US$)' : 'Custo total', posIsInt ? 'US$ ' + fmt(pos.quantidade * pos.pm) : 'R$ ' + custoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 }), C.sub)}
+                  {renderDesempenhoMetric(posIsInt ? 'Custo (R$)' : 'Valor atual', posIsInt ? '≈ R$ ' + custoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) : 'R$ ' + valorAtual.toLocaleString('pt-BR', { maximumFractionDigits: 0 }), C.sub)}
+                  {posIsInt ? renderDesempenhoMetric('Valor atual', 'R$ ' + valorAtual.toLocaleString('pt-BR', { maximumFractionDigits: 0 }), C.sub) : null}
+                  {renderDesempenhoMetric('% Carteira', pctCarteira.toFixed(1) + '%', C.sub)}
+                  {renderDesempenhoMetric('Corretoras', corretorasText || '–', C.dim)}
+                  {temVendas ? renderDesempenhoMetric('P&L Realizado', (plReal >= 0 ? '+' : '') + 'R$ ' + fmt(plReal), plReal >= 0 ? C.green : C.red) : null}
+                  {temVendas ? renderDesempenhoMetric('Receita vendas', 'R$ ' + fmt(pos.receita_vendas), C.sub) : null}
+                  {temVendas ? renderDesempenhoMetric('Vendidas', pos.total_vendido + ' un', C.dim) : null}
+                </View>
+              ) : null}
             </View>
-            {temVendas ? (
-              <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, fontWeight: '600' }}>VENDAS REALIZADAS</Text>
-                    <InfoTip text="Calculado com o PM da corretora onde a venda ocorreu. Se você comprou barato em uma corretora e caro em outra, cada venda reflete o custo real daquela posição. Para IR, o PM geral é usado (veja Relatórios > IR)." size={11} />
-                  </View>
-                  <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: plReal >= 0 ? C.green : C.red, fontFamily: F.mono }}>
-                    {plReal >= 0 ? '+' : ''}R$ {fmt(plReal)}
-                  </Text>
-                </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
-                  <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>
-                    {pos.total_vendido} un vendida(s) · Receita R$ {fmt(pos.receita_vendas)}
-                  </Text>
-                </View>
-              </View>
-            ) : null}
+            <FundamentalAccordion
+              fundamentals={fundData}
+              fundLoading={fundLoading}
+              opcoes={opcoesForTicker}
+              positionQty={pos.quantidade}
+              positionCusto={custoTotal}
+              precoAtual={pos.preco_atual}
+              indicator={indicatorData}
+              ticker={pos.ticker}
+              mercado={pos.mercado}
+              color={color}
+            />
             <View style={styles.expandedActions}>
               <TouchableOpacity style={[styles.actionBtn, { borderColor: C.green + '30', backgroundColor: C.green + '08' }]}
                 onPress={onBuy} accessibilityRole="button" accessibilityLabel="Comprar">
@@ -466,7 +494,10 @@ export default function CarteiraScreen(props) {
   var _showEnc = useState(false); var showEnc = _showEnc[0]; var setShowEnc = _showEnc[1];
   var _showAllEnc = useState(false); var showAllEnc = _showAllEnc[0]; var setShowAllEnc = _showAllEnc[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
-
+  var _fund = useState({}); var fundamentals = _fund[0]; var setFundamentals = _fund[1];
+  var _fundL = useState({}); var fundLoading = _fundL[0]; var setFundLoading = _fundL[1];
+  var _opc = useState([]); var opcoes = _opc[0]; var setOpcoes = _opc[1];
+  var _indic = useState({}); var indicators = _indic[0]; var setIndicators = _indic[1];
   var load = async function () {
     if (!user) return;
     setLoadError(false);
@@ -476,11 +507,13 @@ export default function CarteiraScreen(props) {
         getPositions(user.id),
         getSaldos(user.id),
         getRendaFixa(user.id),
+        getOpcoes(user.id),
       ]);
       rawPos = results[0].data || [];
       setEncerradas(results[0].encerradas || []);
       setSaldos(results[1].data || []);
       setRfItems(results[2].data || []);
+      setOpcoes(results[3].data || []);
       setPositions(rawPos);
     } catch (e) {
       console.warn('CarteiraScreen load failed:', e);
@@ -515,6 +548,8 @@ export default function CarteiraScreen(props) {
   var onRefresh = async function () {
     setRefreshing(true);
     clearPriceCache();
+    setFundamentals({});
+    setIndicators({});
     await load();
     setRefreshing(false);
   };
@@ -623,9 +658,65 @@ export default function CarteiraScreen(props) {
     return positions.filter(function (p) { return p.categoria === (fdef ? fdef.cat : ''); }).length;
   }
 
-  function toggleExpand(key) {
+  function toggleExpand(key, ticker, mercado) {
     animateLayout();
-    setExpanded(expanded === key ? null : key);
+    if (expanded === key) { setExpanded(null); return; }
+    setExpanded(key);
+    // Lazy load fundamentals (undefined = not fetched yet, null = fetched but empty/error)
+    if (ticker && fundamentals[ticker] === undefined) {
+      setFundLoading(function(prev) {
+        var upd = {};
+        var pk = Object.keys(prev);
+        for (var pi = 0; pi < pk.length; pi++) { upd[pk[pi]] = prev[pk[pi]]; }
+        upd[ticker] = true;
+        return upd;
+      });
+      fetchFundamentals(ticker, mercado || 'BR').then(function(data) {
+        setFundamentals(function(prev) {
+          var fd = {};
+          var fk = Object.keys(prev);
+          for (var fi = 0; fi < fk.length; fi++) { fd[fk[fi]] = prev[fk[fi]]; }
+          fd[ticker] = data || false; // false = fetched but empty
+          return fd;
+        });
+        setFundLoading(function(prev) {
+          var done = {};
+          var dk = Object.keys(prev);
+          for (var di = 0; di < dk.length; di++) { done[dk[di]] = prev[dk[di]]; }
+          done[ticker] = false;
+          return done;
+        });
+      }).catch(function() {
+        setFundamentals(function(prev) {
+          var fd = {};
+          var fk = Object.keys(prev);
+          for (var fi = 0; fi < fk.length; fi++) { fd[fk[fi]] = prev[fk[fi]]; }
+          fd[ticker] = false; // mark as attempted
+          return fd;
+        });
+        setFundLoading(function(prev) {
+          var done = {};
+          var dk = Object.keys(prev);
+          for (var di = 0; di < dk.length; di++) { done[dk[di]] = prev[dk[di]]; }
+          done[ticker] = false;
+          return done;
+        });
+      });
+    }
+    // Lazy load indicator (HV)
+    if (ticker && !indicators[ticker] && user) {
+      getIndicatorByTicker(user.id, ticker).then(function(result) {
+        if (result && result.data) {
+          setIndicators(function(prev) {
+            var ind = {};
+            var ik = Object.keys(prev);
+            for (var ii = 0; ii < ik.length; ii++) { ind[ik[ii]] = prev[ik[ii]]; }
+            ind[ticker] = result.data;
+            return ind;
+          });
+        }
+      }).catch(function() {});
+    }
   }
 
   function handleDeleteRF(rfId) {
@@ -662,12 +753,14 @@ export default function CarteiraScreen(props) {
         <EmptyState ionicon="briefcase-outline" title="Carteira vazia"
           description="Nenhum ativo na carteira. Registre compras de ações, FIIs, ETFs ou renda fixa."
           cta="Adicionar ativo" onCta={function () { nav('AddOperacao'); }} color={C.acoes} />
+        <Fab navigation={navigation} />
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}
+    <View style={styles.container}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />}>
 
@@ -759,10 +852,17 @@ export default function CarteiraScreen(props) {
       {/* ══════ 10. POSITION CARDS ══════ */}
       {filteredPositions.map(function (pos, i) {
         var key = 'pos_' + pos.ticker + '_' + i;
+        var opcoesForTicker = opcoes.filter(function(o) {
+          return o.ativo_base && o.ativo_base.toUpperCase() === pos.ticker.toUpperCase();
+        });
         return (
           <PositionCard key={key} pos={pos} history={priceHistory[pos.ticker] || null}
             totalCarteira={totalValue} expanded={expanded === key}
-            onToggle={function () { toggleExpand(key); }}
+            fundamentals={fundamentals[pos.ticker] && fundamentals[pos.ticker] !== false ? fundamentals[pos.ticker] : null}
+            fundLoading={!!fundLoading[pos.ticker]}
+            opcoesForTicker={opcoesForTicker}
+            indicator={indicators[pos.ticker] || null}
+            onToggle={function () { toggleExpand(key, pos.ticker, pos.mercado); }}
             onBuy={function () { nav('AddOperacao', { ticker: pos.ticker, tipo: 'compra', categoria: pos.categoria }); }}
             onSell={function () { nav('AddOperacao', { ticker: pos.ticker, tipo: 'venda', categoria: pos.categoria }); }}
             onLancarOpcao={function () { nav('AddOpcao', { ativo_base: pos.ticker }); }}
@@ -895,6 +995,8 @@ export default function CarteiraScreen(props) {
         </TouchableOpacity>
       </Modal>
     </ScrollView>
+    <Fab navigation={navigation} />
+    </View>
   );
 }
 

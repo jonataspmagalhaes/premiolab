@@ -11,7 +11,7 @@ import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getI
 import { enrichPositionsWithPrices, clearPriceCache, fetchPrices } from '../../services/priceService';
 import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { supabase } from '../../config/supabase';
-import { Glass, Badge, Pill, SectionLabel } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, Fab } from '../../components';
 import { SkeletonOpcoes, EmptyState } from '../../components/States';
 import * as Haptics from 'expo-haptics';
 
@@ -1917,10 +1917,10 @@ export default function OpcoesScreen() {
   );
 
   return (
-    <>
+    <View style={styles.container}>
     <ScrollView
       ref={scrollRef}
-      style={styles.container}
+      style={{ flex: 1 }}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
       refreshControl={
@@ -2290,7 +2290,8 @@ export default function OpcoesScreen() {
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
-    </>
+    <Fab navigation={navigation} />
+    </View>
   );
 }
 

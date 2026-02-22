@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { C, SIZE } from '../../theme';
-import { Pill } from '../../components';
+import { Pill, Fab } from '../../components';
 import RendaResumoView from './RendaResumoView';
 import ProventosScreen from '../proventos/ProventosScreen';
 import RelatoriosScreen from '../relatorios/RelatoriosScreen';
@@ -35,6 +35,7 @@ export default function RendaScreen(props) {
       ) : (
         <RelatoriosScreen navigation={navigation} embedded={true} />
       )}
+      <Fab navigation={navigation} />
     </View>
   );
 }
