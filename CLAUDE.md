@@ -26,7 +26,7 @@ PremioLab e um app de investimentos focado no mercado brasileiro, construido com
 
 ```
 src/
-  components/      Componentes reutilizaveis (Glass, Badge, Pill, Charts, States, InteractiveChart)
+  components/      Componentes reutilizaveis (Glass, Badge, Pill, Charts, States, InteractiveChart, PressableCard, SwipeableRow, TickerInput, ToastConfig, InfoTip)
   config/          Supabase client
   contexts/        AuthContext (login, session, onboarding)
   navigation/      AppNavigator (tabs + stacks)
@@ -39,11 +39,14 @@ src/
     mais/          Menu + Configs (Meta, Corretoras, Alertas, Selic, Guia, Sobre, Historico)
     opcoes/        Opcoes (lista, add, edit, simulador BS)
     proventos/     Proventos (lista, add, edit)
+    relatorios/    Relatorios (dividendos, opcoes, operacoes, IR)
     rf/            Renda Fixa (lista, add, edit)
   services/
     database.js    Todas as funcoes CRUD do Supabase
     priceService.js Cotacoes em tempo real + cache + marketCap
+    indicatorService.js Calculo HV, RSI, SMA, EMA, Beta, ATR, BB, MaxDD
     dividendService.js Auto-sync de dividendos via brapi.dev + StatusInvest
+    currencyService.js Cambio multi-moeda via brapi.dev + fallback
   theme/
     index.js       Cores (C), Fontes (F), Tamanhos (SIZE), Sombras (SHADOW)
   utils/
@@ -110,7 +113,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Proventos**: getProventos, addProvento, deleteProvento
 - **Renda Fixa**: getRendaFixa, addRendaFixa, deleteRendaFixa
 - **Corretoras**: getUserCorretoras, incrementCorretora
-- **Saldos**: getSaldos
+- **Saldos**: getSaldos, upsertSaldo, deleteSaldo
 - **Alertas**: getAlertasConfig, updateAlertasConfig
 - **Dashboard**: getDashboard (endpoint agregado: patrimonio, renda, eventos, historico, proventosHoje)
 - **Indicadores**: getIndicators, getIndicatorByTicker, upsertIndicator, upsertIndicatorsBatch
@@ -171,8 +174,12 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 | `Gauge` | Charts.js | Indicador circular |
 | `LoadingScreen` | States.js | Tela de loading |
 | `EmptyState` | States.js | Estado vazio com icone + CTA |
-| `Skeleton*` | States.js | Placeholders de carregamento |
-| `InfoTip` | InfoTip.js | Icone info (ⓘ) com texto expansivel via LayoutAnimation |
+| `Skeleton*` | States.js | Placeholders de carregamento (Home, Carteira, Opcoes, Caixa, Proventos, RendaFixa) |
+| `InfoTip` | InfoTip.js | Icone info (ⓘ) com Modal explicativo |
+| `PressableCard` | PressableCard.js | Card com Animated.spring scale + a11y props |
+| `SwipeableRow` | SwipeableRow.js | Wrapper swipe-to-delete com botao Excluir |
+| `TickerInput` | TickerInput.js | Input com autocomplete de tickers da carteira |
+| `ToastConfig` | ToastConfig.js | Config visual toast dark/glass + tipo undo |
 
 ## Theme
 
@@ -333,19 +340,14 @@ Todas as telas Add (Operacao, Opcao, RendaFixa, Provento) usam estado `submitted
 `getPositions()` retorna campo `por_corretora: { 'Clear': 200, 'XP': 100 }` com quantidade por corretora.
 Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora da opcao.
 
-## Proximos Passos Possiveis
+## Features Principais Implementadas (Resumo)
 
-- [x] **Sistema de Indicadores Tecnicos** (implementado: indicatorService.js, tabela indicators, integrado em Opcoes/AssetDetail/Analise/Home)
-- [x] **Auto-sync de dividendos** (implementado: dividendService.js, cross-check brapi+StatusInvest, auto-trigger Home, sync manual Proventos, dedup por ticker+data+valor)
-- [x] **Gestao Financeira / Fluxo de Caixa** (implementado: tab Gestao com sub-tabs Carteira+Caixa, movimentacoes, integracao com operacoes/opcoes/dividendos)
-- [x] **Relatorios Detalhados** (implementado: tela Relatorios com sub-tabs Dividendos/Opcoes/Operacoes/IR, graficos, agrupamentos)
-- [x] **Melhorias UX P0-P12** (implementado: contraste, touch targets, validacao inline, skeleton, haptics, keyboard, error states, beforeRemove, double-tap guard, toast, swipe-to-delete, FlatList, React.memo, ticker autocomplete, undo, PressableCard, Ionicons EmptyState, skeletons por tela, transicoes navegacao, accessibilityLabel/Hint/Role, ReduceMotion, maxFontSizeMultiplier)
-- [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
-- [ ] Notificacoes push para vencimentos proximos
-- [ ] Importacao de operacoes via CSV/Excel
-- [ ] Integracao com CEI/B3 para importacao automatica
-- [ ] Dark/Light mode toggle
-- [ ] Backup/restore de dados
+- **Sistema de Indicadores Tecnicos**: indicatorService.js, tabela indicators, integrado em Opcoes/AssetDetail/Analise/Home
+- **Auto-sync de dividendos**: dividendService.js, cross-check brapi+StatusInvest, auto-trigger Home, sync manual Proventos
+- **Gestao Financeira / Fluxo de Caixa**: tab Gestao com sub-tabs Carteira+Caixa, movimentacoes, integracao com operacoes/opcoes/dividendos
+- **Relatorios Detalhados**: tela Relatorios com sub-tabs Dividendos/Opcoes/Operacoes/IR, graficos, agrupamentos
+- **Multi-Moeda**: contas em USD/EUR/GBP/QAR/etc, cambio automatico via brapi.dev
+- **Melhorias UX P0-P12**: 13 rodadas cobrindo contraste, validacao, haptics, keyboard, toast, swipe-to-delete, performance, React.memo, autocomplete, undo, PressableCard, skeletons, animacoes, accessibilityLabel/Hint/Role, ReduceMotion, maxFontSizeMultiplier
 
 ## Sistema de Indicadores Tecnicos (Implementado)
 
@@ -453,10 +455,11 @@ Grafico de linhas na aba Performance > Todos comparando retorno da carteira vs C
 
 ## Tooltips InfoTip (Implementado)
 
-Componente `InfoTip` com icone Ionicons `information-circle-outline` (14px, cor `C.accent`). Toque expande texto inline via `LayoutAnimation`. Texto fontSize 10, cor `C.sub`, fontFamily `F.body`.
+Componente `InfoTip` com icone Ionicons `information-circle-outline` (14px, cor `C.accent`). Toque abre Modal com overlay escuro e texto explicativo. Botao "Entendi" para fechar.
 
 ### Props
-- `text` (string) — texto explicativo exibido ao expandir
+- `text` (string) — texto explicativo exibido no modal
+- `title` (string) — titulo opcional no topo do modal
 - `size` (number, default 14) — tamanho do icone
 - `color` (string, default `C.accent`) — cor do icone
 - `style` (object) — estilo adicional no container
@@ -479,7 +482,7 @@ Componente `InfoTip` com icone Ionicons `information-circle-outline` (14px, cor 
 ### Arquivos modificados/criados
 | Arquivo | Mudanca |
 |---------|---------|
-| `src/components/InfoTip.js` | Criado — componente InfoTip com LayoutAnimation |
+| `src/components/InfoTip.js` | Criado — componente InfoTip com Modal |
 | `src/components/index.js` | Export do InfoTip |
 | `src/screens/home/HomeScreen.js` | 3 tooltips (patrimonio, renda, alertas) |
 | `src/screens/carteira/CarteiraScreen.js` | 1 tooltip (posicoes/PM) |
@@ -640,7 +643,7 @@ Confirmacao com valor do saldo na mensagem. Error handling com Alert se falhar. 
 
 ## Melhorias UX P0-P12 (Implementado)
 
-Onze rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, feedback, keyboard handling, consistencia visual, toast, swipe-to-delete, performance e formularios avancados.
+Treze rodadas (P0-P12) de melhorias de usabilidade cobrindo contraste, touch targets, validacao, feedback, keyboard handling, haptics, error states, toast, swipe-to-delete, performance, formularios avancados, animacoes e acessibilidade.
 
 ### P0 — Contraste e Touch Targets
 - **Theme**: tokens `C.textSecondary` (#8888aa, WCAG AA) e `C.textTertiary` (#666688)
@@ -829,36 +832,12 @@ Onze rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, fee
 | `src/screens/home/HomeScreen.js` | maxFontSizeMultiplier em ~16 valores monetarios |
 | + 8 telas Add/Edit restantes | a11y labels back/submit |
 
-## Melhorias UX Pendentes (TODO)
+## Proximas Melhorias Possiveis
 
-Melhorias identificadas mas nao implementadas, organizadas por prioridade.
-
-### P8 — Pull-to-refresh e Feedback (IMPLEMENTADO)
-- [x] **Pull-to-refresh**: RefreshControl em CarteiraScreen, OpcoesScreen, ProventosScreen, RendaFixaScreen, CaixaView, HomeScreen
-- [x] **Toast/Snackbar**: react-native-toast-message com visual dark/glass em 10 telas
-- [x] **Swipe-to-delete**: SwipeableRow em ExtratoScreen, CaixaView, ProventosScreen
-
-### P9 — Performance e Listas (IMPLEMENTADO)
-- [x] **FlatList optimization**: props de performance em ExtratoScreen e ProventosScreen
-- [x] **Paginacao/Infinite scroll**: ExtratoScreen com PAGE_SIZE=50, ProventosScreen com limit 500
-- [x] **Memoizacao**: React.memo em PositionCard e OpCard
-- [x] **Lazy loading tabs**: ja implementado via useFocusEffect (documentado)
-
-### P10 — Formularios Avancados (IMPLEMENTADO)
-- [x] **beforeRemove em telas Edit**: dirty check + savedRef em EditOperacao, EditOpcao, EditProvento, EditRendaFixa
-- [x] **Undo/desfazer**: toast undo com botao "Desfazer" em ProventosScreen e ExtratoScreen
-- [x] **Autocomplete ticker**: TickerInput com dropdown em AddOperacao, AddOpcao, AddProvento
-- [x] **Mascara de valor em AddProvento**: onChangeVal centavos + parseBR
-
-### P11 — Visual e Animacoes (IMPLEMENTADO)
-- [x] **Card press animation**: PressableCard com Animated.spring scale em CarteiraScreen e CaixaView
-- [x] **EmptyState com Ionicons**: prop ionicon em todas as telas (~30 contextos)
-- [x] **Skeleton por tela**: 5 skeletons especificos (Carteira, Opcoes, Caixa, Proventos, RendaFixa)
-- [x] **Transicoes de navegacao**: slide_from_bottom em 11 telas Add/Edit
-
-### P12 — Acessibilidade Avancada (IMPLEMENTADO)
-- [x] **accessibilityLabel**: em componentes reutilizaveis + 10 telas Add/Edit + telas principais
-- [x] **accessibilityHint**: dicas de acao em PressableCard, SwipeableRow
-- [x] **Font scaling**: maxFontSizeMultiplier={1.5} em valores monetarios (Home, Carteira, Opcoes)
-- [x] **Reduced motion**: shouldAnimate() + animateLayout() via AccessibilityInfo.isReduceMotionEnabled
-- [x] **LayoutAnimation centralizado**: animateLayout() em 9 telas (20 instancias), UIManager setup em a11y.js
+- [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
+- [ ] Notificacoes push para vencimentos proximos
+- [ ] Importacao de operacoes via CSV/Excel
+- [ ] Integracao com CEI/B3 para importacao automatica
+- [ ] Dark/Light mode toggle
+- [ ] Backup/restore de dados
+- [ ] Screen reader flow: testar e ajustar ordem de leitura com accessibilityOrder
