@@ -665,24 +665,33 @@ var OpCard = React.memo(function OpCard(props) {
         var ratio = iv > 0 && hv > 0 ? iv / hv : null;
         var ivLabel = null;
         var ivColor = C.dim;
+        var ivGlow = false;
         if (ratio != null && ratio >= 1.3) {
           ivLabel = 'IV ALTA';
           ivColor = C.red;
+          ivGlow = true;
         } else if (ratio != null && ratio <= 0.7) {
           ivLabel = 'IV BAIXA';
           ivColor = C.green;
+          ivGlow = true;
         }
         return (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+          <View style={[
+            { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, paddingVertical: 4, paddingHorizontal: 6, borderRadius: 6 },
+            ivGlow && { backgroundColor: ivColor + '0A', borderWidth: 1, borderColor: ivColor + '18' },
+          ]}>
             <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>
               {'HV: ' + hv.toFixed(0) + '%'}
             </Text>
             <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>|</Text>
-            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>
+            <Text style={[
+              { fontSize: 11, fontFamily: F.mono },
+              ivGlow ? { color: ivColor, fontWeight: '700' } : { color: C.sub },
+            ]}>
               {'IV: ' + iv.toFixed(0) + '%'}
             </Text>
             {ivLabel ? <Badge text={ivLabel} color={ivColor} /> : null}
-            <TouchableOpacity onPress={function() { setInfoModal({ title: 'HV / IV', text: 'HV = volatilidade histórica 20d. IV = volatilidade implícita. IV > 130% HV = prêmio caro.' }); }}>
+            <TouchableOpacity onPress={function() { setInfoModal({ title: 'HV / IV', text: 'HV = volatilidade histórica 20d. IV = volatilidade implícita. IV > 130% HV = prêmio caro (venda favorecida). IV < 70% HV = prêmio barato (compra favorecida).' }); }}>
               <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
             </TouchableOpacity>
           </View>
@@ -969,6 +978,23 @@ function SimuladorBS(props) {
         </View>
       </Glass>
 
+      {/* Payoff Chart */}
+      {sVal > 0 && kVal > 0 && pVal > 0 ? (
+        <Glass padding={14}>
+          <SectionLabel>PAYOFF NO VENCIMENTO</SectionLabel>
+          <View style={{ marginTop: 8 }}>
+            <PayoffChart
+              tipo={tipoLower}
+              direcao={direcao}
+              strike={kVal}
+              premio={pVal}
+              quantidade={qVal}
+              spotPrice={sVal}
+            />
+          </View>
+        </Glass>
+      ) : null}
+
       {/* Resumo */}
       <Glass padding={14}>
         <SectionLabel>RESUMO</SectionLabel>
@@ -1194,7 +1220,9 @@ function CadeiaSintetica(props) {
               <Text style={styles.chainDelta}>Tipo</Text>
             </View>
           </View>
-          <View style={styles.chainStrike} />
+          <View style={styles.chainStrike}>
+            <Text style={styles.chainDelta}>Dist%</Text>
+          </View>
           <View style={{ flex: 1, flexDirection: 'row' }}>
             <View style={{ flex: 0.8, alignItems: 'center' }}>
               <Text style={styles.chainDelta}>Tipo</Text>
@@ -1219,30 +1247,43 @@ function CadeiaSintetica(props) {
           var putMon = getSimpleMoneyness('put', sk, spot);
 
           var monColor = { ITM: C.green, ATM: C.yellow, OTM: C.dim };
-          var rowBg = isAtm ? styles.chainAtm : (callMon === 'ITM' ? styles.chainItm : null);
+
+          // Strike distance from spot
+          var distPct = spot > 0 ? ((sk - spot) / spot * 100) : 0;
+          var distStr = (distPct >= 0 ? '+' : '') + distPct.toFixed(1) + '%';
+          var distColor = isAtm ? C.yellow : (Math.abs(distPct) <= 5 ? C.sub : C.dim);
+
+          // Row background: ATM highlighted, ITM with subtle green/red tint
+          var rowBg = isAtm ? styles.chainAtm
+            : callMon === 'ITM' ? styles.chainItm
+            : putMon === 'ITM' ? styles.chainItmPut
+            : null;
 
           return (
             <View key={idx} style={[styles.chainRow, rowBg]}>
               {/* CALL side */}
               <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                 <View style={{ flex: 1, alignItems: 'center' }}>
-                  <Text style={styles.chainDelta}>{callGreeks.delta.toFixed(2)}</Text>
+                  <Text style={[styles.chainDelta, callMon === 'ITM' && { color: C.green, fontWeight: '700' }]}>{callGreeks.delta.toFixed(2)}</Text>
                 </View>
                 <View style={{ flex: 1.2, alignItems: 'center' }}>
-                  <Text style={styles.chainPrice}>{'R$ ' + fmt(callPrice)}</Text>
+                  <Text style={[styles.chainPrice, callMon === 'ITM' && { color: C.green }]}>{'R$ ' + fmt(callPrice)}</Text>
                 </View>
                 <View style={{ flex: 0.8, alignItems: 'center' }}>
                   <Badge text={callMon} color={monColor[callMon] || C.dim} />
                 </View>
               </View>
 
-              {/* Strike center */}
+              {/* Strike center + distance */}
               <View style={styles.chainStrike}>
                 <Text style={{
                   fontSize: 13, fontWeight: '700', fontFamily: F.mono,
                   color: isAtm ? C.accent : C.text,
                 }}>
                   {fmt(sk)}
+                </Text>
+                <Text style={{ fontSize: 8, color: distColor, fontFamily: F.mono, marginTop: 1 }}>
+                  {isAtm ? 'ATM' : distStr}
                 </Text>
               </View>
 
@@ -1252,10 +1293,10 @@ function CadeiaSintetica(props) {
                   <Badge text={putMon} color={monColor[putMon] || C.dim} />
                 </View>
                 <View style={{ flex: 1.2, alignItems: 'center' }}>
-                  <Text style={styles.chainPrice}>{'R$ ' + fmt(putPrice)}</Text>
+                  <Text style={[styles.chainPrice, putMon === 'ITM' && { color: C.red }]}>{'R$ ' + fmt(putPrice)}</Text>
                 </View>
                 <View style={{ flex: 1, alignItems: 'center' }}>
-                  <Text style={styles.chainDelta}>{putGreeks.delta.toFixed(2)}</Text>
+                  <Text style={[styles.chainDelta, putMon === 'ITM' && { color: C.red, fontWeight: '700' }]}>{putGreeks.delta.toFixed(2)}</Text>
                 </View>
               </View>
             </View>
@@ -2348,6 +2389,7 @@ var styles = StyleSheet.create({
   chainPrice: { fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.mono },
   chainDelta: { fontSize: 11, color: C.dim, fontFamily: F.mono },
   chainItm: { backgroundColor: 'rgba(34,197,94,0.06)' },
+  chainItmPut: { backgroundColor: 'rgba(239,68,68,0.06)' },
   chainAtm: { backgroundColor: 'rgba(245,158,11,0.06)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)' },
 
 });
