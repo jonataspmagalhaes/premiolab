@@ -329,7 +329,7 @@ export async function upsertSaldo(userId, data) {
   }
   var result = await supabase
     .from('saldos_corretora')
-    .upsert(payload, { onConflict: 'user_id,corretora' });
+    .upsert(payload, { onConflict: 'user_id,corretora,moeda' });
   return { error: result.error };
 }
 
