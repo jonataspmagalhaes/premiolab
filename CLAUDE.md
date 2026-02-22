@@ -35,7 +35,7 @@ src/
     auth/          Login + Onboarding
     carteira/      Portfolio (Carteira, AddOperacao, EditOperacao, AssetDetail)
     gestao/        Gestao (GestaoScreen, CaixaView, AddMovimentacao, Extrato, AddConta)
-    home/          Dashboard principal (donuts, grafico patrimonio, alertas)
+    home/          Dashboard principal (patrimonio, renda, KPIs, alertas, eventos)
     mais/          Menu + Configs (Meta, Corretoras, Alertas, Selic, Guia, Sobre, Historico)
     opcoes/        Opcoes (lista, add, edit, simulador BS)
     proventos/     Proventos (lista, add, edit)
@@ -235,24 +235,16 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - DTE badge no header de cada card
 
 ### Home (HomeScreen)
-- Card de patrimonio com variacao + barra de alocacao por classe
-- **Donuts Double Ring**: aneis concentricos comparando mes atual vs anterior
-  - Anel interno = mes atual, anel externo = mes anterior
-  - Cores dinamicas: verde = mes melhor, vermelho = mes pior
-  - Escala proporcional: maior valor = 100% (anel completo), menor proporcional
-  - Transparencia nos aneis (strokeOpacity 0.7) para legibilidade
-  - Legenda padronizada "Atual / Ant." com dots coloridos + % comparativo
-  - Subtitulo "MES ANO · ATUAL vs ANTERIOR" nos cards
-  - Prop `subLines` para info extra (ex: Recebido/A receber em Dividendos)
-- Card de renda mensal (dividendos + premios + RF)
-- Card de ganhos acumulados (acoes, FIIs, ETFs, RF, total)
-- **Grafico de patrimonio**: InteractiveChart com pontos semanais, eixo Y com valores (k/M), eixo X com datas
+- **Patrimonio Hero**: card principal com valor total, rentabilidade mes (%), breakdown RV/RF, InteractiveChart com pontos semanais, allocation bar + legenda
+- **KPI Bar**: 3 chips horizontais logo apos o hero (Rent. Mes %, Posicoes count, Opcoes count + venc 7d)
+- **Renda do Mes** (simplificado): total grande com badge comparativo vs mes anterior (% em verde/vermelho), 5 breakdown rows compactos (dot + label + valor), meta progress bar + % + faltam R$
 - **Snapshots de patrimonio**: salva valor real (cotacao brapi) ao abrir o app via `upsertPatrimonioSnapshot`
-- Alertas inteligentes
-- Timeline de eventos (vencimentos opcoes, vencimentos RF)
+- Alertas inteligentes (criticos separados de info, colapsa info se >2)
+- Timeline de eventos (vencimentos opcoes, vencimentos RF, max 3 itens)
 - **Auto-trigger indicadores**: dispara `runDailyCalculation` em background apos 18h BRT em dias uteis
 - **Auto-trigger dividend sync**: dispara `runDividendSync` fire-and-forget apos 18h BRT em dias uteis
 - **Alerta dividendo hoje**: se `proventosHoje` do dashboard tem itens, mostra alerta verde "Dividendo sendo pago hoje" com tickers e total, badge "HOJE"
+- Layout: Header → Hero → KPI Bar → Renda do Mes → Alertas → Eventos → FAB (~960 linhas, ~25 data points, scroll ~2 telas)
 
 ### Renda Fixa (RendaFixaScreen)
 - Suporte a CDB, LCI/LCA, Tesouro Selic/IPCA/Pre, Debenture
@@ -424,7 +416,7 @@ Grava o valor real do patrimonio periodicamente para construir o grafico de evol
 |---------|---------|
 | `supabase/functions/weekly-snapshot/index.ts` | Edge Function — busca brapi, calcula patrimonio, upsert snapshots |
 | `src/services/database.js` | getPatrimonioSnapshots, upsertPatrimonioSnapshot, merge no getDashboard |
-| `src/screens/home/HomeScreen.js` | Salva snapshot ao abrir, donuts double ring |
+| `src/screens/home/HomeScreen.js` | Salva snapshot ao abrir |
 | `src/components/InteractiveChart.js` | Pontos semanais, eixo Y com valores, eixo X com datas |
 | `supabase-migration.sql` | Tabela patrimonio_snapshots, pg_cron + Edge Function |
 
@@ -657,7 +649,7 @@ Treze rodadas (P0-P12) de melhorias de usabilidade cobrindo contraste, touch tar
 ### P1 — Home, Opcoes, Extrato
 - **Home KPI bar**: substituiu GlassCard 4-StatRow por 3 chips horizontais (Rent. Mes, Posicoes, Opcoes)
 - **Home alertas agrupados**: `alertsExpanded` state, separa criticos de info, colapsa info se >2
-- **Skeleton loading**: espelha layout real da Home (hero, KPIs, donuts, alertas, grafico)
+- **Skeleton loading**: espelha layout real da Home (hero, KPIs, renda, alertas, eventos)
 - **OpcoesScreen**: removeu DTE duplicado dos greeks e corretora duplicada do bottom row
 - **ExtratoScreen**: reverter saldo automaticamente ao excluir movimentacao (iguala CaixaView)
 
@@ -872,7 +864,7 @@ Suporte a stocks e ETFs internacionais (NYSE/NASDAQ) com cotacoes via Yahoo Fina
 ### UI
 - **AddOperacaoScreen**: 5 categorias (Acao, FII, ETF BR, Stocks, ETF INT), moeda dinamica R$/US$, corretoras BR vs INT, taxa_cambio salva na operacao
 - **CarteiraScreen**: filtro "Stocks" (fuchsia), badge INT/BR nos cards, dual price "US$ X ≈ R$ Y", corretoras INT (Avenue, Nomad, Interactive Brokers, etc.)
-- **HomeScreen**: categoria stock_int no donut e ganhos acumulados
+- **HomeScreen**: categoria stock_int na alocacao e renda mensal
 - **AnaliseScreen**: stock_int em performance, IR (15% sem isencao 20k), rebalanceamento (perfis atualizados)
 - **RelatoriosScreen**: IR com secao "Stocks Internacionais"
 - **AssetDetailScreen**: routing Yahoo para ativos INT, precos em US$
@@ -904,10 +896,40 @@ Suporte a stocks e ETFs internacionais (NYSE/NASDAQ) com cotacoes via Yahoo Fina
 | `src/screens/carteira/CarteiraScreen.js` | Filtro Stocks, badge INT, dual price, allocMap |
 | `src/screens/carteira/EditOperacaoScreen.js` | stock_int label, badge INT, mercado persist |
 | `src/screens/carteira/AssetDetailScreen.js` | Routing Yahoo, moeda US$ |
-| `src/screens/home/HomeScreen.js` | P map, ganhosPorCat com stock_int |
+| `src/screens/home/HomeScreen.js` | stock_int na alocacao e renda |
 | `src/screens/analise/AnaliseScreen.js` | ~15 locais: categorias, IR 15%, rebalance, perfSub |
 | `src/screens/relatorios/RelatoriosScreen.js` | IR stock_int, catColor |
 | `supabase/functions/weekly-snapshot/index.ts` | Yahoo prices + cambio USD |
+
+## Simplificacao HomeScreen P0 (Implementado)
+
+Refactor para reduzir complexidade visual e scroll depth da HomeScreen. Reduziu de ~1533 linhas/60+ data points para ~960 linhas/~25 data points visíveis (~2 telas de scroll).
+
+### Removido
+- **DonutMini** (~300 linhas SVG triple-ring) — import `react-native-svg` removido
+- **Ganhos Acumulados** — GlassCard com breakdown por categoria (duplicava info da Carteira/Analise)
+- **Maiores Altas/Baixas** — 10 tickers com 5 campos cada (pertence a Carteira)
+- **Meus Ativos fallback** — raramente exibido (pertence a Carteira)
+- Componentes: QuoteRow, IncomeCard, fmtDonut, StatRow
+- Computacoes: ganhosPorCat, ganhosTotal, topGainers, topLosers, posWithPrice, sorted
+
+### Simplificado
+- **Renda do Mes**: removido DonutMini + subtitle "ATUAL vs ANTERIOR". Novo layout com total grande (R$) + badge comparativo vs mes anterior (% verde/vermelho). Breakdown rows e meta progress bar mantidos
+
+### Reordenado
+- **KPI Bar** movido de apos Ganhos Acumulados para logo apos Patrimonio Hero
+
+### Limitado
+- **Proximos Eventos**: de `slice(0, 5)` para `slice(0, 3)`
+
+### Metricas
+| Metrica | Antes | Depois |
+|---------|-------|--------|
+| Linhas de codigo | ~1.533 | ~960 (-37%) |
+| Data points visiveis | 60+ | ~25 (-58%) |
+| Componentes SVG | DonutMini (300 linhas) | 0 |
+| Scroll depth | 5+ telas | ~2 telas |
+| Secoes removidas | 0 | 4 |
 
 ## Proximas Melhorias Possiveis
 
