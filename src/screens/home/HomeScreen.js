@@ -11,7 +11,6 @@ import { getDashboard, getIndicators, getProfile, upsertPatrimonioSnapshot } fro
 import { clearPriceCache } from '../../services/priceService';
 import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { runDividendSync, shouldSyncDividends } from '../../services/dividendService';
-import Svg, { Circle as SvgCircle } from 'react-native-svg';
 import { Badge, Logo, Wordmark, InfoTip } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import InteractiveChart from '../../components/InteractiveChart';
@@ -114,53 +113,6 @@ function AlertRow(props) {
   return content;
 }
 
-function QuoteRow({ ticker, tipo, qty, pm, precoAtual, changeDay, pl, onPress, last }) {
-  var prod = P[tipo || 'acao'] || P.acao;
-  var hasPrice = precoAtual != null;
-  var isUp = changeDay > 0;
-  var varColor = isUp ? '#22c55e' : changeDay < 0 ? '#ef4444' : 'rgba(255,255,255,0.4)';
-
-  return (
-    <TouchableOpacity activeOpacity={0.7} onPress={onPress}
-      style={{
-        flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10,
-        borderBottomWidth: last ? 0 : 1, borderBottomColor: 'rgba(255,255,255,0.04)',
-      }}>
-      <View style={{
-        width: 36, height: 36, borderRadius: 10,
-        backgroundColor: prod.color + '10', borderWidth: 1, borderColor: prod.color + '22',
-        justifyContent: 'center', alignItems: 'center',
-      }}>
-        <Text style={{ fontSize: 12, fontWeight: '700', color: prod.color, fontFamily: F.mono }}>
-          {ticker ? ticker.substring(0, 2) : '??'}
-        </Text>
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: 14, fontWeight: '600', color: '#fff', fontFamily: F.display }}>{ticker}</Text>
-        <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono, marginTop: 1 }}>
-          {qty} un · PM R$ {fmt2(pm)}
-        </Text>
-      </View>
-      <View style={{ alignItems: 'flex-end' }}>
-        {hasPrice ? (
-          <>
-            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: '#fff', fontFamily: F.mono }}>
-              R$ {fmt2(precoAtual)}
-            </Text>
-            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 11, fontWeight: '700', color: varColor, fontFamily: F.mono, marginTop: 2 }}>
-              {isUp ? '▲' : changeDay < 0 ? '▼' : '–'} {Math.abs(changeDay || 0).toFixed(2)}%
-            </Text>
-          </>
-        ) : (
-          <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.4)', fontFamily: F.mono }}>
-            {fmt(qty * pm)}
-          </Text>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
-}
-
 function CalItem({ dia, diaSemana, titulo, detalhe, tipo, last }) {
   var c = tipo === 'opcao' ? P.opcao.color : tipo === 'rf' ? P.rf.color : P.acao.color;
   return (
@@ -188,333 +140,6 @@ function CalItem({ dia, diaSemana, titulo, detalhe, tipo, last }) {
   );
 }
 
-function IncomeCard({ label, subtitle, value, color }) {
-  var c = color || '#0ea5e9';
-  return (
-    <GlassCard pad={14} glow={c} style={{ flex: 1, marginBottom: 0 }}>
-      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1, textTransform: 'uppercase' }}>
-        {label}
-      </Text>
-      {subtitle ? (
-        <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.18)', fontFamily: F.body, marginTop: 1 }}>{subtitle}</Text>
-      ) : null}
-      <Text style={{ fontSize: 16, fontWeight: '800', color: c, fontFamily: F.display, marginTop: 6 }}>
-        {fmt(value)}
-      </Text>
-    </GlassCard>
-  );
-}
-
-function fmtDonut(v) {
-  var abs = Math.abs(v || 0);
-  var s = v < 0 ? '-' : '';
-  return s + Number(abs).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-}
-
-function DonutMini(props) {
-  var value = props.value || 0;
-  var prevValue = props.prevValue;
-  var hasPrev = prevValue != null && prevValue !== undefined;
-  var label = props.label || '';
-  var color = props.color || C.accent;
-  var size = props.size || 80;
-  var meta = props.meta;
-  var isTotalDonut = props.isTotal;
-  var subLines = props.subLines;
-  var segments = props.segments; // [{ value, color, label }]
-
-  // tapState: -1 = total atual, -2 = total anterior, 0..N = segment index
-  var _tapState = useState(-1);
-  var tapState = _tapState[0];
-  var setTapState = _tapState[1];
-
-  // ── Triple Ring Chart — concentric rings ──
-  var segStroke = 8;
-  var outerStroke = 6;
-  var innerStroke = 7;
-  var gap = 4;
-
-  // Segments ring (outermost) — only if segments provided
-  var hasSegments = segments && segments.length > 0;
-  var segRadius = (size - segStroke) / 2;
-  var segCirc = 2 * Math.PI * segRadius;
-
-  // Filter segments with value > 0 for display
-  var activeSegs = [];
-  var segTotal = 0;
-  if (hasSegments) {
-    for (var si = 0; si < segments.length; si++) {
-      var sv = Math.abs(segments[si].value || 0);
-      segTotal += sv;
-      if (sv > 0) {
-        activeSegs.push({ value: sv, color: segments[si].color, label: segments[si].label || '', rawValue: segments[si].value || 0 });
-      }
-    }
-  }
-
-  // Build segment arcs
-  var segArcs = [];
-  if (segTotal > 0) {
-    var segAngle = -90;
-    for (var sj = 0; sj < activeSegs.length; sj++) {
-      var segPct = activeSegs[sj].value / segTotal;
-      var segLen = segCirc * segPct;
-      var segGapVal = activeSegs.length > 1 ? 3 : 0;
-      var segDash = Math.max(segLen - segGapVal, 1);
-      segArcs.push({
-        color: activeSegs[sj].color,
-        dasharray: segDash + ' ' + (segCirc - segDash),
-        rotation: segAngle,
-        idx: sj,
-      });
-      segAngle += segPct * 360;
-    }
-  }
-
-  var prevRadius = hasSegments ? segRadius - segStroke / 2 - gap - outerStroke / 2 : (size - outerStroke) / 2;
-  var prevCirc = 2 * Math.PI * prevRadius;
-  var curRadius = prevRadius - outerStroke / 2 - gap - innerStroke / 2;
-  var curCirc = 2 * Math.PI * curRadius;
-
-  // Dynamic scale: 100% = max(|value|, |prevValue|)
-  var absVal = Math.abs(value);
-  var absPrev = Math.abs(prevValue || 0);
-  var maxRef = Math.max(absVal, absPrev, 1);
-  var curPct = Math.min((absVal / maxRef) * 100, 100);
-  var prevPct = hasPrev ? Math.min((absPrev / maxRef) * 100, 100) : 0;
-
-  var curOffset = curCirc - (curCirc * curPct / 100);
-  var prevOffset = prevCirc - (prevCirc * prevPct / 100);
-
-  // Dynamic colors: green = better month, red = worse month
-  var atualMelhor = value >= (prevValue || 0);
-  var curColor = atualMelhor ? '#22C55E' : '#EF4444';
-  var prevColor = atualMelhor ? '#EF4444' : '#22C55E';
-
-  // Comparison %
-  var comparePct = '';
-  if (hasPrev && Math.abs(prevValue) > 0) {
-    var changePct = ((value - prevValue) / Math.abs(prevValue)) * 100;
-    if (changePct > 0) {
-      comparePct = '+' + changePct.toFixed(0) + '%';
-    } else if (changePct < 0) {
-      comparePct = changePct.toFixed(0) + '%';
-    } else {
-      comparePct = '0%';
-    }
-  }
-
-  // Center display based on tapState
-  var displayValue, displayColor, displayLabel;
-  if (tapState >= 0 && tapState < activeSegs.length) {
-    // Showing a segment
-    displayValue = activeSegs[tapState].rawValue;
-    displayColor = activeSegs[tapState].color;
-    displayLabel = activeSegs[tapState].label;
-  } else if (tapState === -2) {
-    // Showing previous month total
-    displayValue = prevValue || 0;
-    displayColor = prevColor;
-    displayLabel = 'Anterior';
-  } else {
-    // Default: showing current total
-    displayValue = value;
-    displayColor = curColor;
-    displayLabel = '';
-  }
-  var centerNum = fmtDonut(displayValue);
-  var showingSegment = tapState >= 0 && tapState < activeSegs.length;
-  var segPctLabel = showingSegment && segTotal > 0 ? (activeSegs[tapState].value / segTotal * 100).toFixed(0) + '%' : '';
-
-  // Tap cycles: total atual → segments → total anterior → total atual
-  var onTap = function () {
-    if (hasSegments && activeSegs.length > 0) {
-      if (tapState === -1) {
-        // Go to first segment
-        setTapState(0);
-      } else if (tapState >= 0 && tapState < activeSegs.length - 1) {
-        // Next segment
-        setTapState(tapState + 1);
-      } else if (tapState >= 0 && tapState === activeSegs.length - 1) {
-        // After last segment, go to previous month
-        if (hasPrev) {
-          setTapState(-2);
-        } else {
-          setTapState(-1);
-        }
-      } else {
-        // From previous month, back to total
-        setTapState(-1);
-      }
-    } else if (hasPrev) {
-      setTapState(tapState === -1 ? -2 : -1);
-    }
-  };
-
-  var center = size / 2;
-
-  return (
-    <View style={{ alignItems: 'center', width: size + 16 }}>
-      <Text style={{
-        fontSize: 11, color: 'rgba(255,255,255,0.45)', fontFamily: F.mono,
-        letterSpacing: 0.8, textTransform: 'uppercase', fontWeight: '600',
-        marginBottom: 6, textAlign: 'center',
-      }}>{label}</Text>
-
-      <TouchableOpacity activeOpacity={0.7} onPress={onTap}>
-        <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
-          <Svg width={size} height={size} style={{ position: 'absolute' }}>
-            {/* Segments ring (outermost) — category breakdown */}
-            {hasSegments ? (
-              <SvgCircle
-                cx={center} cy={center} r={segRadius}
-                stroke="rgba(255,255,255,0.03)"
-                strokeWidth={segStroke}
-                fill="none"
-              />
-            ) : null}
-            {segArcs.map(function(arc, idx) {
-              var isSelected = tapState === arc.idx;
-              var isAnySelected = tapState >= 0;
-              return (
-                <SvgCircle
-                  key={'seg' + idx}
-                  cx={center} cy={center} r={segRadius}
-                  stroke={arc.color}
-                  strokeWidth={isSelected ? segStroke + 3 : segStroke}
-                  strokeOpacity={isAnySelected ? (isSelected ? 1 : 0.3) : 0.85}
-                  fill="none"
-                  strokeDasharray={arc.dasharray}
-                  rotation={arc.rotation}
-                  origin={center + ',' + center}
-                />
-              );
-            })}
-            {/* Previous month ring (middle) background */}
-            <SvgCircle
-              cx={center} cy={center} r={prevRadius}
-              stroke="rgba(255,255,255,0.05)"
-              strokeWidth={outerStroke}
-              fill="none"
-            />
-            {/* Previous month ring */}
-            {prevPct > 0 ? (
-              <SvgCircle
-                cx={center} cy={center} r={prevRadius}
-                stroke={prevColor}
-                strokeWidth={outerStroke}
-                strokeOpacity={0.7}
-                fill="none"
-                strokeDasharray={prevCirc}
-                strokeDashoffset={prevOffset}
-                strokeLinecap="round"
-                rotation={-90}
-                origin={center + ',' + center}
-              />
-            ) : null}
-            {/* Current month ring (innermost) background */}
-            <SvgCircle
-              cx={center} cy={center} r={curRadius}
-              stroke="rgba(255,255,255,0.05)"
-              strokeWidth={innerStroke}
-              fill="none"
-            />
-            {/* Current month ring */}
-            {curPct > 0 ? (
-              <SvgCircle
-                cx={center} cy={center} r={curRadius}
-                stroke={curColor}
-                strokeWidth={innerStroke}
-                strokeOpacity={0.7}
-                fill="none"
-                strokeDasharray={curCirc}
-                strokeDashoffset={curOffset}
-                strokeLinecap="round"
-                rotation={-90}
-                origin={center + ',' + center}
-              />
-            ) : null}
-          </Svg>
-
-          {/* Center value */}
-          <View style={{ alignItems: 'center' }}>
-            {showingSegment ? (
-              <>
-                <Text style={{
-                  fontSize: 9, fontWeight: '600', color: displayColor, fontFamily: F.mono,
-                  marginBottom: 2, textAlign: 'center',
-                }}>{displayLabel}</Text>
-                <Text style={{
-                  fontSize: isTotalDonut ? 16 : 14,
-                  fontWeight: '800', color: displayColor, fontFamily: F.mono, textAlign: 'center',
-                }}>{centerNum}</Text>
-                <Text style={{
-                  fontSize: 10, fontWeight: '700', color: displayColor, fontFamily: F.mono,
-                  marginTop: 1, opacity: 0.7,
-                }}>{segPctLabel}</Text>
-              </>
-            ) : (
-              <>
-                <Text style={{
-                  fontSize: 9, fontWeight: '600', color: curColor, fontFamily: F.mono,
-                  letterSpacing: 1, marginBottom: 2, opacity: 0.7,
-                }}>MÊS ATUAL</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}>
-                  <Text style={{
-                    fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.35)', fontFamily: F.mono,
-                  }}>R$</Text>
-                  <Text style={{
-                    fontSize: isTotalDonut ? 28 : 20,
-                    fontWeight: '800', color: curColor, fontFamily: F.display, textAlign: 'center',
-                  }}>{fmtDonut(value)}</Text>
-                </View>
-                {hasPrev ? (
-                  <>
-                    <Text style={{
-                      fontSize: 8, fontWeight: '600', color: prevColor, fontFamily: F.mono,
-                      letterSpacing: 0.8, marginTop: 6, marginBottom: 1, opacity: 0.7,
-                    }}>MÊS ANTERIOR</Text>
-                    <Text style={{
-                      fontSize: 14, fontWeight: '600', color: prevColor, fontFamily: F.mono,
-                    }}>{fmtDonut(prevValue || 0)}</Text>
-                  </>
-                ) : null}
-                {comparePct ? (
-                  <Text style={{
-                    fontSize: 16, fontWeight: '800', fontFamily: F.mono, marginTop: 4,
-                    color: atualMelhor ? '#22c55e' : '#ef4444',
-                  }}>{comparePct}</Text>
-                ) : null}
-              </>
-            )}
-          </View>
-        </View>
-      </TouchableOpacity>
-
-      {/* Ring legend */}
-      {hasSegments ? (
-        <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontFamily: F.mono, marginTop: 4, textAlign: 'center' }}>
-          toque para detalhar
-        </Text>
-      ) : null}
-
-      {/* Optional sub-lines (e.g. Recebido / A receber) */}
-      {subLines && subLines.length > 0 ? (
-        <View style={{ alignItems: 'center', marginTop: 2 }}>
-          {subLines.map(function (line, idx) {
-            if (!line) return null;
-            return (
-              <Text key={idx} style={{ fontSize: 9, color: line.color || 'rgba(255,255,255,0.3)', fontFamily: F.mono }}>
-                {line.text}
-              </Text>
-            );
-          })}
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
 function SLabel({ children, right }) {
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -523,27 +148,6 @@ function SLabel({ children, right }) {
         letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '600',
       }}>{children}</Text>
       {right || null}
-    </View>
-  );
-}
-
-// Stat row for Resumo
-function StatRow({ label, value, sub, color, last }) {
-  return (
-    <View style={{
-      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-      paddingVertical: 10,
-      borderBottomWidth: last ? 0 : 1, borderBottomColor: 'rgba(255,255,255,0.04)',
-    }}>
-      <View>
-        <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontFamily: F.body }}>{label}</Text>
-        {sub ? (
-          <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, marginTop: 2 }}>{sub}</Text>
-        ) : null}
-      </View>
-      <Text style={{ fontSize: 15, fontWeight: '700', color: color || '#fff', fontFamily: F.mono }}>
-        {value}
-      </Text>
     </View>
   );
 }
@@ -682,19 +286,6 @@ export default function HomeScreen({ navigation }) {
   var plMedia3m = data.plMedia3m || 0;
   var rendaMediaAnual = data.rendaMediaAnual || 0;
 
-  // Ganhos acumulados por categoria (P&L posicoes)
-  var ganhosPorCat = { acao: 0, fii: 0, rf: 0, etf: 0, stock_int: 0 };
-  for (var gi = 0; gi < positions.length; gi++) {
-    var gPos = positions[gi];
-    var gCat = gPos.categoria || 'acao';
-    if (gCat !== 'acao' && gCat !== 'fii' && gCat !== 'etf' && gCat !== 'stock_int') gCat = 'acao';
-    var gPreco = gPos.preco_atual || gPos.pm;
-    ganhosPorCat[gCat] += (gPreco - gPos.pm) * gPos.quantidade;
-  }
-  // RF ganho = rendimento estimado mensal
-  ganhosPorCat.rf = rfRendaMensal;
-  var ganhosTotal = ganhosPorCat.acao + ganhosPorCat.fii + ganhosPorCat.etf + ganhosPorCat.stock_int + ganhosPorCat.rf;
-
   var metaPct = meta > 0 ? Math.min((rendaTotalMes / meta) * 100, 150) : 0;
 
   // Allocation
@@ -732,12 +323,6 @@ export default function HomeScreen({ navigation }) {
     }
   }
   var hasRealChart = filteredChartData.length >= 2;
-
-  // Top gainers / losers (need preco_atual from brapi)
-  var posWithPrice = positions.filter(function (p) { return p.preco_atual != null; });
-  var sorted = posWithPrice.slice().sort(function (a, b) { return (b.change_day || 0) - (a.change_day || 0); });
-  var topGainers = sorted.filter(function (p) { return (p.change_day || 0) > 0; }).slice(0, 5);
-  var topLosers = sorted.filter(function (p) { return (p.change_day || 0) < 0; }).sort(function (a, b) { return (a.change_day || 0) - (b.change_day || 0); }).slice(0, 5);
 
   // Proventos pagos hoje
   var proventosHoje = data.proventosHoje || [];
@@ -834,6 +419,14 @@ export default function HomeScreen({ navigation }) {
   if (alerts.length === 0) {
     alerts.push({ type: 'ok', title: 'Tudo em ordem', desc: 'Nenhum alerta no momento.', badge: 'OK' });
   }
+
+  // Renda comparação vs mês anterior
+  var rendaCompare = '';
+  if (rendaTotalMesAnterior > 0) {
+    var rendaChangePct = ((rendaTotalMes - rendaTotalMesAnterior) / Math.abs(rendaTotalMesAnterior)) * 100;
+    rendaCompare = (rendaChangePct > 0 ? '+' : '') + rendaChangePct.toFixed(0) + '% vs ant.';
+  }
+  var rendaBetter = rendaTotalMes >= rendaTotalMesAnterior;
 
   // ══════════ RENDER ══════════
   return (
@@ -984,35 +577,59 @@ export default function HomeScreen({ navigation }) {
           </View>
         </GlassCard>
 
-        {/* RENDA DO MÊS — donuts + meta */}
+        {/* KPI BAR — resumo compacto horizontal */}
+        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 14 }}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+            <Text style={{ fontSize: 10, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>RENT. MÊS</Text>
+            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 15, fontWeight: '800', color: rentabilidadeMes > 1 ? C.green : C.yellow, fontFamily: F.mono, marginTop: 2 }}>
+              {rentabilidadeMes.toFixed(2) + '%'}
+            </Text>
+          </View>
+          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+            <Text style={{ fontSize: 10, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>POSIÇÕES</Text>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, fontFamily: F.mono, marginTop: 2 }}>
+              {positions.length + rendaFixa.length}
+            </Text>
+          </View>
+          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+            <Text style={{ fontSize: 10, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>OPÇÕES</Text>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: P.opcao.color, fontFamily: F.mono, marginTop: 2 }}>
+              {opsAtivas}
+            </Text>
+            {opsVenc7d > 0 ? (
+              <Text style={{ fontSize: 10, color: C.red, fontFamily: F.mono }}>
+                {opsVenc7d + ' venc. 7d'}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+
+        {/* RENDA DO MÊS — simplificado */}
         <GlassCard glow="rgba(108,92,231,0.10)">
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}>
             <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '600' }}>RENDA DO MÊS</Text>
             <TouchableOpacity onPress={function() { setInfoModal({ title: 'Renda do Mês', text: 'P&L de opções (prêmios - recompras) + dividendos/JCP + juros RF no mês. Opções mostra o P&L líquido, podendo ser negativo em meses com recompra.' }); }}>
               <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
             </TouchableOpacity>
           </View>
-          <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.20)', fontFamily: F.mono, letterSpacing: 0.5, textAlign: 'center', marginTop: -6, marginBottom: 10 }}>
-            {new Date().toLocaleString('pt-BR', { month: 'short' }).toUpperCase() + ' ' + new Date().getFullYear() + '  ·  ATUAL vs ANTERIOR'}
-          </Text>
 
-          <View style={{ alignItems: 'center', marginBottom: 16 }}>
-            <DonutMini
-              label="Total"
-              value={rendaTotalMes}
-              prevValue={rendaTotalMesAnterior}
-              color={C.accent}
-              size={220}
-              meta={meta}
-              isTotal={true}
-              segments={[
-                { value: plMes, color: P.opcao.color, label: 'P&L Opções' },
-                { value: dividendosCatMes.acao, color: P.acao.color, label: 'Div. Ações' },
-                { value: dividendosCatMes.fii, color: P.fii.color, label: 'Rend. FIIs' },
-                { value: dividendosCatMes.etf, color: P.etf.color, label: 'Div. ETFs' },
-                { value: rfRendaMensal, color: C.rf, label: 'Renda Fixa' },
-              ]}
-            />
+          {/* Total grande + comparação vs anterior */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 26, fontWeight: '800', color: rendaTotalMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.display }}>
+              {fmt(rendaTotalMes)}
+            </Text>
+            {rendaCompare ? (
+              <View style={{
+                backgroundColor: (rendaBetter ? '#22c55e' : '#ef4444') + '15',
+                borderWidth: 1,
+                borderColor: (rendaBetter ? '#22c55e' : '#ef4444') + '30',
+                borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
+              }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: rendaBetter ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+                  {rendaCompare}
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           {/* Discriminação por tipo */}
@@ -1023,7 +640,7 @@ export default function HomeScreen({ navigation }) {
                 <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>P&L Opções</Text>
               </View>
               <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: plMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
-                {'R$ ' + fmt(plMes)}
+                {fmt(plMes)}
               </Text>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1032,7 +649,7 @@ export default function HomeScreen({ navigation }) {
                 <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos Ações</Text>
               </View>
               <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.acao > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
-                {'R$ ' + fmt(dividendosCatMes.acao)}
+                {fmt(dividendosCatMes.acao)}
               </Text>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1041,7 +658,7 @@ export default function HomeScreen({ navigation }) {
                 <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Rendimentos FIIs</Text>
               </View>
               <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.fii > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
-                {'R$ ' + fmt(dividendosCatMes.fii)}
+                {fmt(dividendosCatMes.fii)}
               </Text>
             </View>
             {dividendosCatMes.etf > 0 ? (
@@ -1051,7 +668,7 @@ export default function HomeScreen({ navigation }) {
                   <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos ETFs</Text>
                 </View>
                 <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }}>
-                  {'R$ ' + fmt(dividendosCatMes.etf)}
+                  {fmt(dividendosCatMes.etf)}
                 </Text>
               </View>
             ) : null}
@@ -1061,14 +678,7 @@ export default function HomeScreen({ navigation }) {
                 <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Renda Fixa</Text>
               </View>
               <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: rfRendaMensal > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
-                {'R$ ' + fmt(rfRendaMensal)}
-              </Text>
-            </View>
-            <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginVertical: 2 }} />
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: 12, color: C.text, fontFamily: F.display, fontWeight: '700' }}>Total do Mês</Text>
-              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 14, fontWeight: '800', color: rendaTotalMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
-                {'R$ ' + fmt(rendaTotalMes)}
+                {fmt(rfRendaMensal)}
               </Text>
             </View>
           </View>
@@ -1097,9 +707,9 @@ export default function HomeScreen({ navigation }) {
               ) : null}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
                 <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 14, color: rendaMediaAnual >= meta ? '#22c55e' : 'rgba(255,255,255,0.45)', fontFamily: F.mono, fontWeight: '700' }}>
-                  {'Média ' + new Date().getFullYear() + ': R$ ' + fmt(rendaMediaAnual) + '/mês'}
+                  {'Média ' + new Date().getFullYear() + ': ' + fmt(rendaMediaAnual) + '/mês'}
                 </Text>
-                <TouchableOpacity onPress={function() { Alert.alert('Média Anual', 'Média calculada com base nos meses completos do ano. O mês atual (incompleto) não entra no denominador para não distorcer o resultado.'); }}>
+                <TouchableOpacity onPress={function() { setInfoModal({ title: 'Média Anual', text: 'Média calculada com base nos meses completos do ano. O mês atual (incompleto) não entra no denominador para não distorcer o resultado.' }); }}>
                   <Text style={{ fontSize: 12, color: C.accent }}>ⓘ</Text>
                 </TouchableOpacity>
               </View>
@@ -1125,119 +735,6 @@ export default function HomeScreen({ navigation }) {
             </Text>
           ) : null}
         </GlassCard>
-
-        {/* GANHOS ACUMULADOS — donuts por categoria */}
-        <GlassCard glow="rgba(34,197,94,0.06)">
-          <SLabel right={
-            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 10, color: ganhosTotal >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono, fontWeight: '700' }}>
-              {ganhosTotal >= 0 ? '+' : ''}{fmt(ganhosTotal)}
-            </Text>
-          }>GANHOS ACUMULADOS</SLabel>
-          <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.20)', fontFamily: F.mono, letterSpacing: 0.5, textAlign: 'center', marginTop: -6, marginBottom: 10 }}>
-            {new Date().toLocaleString('pt-BR', { month: 'short' }).toUpperCase() + ' ' + new Date().getFullYear() + '  ·  ATUAL vs ANTERIOR'}
-          </Text>
-
-          <View style={{ alignItems: 'center', marginBottom: 16 }}>
-            <DonutMini
-              label="Total"
-              value={ganhosTotal}
-              prevValue={dividendosCatMesAnt.acao + dividendosCatMesAnt.fii + dividendosCatMesAnt.etf}
-              color={ganhosTotal >= 0 ? '#22c55e' : '#ef4444'}
-              size={220}
-              isTotal={true}
-              segments={[
-                { value: ganhosPorCat.acao, color: P.acao.color, label: 'Ações' },
-                { value: ganhosPorCat.fii, color: P.fii.color, label: 'FIIs' },
-                { value: ganhosPorCat.etf, color: P.etf.color, label: 'ETFs' },
-                { value: ganhosPorCat.stock_int, color: P.stock_int.color, label: 'Stocks' },
-                { value: ganhosPorCat.rf, color: P.rf.color, label: 'Renda Fixa' },
-              ]}
-            />
-          </View>
-
-          {/* Discriminação por categoria */}
-          <View style={{ gap: 6 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.acao.color }} />
-                <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Ações</Text>
-              </View>
-              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.acao >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
-                {'R$ ' + fmt(ganhosPorCat.acao)}
-              </Text>
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.fii.color }} />
-                <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>FIIs</Text>
-              </View>
-              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.fii >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
-                {'R$ ' + fmt(ganhosPorCat.fii)}
-              </Text>
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.etf.color }} />
-                <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>ETFs</Text>
-              </View>
-              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.etf >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
-                {'R$ ' + fmt(ganhosPorCat.etf)}
-              </Text>
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.stock_int.color }} />
-                <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Stocks</Text>
-              </View>
-              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.stock_int >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
-                {'R$ ' + fmt(ganhosPorCat.stock_int)}
-              </Text>
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.rf.color }} />
-                <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Renda Fixa</Text>
-              </View>
-              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.rf >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
-                {'R$ ' + fmt(ganhosPorCat.rf)}
-              </Text>
-            </View>
-            <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginVertical: 2 }} />
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: 12, color: C.text, fontFamily: F.display, fontWeight: '700' }}>Total Acumulado</Text>
-              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 14, fontWeight: '800', color: ganhosTotal >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
-                {'R$ ' + fmt(ganhosTotal)}
-              </Text>
-            </View>
-          </View>
-        </GlassCard>
-
-        {/* KPI BAR — resumo compacto horizontal */}
-        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 14 }}>
-          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
-            <Text style={{ fontSize: 10, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>RENT. MÊS</Text>
-            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 15, fontWeight: '800', color: rentabilidadeMes > 1 ? C.green : C.yellow, fontFamily: F.mono, marginTop: 2 }}>
-              {rentabilidadeMes.toFixed(2) + '%'}
-            </Text>
-          </View>
-          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
-            <Text style={{ fontSize: 10, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>POSIÇÕES</Text>
-            <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, fontFamily: F.mono, marginTop: 2 }}>
-              {positions.length + rendaFixa.length}
-            </Text>
-          </View>
-          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
-            <Text style={{ fontSize: 10, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>OPÇÕES</Text>
-            <Text style={{ fontSize: 15, fontWeight: '800', color: P.opcao.color, fontFamily: F.mono, marginTop: 2 }}>
-              {opsAtivas}
-            </Text>
-            {opsVenc7d > 0 ? (
-              <Text style={{ fontSize: 10, color: C.red, fontFamily: F.mono }}>
-                {opsVenc7d + ' venc. 7d'}
-              </Text>
-            ) : null}
-          </View>
-        </View>
 
         {/* ALERTAS */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -1288,93 +785,24 @@ export default function HomeScreen({ navigation }) {
           );
         })()}
 
-        {/* MAIORES ALTAS */}
-        {topGainers.length > 0 ? (
-          <GlassCard glow="rgba(34,197,94,0.06)" style={{ marginTop: 4 }}>
-            <SLabel right={
-              <TouchableOpacity onPress={function () { navigation.navigate('Carteira'); }}>
-                <Text style={{ fontSize: 11, color: '#0ea5e9', fontWeight: '600' }}>Ver todos →</Text>
-              </TouchableOpacity>
-            }>MAIORES ALTAS</SLabel>
-            {topGainers.map(function (p, i) {
-              return (
-                <QuoteRow key={i} ticker={p.ticker} tipo={p.categoria} qty={p.quantidade} pm={p.pm}
-                  precoAtual={p.preco_atual} changeDay={p.change_day}
-                  last={i === topGainers.length - 1}
-                  onPress={function () { navigation.navigate('AssetDetail', { ticker: p.ticker }); }}
-                />
-              );
-            })}
-          </GlassCard>
-        ) : null}
-
-        {/* MAIORES BAIXAS */}
-        {topLosers.length > 0 ? (
-          <GlassCard glow="rgba(239,68,68,0.06)" style={{ marginTop: 4 }}>
-            <SLabel>MAIORES BAIXAS</SLabel>
-            {topLosers.map(function (p, i) {
-              return (
-                <QuoteRow key={i} ticker={p.ticker} tipo={p.categoria} qty={p.quantidade} pm={p.pm}
-                  precoAtual={p.preco_atual} changeDay={p.change_day}
-                  last={i === topLosers.length - 1}
-                  onPress={function () { navigation.navigate('AssetDetail', { ticker: p.ticker }); }}
-                />
-              );
-            })}
-          </GlassCard>
-        ) : null}
-
-        {/* Sem cotações — fallback mostra posições por custo */}
-        {posWithPrice.length === 0 && positions.length > 0 ? (
-          <GlassCard glow="rgba(34,197,94,0.06)" style={{ marginTop: 4 }}>
-            <SLabel right={
-              <TouchableOpacity onPress={function () { navigation.navigate('Carteira'); }}>
-                <Text style={{ fontSize: 11, color: '#0ea5e9', fontWeight: '600' }}>Ver todos →</Text>
-              </TouchableOpacity>
-            }>MEUS ATIVOS</SLabel>
-            <View style={{
-              paddingVertical: 8, paddingHorizontal: 4,
-              backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 8, marginBottom: 8,
-            }}>
-              <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, textAlign: 'center' }}>
-                Cotações indisponíveis no momento · mostrando custo
-              </Text>
-            </View>
-            {positions.slice(0, 5).map(function (p, i) {
-              return (
-                <QuoteRow key={i} ticker={p.ticker} tipo={p.categoria} qty={p.quantidade} pm={p.pm}
-                  last={i === Math.min(positions.length, 5) - 1}
-                  onPress={function () { navigation.navigate('AssetDetail', { ticker: p.ticker }); }}
-                />
-              );
-            })}
-            {positions.length > 5 ? (
-              <TouchableOpacity onPress={function () { navigation.navigate('Carteira'); }} style={{ paddingTop: 10, alignItems: 'center' }}>
-                <Text style={{ fontSize: 12, color: '#0ea5e9', fontWeight: '600' }}>+ {positions.length - 5} ativos</Text>
-              </TouchableOpacity>
-            ) : null}
-          </GlassCard>
-        ) : null}
-
-        {/* PRÓXIMOS EVENTOS — do banco */}
+        {/* PRÓXIMOS EVENTOS */}
         {eventos.length > 0 ? (
           <GlassCard glow="rgba(236,72,153,0.06)">
             <SLabel right={
               <Text style={{ fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.35)', fontFamily: F.mono }}>
-                próximos {eventos.length}
+                próximos {Math.min(eventos.length, 3)}
               </Text>
             }>VENCIMENTOS</SLabel>
-            {eventos.slice(0, 5).map(function (e, i) {
+            {eventos.slice(0, 3).map(function (e, i) {
               return (
                 <CalItem key={i} dia={e.dia} diaSemana={e.diaSemana}
                   titulo={e.titulo} detalhe={e.detalhe} tipo={e.tipo}
-                  last={i === Math.min(eventos.length, 5) - 1}
+                  last={i === Math.min(eventos.length, 3) - 1}
                 />
               );
             })}
           </GlassCard>
         ) : null}
-
 
         <View style={{ height: SIZE.tabBarHeight + 80 }} />
       </ScrollView>
