@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
@@ -73,6 +73,22 @@ export default function EditProventoScreen(props) {
   var _corretora = useState(p.corretora || ''); var corretora = _corretora[0]; var setCorretora = _corretora[1];
   var _corretoras = useState(CORRETORAS_DEFAULT); var corretoras = _corretoras[0]; var setCorretoras = _corretoras[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
+  var savedRef = useRef(false);
+
+  useEffect(function() {
+    return navigation.addListener('beforeRemove', function(e) {
+      if (savedRef.current) return;
+      var isDirty = tipo !== initialTipo || ticker !== (p.ticker || '') ||
+        valor !== String(initialValor || '') || qtd !== String(p.quantidade || '') ||
+        data !== isoToBr(p.data_pagamento) || corretora !== (p.corretora || '');
+      if (!isDirty) return;
+      e.preventDefault();
+      Alert.alert('Descartar alterações?', 'Você tem dados não salvos.', [
+        { text: 'Continuar editando', style: 'cancel' },
+        { text: 'Descartar', style: 'destructive', onPress: function() { navigation.dispatch(e.data.action); } },
+      ]);
+    });
+  }, [navigation, tipo, ticker, valor, qtd, data, corretora]);
 
   useEffect(function() {
     if (!user) return;
@@ -124,6 +140,7 @@ export default function EditProventoScreen(props) {
         Alert.alert('Erro', result.error.message);
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        savedRef.current = true;
         Toast.show({ type: 'success', text1: 'Provento atualizado' });
         navigation.goBack();
       }

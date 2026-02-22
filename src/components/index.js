@@ -6,3 +6,4 @@ export { Logo, Wordmark } from './Logo';
 export { default as InfoTip } from './InfoTip';
 export { default as toastConfig } from './ToastConfig';
 export { default as SwipeableRow } from './SwipeableRow';
+export { default as TickerInput } from './TickerInput';

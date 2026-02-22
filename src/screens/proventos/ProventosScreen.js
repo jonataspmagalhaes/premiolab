@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, StyleSheet, RefreshControl,
   TouchableOpacity, Alert, Modal, ActivityIndicator,
@@ -8,7 +8,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getProventos, deleteProvento, getProfile } from '../../services/database';
+import { getProventos, deleteProvento, addProvento, getProfile } from '../../services/database';
 import { runDividendSync } from '../../services/dividendService';
 import { Glass, Badge, Pill, SectionLabel, SwipeableRow } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
@@ -127,12 +127,30 @@ export default function ProventosScreen(props) {
     setSyncing(false);
   };
 
+  var undoRef = useRef(null);
+
+  var handleUndo = async function() {
+    var saved = undoRef.current;
+    if (!saved || !user) return;
+    undoRef.current = null;
+    var payload = {
+      tipo: saved.tipo_provento || saved.tipo || 'dividendo',
+      ticker: saved.ticker,
+      data_pagamento: saved.data_pagamento,
+      quantidade: saved.quantidade || 1,
+      valor_por_cota: saved.valor_por_cota || 0,
+    };
+    if (saved.corretora) payload.corretora = saved.corretora;
+    await addProvento(user.id, payload);
+    load();
+  };
+
   var handleDelete = function(id) {
     var prov = null;
     for (var di = 0; di < items.length; di++) { if (items[di].id === id) { prov = items[di]; break; } }
     var detailMsg = prov
-      ? (prov.ticker || '') + ' — R$ ' + fmt((prov.valor_por_cota || 0) * (prov.quantidade || 1)) + '\n\nEssa ação não pode ser desfeita.'
-      : 'Essa ação não pode ser desfeita.';
+      ? (prov.ticker || '') + ' — R$ ' + fmt((prov.valor_por_cota || 0) * (prov.quantidade || 1))
+      : 'Excluir este provento?';
     Alert.alert(
       'Excluir provento?',
       detailMsg,
@@ -145,8 +163,16 @@ export default function ProventosScreen(props) {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             var result = await deleteProvento(id);
             if (!result.error) {
+              undoRef.current = prov;
               LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
               setItems(items.filter(function(i) { return i.id !== id; }));
+              Toast.show({
+                type: 'undo',
+                text1: 'Provento excluído',
+                text2: (prov && prov.ticker ? prov.ticker : '') + ' removido',
+                props: { onUndo: handleUndo },
+                visibilityTime: 5000,
+              });
             } else {
               Alert.alert('Erro', 'Falha ao excluir.');
             }

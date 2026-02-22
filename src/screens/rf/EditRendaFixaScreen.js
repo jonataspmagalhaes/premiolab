@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
@@ -96,6 +96,23 @@ export default function EditRendaFixaScreen(props) {
   var s8 = useState(rf.custodia || ''); var custodia = s8[0]; var setCustodia = s8[1];
   var s9 = useState(rf.corretora || ''); var corretora = s9[0]; var setCorretora = s9[1];
   var s10 = useState(false); var loading = s10[0]; var setLoading = s10[1];
+  var savedRef = useRef(false);
+
+  useEffect(function() {
+    return navigation.addListener('beforeRemove', function(e) {
+      if (savedRef.current) return;
+      var isDirty = tipo !== (rf.tipo || '') || indexador !== (rf.indexador || 'prefixado') ||
+        taxa !== String(rf.taxa || '') || valorAplicado !== formatCurrency(rf.valor_aplicado) ||
+        vencimento !== isoToBr(rf.vencimento) || dataAplicacao !== isoToBr(rf.data) ||
+        emissor !== (rf.emissor || '') || corretora !== (rf.corretora || '');
+      if (!isDirty) return;
+      e.preventDefault();
+      Alert.alert('Descartar alterações?', 'Você tem dados não salvos.', [
+        { text: 'Continuar editando', style: 'cancel' },
+        { text: 'Descartar', style: 'destructive', onPress: function() { navigation.dispatch(e.data.action); } },
+      ]);
+    });
+  }, [navigation, tipo, indexador, taxa, valorAplicado, vencimento, dataAplicacao, emissor, corretora]);
 
   function handleTipoSelect(tipoObj) {
     setTipo(tipoObj.key);
@@ -165,6 +182,7 @@ export default function EditRendaFixaScreen(props) {
         Alert.alert('Erro', result.error.message);
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        savedRef.current = true;
         Toast.show({ type: 'success', text1: 'Título atualizado' });
         navigation.goBack();
       }

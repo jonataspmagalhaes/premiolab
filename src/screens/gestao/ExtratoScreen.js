@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, FlatList, StyleSheet, RefreshControl,
   TouchableOpacity, Alert, LayoutAnimation, Platform, UIManager, ActivityIndicator,
@@ -6,7 +6,8 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getSaldos, getMovimentacoes, deleteMovimentacao, upsertSaldo } from '../../services/database';
+import Toast from 'react-native-toast-message';
+import { getSaldos, getMovimentacoes, deleteMovimentacao, upsertSaldo, addMovimentacaoComSaldo } from '../../services/database';
 import { Glass, Pill, Badge, SectionLabel, SwipeableRow } from '../../components';
 import { LoadingScreen } from '../../components/States';
 import * as Haptics from 'expo-haptics';
@@ -145,6 +146,25 @@ export default function ExtratoScreen(props) {
     return parts[2] + '/' + parts[1];
   }
 
+  var undoRef = useRef(null);
+
+  var handleUndo = async function() {
+    var saved = undoRef.current;
+    if (!saved || !user) return;
+    undoRef.current = null;
+    var movPayload = {
+      conta: saved.conta,
+      tipo: saved.tipo,
+      categoria: saved.categoria,
+      valor: saved.valor,
+      descricao: saved.descricao || '',
+      data: saved.data,
+    };
+    if (saved.ticker) movPayload.ticker = saved.ticker;
+    await addMovimentacaoComSaldo(user.id, movPayload);
+    load();
+  };
+
   function handleDelete(mov) {
     var isAuto = AUTO_CATEGORIAS.indexOf(mov.categoria) >= 0;
     if (isAuto) {
@@ -186,10 +206,29 @@ export default function ExtratoScreen(props) {
                   corretora: conta,
                   saldo: Math.max(0, saldoNovo),
                   moeda: saldoAtual.moeda || 'BRL',
-                }).then(function() { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); load(); });
+                }).then(function() {
+                  undoRef.current = mov;
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  load();
+                  Toast.show({
+                    type: 'undo',
+                    text1: 'Movimentação excluída',
+                    text2: desc,
+                    props: { onUndo: handleUndo },
+                    visibilityTime: 5000,
+                  });
+                });
               } else {
+                undoRef.current = mov;
                 LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                 setMovs(movs.filter(function(x) { return x.id !== mov.id; }));
+                Toast.show({
+                  type: 'undo',
+                  text1: 'Movimentação excluída',
+                  text2: desc,
+                  props: { onUndo: handleUndo },
+                  visibilityTime: 5000,
+                });
               }
             });
           },

@@ -5,8 +5,8 @@ import {
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { addOpcao, addMovimentacaoComSaldo, buildMovDescricao } from '../../services/database';
-import { Glass, Pill, Badge } from '../../components';
+import { addOpcao, addMovimentacaoComSaldo, buildMovDescricao, getPositions } from '../../services/database';
+import { Glass, Pill, Badge, TickerInput } from '../../components';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -99,6 +99,19 @@ export default function AddOpcaoScreen(props) {
   var qtyError = quantidade.length > 0 && qty <= 0;
 
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
+  var _tickers = useState([]); var tickers = _tickers[0]; var setTickers = _tickers[1];
+
+  useEffect(function() {
+    if (!user) return;
+    getPositions(user.id).then(function(result) {
+      var list = result.data || [];
+      var names = [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].ticker) names.push(list[i].ticker.toUpperCase());
+      }
+      setTickers(names);
+    });
+  }, [user]);
 
   useEffect(function() {
     return navigation.addListener('beforeRemove', function(e) {
@@ -244,7 +257,7 @@ export default function AddOpcaoScreen(props) {
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>ATIVO BASE *</Text>
-          <TextInput value={ativoBase} onChangeText={function(t) { setAtivoBase(t.toUpperCase()); }} placeholder="Ex: PETR4" placeholderTextColor={C.dim} autoCapitalize="characters" autoFocus={true} returnKeyType="next"
+          <TickerInput value={ativoBase} onChangeText={setAtivoBase} tickers={tickers} autoFocus={true} returnKeyType="next"
             style={[styles.input, ativoBaseValid && { borderColor: C.green }, ativoBaseError && { borderColor: C.red }]} />
           {ativoBaseError ? <Text style={styles.fieldError}>Mínimo 4 caracteres</Text> : null}
         </View>

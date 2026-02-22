@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
@@ -65,6 +65,25 @@ export default function EditOpcaoScreen(props) {
   var _corretora = useState(op.corretora || ''); var corretora = _corretora[0]; var setCorretora = _corretora[1];
   var _status = useState(op.status || 'ativa'); var status = _status[0]; var setStatus = _status[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
+  var savedRef = useRef(false);
+
+  useEffect(function() {
+    return navigation.addListener('beforeRemove', function(e) {
+      if (savedRef.current) return;
+      var isDirty = tipo !== (op.tipo || 'call') || direcao !== (op.direcao || 'lancamento') ||
+        ativoBase !== (op.ativo_base || '') || tickerOpcao !== (op.ticker_opcao || '') ||
+        strike !== String(op.strike || '') || premio !== String(op.premio || '') ||
+        quantidade !== String(op.quantidade || '') || vencimento !== isoToBr(op.vencimento) ||
+        dataAbertura !== (isoToBr(op.data_abertura) || '') || corretora !== (op.corretora || '') ||
+        status !== (op.status || 'ativa');
+      if (!isDirty) return;
+      e.preventDefault();
+      Alert.alert('Descartar alterações?', 'Você tem dados não salvos.', [
+        { text: 'Continuar editando', style: 'cancel' },
+        { text: 'Descartar', style: 'destructive', onPress: function() { navigation.dispatch(e.data.action); } },
+      ]);
+    });
+  }, [navigation, tipo, direcao, ativoBase, tickerOpcao, strike, premio, quantidade, vencimento, dataAbertura, corretora, status]);
 
   var qty = parseInt(quantidade) || 0;
   var prem = parseFloat(premio) || 0;
@@ -112,6 +131,7 @@ export default function EditOpcaoScreen(props) {
         Alert.alert('Erro', result.error.message);
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        savedRef.current = true;
         Toast.show({ type: 'success', text1: 'Opção atualizada' });
         navigation.goBack();
       }

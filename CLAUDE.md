@@ -337,7 +337,7 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 - [x] **Auto-sync de dividendos** (implementado: dividendService.js, cross-check brapi+StatusInvest, auto-trigger Home, sync manual Proventos, dedup por ticker+data+valor)
 - [x] **Gestao Financeira / Fluxo de Caixa** (implementado: tab Gestao com sub-tabs Carteira+Caixa, movimentacoes, integracao com operacoes/opcoes/dividendos)
 - [x] **Relatorios Detalhados** (implementado: tela Relatorios com sub-tabs Dividendos/Opcoes/Operacoes/IR, graficos, agrupamentos)
-- [x] **Melhorias UX P0-P9** (implementado: contraste, touch targets, validacao inline, skeleton, haptics, keyboard, error states, beforeRemove, double-tap guard, toast, swipe-to-delete, FlatList optimization, infinite scroll, React.memo)
+- [x] **Melhorias UX P0-P10** (implementado: contraste, touch targets, validacao inline, skeleton, haptics, keyboard, error states, beforeRemove, double-tap guard, toast, swipe-to-delete, FlatList optimization, infinite scroll, React.memo, beforeRemove Edit, mascara valor, ticker autocomplete, undo excluir)
 - [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
 - [ ] Notificacoes push para vencimentos proximos
 - [ ] Importacao de operacoes via CSV/Excel
@@ -636,9 +636,9 @@ Confirmacao com valor do saldo na mensagem. Error handling com Alert se falhar. 
 | `src/screens/gestao/CaixaView.js` | Multi-moeda display, editar saldo, excluir melhorado |
 | `supabase-migration.sql` | Coluna `moeda TEXT DEFAULT 'BRL'` em saldos_corretora |
 
-## Melhorias UX P0-P9 (Implementado)
+## Melhorias UX P0-P10 (Implementado)
 
-Dez rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, feedback, keyboard handling, consistencia visual, toast, swipe-to-delete e performance.
+Onze rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, feedback, keyboard handling, consistencia visual, toast, swipe-to-delete, performance e formularios avancados.
 
 ### P0 — Contraste e Touch Targets
 - **Theme**: tokens `C.textSecondary` (#8888aa, WCAG AA) e `C.textTertiary` (#666688)
@@ -751,6 +751,28 @@ Dez rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, feed
 | `src/screens/carteira/CarteiraScreen.js` | React.memo em PositionCard |
 | `src/screens/opcoes/OpcoesScreen.js` | React.memo em OpCard |
 
+### P10 — Formularios Avancados
+- **beforeRemove em 4 Edit screens**: dirty check comparando valores atuais vs originais, savedRef para skip apos save. EditOperacaoScreen, EditOpcaoScreen, EditProventoScreen, EditRendaFixaScreen
+- **Mascara de valor AddProventoScreen**: onChangeVal com centavos (pattern dos outros forms), parseBR para converter "1.234,56" → float
+- **Autocomplete ticker**: componente TickerInput reutilizavel com dropdown de sugestoes filtradas (tickers da carteira via getPositions). Integrado em AddOperacaoScreen, AddOpcaoScreen, AddProventoScreen
+- **Undo ao excluir**: tipo `undo` no ToastConfig com botao "Desfazer" (amarelo). ProventosScreen re-insere provento via addProvento. ExtratoScreen re-insere movimentacao via addMovimentacaoComSaldo (reverte saldo). visibilityTime 5s
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/carteira/EditOperacaoScreen.js` | beforeRemove com dirty check + savedRef |
+| `src/screens/opcoes/EditOpcaoScreen.js` | beforeRemove com dirty check + savedRef |
+| `src/screens/proventos/EditProventoScreen.js` | beforeRemove com dirty check + savedRef |
+| `src/screens/rf/EditRendaFixaScreen.js` | beforeRemove com dirty check + savedRef |
+| `src/screens/proventos/AddProventoScreen.js` | onChangeVal mascara + parseBR + TickerInput |
+| `src/components/TickerInput.js` | **Novo** — autocomplete com dropdown de sugestoes |
+| `src/components/index.js` | Export TickerInput |
+| `src/screens/carteira/AddOperacaoScreen.js` | TickerInput + getPositions |
+| `src/screens/opcoes/AddOpcaoScreen.js` | TickerInput + getPositions |
+| `src/components/ToastConfig.js` | Tipo undo com botao Desfazer |
+| `src/screens/proventos/ProventosScreen.js` | Undo ao excluir provento |
+| `src/screens/gestao/ExtratoScreen.js` | Undo ao excluir movimentacao |
+
 ## Melhorias UX Pendentes (TODO)
 
 Melhorias identificadas mas nao implementadas, organizadas por prioridade.
@@ -766,11 +788,11 @@ Melhorias identificadas mas nao implementadas, organizadas por prioridade.
 - [x] **Memoizacao**: React.memo em PositionCard e OpCard
 - [x] **Lazy loading tabs**: ja implementado via useFocusEffect (documentado)
 
-### P10 — Formularios Avancados
-- [ ] **beforeRemove em telas Edit**: adicionar warning de dados nao salvos em EditOperacao, EditOpcao, EditProvento, EditRendaFixa
-- [ ] **Undo/desfazer**: ao excluir item, mostrar toast "Excluido" com botao "Desfazer" (soft delete temporario)
-- [ ] **Autocomplete ticker**: sugestoes de ticker ao digitar (cache de tickers ja usados pelo usuario)
-- [ ] **Mascara de valor em AddProvento**: usar mesmo pattern onChangeVal (centavos) dos outros forms
+### P10 — Formularios Avancados (IMPLEMENTADO)
+- [x] **beforeRemove em telas Edit**: dirty check + savedRef em EditOperacao, EditOpcao, EditProvento, EditRendaFixa
+- [x] **Undo/desfazer**: toast undo com botao "Desfazer" em ProventosScreen e ExtratoScreen
+- [x] **Autocomplete ticker**: TickerInput com dropdown em AddOperacao, AddOpcao, AddProvento
+- [x] **Mascara de valor em AddProvento**: onChangeVal centavos + parseBR
 
 ### P11 — Visual e Animacoes
 - [ ] **Skeleton por tela**: cada tela com skeleton espelhando seu proprio layout (hoje so Home tem)

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, LayoutAnimation, Keyboard,
@@ -62,6 +62,24 @@ export default function EditOperacaoScreen(props) {
   var _emolumentos = useState(String(op.custo_emolumentos || '')); var emolumentos = _emolumentos[0]; var setEmolumentos = _emolumentos[1];
   var _impostos = useState(String(op.custo_impostos || '')); var impostos = _impostos[0]; var setImpostos = _impostos[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
+  var savedRef = useRef(false);
+
+  useEffect(function() {
+    return navigation.addListener('beforeRemove', function(e) {
+      if (savedRef.current) return;
+      var isDirty = tipo !== (op.tipo || 'compra') || categoria !== (op.categoria || 'acao') ||
+        ticker !== (op.ticker || '') || quantidade !== String(op.quantidade || '') ||
+        preco !== String(op.preco || '') || corretora !== (op.corretora || '') ||
+        data !== isoToBr(op.data) || corretagem !== String(op.custo_corretagem || '') ||
+        emolumentos !== String(op.custo_emolumentos || '') || impostos !== String(op.custo_impostos || '');
+      if (!isDirty) return;
+      e.preventDefault();
+      Alert.alert('Descartar alterações?', 'Você tem dados não salvos.', [
+        { text: 'Continuar editando', style: 'cancel' },
+        { text: 'Descartar', style: 'destructive', onPress: function() { navigation.dispatch(e.data.action); } },
+      ]);
+    });
+  }, [navigation, tipo, categoria, ticker, quantidade, preco, corretora, data, corretagem, emolumentos, impostos]);
 
   var hasCustos = (op.custo_corretagem > 0 || op.custo_emolumentos > 0 || op.custo_impostos > 0);
   var _showCustos = useState(hasCustos); var showCustos = _showCustos[0]; var setShowCustos = _showCustos[1];
@@ -114,6 +132,7 @@ export default function EditOperacaoScreen(props) {
         Alert.alert('Erro', result.error.message);
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        savedRef.current = true;
         Toast.show({ type: 'success', text1: 'Operação atualizada' });
         navigation.goBack();
       }

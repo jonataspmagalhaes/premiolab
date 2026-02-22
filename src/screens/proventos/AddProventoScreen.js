@@ -5,8 +5,8 @@ import {
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { addProvento, getUserCorretoras } from '../../services/database';
-import { Glass, Pill, Badge } from '../../components';
+import { addProvento, getUserCorretoras, getPositions } from '../../services/database';
+import { Glass, Pill, Badge, TickerInput } from '../../components';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -47,6 +47,20 @@ function isValidDate(br) {
   return !isNaN(d.getTime());
 }
 
+function onChangeVal(t, setter) {
+  var nums = t.replace(/\D/g, '');
+  if (nums === '') { setter(''); return; }
+  var centavos = parseInt(nums);
+  var reais = (centavos / 100).toFixed(2);
+  var parts = reais.split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  setter(parts[0] + ',' + parts[1]);
+}
+
+function parseBR(v) {
+  return parseFloat((v || '').replace(/\./g, '').replace(',', '.')) || 0;
+}
+
 function todayBR() {
   var d = new Date();
   var dd = String(d.getDate()).padStart(2, '0');
@@ -68,6 +82,7 @@ export default function AddProventoScreen(props) {
   var _corretoras = useState(CORRETORAS_DEFAULT); var corretoras = _corretoras[0]; var setCorretoras = _corretoras[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
+  var _tickers = useState([]); var tickers = _tickers[0]; var setTickers = _tickers[1];
 
   useEffect(function() {
     if (!user) return;
@@ -81,9 +96,17 @@ export default function AddProventoScreen(props) {
         setCorretoras(names);
       }
     });
+    getPositions(user.id).then(function(result) {
+      var list = result.data || [];
+      var names = [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].ticker) names.push(list[i].ticker.toUpperCase());
+      }
+      setTickers(names);
+    });
   }, [user]);
 
-  var valorNum = parseFloat(valor) || 0;
+  var valorNum = parseBR(valor);
   var qtdNum = parseInt(qtd) || 0;
   var valorPorCota = qtdNum > 0 ? valorNum / qtdNum : 0;
 
@@ -184,12 +207,10 @@ export default function AddProventoScreen(props) {
 
       {/* Ticker */}
       <Text style={styles.label}>TICKER *</Text>
-      <TextInput
+      <TickerInput
         value={ticker}
-        onChangeText={function(t) { setTicker(t.toUpperCase()); }}
-        placeholder="Ex: PETR4"
-        placeholderTextColor={C.dim}
-        autoCapitalize="characters"
+        onChangeText={setTicker}
+        tickers={tickers}
         returnKeyType="next"
         style={[styles.input,
           tickerValid && { borderColor: C.green },
@@ -204,8 +225,8 @@ export default function AddProventoScreen(props) {
           <Text style={styles.label}>VALOR TOTAL (R$) *</Text>
           <TextInput
             value={valor}
-            onChangeText={setValor}
-            placeholder="150.00"
+            onChangeText={function(t) { onChangeVal(t, setValor); }}
+            placeholder="0,00"
             placeholderTextColor={C.dim}
             keyboardType="decimal-pad"
             style={[styles.input,

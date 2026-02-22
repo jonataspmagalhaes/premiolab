@@ -5,9 +5,9 @@ import {
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { addOperacao, incrementCorretora, getIndicators, addMovimentacaoComSaldo, buildMovDescricao } from '../../services/database';
+import { addOperacao, incrementCorretora, getIndicators, addMovimentacaoComSaldo, buildMovDescricao, getPositions } from '../../services/database';
 import { runDailyCalculation } from '../../services/indicatorService';
-import { Glass, Pill, Badge } from '../../components';
+import { Glass, Pill, Badge, TickerInput } from '../../components';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -89,6 +89,19 @@ export default function AddOperacaoScreen(props) {
   var dateError = data.length === 10 && brToIso(data) === null;
 
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
+  var _tickers = useState([]); var tickers = _tickers[0]; var setTickers = _tickers[1];
+
+  useEffect(function() {
+    if (!user) return;
+    getPositions(user.id).then(function(result) {
+      var list = result.data || [];
+      var names = [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].ticker) names.push(list[i].ticker.toUpperCase());
+      }
+      setTickers(names);
+    });
+  }, [user]);
 
   useEffect(function() {
     return navigation.addListener('beforeRemove', function(e) {
@@ -241,14 +254,12 @@ export default function AddOperacaoScreen(props) {
 
       {/* Ticker */}
       <Text style={styles.label}>TICKER *</Text>
-      <TextInput
+      <TickerInput
         value={ticker}
-        onChangeText={function(t) { setTicker(t.toUpperCase()); }}
+        onChangeText={setTicker}
+        tickers={tickers}
         autoFocus={true}
         returnKeyType="next"
-        placeholder="Ex: PETR4"
-        placeholderTextColor={C.dim}
-        autoCapitalize="characters"
         style={[styles.input,
           tickerValid && { borderColor: C.green },
           tickerError && { borderColor: C.red },
