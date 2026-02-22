@@ -48,6 +48,7 @@ src/
     yahooService.js Cotacoes internacionais via Yahoo Finance (cache + OHLCV + dividendos)
     indicatorService.js Calculo HV, RSI, SMA, EMA, Beta, ATR, BB, MaxDD
     dividendService.js Auto-sync de dividendos via brapi.dev + StatusInvest + Yahoo Finance (INT)
+    tickerSearchService.js Busca e validacao de tickers via brapi.dev (BR) + Yahoo Finance (INT)
     currencyService.js Cambio multi-moeda via brapi.dev + fallback
   theme/
     index.js       Cores (C), Fontes (F), Tamanhos (SIZE), Sombras (SHADOW)
@@ -152,6 +153,10 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - `getSymbol(moeda)` - Retorna simbolo da moeda (USD→US$, EUR→€, etc.)
 - `MOEDAS` - Lista de moedas suportadas com code, symbol, name
 
+### tickerSearchService.js - Funcoes exportadas
+- `searchTickers(query, mercado)` - Roteador principal: busca BR (brapi.dev) ou INT (Yahoo Finance), cache 24h, min 2 chars
+- `clearSearchCache()` - Limpa cache de busca
+
 ### dividendService.js - Funcoes exportadas
 - `fetchDividendsBrapi(ticker)` - Busca dividendos do ticker via brapi.dev (`?dividends=true`)
 - `fetchDividends(ticker)` - Alias de `fetchDividendsBrapi` (compatibilidade)
@@ -180,7 +185,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 | `InfoTip` | InfoTip.js | Icone info (ⓘ) com Modal explicativo |
 | `PressableCard` | PressableCard.js | Card com Animated.spring scale + a11y props |
 | `SwipeableRow` | SwipeableRow.js | Wrapper swipe-to-delete com botao Excluir |
-| `TickerInput` | TickerInput.js | Input com autocomplete de tickers da carteira |
+| `TickerInput` | TickerInput.js | Input com autocomplete de tickers da carteira + busca API (brapi/Yahoo) com debounce |
 | `ToastConfig` | ToastConfig.js | Config visual toast dark/glass + tipo undo |
 
 ## Theme
@@ -325,6 +330,14 @@ Tickers sao normalizados com `toUpperCase().trim()` em:
 - `getProventos()` - filtro por ticker (em JS, nao no banco)
 Isso garante que transacoes salvas com caixa ou espacos diferentes sejam agrupadas corretamente.
 
+### Validacao de tickers via API
+`tickerSearchService.js` busca tickers em tempo real durante o cadastro:
+- **BR**: brapi.dev `/api/quote/list?search=QUERY&limit=8` — retorna ticker, nome, tipo, exchange B3
+- **INT**: Yahoo Finance `/v1/finance/search?q=QUERY&quotesCount=8` — filtra EQUITY/ETF, retorna ticker canonico
+- Cache 24h por query (`mercado:QUERY`), min 2 chars para disparar busca
+- Resolve tickers compostos (BRK.B vs BRK-B) ao exibir formato canonico da API
+- TickerInput com `onSearch` prop: debounce 300ms, merge portfolio (max 3) + API (dedup, total max 8), badge CARTEIRA, nome da empresa
+
 ### Anti-duplicacao de submit
 Todas as telas Add (Operacao, Opcao, RendaFixa, Provento) usam estado `submitted` para prevenir duplo clique:
 - `if (!canSubmit || submitted) return;` no inicio do handleSubmit
@@ -342,6 +355,7 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 - **Gestao Financeira / Fluxo de Caixa**: tab Carteira com sub-tabs Ativos+Caixa, movimentacoes, integracao com operacoes/opcoes/dividendos
 - **Relatorios Detalhados**: embedded na tab Renda, sub-tabs Dividendos/Opcoes/Operacoes/IR, graficos, agrupamentos
 - **Multi-Moeda**: contas em USD/EUR/GBP/QAR/etc, cambio automatico via brapi.dev
+- **Busca e Validacao de Tickers**: tickerSearchService.js, busca brapi.dev (BR) + Yahoo Finance (INT) com cache 24h, TickerInput com debounce + merge portfolio/API
 - **Melhorias UX P0-P12**: 13 rodadas cobrindo contraste, validacao, haptics, keyboard, toast, swipe-to-delete, performance, React.memo, autocomplete, undo, PressableCard, skeletons, animacoes, accessibilityLabel/Hint/Role, ReduceMotion, maxFontSizeMultiplier
 
 ## Sistema de Indicadores Tecnicos (Implementado)
@@ -982,6 +996,44 @@ Sub-tab "Indicadores" removida (~300 linhas). Indicadores continuam disponiveis 
 | `src/screens/mais/MaisScreen.js` | +secao Analise, -item Proventos |
 | `src/navigation/AppNavigator.js` | Tabs renomeadas, +import RendaScreen, +stack Analise, -stacks Proventos/Relatorios |
 | `src/screens/opcoes/OpcoesScreen.js` | Removido sub-tab Indicadores (~300 linhas) |
+
+## Busca e Validacao de Tickers (Implementado)
+
+Busca em tempo real de tickers via APIs durante o cadastro de operacoes, opcoes e proventos. Resolve validacao (ticker existe?) e normalizacao (BRK.B vs BRK-B → formato canonico da API).
+
+### APIs de busca
+| API | Mercado | Endpoint | Retorno |
+|-----|---------|----------|---------|
+| brapi.dev | BR | `GET /api/quote/list?search=QUERY&token=TOKEN&limit=8` | `stocks[]: { stock, name, type, sector }` |
+| Yahoo Finance | INT | `GET /v1/finance/search?q=QUERY&quotesCount=8&lang=pt-BR` | `quotes[]: { symbol, longname, exchange, quoteType }` — filtrado EQUITY/ETF |
+
+### Fluxo
+1. Usuario digita no TickerInput (min 2 chars)
+2. Debounce 300ms cancela timer anterior, so ultima query dispara
+3. `searchTickers(query, mercado)` roteia para `searchBR` ou `searchINT`
+4. Cache 24h por key `mercado:QUERY` evita chamadas repetidas
+5. Dropdown mostra portfolio matches (max 3, badge CARTEIRA) + API results (dedup, total max 8)
+6. Cada item mostra ticker + nome da empresa (2 linhas)
+7. Selecionar define o ticker com formato canonico da API
+
+### Integracoes
+| Tela | Handler | Mercado |
+|------|---------|---------|
+| AddOperacaoScreen | `searchTickers(query, getRealMercado(categoria))` | BR ou INT conforme categoria |
+| AddOpcaoScreen | `searchTickers(query, 'BR')` | Sempre BR (opcoes sao B3) |
+| AddProventoScreen | `searchTickers(query, 'BR')` | Sempre BR |
+
+### Comportamento sem rede
+Se API falhar ou timeout (5s), `searchTickers` retorna `[]`. TickerInput continua mostrando sugestoes do portfolio normalmente.
+
+### Arquivos criados/modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/services/tickerSearchService.js` | **Criado** — searchBR, searchINT, searchTickers, cache 24h, fetchWithTimeout |
+| `src/components/TickerInput.js` | onSearch prop, debounce 300ms, merge portfolio+API, ActivityIndicator, badge CARTEIRA, nome empresa |
+| `src/screens/carteira/AddOperacaoScreen.js` | import + onSearch roteado por categoria + limpar ticker em troca BR↔INT |
+| `src/screens/opcoes/AddOpcaoScreen.js` | import + onSearch BR |
+| `src/screens/proventos/AddProventoScreen.js` | import + onSearch BR |
 
 ## Proximas Melhorias Possiveis
 
