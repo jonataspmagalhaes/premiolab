@@ -200,10 +200,12 @@ var PositionCard = React.memo(function PositionCard(props) {
   var posIsInt = pos.mercado === 'INT';
   var posSymbol = posIsInt ? 'US$' : 'R$';
   var hasPrice = pos.preco_atual != null;
+  // taxa de cambio: enrichment (atual) > media historica das operacoes > 1
+  var fxRate = pos.taxa_cambio || pos.taxa_cambio_media || 1;
   // Para INT: preco_atual ja esta em BRL (enrichPositionsWithPrices converte)
-  var precoRef = hasPrice ? pos.preco_atual : (posIsInt && pos.pm ? pos.pm * (pos.taxa_cambio || 1) : pos.pm);
+  var precoRef = hasPrice ? pos.preco_atual : (posIsInt && pos.pm ? pos.pm * fxRate : pos.pm);
   var valorAtual = pos.quantidade * precoRef;
-  var custoTotal = posIsInt ? pos.quantidade * pos.pm * (pos.taxa_cambio || 1) : pos.quantidade * pos.pm;
+  var custoTotal = posIsInt ? pos.quantidade * pos.pm * fxRate : pos.quantidade * pos.pm;
   var pnl = valorAtual - custoTotal;
   var pnlPct = custoTotal > 0 ? (pnl / custoTotal) * 100 : 0;
   var isPos = pnl >= 0;
@@ -300,11 +302,12 @@ var PositionCard = React.memo(function PositionCard(props) {
           <View style={styles.expandedWrap}>
             <View style={styles.expandedStats}>
               {[
-                { l: 'Custo total', v: 'R$ ' + custoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) },
-                { l: 'Valor atual', v: 'R$ ' + valorAtual.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) },
+                { l: posIsInt ? 'Custo (US$)' : 'Custo total', v: posIsInt ? 'US$ ' + fmt(pos.quantidade * pos.pm) : 'R$ ' + custoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) },
+                { l: posIsInt ? 'Custo (R$)' : 'Valor atual', v: posIsInt ? '≈ R$ ' + custoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) : 'R$ ' + valorAtual.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) },
+                posIsInt ? { l: 'Valor atual', v: 'R$ ' + valorAtual.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) } : null,
                 { l: '% Carteira', v: pctCarteira.toFixed(1) + '%' },
                 { l: 'Corretoras', v: corretorasText || '–' },
-              ].map(function (d, j) {
+              ].filter(Boolean).map(function (d, j) {
                 return (
                   <View key={j} style={styles.expandedStatItem}>
                     <Text style={styles.expandedStatLabel}>{d.l}</Text>
@@ -530,13 +533,26 @@ export default function CarteiraScreen(props) {
   }
   var showRF = filter === 'todos' || filter === 'rf';
 
-  // Totals
-  var totalPositions = positions.reduce(function (s, p) { return s + p.quantidade * (p.preco_atual || p.pm); }, 0);
+  // Totals — converter INT para BRL
+  var totalPositions = positions.reduce(function (s, p) {
+    if (p.mercado === 'INT') {
+      // preco_atual ja esta em BRL (enrichment converte), pm esta em USD
+      var rate = p.taxa_cambio || p.taxa_cambio_media || 1;
+      return s + p.quantidade * (p.preco_atual || (p.pm * rate));
+    }
+    return s + p.quantidade * (p.preco_atual || p.pm);
+  }, 0);
   var totalRF = rfAtivos.reduce(function (s, r) { return s + (parseFloat(r.valor_aplicado) || 0); }, 0);
   var totalSaldos = saldos.reduce(function (s, c) { return s + (c.saldo || 0); }, 0);
   var totalValue = totalPositions + totalRF + totalSaldos;
 
-  var totalCusto = positions.reduce(function (s, p) { return s + p.quantidade * p.pm; }, 0);
+  var totalCusto = positions.reduce(function (s, p) {
+    if (p.mercado === 'INT') {
+      var rate = p.taxa_cambio || p.taxa_cambio_media || 1;
+      return s + p.quantidade * p.pm * rate;
+    }
+    return s + p.quantidade * p.pm;
+  }, 0);
   var totalPL = totalPositions - totalCusto;
   var totalPLPct = totalCusto > 0 ? (totalPL / totalCusto) * 100 : 0;
   var isPosTotal = totalPL >= 0;
@@ -750,7 +766,7 @@ export default function CarteiraScreen(props) {
             onBuy={function () { nav('AddOperacao', { ticker: pos.ticker, tipo: 'compra', categoria: pos.categoria }); }}
             onSell={function () { nav('AddOperacao', { ticker: pos.ticker, tipo: 'venda', categoria: pos.categoria }); }}
             onLancarOpcao={function () { nav('AddOpcao', { ativo_base: pos.ticker }); }}
-            onTransacoes={function () { nav('AssetDetail', { ticker: pos.ticker }); }} />
+            onTransacoes={function () { nav('AssetDetail', { ticker: pos.ticker, mercado: pos.mercado }); }} />
         );
       })}
 
@@ -803,6 +819,8 @@ export default function CarteiraScreen(props) {
                 var plIcon = e.pl_realizado >= 0 ? '▲' : '▼';
                 var plLabel = e.pl_realizado >= 0 ? 'LUCRO' : 'PREJUÍZO';
                 var catColor = e.categoria === 'acao' ? C.acoes : e.categoria === 'fii' ? C.fiis : e.categoria === 'etf' ? C.etfs : e.categoria === 'stock_int' ? C.stock_int : C.accent;
+                var eIsInt = e.mercado === 'INT';
+                var eSymbol = eIsInt ? 'US$' : 'R$';
                 var pmCompra = e.total_comprado > 0 ? e.custo_compras / e.total_comprado : 0;
                 var pmVenda = e.total_vendido > 0 ? e.receita_vendas / e.total_vendido : 0;
                 var plPct = e.custo_compras > 0 ? (e.pl_realizado / e.custo_compras) * 100 : 0;
@@ -812,12 +830,13 @@ export default function CarteiraScreen(props) {
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                         <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.display }}>{e.ticker}</Text>
                         <Badge text={e.categoria ? e.categoria.toUpperCase() : ''} color={catColor} />
+                        {eIsInt ? <Badge text="INT" color={C.stock_int} /> : null}
                       </View>
                       <Badge text={plLabel} color={plColor} />
                     </View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8 }}>
                       <Text style={{ fontSize: 18, fontWeight: '700', color: plColor, fontFamily: F.mono }}>
-                        {e.pl_realizado >= 0 ? '+' : ''}R$ {fmt(e.pl_realizado)}
+                        {e.pl_realizado >= 0 ? '+' : ''}{eSymbol + ' '}{fmt(e.pl_realizado)}
                       </Text>
                       <Text style={{ fontSize: 13, fontWeight: '600', color: plColor, fontFamily: F.mono }}>
                         {plIcon} {Math.abs(plPct).toFixed(1)}%
@@ -827,13 +846,13 @@ export default function CarteiraScreen(props) {
                       paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border }}>
                       <View>
                         <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>COMPRA</Text>
-                        <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>{e.total_comprado} un · PM R$ {fmt(pmCompra)}</Text>
-                        <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>Total R$ {fmt(e.custo_compras)}</Text>
+                        <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>{e.total_comprado + ' un · PM ' + eSymbol + ' ' + fmt(pmCompra)}</Text>
+                        <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{'Total ' + eSymbol + ' ' + fmt(e.custo_compras)}</Text>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>VENDA</Text>
-                        <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>{e.total_vendido} un · PM R$ {fmt(pmVenda)}</Text>
-                        <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>Total R$ {fmt(e.receita_vendas)}</Text>
+                        <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>{e.total_vendido + ' un · PM ' + eSymbol + ' ' + fmt(pmVenda)}</Text>
+                        <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{'Total ' + eSymbol + ' ' + fmt(e.receita_vendas)}</Text>
                       </View>
                     </View>
                   </Glass>

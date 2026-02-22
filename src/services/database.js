@@ -103,6 +103,8 @@ export async function getPositions(userId) {
         receita_vendas: 0,
         pl_realizado: 0,
         pl_realizado_ir: 0,
+        taxa_cambio_media: 0,
+        _custo_brl: 0,
       };
     }
     var p = positions[tickerKey];
@@ -120,6 +122,10 @@ export async function getPositions(userId) {
       p.custo_por_corretora[corr] += custoOp;
       p.total_comprado += op.quantidade;
       p.custo_compras += custoOp;
+      // Acumular custo em BRL para INT (usando taxa_cambio da operacao)
+      if ((op.mercado === 'INT') && op.taxa_cambio) {
+        p._custo_brl += custoOp * op.taxa_cambio;
+      }
     } else {
       var custosVenda = (op.custo_corretagem || 0) + (op.custo_emolumentos || 0) + (op.custo_impostos || 0);
       var receitaLiq = op.quantidade * op.preco - custosVenda;
@@ -138,6 +144,10 @@ export async function getPositions(userId) {
       p.quantidade -= op.quantidade;
     }
     p.pm = p.quantidade > 0 ? p.custo_total / p.quantidade : 0;
+    // Calcular taxa_cambio_media para INT
+    if (p.mercado === 'INT' && p.custo_total > 0 && p._custo_brl > 0) {
+      p.taxa_cambio_media = p._custo_brl / p.custo_total;
+    }
   }
 
   var tickers = Object.keys(positions);
