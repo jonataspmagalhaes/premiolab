@@ -64,7 +64,8 @@ function UndoToast(props) {
           {text2 ? <Text style={styles.message} numberOfLines={2}>{text2}</Text> : null}
         </View>
         {onUndo ? (
-          <TouchableOpacity style={styles.undoBtn} onPress={function() { onUndo(); Toast.hide(); }}>
+          <TouchableOpacity style={styles.undoBtn} onPress={function() { onUndo(); Toast.hide(); }}
+            accessibilityRole="button" accessibilityLabel="Desfazer">
             <Text style={styles.undoBtnText}>Desfazer</Text>
           </TouchableOpacity>
         ) : null}

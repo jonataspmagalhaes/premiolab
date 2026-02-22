@@ -2,8 +2,8 @@ import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, StyleSheet, RefreshControl,
   TouchableOpacity, Alert, Modal, ActivityIndicator,
-  LayoutAnimation, Platform, UIManager,
 } from 'react-native';
+import { animateLayout } from '../../utils/a11y';
 import { useFocusEffect } from '@react-navigation/native';
 import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
@@ -13,10 +13,6 @@ import { runDividendSync } from '../../services/dividendService';
 import { Glass, Badge, Pill, SectionLabel, SwipeableRow } from '../../components';
 import { SkeletonProventos, EmptyState } from '../../components/States';
 import * as Haptics from 'expo-haptics';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 var TIPO_LABELS = {
   dividendo: 'Dividendo',
@@ -164,7 +160,7 @@ export default function ProventosScreen(props) {
             var result = await deleteProvento(id);
             if (!result.error) {
               undoRef.current = prov;
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              animateLayout();
               setItems(items.filter(function(i) { return i.id !== id; }));
               Toast.show({
                 type: 'undo',

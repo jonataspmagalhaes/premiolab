@@ -186,7 +186,7 @@ export default function AddProventoScreen(props) {
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
       <View style={styles.header}>
-        <TouchableOpacity onPress={function() { navigation.goBack(); }}>
+        <TouchableOpacity onPress={function() { navigation.goBack(); }} accessibilityLabel="Voltar" accessibilityRole="button">
           <Text style={styles.back}>{'‹'}</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Novo Provento</Text>
@@ -312,6 +312,8 @@ export default function AddProventoScreen(props) {
         disabled={!canSubmit || loading}
         activeOpacity={0.8}
         style={[styles.submitBtn, !canSubmit && { opacity: 0.4 }]}
+        accessibilityRole="button"
+        accessibilityLabel="Registrar Provento"
       >
         {loading ? (
           <ActivityIndicator color="white" />

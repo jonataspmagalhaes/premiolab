@@ -121,7 +121,7 @@ export default function AddContaScreen(props) {
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
       <View style={styles.header}>
-        <TouchableOpacity onPress={function() { navigation.goBack(); }}>
+        <TouchableOpacity onPress={function() { navigation.goBack(); }} accessibilityLabel="Voltar" accessibilityRole="button">
           <Text style={styles.back}>{'‹'}</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Nova Conta</Text>
@@ -205,7 +205,8 @@ export default function AddContaScreen(props) {
 
       {/* Submit */}
       <TouchableOpacity onPress={handleSubmit} disabled={!canSubmit || loading} activeOpacity={0.8}
-        style={[styles.submitBtn, !canSubmit && { opacity: 0.4 }]}>
+        style={[styles.submitBtn, !canSubmit && { opacity: 0.4 }]}
+        accessibilityRole="button" accessibilityLabel="Criar Conta">
         {loading ? (
           <ActivityIndicator color="white" />
         ) : (

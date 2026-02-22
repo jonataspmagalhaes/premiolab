@@ -143,15 +143,15 @@ function QuoteRow({ ticker, tipo, qty, pm, precoAtual, changeDay, pl, onPress, l
       <View style={{ alignItems: 'flex-end' }}>
         {hasPrice ? (
           <>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#fff', fontFamily: F.mono }}>
+            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: '#fff', fontFamily: F.mono }}>
               R$ {fmt2(precoAtual)}
             </Text>
-            <Text style={{ fontSize: 11, fontWeight: '700', color: varColor, fontFamily: F.mono, marginTop: 2 }}>
+            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 11, fontWeight: '700', color: varColor, fontFamily: F.mono, marginTop: 2 }}>
               {isUp ? '▲' : changeDay < 0 ? '▼' : '–'} {Math.abs(changeDay || 0).toFixed(2)}%
             </Text>
           </>
         ) : (
-          <Text style={{ fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.4)', fontFamily: F.mono }}>
+          <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.4)', fontFamily: F.mono }}>
             {fmt(qty * pm)}
           </Text>
         )}
@@ -1021,7 +1021,7 @@ export default function HomeScreen({ navigation }) {
                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.opcao.color }} />
                 <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>P&L Opções</Text>
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: plMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: plMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
                 {'R$ ' + fmt(plMes)}
               </Text>
             </View>
@@ -1030,7 +1030,7 @@ export default function HomeScreen({ navigation }) {
                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.acao.color }} />
                 <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos Ações</Text>
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.acao > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
+              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.acao > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
                 {'R$ ' + fmt(dividendosCatMes.acao)}
               </Text>
             </View>
@@ -1039,7 +1039,7 @@ export default function HomeScreen({ navigation }) {
                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.fii.color }} />
                 <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Rendimentos FIIs</Text>
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.fii > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
+              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.fii > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
                 {'R$ ' + fmt(dividendosCatMes.fii)}
               </Text>
             </View>
@@ -1049,7 +1049,7 @@ export default function HomeScreen({ navigation }) {
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.etf.color }} />
                   <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos ETFs</Text>
                 </View>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }}>
+                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }}>
                   {'R$ ' + fmt(dividendosCatMes.etf)}
                 </Text>
               </View>
@@ -1059,14 +1059,14 @@ export default function HomeScreen({ navigation }) {
                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.rf }} />
                 <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Renda Fixa</Text>
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: rfRendaMensal > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
+              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: rfRendaMensal > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
                 {'R$ ' + fmt(rfRendaMensal)}
               </Text>
             </View>
             <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginVertical: 2 }} />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: 12, color: C.text, fontFamily: F.display, fontWeight: '700' }}>Total do Mês</Text>
-              <Text style={{ fontSize: 14, fontWeight: '800', color: rendaTotalMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 14, fontWeight: '800', color: rendaTotalMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
                 {'R$ ' + fmt(rendaTotalMes)}
               </Text>
             </View>
@@ -1095,7 +1095,7 @@ export default function HomeScreen({ navigation }) {
                 </Text>
               ) : null}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
-                <Text style={{ fontSize: 14, color: rendaMediaAnual >= meta ? '#22c55e' : 'rgba(255,255,255,0.45)', fontFamily: F.mono, fontWeight: '700' }}>
+                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 14, color: rendaMediaAnual >= meta ? '#22c55e' : 'rgba(255,255,255,0.45)', fontFamily: F.mono, fontWeight: '700' }}>
                   {'Média ' + new Date().getFullYear() + ': R$ ' + fmt(rendaMediaAnual) + '/mês'}
                 </Text>
                 <TouchableOpacity onPress={function() { Alert.alert('Média Anual', 'Média calculada com base nos meses completos do ano. O mês atual (incompleto) não entra no denominador para não distorcer o resultado.'); }}>
@@ -1128,7 +1128,7 @@ export default function HomeScreen({ navigation }) {
         {/* GANHOS ACUMULADOS — donuts por categoria */}
         <GlassCard glow="rgba(34,197,94,0.06)">
           <SLabel right={
-            <Text style={{ fontSize: 10, color: ganhosTotal >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono, fontWeight: '700' }}>
+            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 10, color: ganhosTotal >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono, fontWeight: '700' }}>
               {ganhosTotal >= 0 ? '+' : ''}{fmt(ganhosTotal)}
             </Text>
           }>GANHOS ACUMULADOS</SLabel>
@@ -1160,7 +1160,7 @@ export default function HomeScreen({ navigation }) {
                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.acao.color }} />
                 <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Ações</Text>
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.acao >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.acao >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
                 {'R$ ' + fmt(ganhosPorCat.acao)}
               </Text>
             </View>
@@ -1169,7 +1169,7 @@ export default function HomeScreen({ navigation }) {
                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.fii.color }} />
                 <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>FIIs</Text>
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.fii >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.fii >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
                 {'R$ ' + fmt(ganhosPorCat.fii)}
               </Text>
             </View>
@@ -1178,7 +1178,7 @@ export default function HomeScreen({ navigation }) {
                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.etf.color }} />
                 <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>ETFs</Text>
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.etf >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.etf >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
                 {'R$ ' + fmt(ganhosPorCat.etf)}
               </Text>
             </View>
@@ -1187,14 +1187,14 @@ export default function HomeScreen({ navigation }) {
                 <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.rf.color }} />
                 <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Renda Fixa</Text>
               </View>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.rf >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: ganhosPorCat.rf >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
                 {'R$ ' + fmt(ganhosPorCat.rf)}
               </Text>
             </View>
             <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginVertical: 2 }} />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: 12, color: C.text, fontFamily: F.display, fontWeight: '700' }}>Total Acumulado</Text>
-              <Text style={{ fontSize: 14, fontWeight: '800', color: ganhosTotal >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 14, fontWeight: '800', color: ganhosTotal >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
                 {'R$ ' + fmt(ganhosTotal)}
               </Text>
             </View>
@@ -1205,7 +1205,7 @@ export default function HomeScreen({ navigation }) {
         <View style={{ flexDirection: 'row', gap: 6, marginBottom: 14 }}>
           <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
             <Text style={{ fontSize: 10, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>RENT. MÊS</Text>
-            <Text style={{ fontSize: 15, fontWeight: '800', color: rentabilidadeMes > 1 ? C.green : C.yellow, fontFamily: F.mono, marginTop: 2 }}>
+            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 15, fontWeight: '800', color: rentabilidadeMes > 1 ? C.green : C.yellow, fontFamily: F.mono, marginTop: 2 }}>
               {rentabilidadeMes.toFixed(2) + '%'}
             </Text>
           </View>

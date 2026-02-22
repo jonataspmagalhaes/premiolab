@@ -46,6 +46,8 @@ src/
     dividendService.js Auto-sync de dividendos via brapi.dev + StatusInvest
   theme/
     index.js       Cores (C), Fontes (F), Tamanhos (SIZE), Sombras (SHADOW)
+  utils/
+    a11y.js        shouldAnimate(), animateLayout() — ReduceMotion + LayoutAnimation centralizado
 supabase/
   functions/
     weekly-snapshot/ Edge Function para snapshot semanal com cotacoes reais
@@ -337,7 +339,7 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 - [x] **Auto-sync de dividendos** (implementado: dividendService.js, cross-check brapi+StatusInvest, auto-trigger Home, sync manual Proventos, dedup por ticker+data+valor)
 - [x] **Gestao Financeira / Fluxo de Caixa** (implementado: tab Gestao com sub-tabs Carteira+Caixa, movimentacoes, integracao com operacoes/opcoes/dividendos)
 - [x] **Relatorios Detalhados** (implementado: tela Relatorios com sub-tabs Dividendos/Opcoes/Operacoes/IR, graficos, agrupamentos)
-- [x] **Melhorias UX P0-P11** (implementado: contraste, touch targets, validacao inline, skeleton, haptics, keyboard, error states, beforeRemove, double-tap guard, toast, swipe-to-delete, FlatList, React.memo, ticker autocomplete, undo, PressableCard, Ionicons EmptyState, skeletons por tela, transicoes navegacao)
+- [x] **Melhorias UX P0-P12** (implementado: contraste, touch targets, validacao inline, skeleton, haptics, keyboard, error states, beforeRemove, double-tap guard, toast, swipe-to-delete, FlatList, React.memo, ticker autocomplete, undo, PressableCard, Ionicons EmptyState, skeletons por tela, transicoes navegacao, accessibilityLabel/Hint/Role, ReduceMotion, maxFontSizeMultiplier)
 - [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
 - [ ] Notificacoes push para vencimentos proximos
 - [ ] Importacao de operacoes via CSV/Excel
@@ -636,7 +638,7 @@ Confirmacao com valor do saldo na mensagem. Error handling com Alert se falhar. 
 | `src/screens/gestao/CaixaView.js` | Multi-moeda display, editar saldo, excluir melhorado |
 | `supabase-migration.sql` | Coluna `moeda TEXT DEFAULT 'BRL'` em saldos_corretora |
 
-## Melhorias UX P0-P11 (Implementado)
+## Melhorias UX P0-P12 (Implementado)
 
 Onze rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, feedback, keyboard handling, consistencia visual, toast, swipe-to-delete, performance e formularios avancados.
 
@@ -796,6 +798,37 @@ Onze rodadas de melhorias de usabilidade cobrindo acessibilidade, validacao, fee
 | `src/screens/analise/AnaliseScreen.js` | Ionicons EmptyState (~10 contextos) |
 | `src/screens/relatorios/RelatoriosScreen.js` | Ionicons EmptyState (5 contextos) |
 
+### P12 — Acessibilidade Avancada
+- **Helper a11y**: `src/utils/a11y.js` com `shouldAnimate()` e `animateLayout()` — detecta ReduceMotion via `AccessibilityInfo.isReduceMotionEnabled()`, centraliza `UIManager.setLayoutAnimationEnabledExperimental` para Android
+- **Componentes reutilizaveis**: accessibilityRole/Label/Hint em PressableCard, SwipeableRow, TickerInput, EmptyState (States.js), Glass, ToastConfig (undo button)
+- **10 telas Add/Edit**: accessibilityLabel="Voltar" no back button + accessibilityRole/Label no submit button em AddOperacao, EditOperacao, AddOpcao, EditOpcao, AddRendaFixa, EditRendaFixa, AddProvento, EditProvento, AddMovimentacao, AddConta
+- **Telas principais**: accessibilityLabel com valores dinamicos em PositionCard/RFCard (CarteiraScreen), account cards (CaixaView), action buttons (Comprar/Vender/Depositar/Retirar/etc)
+- **ReduceMotion**: `animateLayout()` substitui `LayoutAnimation.configureNext()` em 9 telas (20 instancias). PressableCard nao anima se reduceMotion. Skeleton pulse fica estatico
+- **Font scaling**: `maxFontSizeMultiplier={1.5}` em valores monetarios F.mono (HomeScreen ~16 instancias, CarteiraScreen ~3, OpcoesScreen ~2) para evitar overflow de layout
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/utils/a11y.js` | **Novo** — shouldAnimate(), animateLayout(), ReduceMotion listener, UIManager setup |
+| `src/components/PressableCard.js` | a11y props passthrough + reduceMotion guard na animacao |
+| `src/components/SwipeableRow.js` | accessibilityLabel/Role no delete button + hint no wrapper |
+| `src/components/TickerInput.js` | a11y labels no input, dropdown e itens |
+| `src/components/States.js` | EmptyState a11y + skeleton reduceMotion guard |
+| `src/components/Glass.js` | accessibilityLabel passthrough via props |
+| `src/components/ToastConfig.js` | a11y no botao undo |
+| `src/screens/carteira/CarteiraScreen.js` | a11y labels em cards + animateLayout() |
+| `src/screens/carteira/AssetDetailScreen.js` | animateLayout() |
+| `src/screens/carteira/AddOperacaoScreen.js` | a11y labels + animateLayout() |
+| `src/screens/carteira/EditOperacaoScreen.js` | a11y labels + animateLayout() |
+| `src/screens/opcoes/OpcoesScreen.js` | maxFontSizeMultiplier em tooltip payoff |
+| `src/screens/gestao/CaixaView.js` | a11y labels + animateLayout() |
+| `src/screens/gestao/ExtratoScreen.js` | animateLayout() |
+| `src/screens/proventos/ProventosScreen.js` | animateLayout() |
+| `src/screens/rf/RendaFixaScreen.js` | animateLayout() |
+| `src/screens/analise/AnaliseScreen.js` | animateLayout() (9 instancias) |
+| `src/screens/home/HomeScreen.js` | maxFontSizeMultiplier em ~16 valores monetarios |
+| + 8 telas Add/Edit restantes | a11y labels back/submit |
+
 ## Melhorias UX Pendentes (TODO)
 
 Melhorias identificadas mas nao implementadas, organizadas por prioridade.
@@ -823,9 +856,9 @@ Melhorias identificadas mas nao implementadas, organizadas por prioridade.
 - [x] **Skeleton por tela**: 5 skeletons especificos (Carteira, Opcoes, Caixa, Proventos, RendaFixa)
 - [x] **Transicoes de navegacao**: slide_from_bottom em 11 telas Add/Edit
 
-### P12 — Acessibilidade Avancada
-- [ ] **accessibilityLabel**: em TODOS os TouchableOpacity/Pressable (muitos ainda faltam)
-- [ ] **accessibilityHint**: dicas de acao ("Toque duas vezes para expandir")
-- [ ] **Font scaling**: respeitar preferencias de tamanho do sistema (allowFontScaling)
-- [ ] **Reduced motion**: respeitar AccessibilityInfo.isReduceMotionEnabled para desabilitar animacoes
-- [ ] **Screen reader flow**: testar e ajustar ordem de leitura com accessibilityOrder
+### P12 — Acessibilidade Avancada (IMPLEMENTADO)
+- [x] **accessibilityLabel**: em componentes reutilizaveis + 10 telas Add/Edit + telas principais
+- [x] **accessibilityHint**: dicas de acao em PressableCard, SwipeableRow
+- [x] **Font scaling**: maxFontSizeMultiplier={1.5} em valores monetarios (Home, Carteira, Opcoes)
+- [x] **Reduced motion**: shouldAnimate() + animateLayout() via AccessibilityInfo.isReduceMotionEnabled
+- [x] **LayoutAnimation centralizado**: animateLayout() em 9 telas (20 instancias), UIManager setup em a11y.js

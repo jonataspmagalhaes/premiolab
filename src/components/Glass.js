@@ -9,6 +9,7 @@ export default function Glass(props) {
   var glow = props.glow;
   var padding = props.padding !== undefined ? props.padding : SIZE.padding;
   var onPress = props.onPress;
+  var accessibilityLabel = props.accessibilityLabel;
 
   var Wrapper = onPress ? TouchableOpacity : View;
   var wrapperProps = {};
@@ -16,6 +17,9 @@ export default function Glass(props) {
     wrapperProps.onPress = onPress;
     wrapperProps.activeOpacity = 0.7;
     wrapperProps.accessibilityRole = 'button';
+  }
+  if (accessibilityLabel) {
+    wrapperProps.accessibilityLabel = accessibilityLabel;
   }
 
   wrapperProps.style = [

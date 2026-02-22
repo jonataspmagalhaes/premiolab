@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, ActivityIndicator, LayoutAnimation,
-  Platform, UIManager, Alert, TextInput, Modal,
+  TouchableOpacity, ActivityIndicator,
+  Alert, TextInput, Modal,
 } from 'react-native';
+import { animateLayout } from '../../utils/a11y';
 import Svg, {
   Circle as SvgCircle, Path, Defs, LinearGradient as SvgGrad,
   Stop, Line as SvgLine,
@@ -16,10 +17,6 @@ import { enrichPositionsWithPrices, fetchPriceHistory, clearPriceCache, getLastP
 import { Glass, Badge, Pill, SectionLabel, InfoTip, PressableCard } from '../../components';
 import { MiniLineChart } from '../../components/InteractiveChart';
 import { SkeletonCarteira, EmptyState } from '../../components/States';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 // ══════════ HELPERS ══════════
 var FILTERS = [
@@ -225,7 +222,7 @@ var PositionCard = React.memo(function PositionCard(props) {
   }
 
   return (
-    <PressableCard onPress={onToggle}>
+    <PressableCard onPress={onToggle} accessibilityLabel={pos.ticker + ', P&L ' + (isPos ? '+' : '-') + 'R$ ' + fmt(Math.abs(pnl))} accessibilityHint={expanded ? 'Toque para recolher' : 'Toque para expandir'}>
       <Glass padding={12} style={expanded ? { borderColor: color + '30' } : {}}>
         {/* Row 1: dot + ticker + badges | P&L */}
         <View style={styles.cardRow1}>
@@ -265,7 +262,7 @@ var PositionCard = React.memo(function PositionCard(props) {
             ) : null}
             {temVendas ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                <Text style={{ fontSize: 10, color: plReal >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 10, color: plReal >= 0 ? C.green : C.red, fontFamily: F.mono }}>
                   P&L realizado: {plReal >= 0 ? '+' : ''}R$ {fmt(plReal)} ({pos.total_vendido} un vendida(s))
                 </Text>
                 <InfoTip text="Resultado das vendas já realizadas, usando o preço médio da corretora onde cada venda ocorreu." size={11} />
@@ -304,12 +301,12 @@ var PositionCard = React.memo(function PositionCard(props) {
                     <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, fontWeight: '600' }}>VENDAS REALIZADAS</Text>
                     <InfoTip text="Calculado com o PM da corretora onde a venda ocorreu. Se você comprou barato em uma corretora e caro em outra, cada venda reflete o custo real daquela posição. Para IR, o PM geral é usado (veja Relatórios > IR)." size={11} />
                   </View>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: plReal >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                  <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: plReal >= 0 ? C.green : C.red, fontFamily: F.mono }}>
                     {plReal >= 0 ? '+' : ''}R$ {fmt(plReal)}
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
-                  <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>
+                  <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>
                     {pos.total_vendido} un vendida(s) · Receita R$ {fmt(pos.receita_vendas)}
                   </Text>
                 </View>
@@ -317,23 +314,23 @@ var PositionCard = React.memo(function PositionCard(props) {
             ) : null}
             <View style={styles.expandedActions}>
               <TouchableOpacity style={[styles.actionBtn, { borderColor: C.green + '30', backgroundColor: C.green + '08' }]}
-                onPress={onBuy}>
+                onPress={onBuy} accessibilityRole="button" accessibilityLabel="Comprar">
                 <Text style={[styles.actionBtnText, { color: C.green }]}>+ Comprar</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actionBtn, { borderColor: C.red + '30', backgroundColor: C.red + '08' }]}
-                onPress={onSell}>
+                onPress={onSell} accessibilityRole="button" accessibilityLabel="Vender">
                 <Text style={[styles.actionBtnText, { color: C.red }]}>Vender</Text>
               </TouchableOpacity>
               {pos.categoria === 'acao' ? (
                 <TouchableOpacity style={[styles.actionBtn, { borderColor: C.opcoes + '30', backgroundColor: C.opcoes + '08' }]}
-                  onPress={onLancarOpcao}>
+                  onPress={onLancarOpcao} accessibilityRole="button" accessibilityLabel="Lançar opção">
                   <Text style={[styles.actionBtnText, { color: C.opcoes }]}>Lançar opção</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
               <TouchableOpacity style={[styles.actionBtn, { borderColor: C.accent + '30', backgroundColor: C.accent + '08' }]}
-                onPress={onTransacoes}>
+                onPress={onTransacoes} accessibilityRole="button" accessibilityLabel="Transações">
                 <Text style={[styles.actionBtnText, { color: C.accent }]}>Transações</Text>
               </TouchableOpacity>
             </View>
@@ -362,7 +359,7 @@ function RFCard(props) {
   var dayColor = daysLeft < 30 ? C.red : daysLeft < 90 ? C.yellow : daysLeft < 365 ? C.etfs : C.rf;
 
   return (
-    <PressableCard onPress={onToggle}>
+    <PressableCard onPress={onToggle} accessibilityLabel={tipoLabel + ', R$ ' + fmt(valor)} accessibilityHint={expanded ? 'Toque para recolher' : 'Toque para expandir'}>
       <Glass padding={12} style={expanded ? { borderColor: C.rf + '30' } : {}}>
         <View style={styles.cardRow1}>
           <View style={styles.cardRow1Left}>
@@ -585,7 +582,7 @@ export default function CarteiraScreen(props) {
   }
 
   function toggleExpand(key) {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    animateLayout();
     setExpanded(expanded === key ? null : key);
   }
 

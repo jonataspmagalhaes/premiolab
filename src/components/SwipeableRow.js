@@ -28,6 +28,8 @@ function SwipeableRow(props) {
           <TouchableOpacity
             style={styles.deleteButton}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={label}
             onPress={function() {
               if (swipeableRef.current) {
                 swipeableRef.current.close();
@@ -55,6 +57,7 @@ function SwipeableRow(props) {
       overshootRight={false}
       friction={2}
       rightThreshold={40}
+      accessibilityHint="Deslize para a esquerda para excluir"
     >
       {children}
     </Swipeable>

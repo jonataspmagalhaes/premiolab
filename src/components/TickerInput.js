@@ -50,12 +50,14 @@ export default function TickerInput(props) {
         autoFocus={autoFocus}
         returnKeyType={returnKeyType}
         style={style}
+        accessibilityLabel="Buscar ticker"
       />
       {filtered.length > 0 ? (
-        <View style={styles.dropdown}>
+        <View style={styles.dropdown} accessibilityRole="list">
           {filtered.map(function(t) {
             return (
-              <TouchableOpacity key={t} style={styles.item} onPress={function() { handleSelect(t); }}>
+              <TouchableOpacity key={t} style={styles.item} onPress={function() { handleSelect(t); }}
+                accessibilityRole="button" accessibilityLabel={t}>
                 <Text style={styles.itemText}>{t}</Text>
               </TouchableOpacity>
             );

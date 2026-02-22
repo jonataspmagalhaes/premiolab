@@ -203,7 +203,7 @@ export default function AddRendaFixaScreen(props) {
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={function() { navigation.goBack(); }}>
+          <TouchableOpacity onPress={function() { navigation.goBack(); }} accessibilityLabel="Voltar" accessibilityRole="button">
             <Text style={styles.back}>‹</Text>
           </TouchableOpacity>
           <Text style={styles.title}>Nova Renda Fixa</Text>
@@ -412,6 +412,8 @@ export default function AddRendaFixaScreen(props) {
           disabled={!canSubmit || loading}
           activeOpacity={0.8}
           style={[styles.submitBtn, !canSubmit && { opacity: 0.4 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Registrar Renda Fixa"
         >
           {loading ? (
             <ActivityIndicator color="white" />

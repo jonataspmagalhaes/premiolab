@@ -450,10 +450,10 @@ function PayoffChart(props) {
             left: Math.min(touchInfo.x, chartWidth - 100),
             top: 4,
           }]}>
-            <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>
+            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>
               {'Ativo R$ ' + fmt(touchInfo.price)}
             </Text>
-            <Text style={{ fontSize: 11, fontWeight: '700', fontFamily: F.mono,
+            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 11, fontWeight: '700', fontFamily: F.mono,
               color: touchInfo.pl >= 0 ? C.green : C.red }}>
               {'P&L ' + (touchInfo.pl >= 0 ? '+' : '') + 'R$ ' + fmt(touchInfo.pl)}
             </Text>

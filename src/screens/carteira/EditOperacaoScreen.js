@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, LayoutAnimation, Keyboard,
+  TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
+import { animateLayout } from '../../utils/a11y';
 import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -146,7 +147,7 @@ export default function EditOperacaoScreen(props) {
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
       <View style={styles.header}>
-        <TouchableOpacity onPress={function() { navigation.goBack(); }}>
+        <TouchableOpacity onPress={function() { navigation.goBack(); }} accessibilityLabel="Voltar" accessibilityRole="button">
           <Text style={styles.back}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Editar Operação</Text>
@@ -237,7 +238,7 @@ export default function EditOperacaoScreen(props) {
       {dateError ? <Text style={styles.fieldError}>Data inválida</Text> : null}
 
       {/* Custos */}
-      <TouchableOpacity onPress={function() { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setShowCustos(!showCustos); }} style={styles.custoToggle}>
+      <TouchableOpacity onPress={function() { animateLayout(); setShowCustos(!showCustos); }} style={styles.custoToggle}>
         <Text style={styles.custoToggleText}>{showCustos ? '▾ Custos operacionais' : '▸ Custos operacionais (opcional)'}</Text>
         {totalCustos > 0 && (
           <Badge text={'R$ ' + fmt(totalCustos)} color={C.yellow} />
@@ -313,7 +314,8 @@ export default function EditOperacaoScreen(props) {
       </View>
 
       {/* Submit */}
-      <TouchableOpacity onPress={handleSave} disabled={!canSubmit || loading} activeOpacity={0.8} style={[styles.submitBtn, !canSubmit && { opacity: 0.4 }]}>
+      <TouchableOpacity onPress={handleSave} disabled={!canSubmit || loading} activeOpacity={0.8} style={[styles.submitBtn, !canSubmit && { opacity: 0.4 }]}
+        accessibilityRole="button" accessibilityLabel="Salvar Alterações">
         {loading ? (
           <ActivityIndicator color="white" />
         ) : (

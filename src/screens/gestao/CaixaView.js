@@ -1,9 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, TextInput, LayoutAnimation,
-  Platform, UIManager, Alert,
+  TouchableOpacity, TextInput, Alert,
 } from 'react-native';
+import { animateLayout } from '../../utils/a11y';
 import Svg, { Rect, Line as SvgLine, Text as SvgText } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
@@ -18,10 +18,6 @@ import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/curr
 import { Glass, Badge, Pill, SectionLabel, SwipeableRow, PressableCard } from '../../components';
 import { SkeletonCaixa, EmptyState } from '../../components/States';
 import * as Haptics from 'expo-haptics';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -268,7 +264,7 @@ export default function CaixaView(props) {
   }
 
   function toggleExpand(id) {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    animateLayout();
     if (expanded === id) {
       setExpanded(null);
       setActMode(null);
@@ -283,7 +279,7 @@ export default function CaixaView(props) {
   }
 
   function openMode(mode) {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    animateLayout();
     setActMode(actMode === mode ? null : mode);
     setActVal('');
     setTrDest(null);
@@ -636,7 +632,9 @@ export default function CaixaView(props) {
 
         return (
           <PressableCard key={s.id || i}
-            onPress={function() { toggleExpand(s.id); }}>
+            onPress={function() { toggleExpand(s.id); }}
+            accessibilityLabel={sName + ', saldo ' + simbolo + ' ' + fmt(s.saldo || 0)}
+            accessibilityHint={isExp ? 'Toque para recolher' : 'Toque para expandir'}>
             <Glass padding={12} style={isExp ? { borderColor: bc + '30' } : {}}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -704,25 +702,30 @@ export default function CaixaView(props) {
                     <View style={{ gap: 6 }}>
                       <View style={{ flexDirection: 'row', gap: 6 }}>
                         <TouchableOpacity onPress={function() { openMode('depositar'); }} activeOpacity={0.7}
-                          style={[styles.saldoBtn, { borderColor: C.green + '30' }]}>
+                          style={[styles.saldoBtn, { borderColor: C.green + '30' }]}
+                          accessibilityRole="button" accessibilityLabel="Depositar">
                           <Text style={[styles.saldoBtnText, { color: C.green + 'CC' }]}>Depositar</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={function() { openMode('deduzir'); }} activeOpacity={0.7}
-                          style={[styles.saldoBtn, { borderColor: C.yellow + '30' }]}>
+                          style={[styles.saldoBtn, { borderColor: C.yellow + '30' }]}
+                          accessibilityRole="button" accessibilityLabel="Retirar">
                           <Text style={[styles.saldoBtnText, { color: C.yellow + 'CC' }]}>Retirar</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={function() { openMode('transferir'); }} activeOpacity={0.7}
-                          style={[styles.saldoBtn, { borderColor: C.accent + '30' }]}>
+                          style={[styles.saldoBtn, { borderColor: C.accent + '30' }]}
+                          accessibilityRole="button" accessibilityLabel="Transferir">
                           <Text style={[styles.saldoBtnText, { color: C.accent + 'CC' }]}>Transferir</Text>
                         </TouchableOpacity>
                       </View>
                       <View style={{ flexDirection: 'row', gap: 6 }}>
                         <TouchableOpacity onPress={function() { openMode('editar'); }} activeOpacity={0.7}
-                          style={[styles.saldoBtn, { borderColor: C.acoes + '30' }]}>
+                          style={[styles.saldoBtn, { borderColor: C.acoes + '30' }]}
+                          accessibilityRole="button" accessibilityLabel="Editar saldo">
                           <Text style={[styles.saldoBtnText, { color: C.acoes + 'CC' }]}>Editar saldo</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={function() { handleExcluir(s); }} activeOpacity={0.7}
-                          style={[styles.saldoBtn, { borderColor: C.red + '30' }]}>
+                          style={[styles.saldoBtn, { borderColor: C.red + '30' }]}
+                          accessibilityRole="button" accessibilityLabel="Excluir conta">
                           <Text style={[styles.saldoBtnText, { color: C.red + 'CC' }]}>Excluir conta</Text>
                         </TouchableOpacity>
                       </View>

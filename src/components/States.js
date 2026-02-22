@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, StyleSheet, TouchableOpacity } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, F, SIZE } from '../theme';
+import { shouldAnimate } from '../utils/a11y';
 
 // ═══════════ SKELETON BAR ═══════════
 export function Skeleton(props) {
@@ -10,9 +11,10 @@ export function Skeleton(props) {
   var radius = props.radius || 6;
   var style = props.style;
 
-  var opacity = useRef(new Animated.Value(0.4)).current;
+  var opacity = useRef(new Animated.Value(shouldAnimate() ? 0.4 : 0.2)).current;
 
   useEffect(function() {
+    if (!shouldAnimate()) return;
     var anim = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, { toValue: 0.08, duration: 800, useNativeDriver: true }),
@@ -257,7 +259,7 @@ export function EmptyState(props) {
   var color = props.color || C.accent;
 
   return (
-    <View style={styles.emptyWrap}>
+    <View style={styles.emptyWrap} accessibilityLabel={title}>
       <View style={[styles.emptyIcon, { backgroundColor: color + '08', borderColor: color + '15' }]}>
         {ionicon ? (
           <Ionicons name={ionicon} size={28} color={color} />
@@ -272,6 +274,8 @@ export function EmptyState(props) {
           onPress={onCta}
           activeOpacity={0.8}
           style={[styles.emptyCta, { backgroundColor: color }]}
+          accessibilityRole="button"
+          accessibilityLabel={cta}
         >
           <Text style={styles.emptyCtaText}>{cta}</Text>
         </TouchableOpacity>

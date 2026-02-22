@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  ActivityIndicator, Alert, RefreshControl, LayoutAnimation,
-  Platform, UIManager, TextInput,
+  ActivityIndicator, Alert, RefreshControl, TextInput,
 } from 'react-native';
+import { animateLayout } from '../../utils/a11y';
 
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -12,10 +12,6 @@ import { fetchPrices, fetchPriceHistory, clearPriceCache, getLastPriceUpdate } f
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import * as Haptics from 'expo-haptics';
 import InteractiveChart from '../../components/InteractiveChart';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -212,7 +208,7 @@ export default function AssetDetailScreen(props) {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             var result = await deleteOperacao(id);
             if (!result.error) {
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              animateLayout();
               var updated = txns.filter(function(t) { return t.id !== id; });
               setTxns(updated);
             } else {
@@ -225,7 +221,7 @@ export default function AssetDetailScreen(props) {
   };
 
   var toggleCorretora = function(key) {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    animateLayout();
     var next = {};
     var keys = Object.keys(expandedCorretora);
     for (var i = 0; i < keys.length; i++) {

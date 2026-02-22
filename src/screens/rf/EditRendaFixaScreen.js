@@ -198,7 +198,7 @@ export default function EditRendaFixaScreen(props) {
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={function() { navigation.goBack(); }}>
+          <TouchableOpacity onPress={function() { navigation.goBack(); }} accessibilityLabel="Voltar" accessibilityRole="button">
             <Text style={styles.back}>‹</Text>
           </TouchableOpacity>
           <Text style={styles.title}>Editar Renda Fixa</Text>
@@ -363,6 +363,8 @@ export default function EditRendaFixaScreen(props) {
           disabled={!canSubmit || loading}
           activeOpacity={0.8}
           style={[styles.submitBtn, !canSubmit && { opacity: 0.4 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Salvar Alterações"
         >
           {loading ? (
             <ActivityIndicator color="white" />

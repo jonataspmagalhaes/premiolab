@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, TextInput, LayoutAnimation,
-  Platform, UIManager, Modal, Dimensions, KeyboardAvoidingView,
+  TouchableOpacity, TextInput,
+  Platform, Modal, Dimensions, KeyboardAvoidingView,
 } from 'react-native';
+import { animateLayout } from '../../utils/a11y';
 import Svg, {
   Circle, Rect as SvgRect, G,
   Text as SvgText, Line as SvgLine, Path,
@@ -11,10 +12,6 @@ import Svg, {
 } from 'react-native-svg';
 import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 import { useAuth } from '../../contexts/AuthContext';
 import {
   getDashboard, getProventos,
@@ -1635,7 +1632,7 @@ function RebalanceTool(props) {
   function applyProfile(profileKey) {
     var profile = PROFILES[profileKey];
     if (!profile) return;
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    animateLayout();
 
     // 1. Set class targets
     setClassTargets(profile.classes);
@@ -2325,7 +2322,7 @@ function RebalanceTool(props) {
       <View key={s.key}>
         <TouchableOpacity
           onPress={function () {
-            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            animateLayout();
             setExpandedSector(isExp ? null : cat + ':' + s.key);
           }}
           activeOpacity={0.7}
@@ -2381,7 +2378,7 @@ function RebalanceTool(props) {
       <View key={cg.key}>
         <TouchableOpacity
           onPress={function () {
-            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            animateLayout();
             if (isExp) { setExpandedCap(null); setExpandedSector(null); }
             else { setExpandedCap(cg.key); setExpandedSector(null); }
           }}
@@ -2447,7 +2444,7 @@ function RebalanceTool(props) {
       <View key={cls.key}>
         <TouchableOpacity
           onPress={function () {
-            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            animateLayout();
             if (isExp) { setExpandedClass(null); setExpandedCap(null); setExpandedSector(null); }
             else { setExpandedClass(cls.key); setExpandedCap(null); setExpandedSector(null); }
           }}
@@ -2514,7 +2511,7 @@ function RebalanceTool(props) {
           </View>
           <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
             <TouchableOpacity onPress={function () {
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              animateLayout();
               setShowProfiles(!showProfiles);
             }}>
               <Text style={{ fontSize: 11, color: C.opcoes, fontWeight: '600', fontFamily: F.mono }}>
@@ -2522,7 +2519,7 @@ function RebalanceTool(props) {
               </Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={function () {
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              animateLayout();
               if (isEditing && userId) {
                 // Save to DB when closing edit mode (embed capTargets in sector_targets._cap)
                 setSaving(true);
@@ -2670,7 +2667,7 @@ function RebalanceTool(props) {
             />
           </View>
           <TouchableOpacity onPress={function () {
-            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            animateLayout();
             computeSuggestions();
           }}
             style={{ height: 38, paddingHorizontal: 16, borderRadius: 10, backgroundColor: C.accent,
@@ -8106,7 +8103,7 @@ export default function AnaliseScreen() {
                             })}
                             {catEncerradas.length > 3 && !catShowAllEnc && (
                               <TouchableOpacity
-                                onPress={function() { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setCatShowAllEnc(true); }}
+                                onPress={function() { animateLayout(); setCatShowAllEnc(true); }}
                                 style={{ alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 16 }}>
                                 <Text style={{ fontSize: 11, color: C.accent, fontWeight: '600', fontFamily: F.mono }}>
                                   {'Ver todas (' + String(catEncerradas.length) + ')'}
@@ -8115,7 +8112,7 @@ export default function AnaliseScreen() {
                             )}
                             {catShowAllEnc && catEncerradas.length > 3 && (
                               <TouchableOpacity
-                                onPress={function() { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setCatShowAllEnc(false); }}
+                                onPress={function() { animateLayout(); setCatShowAllEnc(false); }}
                                 style={{ alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 16 }}>
                                 <Text style={{ fontSize: 11, color: C.accent, fontWeight: '600', fontFamily: F.mono }}>
                                   Recolher

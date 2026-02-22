@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, FlatList, StyleSheet, RefreshControl,
-  TouchableOpacity, Alert, LayoutAnimation, Platform, UIManager, ActivityIndicator,
+  TouchableOpacity, Alert, ActivityIndicator,
 } from 'react-native';
+import { animateLayout } from '../../utils/a11y';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -11,10 +12,6 @@ import { getSaldos, getMovimentacoes, deleteMovimentacao, upsertSaldo, addMovime
 import { Glass, Pill, Badge, SectionLabel, SwipeableRow } from '../../components';
 import { LoadingScreen } from '../../components/States';
 import * as Haptics from 'expo-haptics';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -208,7 +205,7 @@ export default function ExtratoScreen(props) {
                   moeda: saldoAtual.moeda || 'BRL',
                 }).then(function() {
                   undoRef.current = mov;
-                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  animateLayout();
                   load();
                   Toast.show({
                     type: 'undo',
@@ -220,7 +217,7 @@ export default function ExtratoScreen(props) {
                 });
               } else {
                 undoRef.current = mov;
-                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                animateLayout();
                 setMovs(movs.filter(function(x) { return x.id !== mov.id; }));
                 Toast.show({
                   type: 'undo',
