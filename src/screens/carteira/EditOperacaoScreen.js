@@ -20,11 +20,27 @@ function fmt4(v) {
 }
 
 var CATEGORIAS = [
-  { key: 'acao', label: 'Ação', color: C.acoes },
-  { key: 'fii', label: 'FII', color: C.fiis },
-  { key: 'etf', label: 'ETF', color: C.etfs },
-  { key: 'stock_int', label: 'Stocks', color: C.stock_int },
+  { key: 'acao', label: 'Ação', color: C.acoes, mercado: 'BR' },
+  { key: 'fii', label: 'FII', color: C.fiis, mercado: 'BR' },
+  { key: 'etf', label: 'ETF BR', color: C.etfs, mercado: 'BR' },
+  { key: 'stock_int', label: 'Stocks', color: C.stock_int, mercado: 'INT' },
+  { key: 'etf_int', label: 'ETF INT', color: C.etfs, mercado: 'INT' },
 ];
+
+function getInitialCatKey(op) {
+  if (op.categoria === 'etf' && op.mercado === 'INT') return 'etf_int';
+  return op.categoria || 'acao';
+}
+
+function getRealCategoria(cat) {
+  if (cat === 'etf_int') return 'etf';
+  return cat;
+}
+
+function getRealMercado(cat) {
+  if (cat === 'stock_int' || cat === 'etf_int') return 'INT';
+  return 'BR';
+}
 
 
 function maskDate(text) {
@@ -53,11 +69,10 @@ export default function EditOperacaoScreen(props) {
   var op = route.params.operacao;
   var user = useAuth().user;
 
-  var mercado = op.mercado || 'BR';
-  var isINT = mercado === 'INT';
-
   var _tipo = useState(op.tipo || 'compra'); var tipo = _tipo[0]; var setTipo = _tipo[1];
-  var _cat = useState(op.categoria || 'acao'); var categoria = _cat[0]; var setCategoria = _cat[1];
+  var _cat = useState(getInitialCatKey(op)); var categoria = _cat[0]; var setCategoria = _cat[1];
+  var mercado = getRealMercado(categoria);
+  var isINT = mercado === 'INT';
   var _ticker = useState(op.ticker || ''); var ticker = _ticker[0]; var setTicker = _ticker[1];
   var _qtd = useState(String(op.quantidade || '')); var quantidade = _qtd[0]; var setQuantidade = _qtd[1];
   var _preco = useState(String(op.preco || '')); var preco = _preco[0]; var setPreco = _preco[1];
@@ -72,7 +87,7 @@ export default function EditOperacaoScreen(props) {
   useEffect(function() {
     return navigation.addListener('beforeRemove', function(e) {
       if (savedRef.current) return;
-      var isDirty = tipo !== (op.tipo || 'compra') || categoria !== (op.categoria || 'acao') ||
+      var isDirty = tipo !== (op.tipo || 'compra') || categoria !== getInitialCatKey(op) ||
         ticker !== (op.ticker || '') || quantidade !== String(op.quantidade || '') ||
         preco !== String(op.preco || '') || corretora !== (op.corretora || '') ||
         data !== isoToBr(op.data) || corretagem !== String(op.custo_corretagem || '') ||
@@ -123,8 +138,8 @@ export default function EditOperacaoScreen(props) {
         .update({
           ticker: ticker.toUpperCase(),
           tipo: tipo,
-          categoria: categoria,
-          mercado: mercado,
+          categoria: getRealCategoria(categoria),
+          mercado: getRealMercado(categoria),
           quantidade: parseInt(quantidade),
           preco: parseFloat(preco),
           custo_corretagem: custCorretagem,
