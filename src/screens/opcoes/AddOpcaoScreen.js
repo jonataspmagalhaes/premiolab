@@ -5,8 +5,8 @@ import {
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { addOpcao, addMovimentacaoComSaldo, buildMovDescricao, getPositions } from '../../services/database';
-import { Glass, Pill, Badge, TickerInput } from '../../components';
+import { addOpcao, incrementCorretora, addMovimentacaoComSaldo, buildMovDescricao, getPositions } from '../../services/database';
+import { Glass, Pill, Badge, TickerInput, CorretoraSelector } from '../../components';
 import { searchTickers } from '../../services/tickerSearchService';
 import * as Haptics from 'expo-haptics';
 
@@ -14,7 +14,6 @@ function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-var CORRETORAS = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];
 
 function maskDate(text) {
   var clean = text.replace(/\D/g, '');
@@ -156,6 +155,7 @@ export default function AddOpcaoScreen(props) {
         setSubmitted(false);
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (corretora) await incrementCorretora(user.id, corretora);
         var resetFields = function() {
           setAtivoBase('');
           setTickerOpcao('');
@@ -356,16 +356,8 @@ export default function AddOpcaoScreen(props) {
           </View>
         </Glass>
       )}
-
       {/* Corretora */}
-      <Text style={styles.label}>CORRETORA *</Text>
-      <View style={styles.pillRow}>
-        {CORRETORAS.map(function(c) {
-          return (
-            <Pill key={c} active={corretora === c} color={C.acoes} onPress={function() { setCorretora(c); }}>{c}</Pill>
-          );
-        })}
-      </View>
+      <CorretoraSelector value={corretora} onSelect={function(name) { setCorretora(name); }} userId={user.id} mercado="BR" color={C.acoes} label="CORRETORA *" />
 
       {/* Submit */}
       <TouchableOpacity onPress={handleSubmit} disabled={!canSubmit || loading} activeOpacity={0.8} style={[styles.submitBtn, !canSubmit && { opacity: 0.4 }]}

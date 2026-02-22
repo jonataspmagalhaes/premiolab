@@ -6,8 +6,8 @@ import {
 import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { upsertSaldo, addMovimentacao, buildMovDescricao } from '../../services/database';
-import { Glass, Pill } from '../../components';
+import { upsertSaldo, addMovimentacao, buildMovDescricao, getUserCorretoras } from '../../services/database';
+import { Glass, Pill, getInstitutionMeta } from '../../components';
 import { MOEDAS, getSymbol } from '../../services/currencyService';
 import * as Haptics from 'expo-haptics';
 
@@ -21,7 +21,7 @@ var TIPOS = [
   { k: 'outro', l: 'Outro' },
 ];
 
-var SUGESTOES = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial', 'Banco do Brasil', 'Itaú', 'Bradesco'];
+var SUGESTOES_DEFAULT = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial', 'Banco do Brasil', 'Itaú', 'Bradesco'];
 
 // Moedas principais para exibir como pills
 var MOEDAS_PRINCIPAIS = ['BRL', 'USD', 'EUR', 'GBP', 'QAR'];
@@ -37,6 +37,35 @@ export default function AddContaScreen(props) {
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
   var _showAllMoedas = useState(false); var showAllMoedas = _showAllMoedas[0]; var setShowAllMoedas = _showAllMoedas[1];
+  var _sugestoes = useState(SUGESTOES_DEFAULT); var sugestoes = _sugestoes[0]; var setSugestoes = _sugestoes[1];
+
+  // Fetch user corretoras and merge into suggestions
+  useEffect(function() {
+    if (!user) return;
+    getUserCorretoras(user.id).then(function(result) {
+      var list = result.data || [];
+      if (list.length === 0) return;
+      var merged = [];
+      var seen = {};
+      // User corretoras first (most used)
+      for (var i = 0; i < list.length; i++) {
+        var key = list[i].name.toUpperCase();
+        if (!seen[key]) {
+          seen[key] = true;
+          merged.push(list[i].name);
+        }
+      }
+      // Then defaults not already included
+      for (var d = 0; d < SUGESTOES_DEFAULT.length; d++) {
+        var dKey = SUGESTOES_DEFAULT[d].toUpperCase();
+        if (!seen[dKey]) {
+          seen[dKey] = true;
+          merged.push(SUGESTOES_DEFAULT[d]);
+        }
+      }
+      setSugestoes(merged);
+    }).catch(function() {});
+  }, [user]);
 
   function onChangeSaldo(t) {
     var nums = t.replace(/\D/g, '');
@@ -147,10 +176,17 @@ export default function AddContaScreen(props) {
       {/* Sugestões */}
       <Text style={styles.label}>SUGESTÕES</Text>
       <View style={styles.pillRow}>
-        {SUGESTOES.map(function(s) {
+        {sugestoes.map(function(s) {
           return (
             <Pill key={s} active={nome.toUpperCase() === s.toUpperCase()} color={C.accent}
-              onPress={function() { setNome(s); }}>
+              onPress={function() {
+                setNome(s);
+                var meta = getInstitutionMeta(s);
+                if (meta) {
+                  if (meta.moeda) setMoeda(meta.moeda);
+                  if (meta.tipo) setTipo(meta.tipo);
+                }
+              }}>
               {s}
             </Pill>
           );

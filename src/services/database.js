@@ -671,13 +671,16 @@ export async function addMovimentacao(userId, mov) {
 }
 
 export async function addMovimentacaoComSaldo(userId, mov) {
-  // 1. Get current saldo
-  var saldoResult = await supabase
+  // 1. Get current saldo (match by conta + moeda when moeda provided)
+  var saldoQuery = supabase
     .from('saldos_corretora')
     .select('*')
     .eq('user_id', userId)
-    .eq('corretora', mov.conta)
-    .maybeSingle();
+    .eq('corretora', mov.conta);
+  if (mov.moeda) {
+    saldoQuery = saldoQuery.eq('moeda', mov.moeda);
+  }
+  var saldoResult = await saldoQuery.maybeSingle();
 
   var saldoAtual = (saldoResult.data && saldoResult.data.saldo) || 0;
   var novoSaldo;

@@ -5,8 +5,8 @@ import {
 } from 'react-native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { addProvento, getUserCorretoras, getPositions } from '../../services/database';
-import { Glass, Pill, Badge, TickerInput } from '../../components';
+import { addProvento, incrementCorretora, getPositions } from '../../services/database';
+import { Glass, Pill, Badge, TickerInput, CorretoraSelector } from '../../components';
 import { searchTickers } from '../../services/tickerSearchService';
 import * as Haptics from 'expo-haptics';
 
@@ -26,7 +26,6 @@ var TIPOS = [
   { key: 'bonificacao', label: 'Bonificação', color: C.opcoes },
 ];
 
-var CORRETORAS_DEFAULT = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];
 
 function maskDate(text) {
   var clean = text.replace(/[^0-9]/g, '');
@@ -80,23 +79,12 @@ export default function AddProventoScreen(props) {
   var _qtd = useState(''); var qtd = _qtd[0]; var setQtd = _qtd[1];
   var _data = useState(todayBR()); var data = _data[0]; var setData = _data[1];
   var _corretora = useState(''); var corretora = _corretora[0]; var setCorretora = _corretora[1];
-  var _corretoras = useState(CORRETORAS_DEFAULT); var corretoras = _corretoras[0]; var setCorretoras = _corretoras[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
   var _tickers = useState([]); var tickers = _tickers[0]; var setTickers = _tickers[1];
 
   useEffect(function() {
     if (!user) return;
-    getUserCorretoras(user.id).then(function(result) {
-      var list = result.data || [];
-      if (list.length > 0) {
-        var names = [];
-        for (var i = 0; i < list.length; i++) {
-          names.push(list[i].name);
-        }
-        setCorretoras(names);
-      }
-    });
     getPositions(user.id).then(function(result) {
       var list = result.data || [];
       var names = [];
@@ -161,6 +149,7 @@ export default function AddProventoScreen(props) {
         Alert.alert('Erro', result.error.message);
         setSubmitted(false);
       } else {
+        if (corretora) await incrementCorretora(user.id, corretora);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert('Sucesso!', 'Provento registrado.', [
           {
@@ -280,18 +269,7 @@ export default function AddProventoScreen(props) {
       {dateError ? <Text style={styles.fieldError}>Data inválida</Text> : null}
 
       {/* Corretora */}
-      <Text style={styles.label}>CORRETORA</Text>
-      <View style={styles.pillRow}>
-        {corretoras.map(function(c) {
-          return (
-            <Pill key={c} active={corretora === c} color={C.acoes} onPress={function() {
-              setCorretora(corretora === c ? '' : c);
-            }}>
-              {c}
-            </Pill>
-          );
-        })}
-      </View>
+      <CorretoraSelector value={corretora} onSelect={function(name) { setCorretora(name); }} userId={user.id} mercado="BR" color={C.acoes} label="CORRETORA" />
 
       {/* Preview */}
       {canSubmit && (

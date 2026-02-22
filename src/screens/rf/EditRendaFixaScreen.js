@@ -8,7 +8,8 @@ import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../config/supabase';
-import { Glass, Pill, Badge } from '../../components';
+import { incrementCorretora } from '../../services/database';
+import { Glass, Pill, Badge, CorretoraSelector, DEFAULTS_RF } from '../../components';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -36,7 +37,6 @@ var CUSTODIAS = [
   { key: 'emissor', label: 'No Emissor' },
 ];
 
-var CORRETORAS = ['Clear', 'XP', 'Rico', 'Inter', 'Nubank', 'BTG', 'Genial', 'Itau', 'Bradesco', 'BB'];
 
 function maskDate(text) {
   var nums = text.replace(/\D/g, '');
@@ -181,6 +181,7 @@ export default function EditRendaFixaScreen(props) {
       if (result.error) {
         Alert.alert('Erro', result.error.message);
       } else {
+        if (corretora) await incrementCorretora(user.id, corretora);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         savedRef.current = true;
         Toast.show({ type: 'success', text1: 'Título atualizado' });
@@ -345,17 +346,7 @@ export default function EditRendaFixaScreen(props) {
         </View>
 
         {/* CORRETORA */}
-        <Text style={styles.label}>CORRETORA / BANCO *</Text>
-        <View style={styles.pillRow}>
-          {CORRETORAS.map(function(c) {
-            return (
-              <Pill key={c} active={corretora === c} color={C.acoes}
-                onPress={function() { setCorretora(c); }}>
-                {c}
-              </Pill>
-            );
-          })}
-        </View>
+        <CorretoraSelector value={corretora} onSelect={function(name) { setCorretora(name); }} userId={user.id} defaults={DEFAULTS_RF} color={C.acoes} label="CORRETORA" />
 
         {/* SUBMIT */}
         <TouchableOpacity

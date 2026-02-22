@@ -8,7 +8,8 @@ import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../config/supabase';
-import { Glass, Pill, Badge } from '../../components';
+import { incrementCorretora } from '../../services/database';
+import { Glass, Pill, Badge, CorretoraSelector } from '../../components';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -25,7 +26,6 @@ var CATEGORIAS = [
   { key: 'stock_int', label: 'Stocks', color: C.stock_int },
 ];
 
-var CORRETORAS = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];
 
 function maskDate(text) {
   var clean = text.replace(/[^0-9]/g, '');
@@ -139,6 +139,7 @@ export default function EditOperacaoScreen(props) {
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         savedRef.current = true;
+        if (corretora) await incrementCorretora(user.id, corretora);
         Toast.show({ type: 'success', text1: 'Operação atualizada' });
         navigation.goBack();
       }
@@ -312,14 +313,7 @@ export default function EditOperacaoScreen(props) {
       )}
 
       {/* Corretora */}
-      <Text style={styles.label}>CORRETORA</Text>
-      <View style={styles.pillRow}>
-        {CORRETORAS.map(function(c) {
-          return (
-            <Pill key={c} active={corretora === c} color={C.acoes} onPress={function() { setCorretora(c); }}>{c}</Pill>
-          );
-        })}
-      </View>
+      <CorretoraSelector value={corretora} onSelect={function(name) { setCorretora(name); }} userId={user.id} mercado={(op && op.mercado === 'INT') ? 'INT' : 'BR'} color={C.acoes} label="CORRETORA" />
 
       {/* Submit */}
       <TouchableOpacity onPress={handleSave} disabled={!canSubmit || loading} activeOpacity={0.8} style={[styles.submitBtn, !canSubmit && { opacity: 0.4 }]}

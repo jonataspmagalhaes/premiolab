@@ -7,8 +7,7 @@ import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../config/supabase';
-import { getUserCorretoras } from '../../services/database';
-import { Glass, Pill, Badge } from '../../components';
+import { Glass, Pill, Badge, CorretoraSelector } from '../../components';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -27,7 +26,6 @@ var TIPOS = [
   { key: 'bonificacao', label: 'Bonificação', color: C.opcoes },
 ];
 
-var CORRETORAS_DEFAULT = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];
 
 function maskDate(text) {
   var clean = text.replace(/[^0-9]/g, '');
@@ -71,7 +69,6 @@ export default function EditProventoScreen(props) {
   var _qtd = useState(String(p.quantidade || '')); var qtd = _qtd[0]; var setQtd = _qtd[1];
   var _data = useState(isoToBr(p.data_pagamento)); var data = _data[0]; var setData = _data[1];
   var _corretora = useState(p.corretora || ''); var corretora = _corretora[0]; var setCorretora = _corretora[1];
-  var _corretoras = useState(CORRETORAS_DEFAULT); var corretoras = _corretoras[0]; var setCorretoras = _corretoras[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
   var savedRef = useRef(false);
 
@@ -90,19 +87,7 @@ export default function EditProventoScreen(props) {
     });
   }, [navigation, tipo, ticker, valor, qtd, data, corretora]);
 
-  useEffect(function() {
-    if (!user) return;
-    getUserCorretoras(user.id).then(function(result) {
-      var list = result.data || [];
-      if (list.length > 0) {
-        var names = [];
-        for (var i = 0; i < list.length; i++) {
-          names.push(list[i].name);
-        }
-        setCorretoras(names);
-      }
-    });
-  }, [user]);
+
 
   var valorNum = parseFloat(valor) || 0;
   var qtdNum = parseInt(qtd) || 0;
@@ -236,18 +221,7 @@ export default function EditProventoScreen(props) {
       />
 
       {/* Corretora */}
-      <Text style={styles.label}>CORRETORA</Text>
-      <View style={styles.pillRow}>
-        {corretoras.map(function(c) {
-          return (
-            <Pill key={c} active={corretora === c} color={C.acoes} onPress={function() {
-              setCorretora(corretora === c ? '' : c);
-            }}>
-              {c}
-            </Pill>
-          );
-        })}
-      </View>
+      <CorretoraSelector value={corretora} onSelect={function(name) { setCorretora(name); }} userId={user.id} mercado="BR" color={C.acoes} label="CORRETORA" />
 
       {/* Preview */}
       {canSubmit && (

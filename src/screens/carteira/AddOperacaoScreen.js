@@ -9,7 +9,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { addOperacao, incrementCorretora, getIndicators, addMovimentacaoComSaldo, buildMovDescricao, getPositions } from '../../services/database';
 import { runDailyCalculation } from '../../services/indicatorService';
 import { fetchExchangeRates } from '../../services/currencyService';
-import { Glass, Pill, Badge, TickerInput } from '../../components';
+import { Glass, Pill, Badge, TickerInput, CorretoraSelector, getInstitutionMeta } from '../../components';
 import { searchTickers } from '../../services/tickerSearchService';
 import * as Haptics from 'expo-haptics';
 
@@ -49,8 +49,6 @@ var CATEGORIAS = [
   { key: 'etf_int', label: 'ETF INT', color: C.etfs, mercado: 'INT' },
 ];
 
-var CORRETORAS_BR = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];
-var CORRETORAS_INT = ['Avenue', 'Nomad', 'Interactive Brokers', 'Stake', 'Inter', 'XP Investimentos', 'BTG Pactual'];
 
 function isIntCategoria(cat) {
   return cat === 'stock_int' || cat === 'etf_int';
@@ -78,6 +76,7 @@ export default function AddOperacaoScreen(props) {
   var _qtd = useState(''); var quantidade = _qtd[0]; var setQuantidade = _qtd[1];
   var _preco = useState(''); var preco = _preco[0]; var setPreco = _preco[1];
   var _corretora = useState(''); var corretora = _corretora[0]; var setCorretora = _corretora[1];
+  var _corretoraMeta = useState(null); var corretoraMeta = _corretoraMeta[0]; var setCorretoraMeta = _corretoraMeta[1];
   var _corretagem = useState(''); var corretagem = _corretagem[0]; var setCorretagem = _corretagem[1];
   var _emolumentos = useState(''); var emolumentos = _emolumentos[0]; var setEmolumentos = _emolumentos[1];
   var _impostos = useState(''); var impostos = _impostos[0]; var setImpostos = _impostos[1];
@@ -88,7 +87,6 @@ export default function AddOperacaoScreen(props) {
 
   var isInt = isIntCategoria(categoria);
   var moedaSymbol = isInt ? 'US$' : 'R$';
-  var corretoras = isInt ? CORRETORAS_INT : CORRETORAS_BR;
 
   // Buscar cambio ao selecionar categoria internacional
   useEffect(function() {
@@ -201,6 +199,7 @@ export default function AddOperacaoScreen(props) {
         }
         // Para movimentacao de saldo, mostra em moeda original
         var opSymbol = realMercado === 'INT' ? 'US$' : 'R$';
+        var contaMoeda = (corretoraMeta && corretoraMeta.moeda) || (realMercado === 'INT' ? 'USD' : 'BRL');
 
         var resetFields = function() {
           setTicker('');
@@ -216,7 +215,7 @@ export default function AddOperacaoScreen(props) {
 
         Alert.alert(
           'Operação registrada!',
-          'Atualizar saldo em ' + corretora + '? (' + (tipo === 'compra' ? '-' : '+') + opSymbol + ' ' + fmt(opTotal) + ')',
+          'Atualizar saldo em ' + corretora + ' (' + contaMoeda + ')? (' + (tipo === 'compra' ? '-' : '+') + opSymbol + ' ' + fmt(opTotal) + ')',
           [
             {
               text: 'Não',
@@ -233,6 +232,7 @@ export default function AddOperacaoScreen(props) {
               onPress: function() {
                 addMovimentacaoComSaldo(user.id, {
                   conta: corretora,
+                  moeda: contaMoeda,
                   tipo: opTipo,
                   categoria: opCat,
                   valor: opTotal,
@@ -437,14 +437,7 @@ export default function AddOperacaoScreen(props) {
       )}
 
       {/* Corretora */}
-      <Text style={styles.label}>CORRETORA *</Text>
-      <View style={styles.pillRow}>
-        {corretoras.map(function(c) {
-          return (
-            <Pill key={c} active={corretora === c} color={isInt ? C.stock_int : C.acoes} onPress={function() { setCorretora(c); }}>{c}</Pill>
-          );
-        })}
-      </View>
+      <CorretoraSelector value={corretora} onSelect={function(name, meta) { setCorretora(name); setCorretoraMeta(meta); }} userId={user.id} mercado={isInt ? 'INT' : 'BR'} color={isInt ? C.stock_int : C.acoes} label="CORRETORA *" />
 
       {/* Submit */}
       <TouchableOpacity onPress={handleSubmit} disabled={!canSubmit || loading} activeOpacity={0.8} style={[styles.submitBtn, !canSubmit && { opacity: 0.4 }]}

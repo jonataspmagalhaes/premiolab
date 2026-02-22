@@ -26,7 +26,7 @@ PremioLab e um app de investimentos focado no mercado brasileiro, construido com
 
 ```
 src/
-  components/      Componentes reutilizaveis (Glass, Badge, Pill, Charts, States, InteractiveChart, PressableCard, SwipeableRow, TickerInput, ToastConfig, InfoTip)
+  components/      Componentes reutilizaveis (Glass, Badge, Pill, Charts, States, InteractiveChart, PressableCard, SwipeableRow, TickerInput, CorretoraSelector, ToastConfig, InfoTip)
   config/          Supabase client
   contexts/        AuthContext (login, session, onboarding)
   navigation/      AppNavigator (tabs + stacks)
@@ -89,7 +89,7 @@ supabase/
 | `opcoes` | ativo_base, ticker_opcao, tipo(call/put), direcao(venda/compra/lancamento), strike, premio, quantidade, vencimento, data_abertura, status, corretora, premio_fechamento, data_fechamento |
 | `proventos` | ticker, tipo_provento, valor_por_cota, quantidade, valor_total, data_pagamento |
 | `renda_fixa` | tipo(cdb/lci_lca/tesouro_*), emissor, taxa, indexador, valor_aplicado, vencimento |
-| `saldos_corretora` | name, saldo, tipo(corretora/banco), moeda(BRL/USD/EUR/etc, default BRL) |
+| `saldos_corretora` | name, saldo, tipo(corretora/banco), moeda(BRL/USD/EUR/etc, default BRL). UNIQUE(user_id, name, moeda) — permite mesma instituicao com contas em moedas diferentes |
 | `user_corretoras` | name, count |
 | `alertas_config` | flags de alertas + thresholds |
 | `indicators` | HV, RSI, SMA, EMA, Beta, ATR, BB, MaxDD por ticker (UNIQUE user_id+ticker) |
@@ -111,7 +111,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 ### database.js - Funcoes exportadas
 - **Profiles**: getProfile, updateProfile
 - **Operacoes**: getOperacoes, addOperacao, deleteOperacao
-- **Positions**: getPositions (agrega operacoes em posicoes com PM, por_corretora, normaliza ticker)
+- **Positions**: getPositions (agrega operacoes em posicoes com PM, por_corretora, normaliza ticker, taxa_cambio_media ponderada para INT)
 - **Opcoes**: getOpcoes, addOpcao
 - **Proventos**: getProventos, addProvento, deleteProvento
 - **Renda Fixa**: getRendaFixa, addRendaFixa, deleteRendaFixa
@@ -186,6 +186,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 | `PressableCard` | PressableCard.js | Card com Animated.spring scale + a11y props |
 | `SwipeableRow` | SwipeableRow.js | Wrapper swipe-to-delete com botao Excluir |
 | `TickerInput` | TickerInput.js | Input com autocomplete de tickers da carteira + busca API (brapi/Yahoo) com debounce |
+| `CorretoraSelector` | CorretoraSelector.js | Pills + autocomplete de ~60 instituicoes com metadados (moeda, tipo). Props: value, onSelect, userId, mercado, color, label, defaults |
 | `ToastConfig` | ToastConfig.js | Config visual toast dark/glass + tipo undo |
 
 ## Theme
@@ -320,6 +321,8 @@ Ao configurar um novo ambiente, executar `supabase-migration.sql` no SQL Editor 
 - pg_cron setup para snapshot semanal via Edge Function
 - Tabela `movimentacoes` com indexes + RLS (fluxo de caixa)
 - Coluna `saldos_corretora.moeda` (TEXT DEFAULT 'BRL') para multi-moeda
+
+Apos `supabase-migration.sql`, executar tambem `fix-multi-moeda-constraint.sql` para alterar constraint UNIQUE de (user_id, name) para (user_id, name, moeda), permitindo mesma instituicao com contas em moedas diferentes.
 
 ## Padroes Importantes
 
@@ -879,17 +882,25 @@ Suporte a stocks e ETFs internacionais (NYSE/NASDAQ) com cotacoes via Yahoo Fina
 - `enrichPositionsWithPrices` separa tickers BR vs INT pelo campo `mercado`
 - Busca BR via `fetchPrices` (brapi) e INT via `fetchYahooPrices` (Yahoo) em paralelo
 - Converte precos INT para BRL via `fetchExchangeRates(['USD'])`
-- Campos adicionais para INT: `preco_atual_usd`, `moeda`, `taxa_cambio`
+- Campos adicionais para INT: `preco_atual_usd`, `moeda`, `taxa_cambio` (rate atual do enrich)
 - `fetchPricesRouted`, `fetchHistoryRouted`, `fetchHistoryLongRouted` — roteamento por mercadoMap
+
+### Conversao USD/BRL em posicoes INT
+- `getPositions()` calcula `taxa_cambio_media` (media ponderada do cambio historico das compras): `_custo_brl / custo_total`
+- CarteiraScreen usa `fxRate = pos.taxa_cambio || pos.taxa_cambio_media || 1` para converter custos INT para BRL
+- Totais (totalPositions, totalCusto) convertem posicoes INT para BRL antes de somar
+- Cards INT exibem "Custo (US$)", "Custo (R$)" e "Valor atual" separadamente no expandido
+- Encerradas usam simbolo correto (US$/R$) baseado no campo `mercado`
+- AssetDetailScreen recebe `mercado` via route.params para exibir prefixo correto (US$/R$)
 
 ### UI
 - **AddOperacaoScreen**: 5 categorias (Acao, FII, ETF BR, Stocks, ETF INT), moeda dinamica R$/US$, corretoras BR vs INT, taxa_cambio salva na operacao
-- **CarteiraScreen**: filtro "Stocks" (fuchsia), badge INT/BR nos cards, dual price "US$ X ≈ R$ Y", corretoras INT (Avenue, Nomad, Interactive Brokers, etc.)
+- **CarteiraScreen**: filtro "Stocks" (fuchsia), badge INT/BR nos cards, dual price "US$ X ≈ R$ Y", corretoras INT (Avenue, Nomad, Interactive Brokers, etc.), totais convertem INT→BRL, cards expandidos mostram custo US$/R$ separado, encerradas com simbolo correto
 - **HomeScreen**: categoria stock_int na alocacao e renda mensal, linha "Dividendos Stocks" no breakdown
 - **RendaResumoView**: linha "Dividendos Stocks" (fuchsia) no breakdown de dividendos
 - **AnaliseScreen**: stock_int em performance, IR (15% sem isencao 20k), rebalanceamento (perfis atualizados)
 - **RelatoriosScreen**: IR com secao "Stocks Internacionais"
-- **AssetDetailScreen**: routing Yahoo para ativos INT, precos em US$
+- **AssetDetailScreen**: routing Yahoo para ativos INT, precos em US$, recebe `mercado` via route.params
 
 ### IR — Stocks Internacionais
 - 15% sobre ganho de capital, SEM isencao de R$20k/mes
@@ -911,13 +922,13 @@ Suporte a stocks e ETFs internacionais (NYSE/NASDAQ) com cotacoes via Yahoo Fina
 | `supabase-migration.sql` | CHECK categoria + colunas mercado, taxa_cambio |
 | `src/theme/index.js` | Cor stock_int + PRODUCT_COLORS |
 | `src/services/priceService.js` | Routing BR/INT, enrichPositionsWithPrices, funcoes Routed |
-| `src/services/database.js` | getPositions com mercado, getDashboard com stock_int |
+| `src/services/database.js` | getPositions com mercado + taxa_cambio_media, getDashboard com stock_int |
 | `src/services/indicatorService.js` | Routing BR/INT, benchmark S&P 500 |
 | `src/services/dividendService.js` | Sync BR (brapi+StatusInvest) + INT (Yahoo Finance + USD→BRL) |
 | `src/screens/carteira/AddOperacaoScreen.js` | 5 categorias, moeda dinamica, corretoras INT |
-| `src/screens/carteira/CarteiraScreen.js` | Filtro Stocks, badge INT, dual price, allocMap |
+| `src/screens/carteira/CarteiraScreen.js` | Filtro Stocks, badge INT, dual price, allocMap, totais INT→BRL, custo US$/R$ expandido, encerradas com simbolo correto |
 | `src/screens/carteira/EditOperacaoScreen.js` | stock_int label, badge INT, mercado persist |
-| `src/screens/carteira/AssetDetailScreen.js` | Routing Yahoo, moeda US$ |
+| `src/screens/carteira/AssetDetailScreen.js` | Routing Yahoo, moeda US$, recebe mercado via route.params |
 | `src/screens/home/HomeScreen.js` | stock_int na alocacao, renda e breakdown dividendos |
 | `src/screens/analise/AnaliseScreen.js` | ~15 locais: categorias, IR 15%, rebalance, perfSub |
 | `src/screens/relatorios/RelatoriosScreen.js` | IR stock_int, catColor |
@@ -1034,6 +1045,82 @@ Se API falhar ou timeout (5s), `searchTickers` retorna `[]`. TickerInput continu
 | `src/screens/carteira/AddOperacaoScreen.js` | import + onSearch roteado por categoria + limpar ticker em troca BR↔INT |
 | `src/screens/opcoes/AddOpcaoScreen.js` | import + onSearch BR |
 | `src/screens/proventos/AddProventoScreen.js` | import + onSearch BR |
+
+## Corretora Customizavel + Multi-Moeda (Implementado)
+
+Componente `CorretoraSelector` reutilizavel que substitui listas hardcoded de corretoras em 10 telas. Suporta ~60 instituicoes com metadados (moeda, tipo), autocomplete com busca, corretoras customizadas do usuario, e contas multi-moeda por instituicao.
+
+### CorretoraSelector — Componente
+
+**Props**:
+| Prop | Tipo | Default | Descricao |
+|------|------|---------|-----------|
+| `value` | string | `''` | Corretora selecionada |
+| `onSelect` | function(name, meta) | — | Callback com nome + metadados ({moeda, tipo} ou null se custom) |
+| `userId` | string | — | Para buscar user_corretoras |
+| `mercado` | string | `'BR'` | `'BR'` ou `'INT'` (determina defaults e sugestoes) |
+| `color` | string | `C.acoes` | Cor das Pills |
+| `label` | string | `'CORRETORA'` | Texto do label |
+| `showLabel` | boolean | `true` | Mostrar label |
+| `defaults` | array | `null` | Override da lista padrao |
+
+**Exports**: `CorretoraSelector` (default), `DEFAULTS_RF`, `ALL_INSTITUTIONS`, `getInstitutionMeta`
+
+**ALL_INSTITUTIONS** (~60 entradas): array com `{ name, moeda, tipo }` para cada instituicao. Inclui corretoras BR (Clear, XP, Rico, Genial, BTG...), bancos BR (Inter, Nubank, Itau, Bradesco, Santander...), fintechs (C6 Bank, PagBank, Mercado Pago...) e corretoras INT (Avenue, Nomad, Interactive Brokers, Stake, Charles Schwab...).
+
+**getInstitutionMeta(name)**: lookup case-insensitive que retorna `{name, moeda, tipo}` ou null.
+
+**UX**:
+1. Pills rapidas: corretoras do usuario (por count DESC) + defaults baseados em `mercado`
+2. Pill "+ Outra": abre TextInput com dropdown de sugestoes filtradas
+3. Cada sugestao mostra: nome + badge moeda (R$/US$) + badge "MINHA" se do usuario
+4. "Usar [texto]" como ultima opcao para nomes totalmente customizados
+5. `normalizeCorretora(name)`: trim + collapse espacos multiplos
+6. Ao selecionar pill ou sugestao, chama `onSelect(nome, meta)` — parent recebe moeda sugerida
+
+### Multi-Moeda por Instituicao
+
+Mesma corretora/banco pode ter contas em moedas diferentes (ex: Inter BRL + Inter USD, XP BRL + XP USD).
+
+**Constraint SQL**: `UNIQUE(user_id, name, moeda)` em vez de `UNIQUE(user_id, name)`.
+Migration: `fix-multi-moeda-constraint.sql`
+
+**addMovimentacaoComSaldo**: busca conta por `conta + moeda` quando moeda informada:
+```
+.eq('corretora', mov.conta)
+if (mov.moeda) { .eq('moeda', mov.moeda) }
+```
+
+### Integracao nas telas
+
+| Tela | Mudanca |
+|------|---------|
+| AddOperacaoScreen | CorretoraSelector com mercado BR/INT, passa `moeda` no Alert de saldo |
+| EditOperacaoScreen | CorretoraSelector + incrementCorretora no submit |
+| AddOpcaoScreen | CorretoraSelector BR + incrementCorretora no submit |
+| EditOpcaoScreen | CorretoraSelector BR + incrementCorretora no submit |
+| AddProventoScreen | CorretoraSelector BR (removeu fetch manual getUserCorretoras) + incrementCorretora |
+| EditProventoScreen | CorretoraSelector BR (removeu fetch manual) |
+| AddRendaFixaScreen | CorretoraSelector com `defaults={DEFAULTS_RF}` (inclui bancos) |
+| EditRendaFixaScreen | CorretoraSelector com `defaults={DEFAULTS_RF}` + incrementCorretora |
+| AddContaScreen | Merge user corretoras nas sugestoes + auto-selecao moeda/tipo via getInstitutionMeta |
+
+### Arquivos criados/modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/components/CorretoraSelector.js` | **Criado** — Pills + autocomplete ~60 instituicoes com metadados |
+| `src/components/index.js` | Export CorretoraSelector, DEFAULTS_RF, ALL_INSTITUTIONS, getInstitutionMeta |
+| `fix-multi-moeda-constraint.sql` | **Criado** — ALTER UNIQUE para (user_id, name, moeda) |
+| `src/services/database.js` | addMovimentacaoComSaldo: busca por conta + moeda |
+| `src/screens/carteira/AddOperacaoScreen.js` | CorretoraSelector + moeda no Alert de saldo |
+| `src/screens/carteira/EditOperacaoScreen.js` | CorretoraSelector + incrementCorretora |
+| `src/screens/opcoes/AddOpcaoScreen.js` | CorretoraSelector + incrementCorretora |
+| `src/screens/opcoes/EditOpcaoScreen.js` | CorretoraSelector + incrementCorretora |
+| `src/screens/proventos/AddProventoScreen.js` | CorretoraSelector (removeu fetch manual) + incrementCorretora |
+| `src/screens/proventos/EditProventoScreen.js` | CorretoraSelector (removeu fetch manual) |
+| `src/screens/rf/AddRendaFixaScreen.js` | CorretoraSelector com DEFAULTS_RF |
+| `src/screens/rf/EditRendaFixaScreen.js` | CorretoraSelector com DEFAULTS_RF + incrementCorretora |
+| `src/screens/gestao/AddContaScreen.js` | Merge user corretoras + auto-moeda/tipo via getInstitutionMeta |
 
 ## Proximas Melhorias Possiveis
 

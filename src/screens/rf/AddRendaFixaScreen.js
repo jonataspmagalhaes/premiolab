@@ -7,7 +7,7 @@ import {
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { addRendaFixa, incrementCorretora } from '../../services/database';
-import { Glass, Pill, Badge } from '../../components';
+import { Glass, Pill, Badge, CorretoraSelector, DEFAULTS_RF } from '../../components';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -30,7 +30,6 @@ var INDEXADORES = [
   { key: 'selic', label: 'Selic', hint: '% da Selic (ex: 100)', color: C.opcoes },
 ];
 
-var CORRETORAS = ['Clear', 'XP', 'Rico', 'Inter', 'Nubank', 'BTG', 'Genial', 'Itau', 'Bradesco', 'BB'];
 
 var CUSTODIAS = [
   { key: 'corretora', label: 'Na Corretora/Banco' },
@@ -390,21 +389,7 @@ export default function AddRendaFixaScreen(props) {
         </View>
 
         {/* ========== CORRETORA ========== */}
-        <Text style={styles.label}>CORRETORA / BANCO *</Text>
-        <View style={styles.pillRow}>
-          {CORRETORAS.map(function(c) {
-            return (
-              <Pill
-                key={c}
-                active={corretora === c}
-                color={C.acoes}
-                onPress={function() { setCorretora(c); }}
-              >
-                {c}
-              </Pill>
-            );
-          })}
-        </View>
+        <CorretoraSelector value={corretora} onSelect={function(name) { setCorretora(name); }} userId={user.id} defaults={DEFAULTS_RF} color={C.acoes} label="CORRETORA *" />
 
         {/* ========== SUBMIT ========== */}
         <TouchableOpacity
