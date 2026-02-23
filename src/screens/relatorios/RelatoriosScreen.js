@@ -213,6 +213,7 @@ function computeTaxByMonth(monthResults) {
 function BarChartSingle(props) {
   var data = props.data || [];
   var color = props.color || C.green;
+  var onSelect = props.onSelect;
   var _w = useState(0); var w = _w[0]; var setW = _w[1];
   var _sel = useState(-1); var sel = _sel[0]; var setSel = _sel[1];
   var h = 160;
@@ -243,7 +244,9 @@ function BarChartSingle(props) {
     var idx = Math.floor(x / gap);
     if (idx < 0) idx = 0;
     if (idx >= data.length) idx = data.length - 1;
-    setSel(idx === sel ? -1 : idx);
+    var newSel = idx === sel ? -1 : idx;
+    setSel(newSel);
+    if (onSelect) onSelect(newSel);
   }
 
   var gridLines = [];
@@ -449,6 +452,7 @@ export default function RelatoriosScreen(props) {
   var _positions = useState([]); var positions = _positions[0]; var setPositions = _positions[1];
   var _encerradas = useState([]); var encerradas = _encerradas[0]; var setEncerradas = _encerradas[1];
   var _movimentacoes = useState([]); var movimentacoes = _movimentacoes[0]; var setMovimentacoes = _movimentacoes[1];
+  var _divMonthSel = useState(-1); var divMonthSel = _divMonthSel[0]; var setDivMonthSel = _divMonthSel[1];
 
   var load = async function() {
     if (!user) return;
@@ -584,8 +588,10 @@ export default function RelatoriosScreen(props) {
     divByTipo[tipo] += val;
 
     if (mKey) {
-      if (!divByMonth[mKey]) divByMonth[mKey] = 0;
-      divByMonth[mKey] += val;
+      if (!divByMonth[mKey]) divByMonth[mKey] = { total: 0, tickers: {} };
+      divByMonth[mKey].total += val;
+      if (!divByMonth[mKey].tickers[ticker]) divByMonth[mKey].tickers[ticker] = 0;
+      divByMonth[mKey].tickers[ticker] += val;
     }
 
     if (!divByCorretora[corretora]) divByCorretora[corretora] = {};
@@ -977,10 +983,48 @@ export default function RelatoriosScreen(props) {
               <Glass padding={12}>
                 <BarChartSingle
                   data={divMonthKeys.map(function(mk) {
-                    return { label: formatMonthLabel(mk), value: divByMonth[mk] };
+                    return { label: formatMonthLabel(mk), value: divByMonth[mk].total };
                   })}
                   color={C.fiis}
+                  onSelect={setDivMonthSel}
                 />
+                {divMonthSel >= 0 && divMonthSel < divMonthKeys.length ? (function() {
+                  var selMk = divMonthKeys[divMonthSel];
+                  var selMonth = divByMonth[selMk];
+                  var selTickers = Object.keys(selMonth.tickers).sort(function(a, b) {
+                    return selMonth.tickers[b] - selMonth.tickers[a];
+                  });
+                  return (
+                    <View style={{ marginTop: 10, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 10 }}>
+                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginBottom: 6 }}>
+                        {formatMonthLabel(selMk).toUpperCase() + ' — ' + selTickers.length + (selTickers.length === 1 ? ' ativo' : ' ativos')}
+                      </Text>
+                      {selTickers.map(function(tk) {
+                        var tkVal = selMonth.tickers[tk];
+                        var tkPct = selMonth.total > 0 ? (tkVal / selMonth.total * 100).toFixed(0) : '0';
+                        var tkInfo = divByTicker[tk];
+                        var catColor = C.fiis;
+                        if (tkInfo && tkInfo.categoria) {
+                          catColor = tkInfo.categoria === 'fii' ? C.fiis : tkInfo.categoria === 'etf' ? C.etfs : tkInfo.categoria === 'stock_int' ? C.stock_int : C.acoes;
+                        }
+                        return (
+                          <View key={tk} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: catColor }} />
+                              <Text style={{ fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display }}>{tk}</Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{tkPct + '%'}</Text>
+                              <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>
+                                {'R$ ' + fmt(tkVal)}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  );
+                })() : null}
               </Glass>
             </View>
           )}
