@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, TextInput, Alert, Dimensions, Modal,
+  ActivityIndicator,
 } from 'react-native';
 import Svg, { Line, Rect, Path, Text as SvgText } from 'react-native-svg';
 import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
@@ -11,11 +12,14 @@ import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getI
 import { enrichPositionsWithPrices, clearPriceCache, fetchPrices } from '../../services/priceService';
 import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { supabase } from '../../config/supabase';
-import { Glass, Badge, Pill, SectionLabel, Fab } from '../../components';
+import { Ionicons } from '@expo/vector-icons';
+import { Glass, Badge, Pill, SectionLabel, Fab, InfoTip } from '../../components';
 import { SkeletonOpcoes, EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import Sensitive from '../../components/Sensitive';
 import * as Haptics from 'expo-haptics';
+var geminiService = require('../../services/geminiService');
+var analyzeOption = geminiService.analyzeOption;
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -225,38 +229,67 @@ var CHART_H = 200;
 
 function PayoffChart(props) {
   var ps = usePrivacyStyle();
-  var tipo = (props.tipo || 'call').toLowerCase();
-  var direcao = props.direcao || 'venda';
-  var strike = props.strike || 0;
-  var premio = props.premio || 0;
-  var quantidade = props.quantidade || 1;
-  var spotPrice = props.spotPrice || strike;
+  var spotPrice = props.spotPrice || 0;
   var chartWidth = props.chartWidth || (Dimensions.get('window').width - 72);
 
   var _touchX = useState(null); var touchX = _touchX[0]; var setTouchX = _touchX[1];
 
-  var isVenda = direcao === 'venda' || direcao === 'lancamento';
-  var rangeMin = strike * 0.7;
-  var rangeMax = strike * 1.3;
-  var numPoints = 60;
+  // Build legs array — backward-compat: if no legs prop, build from single-leg props
+  var legsArr = props.legs || null;
+  if (!legsArr) {
+    legsArr = [{
+      tipo: (props.tipo || 'call').toLowerCase(),
+      direcao: props.direcao || 'venda',
+      strike: props.strike || 0,
+      premio: props.premio || 0,
+      qty: props.quantidade || 1,
+    }];
+  }
+
+  // Compute range from all strikes
+  var allStrikes = [];
+  for (var si = 0; si < legsArr.length; si++) {
+    var sk = parseFloat(legsArr[si].strike) || 0;
+    if (sk > 0) allStrikes.push(sk);
+  }
+  if (allStrikes.length === 0) allStrikes.push(spotPrice || 30);
+  var minStrike = allStrikes[0];
+  var maxStrike = allStrikes[0];
+  for (var ski = 1; ski < allStrikes.length; ski++) {
+    if (allStrikes[ski] < minStrike) minStrike = allStrikes[ski];
+    if (allStrikes[ski] > maxStrike) maxStrike = allStrikes[ski];
+  }
+  var rangeCenter = (minStrike + maxStrike) / 2;
+  var rangeSpan = Math.max(maxStrike - minStrike, rangeCenter * 0.3);
+  var rangeMin = rangeCenter - rangeSpan * 1.2;
+  var rangeMax = rangeCenter + rangeSpan * 1.2;
+  if (rangeMin < 0) rangeMin = 0;
+  var numPoints = 80;
   var step = (rangeMax - rangeMin) / numPoints;
 
-  // Breakeven
-  var breakeven = tipo === 'call' ? strike + premio : strike - premio;
-
-  // Compute P&L for a given price
+  // Aggregated P&L: sum across all legs
   function calcPL(price) {
-    var intrinsic;
-    if (tipo === 'call') {
-      intrinsic = Math.max(0, price - strike);
-    } else {
-      intrinsic = Math.max(0, strike - price);
+    var totalPL = 0;
+    for (var li = 0; li < legsArr.length; li++) {
+      var leg = legsArr[li];
+      var tipoL = (leg.tipo || 'call').toLowerCase();
+      var strikeL = parseFloat(leg.strike) || 0;
+      var premioL = parseFloat(leg.premio) || 0;
+      var qtyL = parseFloat(leg.qty || leg.quantidade) || 1;
+      var isVendaL = leg.direcao === 'venda' || leg.direcao === 'lancamento';
+      var intrinsic;
+      if (tipoL === 'call') {
+        intrinsic = Math.max(0, price - strikeL);
+      } else {
+        intrinsic = Math.max(0, strikeL - price);
+      }
+      if (isVendaL) {
+        totalPL = totalPL + (premioL - intrinsic) * qtyL;
+      } else {
+        totalPL = totalPL + (intrinsic - premioL) * qtyL;
+      }
     }
-    if (isVenda) {
-      return (premio - intrinsic) * quantidade;
-    } else {
-      return (intrinsic - premio) * quantidade;
-    }
+    return totalPL;
   }
 
   // Build data points
@@ -269,6 +302,18 @@ function PayoffChart(props) {
     points.push({ x: px, y: pl });
     if (pl < minPL) minPL = pl;
     if (pl > maxPL) maxPL = pl;
+  }
+
+  // Find breakeven points (zero-crossings)
+  var breakevenPoints = [];
+  for (var bi = 1; bi < points.length; bi++) {
+    var prev = points[bi - 1];
+    var curr = points[bi];
+    if ((prev.y >= 0 && curr.y < 0) || (prev.y < 0 && curr.y >= 0)) {
+      var fraction = Math.abs(prev.y) / (Math.abs(prev.y) + Math.abs(curr.y));
+      var bePrice = prev.x + fraction * (curr.x - prev.x);
+      breakevenPoints.push(bePrice);
+    }
   }
 
   // Padding for Y axis
@@ -290,22 +335,21 @@ function PayoffChart(props) {
 
   // Build path with split fill
   var zeroY = toY(0);
-  // Clamp zeroY within chart area
   var clampedZeroY = Math.max(padT, Math.min(padT + h, zeroY));
 
   // Line path
   var linePath = '';
-  for (var li = 0; li < points.length; li++) {
-    var lx = toX(points[li].x);
-    var ly = toY(points[li].y);
-    if (li === 0) {
+  for (var li2 = 0; li2 < points.length; li2++) {
+    var lx = toX(points[li2].x);
+    var ly = toY(points[li2].y);
+    if (li2 === 0) {
       linePath = linePath + 'M' + lx.toFixed(1) + ',' + ly.toFixed(1);
     } else {
       linePath = linePath + ' L' + lx.toFixed(1) + ',' + ly.toFixed(1);
     }
   }
 
-  // Green fill (above zero)
+  // Green fill (above zero) and Red fill (below zero)
   var greenPath = '';
   var redPath = '';
   for (var fi = 0; fi < points.length; fi++) {
@@ -313,7 +357,6 @@ function PayoffChart(props) {
     var fy = toY(points[fi].y);
     var clampedGreen = Math.min(fy, clampedZeroY);
     var clampedRed = Math.max(fy, clampedZeroY);
-
     if (fi === 0) {
       greenPath = 'M' + fx.toFixed(1) + ',' + clampedZeroY.toFixed(1);
       redPath = 'M' + fx.toFixed(1) + ',' + clampedZeroY.toFixed(1);
@@ -321,14 +364,10 @@ function PayoffChart(props) {
     greenPath = greenPath + ' L' + fx.toFixed(1) + ',' + clampedGreen.toFixed(1);
     redPath = redPath + ' L' + fx.toFixed(1) + ',' + clampedRed.toFixed(1);
   }
-  // Close fill paths
   var lastFx = toX(points[points.length - 1].x);
-  var firstFx = toX(points[0].x);
   greenPath = greenPath + ' L' + lastFx.toFixed(1) + ',' + clampedZeroY.toFixed(1) + ' Z';
   redPath = redPath + ' L' + lastFx.toFixed(1) + ',' + clampedZeroY.toFixed(1) + ' Z';
 
-  // Breakeven X
-  var beX = toX(breakeven);
   var spotX = toX(spotPrice);
 
   // Touch handling
@@ -340,7 +379,6 @@ function PayoffChart(props) {
     }
   }
 
-  // Touch info
   var touchInfo = null;
   if (touchX !== null) {
     var tPrice = rangeMin + (touchX - padL) / w * (rangeMax - rangeMin);
@@ -364,9 +402,9 @@ function PayoffChart(props) {
     xLabels.push({ val: xVal, x: toX(xVal) });
   }
 
-  // Max profit/loss labels
-  var maxProfitLabel = isVenda ? 'Max +R$' + fmt(premio * quantidade) : 'Ilimitado';
-  var maxLossLabel = isVenda ? 'Ilimitado' : 'Max -R$' + fmt(premio * quantidade);
+  // Max profit/loss from actual data points
+  var maxProfitLabel = maxPL > 0 ? 'Max +R$' + fmt(maxPL) : '+R$0';
+  var maxLossLabel = minPL < 0 ? 'Max -R$' + fmt(Math.abs(minPL)) : '-R$0';
 
   return (
     <View style={styles.payoffContainer}>
@@ -377,74 +415,68 @@ function PayoffChart(props) {
         onTouchEnd={function() { setTouchX(null); }}
       >
         <Svg width={chartWidth} height={CHART_H}>
-          {/* Green fill (profit zone) */}
           <Path d={greenPath} fill="rgba(34,197,94,0.12)" />
-          {/* Red fill (loss zone) */}
           <Path d={redPath} fill="rgba(239,68,68,0.12)" />
-
-          {/* Zero line */}
           <Line x1={padL} y1={clampedZeroY} x2={padL + w} y2={clampedZeroY}
             stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
-
-          {/* P&L line */}
           <Path d={linePath} fill="none" stroke={C.opcoes} strokeWidth={2} />
 
-          {/* Breakeven line */}
-          {breakeven >= rangeMin && breakeven <= rangeMax ? (
-            <>
-              <Line x1={beX} y1={padT} x2={beX} y2={padT + h}
-                stroke={C.yellow} strokeWidth={1} strokeDasharray="4,3" />
-              <SvgText x={beX} y={padT - 4} fill={C.yellow}
-                fontSize={8} fontFamily={F.mono} textAnchor="middle">
-                {'BE ' + fmt(breakeven)}
-              </SvgText>
-            </>
-          ) : null}
+          {/* Breakeven lines (all zero-crossings) */}
+          {breakevenPoints.map(function(bep, beIdx) {
+            var bx = toX(bep);
+            if (bep < rangeMin || bep > rangeMax) return null;
+            return (
+              <React.Fragment key={'be' + beIdx}>
+                <Line x1={bx} y1={padT} x2={bx} y2={padT + h}
+                  stroke={C.yellow} strokeWidth={1} strokeDasharray="4,3" />
+                <SvgText x={bx} y={padT - 4} fill={C.yellow}
+                  fontSize={8} fontFamily={F.mono} textAnchor="middle">
+                  {'BE ' + fmt(bep)}
+                </SvgText>
+              </React.Fragment>
+            );
+          })}
 
           {/* Spot line */}
           {spotPrice >= rangeMin && spotPrice <= rangeMax ? (
-            <>
+            <React.Fragment>
               <Line x1={spotX} y1={padT} x2={spotX} y2={padT + h}
                 stroke={C.accent} strokeWidth={1} strokeDasharray="2,3" />
               <SvgText x={spotX} y={padT + h + 12} fill={C.accent}
                 fontSize={8} fontFamily={F.mono} textAnchor="middle">
                 {'Spot ' + fmt(spotPrice)}
               </SvgText>
-            </>
+            </React.Fragment>
           ) : null}
 
-          {/* Y axis labels */}
-          {yLabels.map(function(yl, yi) {
+          {yLabels.map(function(yl, yi2) {
             return (
-              <SvgText key={'y' + yi} x={padL - 4} y={yl.y + 3} fill={C.dim}
+              <SvgText key={'y' + yi2} x={padL - 4} y={yl.y + 3} fill={C.dim}
                 fontSize={8} fontFamily={F.mono} textAnchor="end">
                 {(yl.val >= 0 ? '+' : '') + fmt(Math.round(yl.val))}
               </SvgText>
             );
           })}
 
-          {/* X axis labels */}
-          {xLabels.map(function(xl, xi) {
+          {xLabels.map(function(xl, xi2) {
             return (
-              <SvgText key={'x' + xi} x={xl.x} y={padT + h + 12} fill={C.dim}
+              <SvgText key={'x' + xi2} x={xl.x} y={padT + h + 12} fill={C.dim}
                 fontSize={8} fontFamily={F.mono} textAnchor="middle">
                 {fmt(xl.val)}
               </SvgText>
             );
           })}
 
-          {/* Touch crosshair */}
           {touchInfo ? (
-            <>
+            <React.Fragment>
               <Line x1={touchInfo.x} y1={padT} x2={touchInfo.x} y2={padT + h}
                 stroke="rgba(255,255,255,0.3)" strokeWidth={1} />
               <Rect x={touchInfo.x - 1.5} y={touchInfo.y - 1.5} width={5} height={5}
                 rx={2.5} fill={C.text} />
-            </>
+            </React.Fragment>
           ) : null}
         </Svg>
 
-        {/* Touch tooltip */}
         {touchInfo ? (
           <View style={[styles.payoffTooltip, {
             left: Math.min(touchInfo.x, chartWidth - 100),
@@ -462,7 +494,6 @@ function PayoffChart(props) {
       </View>
       </Sensitive>
 
-      {/* Legend row */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
         <Text style={[{ fontSize: 11, color: C.green, fontFamily: F.mono }, ps]}>
           {maxProfitLabel}
@@ -846,47 +877,311 @@ var OpCard = React.memo(function OpCard(props) {
 // ═══════════════════════════════════════
 // SIMULADOR BLACK-SCHOLES
 // ═══════════════════════════════════════
+var TUTORIAL_STEPS = [
+  {
+    title: 'O que são Opções?',
+    icon: 'bulb-outline',
+    text: 'Opções são contratos que dão o direito (mas não a obrigação) de comprar ou vender um ativo a um preço fixo até uma data.\n\nQuem VENDE a opção recebe um prêmio e assume a obrigação. Quem COMPRA paga o prêmio e tem o direito.\n\nNa B3, cada contrato equivale a 100 opções. Ex: 200 opções = 2 contratos.',
+  },
+  {
+    title: 'CALL vs PUT',
+    icon: 'swap-vertical-outline',
+    text: 'CALL (opção de compra):\nDá o direito de COMPRAR o ativo ao preço do strike. Ganha valor quando o ativo SOBE.\n\nPUT (opção de venda):\nDá o direito de VENDER o ativo ao preço do strike. Ganha valor quando o ativo CAI.\n\nVENDA (lançamento):\nVocê recebe o prêmio agora e assume obrigação. Estratégia de renda — você quer que a opção vire pó.\n\nCOMPRA:\nVocê paga o prêmio para ter proteção ou apostar na direção.',
+  },
+  {
+    title: 'Parâmetros do Simulador',
+    icon: 'settings-outline',
+    text: 'Spot: preço atual do ativo no mercado.\n\nStrike: preço de exercício da opção. Quanto mais distante do spot, mais barata (OTM).\n\nPrêmio: valor da opção por unidade. Se você vende 100 opções a R$1,20, recebe R$120.\n\nIV (Volatilidade Implícita): expectativa do mercado sobre oscilação futura. IV alta = prêmios maiores = bom para vender.\n\nDTE: dias até o vencimento. Mais DTE = mais prêmio, mas mais risco de movimento.\n\nQtd: número total de opções (não contratos).',
+  },
+  {
+    title: 'As Gregas',
+    icon: 'analytics-outline',
+    text: 'Delta (Δ): sensibilidade ao preço do ativo.\n• Delta 0.30: opção sobe R$0,30 se ativo subir R$1\n• Vendedor quer delta baixo (longe do strike)\n• PUT tem delta negativo\n\nGamma (Γ): velocidade de mudança do delta.\n• Gamma alto perto do strike e do vencimento\n• Risco para vendedores: delta muda rápido\n\nTheta (Θ): perda de valor por dia.\n• Favorece VENDEDORES (time decay a seu favor)\n• Acelera nos últimos 30 dias\n\nVega (ν): sensibilidade à volatilidade.\n• IV subindo = opção mais cara\n• Vendedor quer IV caindo após a venda',
+  },
+  {
+    title: 'Gráfico de Payoff',
+    icon: 'bar-chart-outline',
+    text: 'O gráfico mostra seu resultado no vencimento para cada preço possível do ativo:\n\n• Área VERDE: faixa de lucro\n• Área VERMELHA: faixa de prejuízo\n• Linha tracejada: breakeven (equilíbrio)\n• Linha pontilhada: spot atual\n• Toque e arraste para ver P&L exato\n\nVenda de CALL coberta:\nLucro máximo = prêmio. Risco = ser exercido acima do strike (vende as ações).\n\nVenda de PUT (CSP):\nLucro = prêmio. Risco = comprar o ativo se cair abaixo do strike.\n\nCompra:\nPrejuízo limitado ao prêmio pago.',
+  },
+  {
+    title: 'Cenários What-If',
+    icon: 'git-branch-outline',
+    text: 'Simula o resultado se o ativo se mover +5%, -5%, +10% ou -10%, usando Black-Scholes com 5 dias a menos de DTE.\n\nValor verde = lucro estimado\nValor vermelho = prejuízo estimado\n\nExemplo prático:\nVocê vendeu PUT de PETR4, strike R$34, prêmio R$1,20.\nSe PETR4 subir 5%, a PUT desvaloriza e você lucra.\nSe cair 10%, a PUT valoriza e você perde.\n\nUse para definir se o risco/retorno compensa antes de operar.',
+  },
+  {
+    title: 'Cadeia de Opções',
+    icon: 'grid-outline',
+    text: 'A tabela mostra preços teóricos (Black-Scholes) para diferentes strikes:\n\n• Lado esquerdo: CALLs\n• Lado direito: PUTs\n• Centro: strike e distância % do spot\n\nITM (In The Money): opção com valor intrínseco. CALL ITM = spot > strike.\nATM (At The Money): strike ≈ spot.\nOTM (Out The Money): sem valor intrínseco. Mais barata.\n\nDelta ao lado de cada preço indica probabilidade de exercício.\n\nToque em qualquer CALL ou PUT para preencher o simulador automaticamente com aquele strike e preço.\n\nUse "+ Outro" para analisar tickers fora da sua carteira.',
+  },
+  {
+    title: 'Indicadores Técnicos',
+    icon: 'pulse-outline',
+    text: 'HV 20d (Volatilidade Histórica):\nOscilação real do ativo nos últimos 20 dias. Compare com IV: se IV > HV, prêmios estão caros (bom para vender).\n\nRSI 14:\n• > 70: sobrecomprado (possível queda)\n• < 30: sobrevendido (possível alta)\n• 30-70: neutro\n\nBeta:\n• > 1.2: mais volátil que o mercado\n• < 0.8: mais defensivo\n• = 1: acompanha o mercado\n\nMax Drawdown:\nMaior queda do pico ao vale. Indica risco histórico máximo.\n\nSMA/EMA: médias móveis — suporte e resistência dinâmicos.\nATR: amplitude média diária — útil para definir stops.\nBB Width: largura das Bandas de Bollinger — baixa = baixa volatilidade (breakout próximo).',
+  },
+  {
+    title: 'Estratégias Práticas',
+    icon: 'rocket-outline',
+    text: 'Venda Coberta (Covered Call):\nVocê TEM as ações e vende CALL OTM. Recebe prêmio como renda extra. Se exercido, vende as ações com lucro.\n\nCSP (Cash-Secured Put):\nVocê QUER comprar o ativo mais barato. Vende PUT OTM. Se exercido, compra com desconto (strike - prêmio).\n\nWheel Strategy:\n1. Vende PUT → se exercido, compra ações\n2. Com as ações, vende CALL → se exercido, vende\n3. Repete o ciclo recebendo prêmios\n\nDicas:\n• IV alta = prêmios maiores (melhor para vender)\n• DTE 21-45 dias: melhor relação theta/risco\n• Strikes OTM 5-10%: equilíbrio prêmio/segurança\n• Sempre cheque cobertura antes de vender',
+  },
+];
+
+// ═══════════════════════════════════════
+// AI ANALYSIS MODAL
+// ═══════════════════════════════════════
+function AiAnalysisModal(props) {
+  var analysis = props.analysis;
+  var onClose = props.onClose;
+
+  if (!analysis) return null;
+
+  var secs = [
+    { key: 'risco', label: 'AVALIAÇÃO DE RISCO', icon: 'shield-checkmark-outline', color: C.red },
+    { key: 'estrategias', label: 'SUGESTÕES DE ESTRATÉGIA', icon: 'bulb-outline', color: C.accent },
+    { key: 'cenarios', label: 'CENÁRIOS DE MERCADO', icon: 'git-branch-outline', color: C.etfs },
+    { key: 'educacional', label: 'RESUMO EDUCACIONAL', icon: 'school-outline', color: C.green },
+  ];
+
+  // If only risco has content (fallback), show as single block
+  var hasAnySec = false;
+  for (var si = 0; si < secs.length; si++) {
+    if (analysis[secs[si].key]) hasAnySec = true;
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SIZE.padding, paddingTop: 54, paddingBottom: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Ionicons name="sparkles" size={20} color={C.accent} />
+          <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, fontFamily: F.display }}>Análise IA</Text>
+        </View>
+        <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          accessibilityRole="button" accessibilityLabel="Fechar análise">
+          <Ionicons name="close-circle-outline" size={28} color={C.sub} />
+        </TouchableOpacity>
+      </View>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SIZE.padding, gap: SIZE.gap, paddingBottom: 50 }}>
+        {secs.map(function(sec) {
+          var content = analysis[sec.key];
+          if (!content) return null;
+
+          // Format markdown-like bold (**text**) to just text with emphasis
+          var lines = content.split('\n');
+          var formattedLines = [];
+          for (var li = 0; li < lines.length; li++) {
+            var line = lines[li].replace(/\*\*/g, '');
+            if (line.trim()) formattedLines.push(line);
+            else formattedLines.push('');
+          }
+          var formatted = formattedLines.join('\n');
+
+          return (
+            <Glass key={sec.key} glow={sec.color} padding={16}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                <Ionicons name={sec.icon} size={16} color={sec.color} />
+                <Text style={{ fontSize: 11, fontWeight: '700', color: sec.color, fontFamily: F.mono, letterSpacing: 0.8 }}>{sec.label}</Text>
+              </View>
+              <Text style={{ fontSize: 13, color: C.text, fontFamily: F.body, lineHeight: 22 }}>{formatted}</Text>
+            </Glass>
+          );
+        })}
+
+        {!hasAnySec ? (
+          <Glass padding={16}>
+            <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body, lineHeight: 22, textAlign: 'center' }}>
+              Análise não disponível. Tente novamente.
+            </Text>
+          </Glass>
+        ) : null}
+
+        <View style={{ padding: 12, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: C.border }}>
+          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, textAlign: 'center', lineHeight: 16 }}>
+            Análise gerada por IA. Não constitui recomendação de investimento. Use como ferramenta educacional complementar à sua própria análise.
+          </Text>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
 function SimuladorBS(props) {
   var ps = usePrivacyStyle();
   var simSelicRate = props.selicRate || 13.25;
   var setInfoModal = props.setInfoModal;
-  var s1 = useState('CALL'); var tipo = s1[0]; var setTipo = s1[1];
-  var s2 = useState('venda'); var direcao = s2[0]; var setDirecao = s2[1];
+  var simParams = props.simParams;
+  var positions = props.positions || [];
+  var indicatorsMap = props.indicators || {};
+  var onChainSelect = props.onChainSelect;
+  var setTutStep = props.setTutStep;
+  // Shared params (same underlying)
   var s3 = useState('34.30'); var spot = s3[0]; var setSpot = s3[1];
-  var s4 = useState('36.00'); var strike = s4[0]; var setStrike = s4[1];
-  var s5 = useState('1.20'); var premio = s5[0]; var setPremio = s5[1];
   var s6 = useState('35'); var ivInput = s6[0]; var setIvInput = s6[1];
   var s7 = useState('21'); var dte = s7[0]; var setDte = s7[1];
-  var s8 = useState('100'); var qty = s8[0]; var setQty = s8[1];
+
+  // Multi-leg state
+  var _legs = useState([{ id: 1, tipo: 'CALL', direcao: 'venda', strike: '36.00', premio: '1.20', qty: '100' }]);
+  var legs = _legs[0]; var setLegs = _legs[1];
+  var _activeLeg = useState(0); var activeLeg = _activeLeg[0]; var setActiveLeg = _activeLeg[1];
+  var _nextLegId = useState(2); var nextLegId = _nextLegId[0]; var setNextLegId = _nextLegId[1];
+
+  // Active leg shorthand
+  var curLeg = legs[activeLeg] || legs[0];
+  var tipo = curLeg.tipo || 'CALL';
+  var direcao = curLeg.direcao || 'venda';
+  var strike = curLeg.strike || '';
+  var premio = curLeg.premio || '';
+  var qty = curLeg.qty || '100';
+
+  // Leg helpers
+  function updateLeg(idx, field, val) {
+    var newLegs = [];
+    for (var ul = 0; ul < legs.length; ul++) {
+      if (ul === idx) {
+        var copy = {};
+        var kk = Object.keys(legs[ul]);
+        for (var ki = 0; ki < kk.length; ki++) { copy[kk[ki]] = legs[ul][kk[ki]]; }
+        copy[field] = val;
+        newLegs.push(copy);
+      } else {
+        newLegs.push(legs[ul]);
+      }
+    }
+    setLegs(newLegs);
+  }
+
+  function addLeg(params) {
+    var newLeg = {
+      id: nextLegId,
+      tipo: (params && params.tipo) || 'CALL',
+      direcao: (params && params.direcao) || 'venda',
+      strike: (params && params.strike) || '',
+      premio: (params && params.premio) || '',
+      qty: (params && params.qty) || '100',
+    };
+    setNextLegId(nextLegId + 1);
+    var newLegs = legs.concat([newLeg]);
+    setLegs(newLegs);
+    setActiveLeg(newLegs.length - 1);
+  }
+
+  function removeLeg(idx) {
+    if (legs.length <= 1) return;
+    var newLegs = [];
+    for (var rl = 0; rl < legs.length; rl++) {
+      if (rl !== idx) newLegs.push(legs[rl]);
+    }
+    setLegs(newLegs);
+    if (activeLeg >= newLegs.length) { setActiveLeg(newLegs.length - 1); }
+    else if (activeLeg > idx) { setActiveLeg(activeLeg - 1); }
+  }
+
+  // AI Analysis states
+  var _aiAnalysis = useState(null); var aiAnalysis = _aiAnalysis[0]; var setAiAnalysis = _aiAnalysis[1];
+  var _aiLoading = useState(false); var aiLoading = _aiLoading[0]; var setAiLoading = _aiLoading[1];
+  var _aiError = useState(null); var aiError = _aiError[0]; var setAiError = _aiError[1];
+  var _aiModalOpen = useState(false); var aiModalOpen = _aiModalOpen[0]; var setAiModalOpen = _aiModalOpen[1];
+  var _aiObj = useState('renda'); var aiObjetivo = _aiObj[0]; var setAiObjetivo = _aiObj[1];
+  var _aiCapital = useState(''); var aiCapital = _aiCapital[0]; var setAiCapital = _aiCapital[1];
+
+  // Apply params from chain tap
+  React.useEffect(function() {
+    if (!simParams) return;
+    // Shared params always update
+    if (simParams.spot) setSpot(simParams.spot);
+    if (simParams.iv) setIvInput(simParams.iv);
+    if (simParams.dte) setDte(simParams.dte);
+
+    if (simParams.addAsLeg) {
+      // Add as new leg (from chain or preset)
+      addLeg({
+        tipo: simParams.tipo || 'CALL',
+        direcao: simParams.direcao || 'venda',
+        strike: simParams.strike || '',
+        premio: simParams.premio || '',
+        qty: simParams.qty || '100',
+      });
+    } else {
+      // Replace first leg (single-leg compat)
+      var newLeg = {
+        id: legs[0] ? legs[0].id : 1,
+        tipo: simParams.tipo || legs[0].tipo || 'CALL',
+        direcao: simParams.direcao || legs[0].direcao || 'venda',
+        strike: simParams.strike || legs[0].strike || '',
+        premio: simParams.premio || legs[0].premio || '',
+        qty: legs[0].qty || '100',
+      };
+      setLegs([newLeg]);
+      setActiveLeg(0);
+    }
+  }, [simParams]);
 
   var sVal = parseFloat(spot) || 0;
-  var kVal = parseFloat(strike) || 0;
-  var pVal = parseFloat(premio) || 0;
-  var qVal = parseInt(qty) || 0;
   var dVal = parseInt(dte) || 0;
   var t = dVal / 365;
   var r = simSelicRate / 100;
+  var baseSigma = parseFloat(ivInput) / 100 || 0.30;
+
+  // Active leg parsed values (for single-leg display compat)
+  var kVal = parseFloat(strike) || 0;
+  var pVal = parseFloat(premio) || 0;
+  var qVal = parseInt(qty) || 0;
   var tipoLower = tipo.toLowerCase();
 
-  // Use input IV or calculate from premium
-  var sigma = parseFloat(ivInput) / 100 || 0.30;
-  if (pVal > 0 && sVal > 0 && kVal > 0 && t > 0) {
-    var computedIV = bsIV(sVal, kVal, t, r, pVal, tipoLower);
-    sigma = computedIV;
+  // Per-leg IV: compute from premium if available, else use base IV
+  function legIV(leg) {
+    var lTipo = (leg.tipo || 'CALL').toLowerCase();
+    var lStrike = parseFloat(leg.strike) || 0;
+    var lPremio = parseFloat(leg.premio) || 0;
+    if (lPremio > 0 && sVal > 0 && lStrike > 0 && t > 0) {
+      return bsIV(sVal, lStrike, t, r, lPremio, lTipo);
+    }
+    return baseSigma;
   }
 
-  // Real BS Greeks
-  var greeks = bsGreeks(sVal, kVal, t, r, sigma, tipoLower);
+  // Active leg sigma (for IV display)
+  var sigma = legIV(curLeg);
 
-  var premioTotal = pVal * qVal;
-  var contratos = Math.floor(qVal / 100);
-  var thetaDia = greeks.theta * qVal;
-  var breakeven = tipoLower === 'call' ? kVal + pVal : kVal - pVal;
+  // Aggregated greeks across all legs
+  var netDelta = 0, netGamma = 0, netTheta = 0, netVega = 0;
+  var netPremio = 0; // positive = net credit, negative = net debit
+  var netBsTheo = 0;
+  var totalQty = 0;
 
-  // BS theoretical price
-  var bsTheoPrice = bsPrice(sVal, kVal, t, r, sigma, tipoLower);
+  for (var li = 0; li < legs.length; li++) {
+    var leg = legs[li];
+    var lTipo = (leg.tipo || 'CALL').toLowerCase();
+    var lStrike = parseFloat(leg.strike) || 0;
+    var lPremio = parseFloat(leg.premio) || 0;
+    var lQty = parseInt(leg.qty) || 0;
+    var lSign = (leg.direcao === 'venda' || leg.direcao === 'lancamento') ? -1 : 1;
+    var lSigma = legIV(leg);
 
-  // What-If scenarios with proper BS
+    totalQty += lQty;
+    // venda receives premium (+), compra pays (-)
+    netPremio += lPremio * lQty * (-lSign);
+
+    if (sVal > 0 && lStrike > 0 && t > 0) {
+      var lGreeks = bsGreeks(sVal, lStrike, t, r, lSigma, lTipo);
+      netDelta += lGreeks.delta * lQty * lSign;
+      netGamma += lGreeks.gamma * lQty * lSign;
+      netTheta += lGreeks.theta * lQty * lSign;
+      netVega += lGreeks.vega * lQty * lSign;
+      netBsTheo += bsPrice(sVal, lStrike, t, r, lSigma, lTipo) * lQty * (-lSign);
+    }
+  }
+
+  // Active leg greeks (for single-leg compat display)
+  var greeks = (sVal > 0 && kVal > 0 && t > 0)
+    ? bsGreeks(sVal, kVal, t, r, sigma, tipoLower)
+    : { delta: 0, gamma: 0, theta: 0, vega: 0 };
+  var bsTheoPrice = (sVal > 0 && kVal > 0 && t > 0)
+    ? bsPrice(sVal, kVal, t, r, sigma, tipoLower)
+    : 0;
+
+  var isMultiLeg = legs.length > 1;
+  var premioTotal = isMultiLeg ? netPremio : pVal * qVal;
+  var contratos = Math.floor(totalQty / 100);
+
+  // What-If scenarios with proper BS (multi-leg)
   var scenarios = [
     { label: '+5%', pctMove: 0.05 },
     { label: '-5%', pctMove: -0.05 },
@@ -896,14 +1191,212 @@ function SimuladorBS(props) {
 
   function calcScenarioResult(pctMove) {
     var newSpot = sVal * (1 + pctMove);
-    // Recalculate BS price at new spot with reduced DTE (half the move period)
     var newT = Math.max(0.001, (dVal - 5) / 365);
-    var newPrice = bsPrice(newSpot, kVal, newT, r, sigma, tipoLower);
-    if (direcao === 'lancamento' || direcao === 'venda') {
-      return (pVal - newPrice) * qVal;
-    } else {
-      return (newPrice - pVal) * qVal;
+    var totalPL = 0;
+    for (var si = 0; si < legs.length; si++) {
+      var sLeg = legs[si];
+      var sLTipo = (sLeg.tipo || 'CALL').toLowerCase();
+      var sLStrike = parseFloat(sLeg.strike) || 0;
+      var sLPremio = parseFloat(sLeg.premio) || 0;
+      var sLQty = parseInt(sLeg.qty) || 0;
+      var sLSigma = legIV(sLeg);
+      var sLSign = (sLeg.direcao === 'venda' || sLeg.direcao === 'lancamento') ? -1 : 1;
+      var newPrice = bsPrice(newSpot, sLStrike, newT, r, sLSigma, sLTipo);
+      // venda: (premium - newPrice) * qty; compra: (newPrice - premium) * qty
+      totalPL += (sLPremio - newPrice) * sLQty * (-sLSign);
     }
+    return totalPL;
+  }
+
+  // Format greek value adaptively
+  function fmtGreek(val) {
+    var abs = Math.abs(val);
+    if (abs >= 100) return val.toFixed(0);
+    if (abs >= 10) return val.toFixed(1);
+    if (abs >= 1) return val.toFixed(2);
+    if (abs >= 0.01) return val.toFixed(3);
+    return val.toFixed(4);
+  }
+
+  // Strategy presets
+  function applyPreset(key) {
+    if (sVal <= 0) return;
+    var step;
+    if (sVal < 20) { step = 1; }
+    else if (sVal <= 50) { step = 2; }
+    else { step = 5; }
+
+    var atm = Math.round(sVal / step) * step;
+    var newLegs = [];
+    var nid = nextLegId;
+
+    function mkLeg(tp, dir, sk, q) {
+      var p = (t > 0) ? bsPrice(sVal, sk, t, r, baseSigma, tp.toLowerCase()) : 0;
+      var lg = { id: nid, tipo: tp, direcao: dir, strike: sk.toFixed(2), premio: p.toFixed(2), qty: String(q || 100) };
+      nid = nid + 1;
+      return lg;
+    }
+
+    if (key === 'credit_call') {
+      // Bear Call Spread: sell call near ATM, buy call OTM
+      newLegs.push(mkLeg('CALL', 'venda', atm + step, 100));
+      newLegs.push(mkLeg('CALL', 'compra', atm + step * 2, 100));
+    } else if (key === 'credit_put') {
+      // Bull Put Spread: sell put near ATM, buy put OTM
+      newLegs.push(mkLeg('PUT', 'venda', atm - step, 100));
+      newLegs.push(mkLeg('PUT', 'compra', atm - step * 2, 100));
+    } else if (key === 'iron_condor') {
+      // Short Iron Condor: sell put + sell call near ATM, buy wings
+      newLegs.push(mkLeg('PUT', 'venda', atm - step, 100));
+      newLegs.push(mkLeg('PUT', 'compra', atm - step * 2, 100));
+      newLegs.push(mkLeg('CALL', 'venda', atm + step, 100));
+      newLegs.push(mkLeg('CALL', 'compra', atm + step * 2, 100));
+    } else if (key === 'straddle') {
+      // Short Straddle: sell call + put at ATM
+      newLegs.push(mkLeg('CALL', 'venda', atm, 100));
+      newLegs.push(mkLeg('PUT', 'venda', atm, 100));
+    } else if (key === 'strangle') {
+      // Short Strangle: sell OTM call + OTM put
+      newLegs.push(mkLeg('CALL', 'venda', atm + step, 100));
+      newLegs.push(mkLeg('PUT', 'venda', atm - step, 100));
+    } else if (key === 'butterfly') {
+      // Long Call Butterfly: buy 1 lower, sell 2 middle, buy 1 upper
+      newLegs.push(mkLeg('CALL', 'compra', atm - step, 100));
+      newLegs.push(mkLeg('CALL', 'venda', atm, 200));
+      newLegs.push(mkLeg('CALL', 'compra', atm + step, 100));
+    }
+
+    if (newLegs.length > 0) {
+      setLegs(newLegs);
+      setNextLegId(nid);
+      setActiveLeg(0);
+    }
+  }
+
+  function handleAiAnalysis() {
+    if (aiLoading) return;
+    if (sVal <= 0 || kVal <= 0) return;
+
+    // Find matching position for context
+    // Priority: 1) ticker from simParams, 2) match by spot price, 3) none
+    var basePos = null;
+    if (simParams && simParams.ticker) {
+      for (var pi = 0; pi < positions.length; pi++) {
+        if (positions[pi].ticker && positions[pi].ticker.toUpperCase() === simParams.ticker.toUpperCase()) {
+          basePos = positions[pi];
+          break;
+        }
+      }
+    }
+    if (!basePos) {
+      // Try to match by spot price (closest match within 1%)
+      var bestDiff = Infinity;
+      for (var pi2 = 0; pi2 < positions.length; pi2++) {
+        var posPrice = positions[pi2].preco_atual || positions[pi2].pm || 0;
+        if (posPrice > 0) {
+          var diff = Math.abs(posPrice - sVal) / posPrice;
+          if (diff < 0.01 && diff < bestDiff) {
+            bestDiff = diff;
+            basePos = positions[pi2];
+          }
+        }
+      }
+    }
+
+    // Find matching indicators
+    var tickerInd = null;
+    if (basePos && basePos.ticker && indicatorsMap) {
+      tickerInd = indicatorsMap[basePos.ticker.toUpperCase()] || null;
+    }
+
+    // Build portfolio summary for context
+    var portfolioSummary = [];
+    var portfolioTotal = 0;
+    for (var psi = 0; psi < positions.length; psi++) {
+      var pos = positions[psi];
+      var posVal = (pos.preco_atual || pos.pm || 0) * (pos.quantidade || 0);
+      portfolioTotal += posVal;
+      if (pos.ticker) {
+        portfolioSummary.push({
+          ticker: pos.ticker,
+          qty: pos.quantidade || 0,
+          valor: Math.round(posVal),
+        });
+      }
+    }
+
+    // Build scenarios results
+    var scenarioResults = [];
+    for (var si = 0; si < scenarios.length; si++) {
+      scenarioResults.push({
+        label: scenarios[si].label,
+        result: calcScenarioResult(scenarios[si].pctMove),
+      });
+    }
+
+    // Build legs array for AI
+    var aiLegs = [];
+    for (var ali = 0; ali < legs.length; ali++) {
+      var aiLeg = legs[ali];
+      aiLegs.push({
+        tipo: aiLeg.tipo || 'CALL',
+        direcao: aiLeg.direcao || 'venda',
+        strike: parseFloat(aiLeg.strike) || 0,
+        premio: parseFloat(aiLeg.premio) || 0,
+        qty: parseInt(aiLeg.qty) || 0,
+      });
+    }
+
+    var data = {
+      tipo: tipo,
+      direcao: direcao,
+      objetivo: aiObjetivo,
+      spot: sVal,
+      strike: kVal,
+      premio: pVal,
+      iv: sigma * 100,
+      dte: dVal,
+      qty: qVal,
+      legs: aiLegs,
+      greeks: {
+        delta: netDelta,
+        gamma: netGamma,
+        theta: netTheta,
+        vega: netVega,
+      },
+      netPremio: netPremio,
+      premioTotal: premioTotal,
+      bsTheoPrice: isMultiLeg ? netBsTheo : bsTheoPrice,
+      scenarios: scenarioResults,
+      selicRate: simSelicRate,
+      indicators: tickerInd,
+      position: basePos ? {
+        ticker: basePos.ticker,
+        quantidade: basePos.quantidade,
+        pm: basePos.pm,
+        preco_atual: basePos.preco_atual,
+      } : null,
+      capital: aiCapital ? parseFloat(aiCapital.replace(/\./g, '').replace(',', '.')) : null,
+      portfolio: portfolioSummary.length > 0 ? { ativos: portfolioSummary, total: Math.round(portfolioTotal) } : null,
+    };
+
+    setAiLoading(true);
+    setAiError(null);
+
+    analyzeOption(data).then(function(result) {
+      setAiLoading(false);
+      if (result && result.error) {
+        setAiError(result.error);
+      } else if (result) {
+        setAiAnalysis(result);
+        setAiModalOpen(true);
+      } else {
+        setAiError('Resposta vazia da IA.');
+      }
+    }).catch(function(err) {
+      setAiLoading(false);
+      setAiError('Erro inesperado: ' + (err && err.message ? err.message : ''));
+    });
   }
 
   function renderField(label, val, setter, suffix) {
@@ -921,28 +1414,121 @@ function SimuladorBS(props) {
 
   return (
     <View style={{ gap: SIZE.gap }}>
-      {/* Tipo + Direcao */}
+      {/* Tutorial button */}
+      <TouchableOpacity activeOpacity={0.7} onPress={function() { setTutStep(0); }}
+        accessibilityRole="button" accessibilityLabel="Tutorial do simulador"
+        style={{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+          paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10,
+          backgroundColor: C.opcoes + '12', borderWidth: 1, borderColor: C.opcoes + '30',
+        }}>
+        <Ionicons name="school-outline" size={16} color={C.opcoes} />
+        <Text style={{ fontSize: 13, fontWeight: '700', color: C.opcoes, fontFamily: F.display }}>Como Simular e Analisar</Text>
+      </TouchableOpacity>
+
+      {/* Leg Cards */}
+      {legs.length > 0 ? (
+        <View style={{ gap: 6 }}>
+          {legs.map(function(lg, idx) {
+            var isActive = idx === activeLeg;
+            var lgTipo = lg.tipo || 'CALL';
+            var lgDir = lg.direcao || 'venda';
+            var lgStrike = lg.strike || '—';
+            var lgPremio = lg.premio || '—';
+            var lgQty = lg.qty || '100';
+            return (
+              <TouchableOpacity key={lg.id} activeOpacity={0.7}
+                onPress={function() { setActiveLeg(idx); }}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 8,
+                  paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10,
+                  backgroundColor: isActive ? C.opcoes + '15' : 'rgba(255,255,255,0.03)',
+                  borderWidth: 1.5, borderColor: isActive ? C.opcoes : C.border,
+                }}>
+                <Text style={{ fontSize: 12, fontWeight: '800', color: C.dim, fontFamily: F.mono, width: 18 }}>{'#' + (idx + 1)}</Text>
+                <Badge text={lgTipo} color={lgTipo === 'CALL' ? C.green : C.red} />
+                <Badge text={lgDir === 'venda' ? 'V' : 'C'} color={lgDir === 'venda' ? C.etfs : C.rf} />
+                <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono, flex: 1 }}>
+                  {'K ' + lgStrike + ' | P ' + lgPremio + ' | x' + lgQty}
+                </Text>
+                {legs.length > 1 ? (
+                  <TouchableOpacity hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    onPress={function() { removeLeg(idx); }}>
+                    <Ionicons name="close-circle" size={18} color={C.red + '80'} />
+                  </TouchableOpacity>
+                ) : null}
+              </TouchableOpacity>
+            );
+          })}
+          <TouchableOpacity activeOpacity={0.7}
+            onPress={function() { addLeg({ tipo: 'CALL', direcao: 'venda' }); }}
+            style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+              paddingVertical: 8, borderRadius: 10,
+              backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: C.border, borderStyle: 'dashed',
+            }}>
+            <Ionicons name="add-circle-outline" size={16} color={C.opcoes} />
+            <Text style={{ fontSize: 12, fontWeight: '600', color: C.opcoes, fontFamily: F.body }}>Adicionar Perna</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {/* Strategy Presets */}
+      <View style={{ gap: 6 }}>
+        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, fontWeight: '600' }}>ESTRATÉGIAS PRONTAS</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -4 }}
+          contentContainerStyle={{ paddingHorizontal: 4, gap: 6 }}>
+          {[
+            { key: 'credit_call', label: 'Credit Call' },
+            { key: 'credit_put', label: 'Credit Put' },
+            { key: 'iron_condor', label: 'Iron Condor' },
+            { key: 'straddle', label: 'Straddle' },
+            { key: 'strangle', label: 'Strangle' },
+            { key: 'butterfly', label: 'Butterfly' },
+          ].map(function(preset) {
+            return (
+              <TouchableOpacity key={preset.key} activeOpacity={0.7}
+                onPress={function() { applyPreset(preset.key); }}
+                style={{
+                  paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8,
+                  backgroundColor: C.accent + '12', borderWidth: 1, borderColor: C.accent + '30',
+                }}>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: C.accent, fontFamily: F.body }}>{preset.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* Tipo + Direcao (edits active leg) */}
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <View style={{ flex: 1, flexDirection: 'row', gap: 6 }}>
-          {['CALL', 'PUT'].map(function(t) {
-            return <Pill key={t} active={tipo === t} color={t === 'CALL' ? C.green : C.red} onPress={function() { setTipo(t); }}>{t}</Pill>;
+          {['CALL', 'PUT'].map(function(tp) {
+            return <Pill key={tp} active={tipo === tp} color={tp === 'CALL' ? C.green : C.red} onPress={function() { updateLeg(activeLeg, 'tipo', tp); }}>{tp}</Pill>;
           })}
         </View>
         <View style={{ flex: 1, flexDirection: 'row', gap: 6 }}>
-          <Pill active={direcao === 'venda'} color={C.accent} onPress={function() { setDirecao('venda'); }}>Venda</Pill>
-          <Pill active={direcao === 'compra'} color={C.accent} onPress={function() { setDirecao('compra'); }}>Compra</Pill>
+          <Pill active={direcao === 'venda'} color={C.accent} onPress={function() { updateLeg(activeLeg, 'direcao', 'venda'); }}>Venda</Pill>
+          <Pill active={direcao === 'compra'} color={C.accent} onPress={function() { updateLeg(activeLeg, 'direcao', 'compra'); }}>Compra</Pill>
         </View>
       </View>
 
       {/* Inputs */}
       <Glass padding={14}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+          <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, fontWeight: '600' }}>PARÂMETROS</Text>
+          <TouchableOpacity hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            onPress={function() { setInfoModal({ title: 'Parâmetros da Simulação', text: 'Spot: preço atual do ativo-objeto no mercado.\n\nStrike: preço de exercício da opção.\n\nPrêmio: valor pago (compra) ou recebido (venda) por opção.\n\nIV: volatilidade implícita — quanto o mercado espera que o ativo oscile. Maior IV = opção mais cara.\n\nDTE: dias até o vencimento. Quanto menor, mais rápido o theta come o prêmio.\n\nQtd: número total de opções (100 opções = 1 contrato).' }); }}>
+            <Ionicons name="information-circle-outline" size={14} color={C.accent} />
+          </TouchableOpacity>
+        </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           {renderField('Spot', spot, setSpot, 'R$')}
-          {renderField('Strike', strike, setStrike, 'R$')}
-          {renderField('Premio', premio, setPremio, 'R$')}
+          {renderField('Strike', strike, function(v) { updateLeg(activeLeg, 'strike', v); }, 'R$')}
+          {renderField('Prêmio', premio, function(v) { updateLeg(activeLeg, 'premio', v); }, 'R$')}
           {renderField('IV', ivInput, setIvInput, '%')}
           {renderField('DTE', dte, setDte, 'dias')}
-          {renderField('Qtd Opcoes', qty, setQty)}
+          {renderField('Qtd', qty, function(v) { updateLeg(activeLeg, 'qty', v); })}
         </View>
       </Glass>
 
@@ -950,16 +1536,22 @@ function SimuladorBS(props) {
       <Glass glow={C.opcoes} padding={14}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
           <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>GREGAS (BLACK-SCHOLES)</Text>
-          <TouchableOpacity onPress={function() { setInfoModal({ title: 'Gregas (Black-Scholes)', text: 'Delta: sensibilidade ao preço. Gamma: aceleração do delta. Theta: perda temporal/dia. Vega: sensibilidade à volatilidade.' }); }}>
-            <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+          <TouchableOpacity hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            onPress={function() { setInfoModal({ title: 'Gregas (Black-Scholes)', text: 'Delta: quanto o preço da opção muda para cada R$1 do ativo. Delta 0.30 = opção sobe R$0.30 se ativo subir R$1.\n\nGamma: aceleração do delta. Gamma alto perto do strike e vencimento.\n\nTheta: perda de valor por dia (time decay). Favorece vendedores.\n\nVega: sensibilidade à volatilidade. Se IV subir 1%, preço da opção sobe ~Vega reais.' }); }}>
+            <Ionicons name="information-circle-outline" size={14} color={C.accent} />
           </TouchableOpacity>
         </View>
+        {isMultiLeg ? (
+          <Text style={{ fontSize: 10, color: C.opcoes, fontFamily: F.mono, textAlign: 'center', marginBottom: 4 }}>
+            {'Posição líquida (' + legs.length + ' pernas)'}
+          </Text>
+        ) : null}
         <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: 8 }}>
           {[
-            { l: 'Delta', v: greeks.delta.toFixed(3), c: Math.abs(greeks.delta) > 0.5 ? C.green : C.sub },
-            { l: 'Gamma', v: greeks.gamma.toFixed(4), c: C.sub },
-            { l: 'Theta', v: greeks.theta.toFixed(3), c: C.red },
-            { l: 'Vega', v: greeks.vega.toFixed(3), c: C.acoes },
+            { l: 'Delta', v: fmtGreek(isMultiLeg ? netDelta : greeks.delta), c: Math.abs(isMultiLeg ? netDelta : greeks.delta) > (isMultiLeg ? 10 : 0.5) ? C.green : C.sub },
+            { l: 'Gamma', v: fmtGreek(isMultiLeg ? netGamma : greeks.gamma), c: C.sub },
+            { l: 'Theta', v: fmtGreek(isMultiLeg ? netTheta : greeks.theta), c: (isMultiLeg ? netTheta : greeks.theta) > 0 ? C.green : C.red },
+            { l: 'Vega', v: fmtGreek(isMultiLeg ? netVega : greeks.vega), c: C.acoes },
           ].map(function(g, i) {
             return (
               <View key={i} style={{ alignItems: 'center' }}>
@@ -975,24 +1567,47 @@ function SimuladorBS(props) {
             <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>IV IMPLÍCITA</Text>
             <Text style={[{ fontSize: 14, fontWeight: '700', color: C.opcoes, fontFamily: F.mono }, ps]}>{(sigma * 100).toFixed(1)}%</Text>
           </View>
-          <View style={{ alignItems: 'center' }}>
-            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>PREÇO BS</Text>
-            <Text style={[{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(bsTheoPrice)}</Text>
-          </View>
-          <View style={{ alignItems: 'center' }}>
-            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>MERCADO</Text>
-            <Text style={[{ fontSize: 14, fontWeight: '700', color: bsTheoPrice > pVal ? C.green : C.red, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(pVal)}</Text>
-          </View>
+          {isMultiLeg ? (
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{netPremio >= 0 ? 'CRÉDITO LÍQ.' : 'DÉBITO LÍQ.'}</Text>
+              <Text style={[{ fontSize: 14, fontWeight: '700', color: netPremio >= 0 ? C.green : C.red, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(Math.abs(netPremio))}</Text>
+            </View>
+          ) : (
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>PREÇO BS</Text>
+              <Text style={[{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(bsTheoPrice)}</Text>
+            </View>
+          )}
+          {isMultiLeg ? (
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>THETA/DIA</Text>
+              <Text style={[{ fontSize: 14, fontWeight: '700', color: netTheta > 0 ? C.green : C.red, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(netTheta)}</Text>
+            </View>
+          ) : (
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>MERCADO</Text>
+              <Text style={[{ fontSize: 14, fontWeight: '700', color: bsTheoPrice > pVal ? C.green : C.red, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(pVal)}</Text>
+            </View>
+          )}
         </View>
       </Glass>
 
       {/* Payoff Chart */}
       {sVal > 0 && kVal > 0 && pVal > 0 ? (
         <Glass padding={14}>
-          <SectionLabel>PAYOFF NO VENCIMENTO</SectionLabel>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <SectionLabel>PAYOFF NO VENCIMENTO</SectionLabel>
+            <TouchableOpacity hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              onPress={function() { setInfoModal({ title: 'Gráfico de Payoff', text: isMultiLeg
+                ? 'Mostra o lucro ou prejuízo combinado de todas as pernas no vencimento.\n\nÁrea verde = faixa de lucro\nÁrea vermelha = faixa de prejuízo\nLinhas tracejadas = breakevens (equilíbrios)\nLinha pontilhada = spot (preço atual)\n\nToque no gráfico e arraste para ver o P&L exato em cada ponto.'
+                : 'Mostra o lucro ou prejuízo no vencimento para cada preço possível do ativo.\n\nÁrea verde = faixa de lucro\nÁrea vermelha = faixa de prejuízo\nLinha tracejada = breakeven (equilíbrio)\nLinha pontilhada = spot (preço atual)\n\nToque no gráfico e arraste para ver o P&L exato em cada ponto.\n\nVenda de CALL: lucro máximo limitado ao prêmio, risco ilimitado acima do strike + prêmio.\nVenda de PUT (CSP): lucro = prêmio, risco = strike ir a zero.\nCompra: prejuízo máximo = prêmio pago.' }); }}>
+              <Ionicons name="information-circle-outline" size={14} color={C.accent} />
+            </TouchableOpacity>
+          </View>
           <Sensitive>
           <View style={{ marginTop: 8 }}>
             <PayoffChart
+              legs={legs}
               tipo={tipoLower}
               direcao={direcao}
               strike={kVal}
@@ -1007,27 +1622,57 @@ function SimuladorBS(props) {
 
       {/* Resumo */}
       <Glass padding={14}>
-        <SectionLabel>RESUMO</SectionLabel>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <SectionLabel>RESUMO</SectionLabel>
+          <TouchableOpacity hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            onPress={function() { setInfoModal({ title: 'Resumo da Simulação', text: isMultiLeg
+              ? 'Crédito/Débito líquido: soma dos prêmios de todas as pernas (venda = crédito, compra = débito).\n\nTheta/dia: ganho (positivo) ou perda (negativo) diário pelo time decay da posição combinada.\n\nContratos: total de opções em todas as pernas.'
+              : 'Prêmio total: valor total recebido (venda) ou pago (compra) = prêmio x quantidade.\n\nTheta/dia: quanto você ganha (venda) ou perde (compra) por dia pelo time decay.\n\nBreakeven: preço do ativo onde você não ganha nem perde no vencimento.\n\nContratos: cada contrato = 100 opções na B3.' }); }}>
+            <Ionicons name="information-circle-outline" size={14} color={C.accent} />
+          </TouchableOpacity>
+        </View>
         <View style={{ gap: 6, marginTop: 6 }}>
-          {[
-            { l: 'Premio total', v: 'R$ ' + fmt(premioTotal) },
-            { l: 'Theta/dia', v: 'R$ ' + fmt(thetaDia) },
-            { l: 'Breakeven', v: 'R$ ' + fmt(breakeven) },
-            { l: 'Contratos', v: contratos + ' (' + qVal + ' opções)' },
-          ].map(function(rr, i) {
-            return (
-              <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
-                <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body }}>{rr.l}</Text>
-                <Text style={[{ fontSize: 14, fontWeight: '600', color: C.text, fontFamily: F.mono }, ps]}>{rr.v}</Text>
-              </View>
-            );
-          })}
+          {isMultiLeg ? (
+            [
+              { l: netPremio >= 0 ? 'Crédito líquido' : 'Débito líquido', v: 'R$ ' + fmt(Math.abs(netPremio)), c: netPremio >= 0 ? C.green : C.red },
+              { l: 'Theta/dia', v: 'R$ ' + fmt(netTheta), c: netTheta > 0 ? C.green : C.red },
+              { l: 'Pernas', v: legs.length + ' pernas', c: C.text },
+              { l: 'Total opções', v: totalQty + ' (' + contratos + ' contratos)', c: C.text },
+            ].map(function(rr, i) {
+              return (
+                <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body }}>{rr.l}</Text>
+                  <Text style={[{ fontSize: 14, fontWeight: '600', color: rr.c || C.text, fontFamily: F.mono }, ps]}>{rr.v}</Text>
+                </View>
+              );
+            })
+          ) : (
+            [
+              { l: 'Prêmio total', v: 'R$ ' + fmt(premioTotal) },
+              { l: 'Theta/dia', v: 'R$ ' + fmt(greeks.theta * qVal) },
+              { l: 'Breakeven', v: 'R$ ' + fmt(tipoLower === 'call' ? kVal + pVal : kVal - pVal) },
+              { l: 'Contratos', v: contratos + ' (' + qVal + ' opções)' },
+            ].map(function(rr, i) {
+              return (
+                <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body }}>{rr.l}</Text>
+                  <Text style={[{ fontSize: 14, fontWeight: '600', color: C.text, fontFamily: F.mono }, ps]}>{rr.v}</Text>
+                </View>
+              );
+            })
+          )}
         </View>
       </Glass>
 
       {/* What-If Scenarios */}
       <Glass glow={C.etfs} padding={14}>
-        <SectionLabel>CENÁRIOS WHAT-IF</SectionLabel>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <SectionLabel>CENÁRIOS WHAT-IF</SectionLabel>
+          <TouchableOpacity hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            onPress={function() { setInfoModal({ title: 'Cenários What-If', text: 'Simula o resultado da operação se o ativo subir ou cair 5% ou 10%.\n\nO cálculo usa Black-Scholes com o novo preço do ativo e DTE reduzido em 5 dias (simulando passagem de tempo).\n\nValor positivo (verde) = lucro no cenário.\nValor negativo (vermelho) = prejuízo no cenário.\n\nUse para avaliar o risco/retorno antes de abrir a operação.' }); }}>
+            <Ionicons name="information-circle-outline" size={14} color={C.accent} />
+          </TouchableOpacity>
+        </View>
         <View style={{ gap: 6, marginTop: 8 }}>
           {scenarios.map(function(sc, i) {
             var result = calcScenarioResult(sc.pctMove);
@@ -1050,6 +1695,86 @@ function SimuladorBS(props) {
           })}
         </View>
       </Glass>
+
+      {/* AI Objective + Button */}
+      <Glass padding={14}>
+        <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, letterSpacing: 0.8, fontWeight: '600', marginBottom: 8 }}>OBJETIVO DA ANÁLISE</Text>
+        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+          {[
+            { key: 'renda', label: 'Renda', icon: 'cash-outline' },
+            { key: 'protecao', label: 'Proteção', icon: 'shield-outline' },
+            { key: 'especulacao', label: 'Especulação', icon: 'trending-up-outline' },
+          ].map(function(obj) {
+            var sel = aiObjetivo === obj.key;
+            return (
+              <TouchableOpacity key={obj.key} activeOpacity={0.7}
+                onPress={function() { setAiObjetivo(obj.key); }}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 5,
+                  paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10,
+                  backgroundColor: sel ? C.accent + '25' : 'transparent',
+                  borderWidth: 1, borderColor: sel ? C.accent : C.border,
+                }}>
+                <Ionicons name={obj.icon} size={14} color={sel ? C.accent : C.dim} />
+                <Text style={{ fontSize: 12, fontWeight: sel ? '700' : '500', color: sel ? C.accent : C.sub, fontFamily: F.body }}>
+                  {obj.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 }}>
+          <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, letterSpacing: 0.8, fontWeight: '600' }}>CAPITAL</Text>
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderRadius: 8, borderWidth: 1, borderColor: C.border, paddingHorizontal: 10, height: 36 }}>
+            <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono, marginRight: 4 }}>R$</Text>
+            <TextInput
+              value={aiCapital}
+              onChangeText={setAiCapital}
+              keyboardType="numeric"
+              placeholder="opcional"
+              placeholderTextColor={C.dim}
+              style={{ flex: 1, fontSize: 13, color: C.text, fontFamily: F.mono, padding: 0 }}
+            />
+          </View>
+          <InfoTip text="Informe seu capital disponível para opções. A IA avaliará se o tamanho da posição é adequado e sugerirá sizing." size={13} />
+        </View>
+      </Glass>
+
+      <TouchableOpacity
+        activeOpacity={0.7}
+        disabled={aiLoading || sVal <= 0 || kVal <= 0}
+        onPress={handleAiAnalysis}
+        accessibilityRole="button"
+        accessibilityLabel="Analisar operação com inteligência artificial"
+        style={{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+          gap: 8, paddingVertical: 14, borderRadius: SIZE.radius,
+          backgroundColor: C.accent + '18', borderWidth: 1, borderColor: C.accent + '40',
+          opacity: (aiLoading || sVal <= 0 || kVal <= 0) ? 0.5 : 1,
+        }}>
+        {aiLoading ? (
+          <ActivityIndicator size="small" color={C.accent} />
+        ) : (
+          <Ionicons name="sparkles-outline" size={18} color={C.accent} />
+        )}
+        <Text style={{ fontSize: 14, fontWeight: '700', color: C.accent, fontFamily: F.display }}>
+          {aiLoading ? 'Analisando...' : 'Analisar com IA'}
+        </Text>
+      </TouchableOpacity>
+
+      {/* AI Error */}
+      {aiError ? (
+        <View style={{ padding: 10, borderRadius: 10, backgroundColor: C.red + '10', borderWidth: 1, borderColor: C.red + '25' }}>
+          <Text style={{ fontSize: 12, color: C.red, fontFamily: F.body, textAlign: 'center' }}>{aiError}</Text>
+        </View>
+      ) : null}
+
+      {/* AI Analysis Modal */}
+      <Modal visible={aiModalOpen} animationType="slide" transparent={false}
+        onRequestClose={function() { setAiModalOpen(false); }}>
+        <AiAnalysisModal analysis={aiAnalysis} onClose={function() { setAiModalOpen(false); }} />
+      </Modal>
+
     </View>
   );
 }
@@ -1062,6 +1787,7 @@ function CadeiaSintetica(props) {
   var positions = props.positions || [];
   var indicatorsMap = props.indicators || {};
   var chainSelicRate = props.selicRate || 13.25;
+  var onSelect = props.onSelect;
 
   // Unique tickers with spot prices
   var tickers = [];
@@ -1087,29 +1813,68 @@ function CadeiaSintetica(props) {
   var chainIV = _chainIV[0]; var setChainIV = _chainIV[1];
   var _chainDTE = useState('21');
   var chainDTE = _chainDTE[0]; var setChainDTE = _chainDTE[1];
+  var _customTicker = useState(''); var customTicker = _customTicker[0]; var setCustomTicker = _customTicker[1];
+  var _customSpot = useState(''); var customSpot = _customSpot[0]; var setCustomSpot = _customSpot[1];
+  var _showCustom = useState(false); var showCustom = _showCustom[0]; var setShowCustom = _showCustom[1];
+  var _fetchingSpot = useState(false); var fetchingSpot = _fetchingSpot[0]; var setFetchingSpot = _fetchingSpot[1];
+  var _addLegMode = useState(false); var addLegMode = _addLegMode[0]; var setAddLegMode = _addLegMode[1];
 
   // When ticker changes, update IV to that ticker's HV
   var handleTickerChange = function(tk) {
     setChainTicker(tk);
+    setShowCustom(false);
+    var newIV = '35';
     if (indicatorsMap[tk] && indicatorsMap[tk].hv_20) {
-      setChainIV(String(Math.round(indicatorsMap[tk].hv_20)));
+      newIV = String(Math.round(indicatorsMap[tk].hv_20));
     }
+    setChainIV(newIV);
+    // Notify simulator of new ticker/spot
+    if (onSelect && tickerSpots[tk]) {
+      onSelect({
+        spot: tickerSpots[tk].toFixed(2),
+        iv: newIV,
+        ticker: tk,
+      });
+    }
+  };
+
+  var handleCustomApply = function() {
+    var tk = customTicker.toUpperCase().trim();
+    if (!tk) return;
+    var sp = parseFloat(customSpot);
+    if (!sp || sp <= 0) return;
+    tickerSpots[tk] = sp;
+    if (tickers.indexOf(tk) === -1) tickers.push(tk);
+    setChainTicker(tk);
+    setShowCustom(false);
+    setChainIV('35');
+    // Notify simulator of custom ticker/spot
+    if (onSelect) {
+      onSelect({
+        spot: sp.toFixed(2),
+        iv: '35',
+        ticker: tk,
+      });
+    }
+  };
+
+  var handleFetchCustomSpot = function() {
+    var tk = customTicker.toUpperCase().trim();
+    if (!tk || tk.length < 2) return;
+    setFetchingSpot(true);
+    fetchPrices([tk]).then(function(priceMap) {
+      var p = priceMap && priceMap[tk];
+      if (p && p.price) {
+        setCustomSpot(String(p.price.toFixed(2)));
+      }
+      setFetchingSpot(false);
+    }).catch(function() { setFetchingSpot(false); });
   };
 
   // Current ticker HV for badge
   var currentHV = (chainTicker && indicatorsMap[chainTicker] && indicatorsMap[chainTicker].hv_20)
     ? indicatorsMap[chainTicker].hv_20
     : null;
-
-  if (tickers.length === 0) {
-    return (
-      <Glass padding={24}>
-        <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
-          Adicione ativos na carteira para gerar a cadeia de opções.
-        </Text>
-      </Glass>
-    );
-  }
 
   var spot = tickerSpots[chainTicker] || 0;
   var ivVal = (parseFloat(chainIV) || 35) / 100;
@@ -1151,13 +1916,53 @@ function CadeiaSintetica(props) {
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
         {tickers.map(function(tk) {
           return (
-            <Pill key={tk} active={chainTicker === tk} color={C.acoes}
+            <Pill key={tk} active={chainTicker === tk && !showCustom} color={C.acoes}
               onPress={function() { handleTickerChange(tk); }}>
               {tk}
             </Pill>
           );
         })}
+        <Pill active={showCustom} color={C.opcoes}
+          onPress={function() { setShowCustom(true); setChainTicker(null); }}>
+          + Outro
+        </Pill>
       </View>
+
+      {/* Custom ticker input */}
+      {showCustom ? (
+        <Glass padding={14}>
+          <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 1, marginBottom: 8 }}>TICKER PERSONALIZADO</Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <View style={styles.simFieldInput}>
+                <TextInput value={customTicker} onChangeText={setCustomTicker} placeholder="Ex: VALE3"
+                  autoCapitalize="characters" style={styles.simFieldText} placeholderTextColor={C.dim} />
+              </View>
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={styles.simFieldInput}>
+                <TextInput value={customSpot} onChangeText={setCustomSpot} placeholder="Spot R$"
+                  keyboardType="numeric" style={styles.simFieldText} placeholderTextColor={C.dim} />
+                <Text style={styles.simFieldSuffix}>R$</Text>
+              </View>
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+            <TouchableOpacity activeOpacity={0.7} onPress={handleFetchCustomSpot}
+              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: C.acoes + '15', borderWidth: 1, borderColor: C.acoes + '30', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
+              {fetchingSpot ? (
+                <ActivityIndicator size="small" color={C.acoes} />
+              ) : (
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.acoes, fontFamily: F.body }}>Buscar Preço</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity activeOpacity={0.7} onPress={handleCustomApply}
+              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: C.opcoes + '15', borderWidth: 1, borderColor: C.opcoes + '30', alignItems: 'center' }}>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: C.opcoes, fontFamily: F.body }}>Aplicar</Text>
+            </TouchableOpacity>
+          </View>
+        </Glass>
+      ) : null}
 
       {/* Spot display + HV badge */}
       {spot > 0 ? (
@@ -1171,6 +1976,14 @@ function CadeiaSintetica(props) {
               <Badge text={'HV 20d: ' + currentHV.toFixed(0) + '%'} color={C.opcoes} />
             ) : null}
           </View>
+        </Glass>
+      ) : null}
+
+      {spot <= 0 && !showCustom ? (
+        <Glass padding={24}>
+          <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
+            Selecione um ativo ou toque em "+ Outro" para digitar um ticker.
+          </Text>
         </Glass>
       ) : null}
 
@@ -1270,10 +2083,27 @@ function CadeiaSintetica(props) {
             : putMon === 'ITM' ? styles.chainItmPut
             : null;
 
+          function handleChainTap(tipoTap, price) {
+            if (onSelect && spot > 0) {
+              onSelect({
+                tipo: tipoTap.toUpperCase(),
+                direcao: 'venda',
+                spot: spot.toFixed(2),
+                strike: sk.toFixed(2),
+                premio: price.toFixed(2),
+                iv: chainIV,
+                dte: chainDTE,
+                ticker: chainTicker || '',
+                addAsLeg: addLegMode,
+              });
+            }
+          }
+
           return (
             <View key={idx} style={[styles.chainRow, rowBg]}>
-              {/* CALL side */}
-              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+              {/* CALL side — tappable */}
+              <TouchableOpacity activeOpacity={0.6} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
+                onPress={function() { handleChainTap('CALL', callPrice); }}>
                 <View style={{ flex: 1, alignItems: 'center' }}>
                   <Text style={[styles.chainDelta, callMon === 'ITM' && { color: C.green, fontWeight: '700' }, ps]}>{callGreeks.delta.toFixed(2)}</Text>
                 </View>
@@ -1283,7 +2113,7 @@ function CadeiaSintetica(props) {
                 <View style={{ flex: 0.8, alignItems: 'center' }}>
                   <Badge text={callMon} color={monColor[callMon] || C.dim} />
                 </View>
-              </View>
+              </TouchableOpacity>
 
               {/* Strike center + distance */}
               <View style={styles.chainStrike}>
@@ -1298,8 +2128,9 @@ function CadeiaSintetica(props) {
                 </Text>
               </View>
 
-              {/* PUT side */}
-              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+              {/* PUT side — tappable */}
+              <TouchableOpacity activeOpacity={0.6} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
+                onPress={function() { handleChainTap('PUT', putPrice); }}>
                 <View style={{ flex: 0.8, alignItems: 'center' }}>
                   <Badge text={putMon} color={monColor[putMon] || C.dim} />
                 </View>
@@ -1309,19 +2140,41 @@ function CadeiaSintetica(props) {
                 <View style={{ flex: 1, alignItems: 'center' }}>
                   <Text style={[styles.chainDelta, putMon === 'ITM' && { color: C.red, fontWeight: '700' }, ps]}>{putGreeks.delta.toFixed(2)}</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             </View>
           );
         })}
       </Glass>
 
-      {/* Legend */}
-      <View style={{ paddingHorizontal: 4 }}>
+      {/* Legend + Add as Leg toggle */}
+      <View style={{ paddingHorizontal: 4, gap: 6 }}>
         <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, textAlign: 'center' }}>
           {currentHV != null
-            ? 'IV inicializado com HV 20d (' + currentHV.toFixed(0) + '%). Ajuste manualmente se necessario.'
-            : 'Precos teoricos via Black-Scholes. IV e DTE ajustaveis.'}
+            ? 'IV inicializado com HV 20d (' + currentHV.toFixed(0) + '%). Ajuste manualmente se necessário.'
+            : 'Preços teóricos via Black-Scholes. IV e DTE ajustáveis.'}
         </Text>
+        {onSelect ? (
+          <View style={{ gap: 4 }}>
+            <Text style={{ fontSize: 11, color: C.opcoes, fontFamily: F.body, textAlign: 'center' }}>
+              {addLegMode
+                ? 'Toque para ADICIONAR perna ao simulador'
+                : 'Toque em CALL ou PUT para simular'}
+            </Text>
+            <TouchableOpacity activeOpacity={0.7}
+              onPress={function() { setAddLegMode(!addLegMode); }}
+              style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+                paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, alignSelf: 'center',
+                backgroundColor: addLegMode ? C.opcoes + '20' : 'transparent',
+                borderWidth: 1, borderColor: addLegMode ? C.opcoes : C.border,
+              }}>
+              <Ionicons name={addLegMode ? 'layers' : 'layers-outline'} size={14} color={addLegMode ? C.opcoes : C.dim} />
+              <Text style={{ fontSize: 11, fontWeight: addLegMode ? '700' : '500', color: addLegMode ? C.opcoes : C.dim, fontFamily: F.body }}>
+                {addLegMode ? 'Modo Multi-Perna ON' : 'Adicionar como perna'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -1352,6 +2205,9 @@ export default function OpcoesScreen() {
   var _selicSt = useState(13.25); var selicRate = _selicSt[0]; var setSelicRate = _selicSt[1];
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
+  var _simParams = useState(null); var simParams = _simParams[0]; var setSimParams = _simParams[1];
+  var _recalculating = useState(false); var recalculating = _recalculating[0]; var setRecalculating = _recalculating[1];
+  var _tut = useState(-1); var tutStep = _tut[0]; var setTutStep = _tut[1];
 
   var load = async function() {
     if (!user) return;
@@ -1986,7 +2842,7 @@ export default function OpcoesScreen() {
           { k: 'ativas', l: 'Ativas (' + ativas.length + ')', c: C.opcoes },
           { k: 'pendentes', l: 'Pendentes (' + expired.length + ')', c: C.yellow },
           { k: 'sim', l: 'Simulador', c: C.opcoes },
-          { k: 'cadeia', l: 'Cadeia', c: C.opcoes },
+          { k: 'ind', l: 'Indicadores', c: C.acoes },
           { k: 'hist', l: 'Histórico (' + historico.length + ')', c: C.opcoes },
         ].map(function(t) {
           return (
@@ -2164,11 +3020,146 @@ export default function OpcoesScreen() {
         </View>
       )}
 
-      {/* SIMULADOR TAB */}
-      {sub === 'sim' && <SimuladorBS selicRate={selicRate} setInfoModal={setInfoModal} />}
+      {/* SIMULADOR TAB (Cadeia + Simulador combinados) */}
+      {sub === 'sim' && (
+        <View style={{ gap: SIZE.gap }}>
+          <SectionLabel>CADEIA DE OPÇÕES</SectionLabel>
+          <CadeiaSintetica positions={positions} indicators={indicators} selicRate={selicRate}
+            onSelect={function(params) { setSimParams(params); }} />
+          <View style={{ height: 1, backgroundColor: C.border, marginVertical: 4 }} />
+          <SectionLabel>SIMULADOR BLACK-SCHOLES</SectionLabel>
+          <SimuladorBS selicRate={selicRate} setInfoModal={setInfoModal} simParams={simParams}
+            positions={positions} indicators={indicators} setTutStep={setTutStep} />
+        </View>
+      )}
 
-      {/* CADEIA TAB */}
-      {sub === 'cadeia' && <CadeiaSintetica positions={positions} indicators={indicators} selicRate={selicRate} />}
+      {/* INDICADORES TAB */}
+      {sub === 'ind' && (
+        <View style={{ gap: SIZE.gap }}>
+          {/* Tutorial shortcut — opens at Indicadores step */}
+          <TouchableOpacity activeOpacity={0.7} onPress={function() { setTutStep(7); }}
+            accessibilityRole="button" accessibilityLabel="Tutorial de indicadores"
+            style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+              paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10,
+              backgroundColor: C.acoes + '12', borderWidth: 1, borderColor: C.acoes + '30',
+            }}>
+            <Ionicons name="school-outline" size={16} color={C.acoes} />
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.acoes, fontFamily: F.display }}>Entender os Indicadores</Text>
+          </TouchableOpacity>
+
+          {/* Recalculate button */}
+          <TouchableOpacity activeOpacity={0.7} disabled={recalculating}
+            onPress={function() {
+              if (!user) return;
+              setRecalculating(true);
+              runDailyCalculation(user.id).then(function(calcResult) {
+                if (calcResult.data && calcResult.data.length > 0) {
+                  var newMap = {};
+                  var mapKeys = Object.keys(indicators);
+                  for (var mk = 0; mk < mapKeys.length; mk++) {
+                    newMap[mapKeys[mk]] = indicators[mapKeys[mk]];
+                  }
+                  for (var ci = 0; ci < calcResult.data.length; ci++) {
+                    newMap[calcResult.data[ci].ticker] = calcResult.data[ci];
+                  }
+                  setIndicators(newMap);
+                }
+                setRecalculating(false);
+              }).catch(function() { setRecalculating(false); });
+            }}
+            style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+              paddingVertical: 12, borderRadius: 10,
+              backgroundColor: C.acoes + '12', borderWidth: 1, borderColor: C.acoes + '30',
+            }}>
+            {recalculating ? (
+              <ActivityIndicator size="small" color={C.acoes} />
+            ) : (
+              <Ionicons name="refresh-outline" size={16} color={C.acoes} />
+            )}
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.acoes, fontFamily: F.display }}>
+              {recalculating ? 'Calculando...' : 'Recalcular Indicadores'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Summary table */}
+          {Object.keys(indicators).length === 0 ? (
+            <Glass padding={24}>
+              <EmptyState ionicon="analytics-outline" message="Nenhum indicador calculado ainda." hint="Toque em Recalcular para gerar." />
+            </Glass>
+          ) : (
+            <>
+              {/* Table header */}
+              <Glass padding={0}>
+                <View style={[styles.chainHeader, { paddingHorizontal: 8 }]}>
+                  <View style={{ flex: 1.4 }}><Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>TICKER</Text></View>
+                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>HV 20d</Text></View>
+                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>RSI 14</Text></View>
+                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>Beta</Text></View>
+                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>Max DD</Text></View>
+                </View>
+
+                {/* Table rows */}
+                {Object.keys(indicators).map(function(tk, ri) {
+                  var ind = indicators[tk];
+                  if (!ind) return null;
+                  var hvVal = ind.hv_20 != null ? ind.hv_20.toFixed(0) + '%' : '-';
+                  var rsiVal = ind.rsi_14 != null ? ind.rsi_14.toFixed(0) : '-';
+                  var betaVal = ind.beta != null ? ind.beta.toFixed(2) : '-';
+                  var ddVal = ind.max_drawdown != null ? ind.max_drawdown.toFixed(0) + '%' : '-';
+                  var rsiColor = ind.rsi_14 != null ? (ind.rsi_14 > 70 ? C.red : ind.rsi_14 < 30 ? C.green : C.sub) : C.dim;
+                  var betaColor = ind.beta != null ? (ind.beta > 1.2 ? C.red : ind.beta < 0.8 ? C.green : C.sub) : C.dim;
+                  return (
+                    <View key={tk} style={[styles.chainRow, { paddingHorizontal: 8 }, ri % 2 === 0 && { backgroundColor: 'rgba(255,255,255,0.015)' }]}>
+                      <View style={{ flex: 1.4 }}><Text style={{ fontSize: 12, fontWeight: '600', color: C.text, fontFamily: F.display }}>{tk}</Text></View>
+                      <View style={{ flex: 1, alignItems: 'center' }}><Text style={[{ fontSize: 12, color: C.sub, fontFamily: F.mono }, ps]}>{hvVal}</Text></View>
+                      <View style={{ flex: 1, alignItems: 'center' }}><Text style={[{ fontSize: 12, color: rsiColor, fontFamily: F.mono, fontWeight: ind.rsi_14 != null && (ind.rsi_14 > 70 || ind.rsi_14 < 30) ? '700' : '400' }, ps]}>{rsiVal}</Text></View>
+                      <View style={{ flex: 1, alignItems: 'center' }}><Text style={[{ fontSize: 12, color: betaColor, fontFamily: F.mono }, ps]}>{betaVal}</Text></View>
+                      <View style={{ flex: 1, alignItems: 'center' }}><Text style={[{ fontSize: 12, color: C.red, fontFamily: F.mono }, ps]}>{ddVal}</Text></View>
+                    </View>
+                  );
+                })}
+              </Glass>
+
+              {/* Detailed cards per ticker */}
+              {Object.keys(indicators).map(function(tk) {
+                var ind = indicators[tk];
+                if (!ind) return null;
+                var fields = [
+                  { l: 'HV 20d', v: ind.hv_20 != null ? ind.hv_20.toFixed(1) + '%' : '-', c: C.opcoes },
+                  { l: 'RSI 14', v: ind.rsi_14 != null ? ind.rsi_14.toFixed(1) : '-', c: ind.rsi_14 != null ? (ind.rsi_14 > 70 ? C.red : ind.rsi_14 < 30 ? C.green : C.sub) : C.dim },
+                  { l: 'SMA 20', v: ind.sma_20 != null ? 'R$ ' + fmt(ind.sma_20) : '-', c: C.acoes },
+                  { l: 'EMA 9', v: ind.ema_9 != null ? 'R$ ' + fmt(ind.ema_9) : '-', c: C.acoes },
+                  { l: 'Beta', v: ind.beta != null ? ind.beta.toFixed(2) : '-', c: ind.beta != null ? (ind.beta > 1.2 ? C.red : ind.beta < 0.8 ? C.green : C.sub) : C.dim },
+                  { l: 'ATR 14', v: ind.atr_14 != null ? 'R$ ' + fmt(ind.atr_14) : '-', c: C.etfs },
+                  { l: 'BB Width', v: ind.bb_width != null ? ind.bb_width.toFixed(1) + '%' : '-', c: C.rf },
+                  { l: 'Max DD', v: ind.max_drawdown != null ? ind.max_drawdown.toFixed(1) + '%' : '-', c: C.red },
+                ];
+                var calcDate = ind.data_calculo ? new Date(ind.data_calculo).toLocaleDateString('pt-BR') : null;
+                return (
+                  <Glass key={tk} padding={14}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, fontFamily: F.display }}>{tk}</Text>
+                      {calcDate ? <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{calcDate}</Text> : null}
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      {fields.map(function(f, fi) {
+                        return (
+                          <View key={fi} style={{ width: '23%', alignItems: 'center', paddingVertical: 6 }}>
+                            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginBottom: 3 }}>{f.l}</Text>
+                            <Text style={[{ fontSize: 13, fontWeight: '700', color: f.c, fontFamily: F.mono }, ps]}>{f.v}</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </Glass>
+                );
+              })}
+            </>
+          )}
+        </View>
+      )}
 
       {/* HISTORICO TAB */}
       {sub === 'hist' && (
@@ -2343,6 +3334,89 @@ export default function OpcoesScreen() {
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
+
+    {/* Tutorial Modal */}
+    <Modal visible={tutStep >= 0} animationType="slide" transparent={true}
+      onRequestClose={function() { setTutStep(-1); }}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end' }}>
+        <View style={{ backgroundColor: C.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%', borderWidth: 1, borderColor: C.opcoes + '25', borderBottomWidth: 0 }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Ionicons name="school" size={20} color={C.opcoes} />
+              <Text style={{ fontSize: 16, fontWeight: '700', color: C.text, fontFamily: F.display }}>Guia de Opções</Text>
+            </View>
+            <TouchableOpacity onPress={function() { setTutStep(-1); }} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityRole="button" accessibilityLabel="Fechar tutorial">
+              <Ionicons name="close" size={22} color={C.sub} />
+            </TouchableOpacity>
+          </View>
+          {/* Step indicator */}
+          <View style={{ flexDirection: 'row', gap: 3, paddingHorizontal: 20, marginBottom: 4 }}>
+            {TUTORIAL_STEPS.map(function(_, si) {
+              return (
+                <View key={si} style={{
+                  flex: 1, height: 3, borderRadius: 2,
+                  backgroundColor: si <= tutStep ? C.opcoes : 'rgba(255,255,255,0.08)',
+                }} />
+              );
+            })}
+          </View>
+          <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, textAlign: 'center', marginBottom: 8 }}>
+            {(tutStep >= 0 ? tutStep + 1 : 1) + ' de ' + TUTORIAL_STEPS.length}
+          </Text>
+          {/* Content — scrollable */}
+          <ScrollView style={{ paddingHorizontal: 20 }} contentContainerStyle={{ paddingBottom: 10 }} showsVerticalScrollIndicator={false}>
+            {/* Icon + Title */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <View style={{
+                width: 40, height: 40, borderRadius: 20,
+                backgroundColor: C.opcoes + '18', borderWidth: 1, borderColor: C.opcoes + '30',
+                justifyContent: 'center', alignItems: 'center',
+              }}>
+                <Ionicons
+                  name={tutStep >= 0 && tutStep < TUTORIAL_STEPS.length ? TUTORIAL_STEPS[tutStep].icon : 'bulb-outline'}
+                  size={20} color={C.opcoes} />
+              </View>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: C.text, fontFamily: F.display, flex: 1 }}>
+                {tutStep >= 0 && tutStep < TUTORIAL_STEPS.length ? TUTORIAL_STEPS[tutStep].title : ''}
+              </Text>
+            </View>
+            {/* Text content */}
+            <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.body, lineHeight: 22 }}>
+              {tutStep >= 0 && tutStep < TUTORIAL_STEPS.length ? TUTORIAL_STEPS[tutStep].text : ''}
+            </Text>
+          </ScrollView>
+          {/* Navigation */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, gap: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
+            {tutStep > 0 ? (
+              <TouchableOpacity onPress={function() { setTutStep(tutStep - 1); }}
+                accessibilityRole="button" accessibilityLabel="Passo anterior"
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }}>
+                <Ionicons name="chevron-back" size={16} color={C.sub} />
+                <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body, fontWeight: '600' }}>Anterior</Text>
+              </TouchableOpacity>
+            ) : <View />}
+            {tutStep < TUTORIAL_STEPS.length - 1 ? (
+              <TouchableOpacity onPress={function() { setTutStep(tutStep + 1); }}
+                accessibilityRole="button" accessibilityLabel="Próximo passo"
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: C.opcoes }}>
+                <Text style={{ fontSize: 13, color: '#fff', fontFamily: F.display, fontWeight: '700' }}>Próximo</Text>
+                <Ionicons name="chevron-forward" size={16} color="#fff" />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity onPress={function() { setTutStep(-1); }}
+                accessibilityRole="button" accessibilityLabel="Fechar tutorial"
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: C.green }}>
+                <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                <Text style={{ fontSize: 13, color: '#fff', fontFamily: F.display, fontWeight: '700' }}>Entendi!</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </View>
+    </Modal>
+
     <Fab navigation={navigation} />
     </View>
   );

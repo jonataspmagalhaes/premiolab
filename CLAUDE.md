@@ -49,6 +49,7 @@ src/
     indicatorService.js Calculo HV, RSI, SMA, EMA, Beta, ATR, BB, MaxDD
     dividendService.js Auto-sync de dividendos via brapi.dev + StatusInvest + Yahoo Finance (INT)
     tickerSearchService.js Busca e validacao de tickers via brapi.dev (BR) + Yahoo Finance (INT)
+    fundamentalService.js Dados fundamentalistas via brapi.dev (BR) + Yahoo Finance (INT), cache 24h
     currencyService.js Cambio multi-moeda via brapi.dev + fallback
   theme/
     index.js       Cores (C), Fontes (F), Tamanhos (SIZE), Sombras (SHADOW)
@@ -157,6 +158,10 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - `searchTickers(query, mercado)` - Roteador principal: busca BR (brapi.dev) ou INT (Yahoo Finance), cache 24h, min 2 chars
 - `clearSearchCache()` - Limpa cache de busca
 
+### fundamentalService.js - Funcoes exportadas
+- `fetchFundamentals(ticker, mercado)` - Busca dados fundamentalistas via brapi.dev (BR) ou Yahoo Finance (INT), cache 24h, timeout 8s. Retorna objeto normalizado com valuation, endividamento, eficiencia, rentabilidade, crescimento, historico
+- `clearFundamentalsCache()` - Limpa cache manualmente
+
 ### dividendService.js - Funcoes exportadas
 - `fetchDividendsBrapi(ticker)` - Busca dividendos do ticker via brapi.dev (`?dividends=true`)
 - `fetchDividends(ticker)` - Alias de `fetchDividendsBrapi` (compatibilidade)
@@ -188,6 +193,8 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 | `TickerInput` | TickerInput.js | Input com autocomplete de tickers da carteira + busca API (brapi/Yahoo) com debounce |
 | `CorretoraSelector` | CorretoraSelector.js | Pills + autocomplete de ~60 instituicoes com metadados (moeda, tipo). Props: value, onSelect, userId, mercado, color, label, defaults |
 | `ToastConfig` | ToastConfig.js | Config visual toast dark/glass + tipo undo |
+| `FundamentalAccordion` | FundamentalAccordion.js | 6 secoes accordion (Opcoes + 5 fundamentalistas) no card expandido da Carteira, com InfoTip + grafico historico |
+| `FundamentalChart` | FundamentalChart.js | Modal com grafico de barras 5 anos para indicador fundamental |
 
 ## Theme
 
@@ -209,7 +216,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - Treemap de exposicao visual
 - Benchmark vs CDI
 - Rebalanceamento com metas editaveis
-- Cards expandiveis com Comprar/Vender/Lancar opcao/Transacoes
+- Cards expandiveis com Comprar/Vender/Lancar opcao/Transacoes + indicadores fundamentalistas accordion (lazy load)
 - Pre-fill de forms via route.params (ticker, tipo, categoria)
 - **Multi-corretora**: posicoes agregadas por ticker, campo `por_corretora` com qty por corretora
 - Cards de RF com botoes Editar/Excluir
@@ -359,6 +366,7 @@ Cobertura de opcoes usa `por_corretora` para verificar acoes na mesma corretora 
 - **Relatorios Detalhados**: embedded na tab Renda, sub-tabs Dividendos/Opcoes/Operacoes/IR, graficos, agrupamentos
 - **Multi-Moeda**: contas em USD/EUR/GBP/QAR/etc, cambio automatico via brapi.dev
 - **Busca e Validacao de Tickers**: tickerSearchService.js, busca brapi.dev (BR) + Yahoo Finance (INT) com cache 24h, TickerInput com debounce + merge portfolio/API
+- **Indicadores Fundamentalistas**: fundamentalService.js + FundamentalAccordion no card expandido da Carteira, 6 secoes accordion (opcoes + valuation + endividamento + eficiencia + rentabilidade + crescimento), lazy loading, brapi.dev + Yahoo Finance
 - **Melhorias UX P0-P12**: 13 rodadas cobrindo contraste, validacao, haptics, keyboard, toast, swipe-to-delete, performance, React.memo, autocomplete, undo, PressableCard, skeletons, animacoes, accessibilityLabel/Hint/Role, ReduceMotion, maxFontSizeMultiplier
 
 ## Sistema de Indicadores Tecnicos (Implementado)
@@ -1121,6 +1129,131 @@ if (mov.moeda) { .eq('moeda', mov.moeda) }
 | `src/screens/rf/AddRendaFixaScreen.js` | CorretoraSelector com DEFAULTS_RF |
 | `src/screens/rf/EditRendaFixaScreen.js` | CorretoraSelector com DEFAULTS_RF + incrementCorretora |
 | `src/screens/gestao/AddContaScreen.js` | Merge user corretoras + auto-moeda/tipo via getInstitutionMeta |
+
+## Indicadores Fundamentalistas no Card Expandido (Implementado)
+
+Cards expandidos na CarteiraScreen agora incluem 6 secoes accordion com indicadores de opcoes e fundamentalistas. Dados fundamentalistas buscados via brapi.dev (BR) e Yahoo Finance (INT) com cache 24h. Lazy loading ao expandir card.
+
+### Secoes accordion (dentro do card expandido)
+1. **Opcoes** — Ativas, Cobertura, Premios Rec., P&L Opcoes, HV 20d, IV Media, Yield Opcoes, Prox. Venc. (so para acoes com opcoes)
+2. **Valuation** — P/L, P/VP, EV/EBITDA, EV/EBIT, VPA, LPA, P/Ativo, P/SR, PEG, D.Y.
+3. **Endividamento** — Div.Liq/PL, Div.Liq/EBITDA, Passivos/Ativos, PL/Ativos
+4. **Eficiencia** — M. Bruta, M. EBITDA, M. EBIT, M. Liquida
+5. **Rentabilidade** — ROE, ROIC, ROA, Giro Ativos
+6. **Crescimento (5A)** — CAGR Receitas, CAGR Lucros
+
+### Comportamento por tipo de ativo
+- **Acoes BR**: todas 6 secoes (opcoes + 5 fundamentalistas)
+- **Stocks INT**: 5 secoes fundamentalistas (sem opcoes)
+- **FIIs**: tipicamente P/VP e D.Y. (demais null = ocultados)
+- **ETFs**: muito limitado, secoes vazias nao renderizam
+
+### Features
+- Tooltips (InfoTip) por metrica com explicacao em portugues
+- Icone grafico (📊) abre modal com barras de 5 anos (FundamentalChart)
+- Cores semanticas: verde/vermelho por indicador (ROE >15% verde, <5% vermelho, etc.)
+- Div.Liq/EBITDA negativo exibe "Caixa Liq." em verde
+- Black-Scholes para IV media das opcoes ativas
+
+### Arquivos criados/modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/services/fundamentalService.js` | **Criado** — fetchFundamentals, clearFundamentalsCache, cache 24h, brapi+Yahoo |
+| `src/components/FundamentalAccordion.js` | **Criado** — 6 secoes accordion com BS helpers, tooltips, graficos |
+| `src/components/FundamentalChart.js` | **Criado** — Modal com grafico de barras 5 anos |
+| `src/components/index.js` | Export FundamentalAccordion, FundamentalChart |
+| `src/screens/carteira/CarteiraScreen.js` | States fundamentals/opcoes/indicators, getOpcoes no load, toggleExpand com lazy fetch, FundamentalAccordion no expanded, props no PositionCard |
+
+## Analise IA com Claude (Implementado)
+
+Edge Function `analyze-option` usa Claude Haiku 4.5 via API Anthropic para analisar operacoes de opcoes. A chave fica como secret `ANTHROPIC_API_KEY` no Supabase (nunca exposta ao client).
+
+### Arquitetura
+- **Edge Function**: `supabase/functions/analyze-option/index.ts` (Deno runtime)
+- **Client**: `src/services/geminiService.js` (nome legado, chama Edge Function via `supabase.functions.invoke`)
+- **Model**: `claude-haiku-4-5-20251001`, max_tokens 8192
+- **API**: `POST https://api.anthropic.com/v1/messages`, header `x-api-key` + `anthropic-version: 2023-06-01`
+- **Deploy**: `npx supabase functions deploy analyze-option --no-verify-jwt --project-ref zephynezarjsxzselozi`
+
+### Prompt dinamico
+- **Objetivo**: usuario escolhe Renda/Protecao/Especulacao (`aiObjetivo` state). Cada objetivo gera prompt com contexto e instrucoes especificas
+- **4 secoes obrigatorias**: [RISCO], [ESTRATEGIAS], [CENARIOS], [EDUCACIONAL]
+- **Tom didatico**: "explique como para investidor iniciante/intermediario, termos tecnicos com explicacao entre parenteses"
+- **Sizing por capital**: se capital informado, IA calcula e sugere qtd exata de opcoes por estrategia (max 2-5% capital por operacao)
+- **Multi-leg**: descreve cada perna individualmente, identifica nome da estrategia, analisa posicao combinada
+- **Contexto**: inclui portfolio do usuario, posicao no ativo, indicadores tecnicos (HV, RSI, Beta)
+- **Regra de brevidade**: max 800 chars por secao para nao estourar tokens
+
+### Fluxo client-side
+1. SimuladorBS monta payload com `legs[]`, `objetivo`, `capital`, `portfolio`, gregas agregadas, cenarios
+2. `geminiService.analyzeOption(data)` envia via Edge Function (cache 5min, cooldown 10s)
+3. Edge Function autentica usuario, monta prompt, chama Claude API, parseia resposta em 4 secoes
+4. `AiAnalysisModal` exibe resultado em ScrollView com secoes colapsaveis
+
+### Cache key
+`buildCacheKey` inclui: spot, iv, dte, objetivo, capital + hash de todas as legs (tipo+direcao+strike+premio+qty)
+
+## Simulador Multi-Leg (Implementado)
+
+Simulador de opcoes suporta multiplas pernas para montar spreads, iron condors, straddles etc. com payoff combinado.
+
+### Arquitetura de estado (SimuladorBS)
+- **Shared params**: `spot`, `ivInput`, `dte` — mesmos para todas as pernas
+- **Per-leg array**: `legs = [{ id, tipo, direcao, strike, premio, qty }]`
+- **Active leg**: `activeLeg` (indice), `nextLegId` (contador)
+- **Helpers**: `updateLeg(idx, field, val)`, `addLeg(params)`, `removeLeg(idx)`
+- Pills Tipo/Direcao e inputs Strike/Premio/Qty editam `legs[activeLeg]`
+
+### PayoffChart multi-leg
+- Aceita prop `legs[]` (backward-compat: se nao receber, monta array de 1 dos props antigos)
+- `calcPL(price)` loop sobre todas as pernas, soma P&L
+- Range dinamico: min/max de todos os strikes
+- Breakeven: zero-crossings por interpolacao linear (pode ter multiplos)
+- Max ganho/perda dos data points reais
+
+### Gregas agregadas
+- Net delta/gamma/theta/vega = soma(leg_greek * qty * sign) onde sign = -1 para venda, +1 para compra
+- Per-leg IV computada via Black-Scholes do premio (ou IV base como fallback)
+- Display adaptivo: single-leg mostra gregas por opcao, multi-leg mostra posicao liquida
+
+### Resumo multi-leg
+- Single-leg: Premio total, Theta/dia, Breakeven, Contratos
+- Multi-leg: Credito/Debito liquido, Theta/dia total, Pernas, Total opcoes
+
+### Cenarios What-If multi-leg
+- `calcScenarioResult(pctMove)` loop sobre todas as pernas com BS re-pricing
+
+### Leg Cards UI
+- Cards compactos por perna: Badge CALL/PUT + V/C + strike + premio + qty
+- Perna ativa com borda glow `C.opcoes`, toque para ativar
+- Botao [X] para remover (minimo 1 perna)
+- Botao "+ Adicionar Perna" com estilo dashed
+
+### 6 Presets de Estrategia
+- Pills horizontais: Credit Call, Credit Put, Iron Condor, Straddle, Strangle, Butterfly
+- `applyPreset(key)` calcula strikes a partir do spot (step: <20→1, ≤50→2, else→5)
+- Premios preenchidos via Black-Scholes com IV base
+
+### CadeiaSintetica — Modo Multi-Perna
+- Toggle "Modo Multi-Perna ON/OFF" (`addLegMode` state)
+- Quando ON, toque na cadeia adiciona perna nova (`addAsLeg: true` no simParams)
+- Quando OFF, toque substitui simulador inteiro (comportamento original)
+
+### simParams useEffect
+- `addAsLeg` flag: chama `addLeg()` em vez de substituir
+- Shared params (spot, iv, dte) sempre atualizam independente do modo
+
+### AI payload multi-leg
+- `data.legs[]` array com tipo/direcao/strike/premio/qty por perna
+- Gregas liquidas da posicao combinada
+- `netPremio` (credito/debito liquido)
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/opcoes/OpcoesScreen.js` | PayoffChart multi-leg, SimuladorBS legs state + helpers, Leg Cards UI, Presets, CadeiaSintetica addLegMode |
+| `supabase/functions/analyze-option/index.ts` | Claude Haiku API, prompt multi-leg + didatico + sizing, max_tokens 8192 |
+| `src/services/geminiService.js` | Cache key com legs hash + objetivo + capital |
 
 ## Proximas Melhorias Possiveis
 
