@@ -1,6 +1,7 @@
 // ═══════════════════════════════════════════════════════════
 // FAB — Floating Action Button com menu de ações
 // Reutilizado em Home, Carteira, Opções, Renda
+// Inclui toggle de privacidade (olho) logo abaixo do botão +
 // ═══════════════════════════════════════════════════════════
 
 import React, { useState } from 'react';
@@ -8,6 +9,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, SIZE } from '../theme';
+import { usePrivacy } from '../contexts/PrivacyContext';
 
 var ITEMS = [
   { label: 'Operação', icon: 'wallet-outline', color: C.acoes, screen: 'AddOperacao' },
@@ -22,6 +24,7 @@ export default function Fab(props) {
   var _open = useState(false);
   var open = _open[0];
   var setOpen = _open[1];
+  var priv = usePrivacy();
 
   return (
     <View style={styles.wrap}>
@@ -62,6 +65,20 @@ export default function Fab(props) {
           }}>
           <Text style={{ fontSize: 28, color: '#fff', fontWeight: '300', lineHeight: 30 }}>{open ? '×' : '+'}</Text>
         </LinearGradient>
+      </TouchableOpacity>
+      <TouchableOpacity activeOpacity={0.7}
+        onPress={function() { priv.togglePrivacy(); }}
+        accessibilityRole="button"
+        accessibilityLabel={priv.isPrivate ? 'Mostrar valores' : 'Ocultar valores'}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        style={{
+          width: 36, height: 36, borderRadius: 18, marginTop: 10,
+          backgroundColor: priv.isPrivate ? C.yellow + '15' : 'rgba(255,255,255,0.05)',
+          borderWidth: 1, borderColor: priv.isPrivate ? C.yellow + '30' : 'rgba(255,255,255,0.08)',
+          justifyContent: 'center', alignItems: 'center', alignSelf: 'center',
+        }}>
+        <Ionicons name={priv.isPrivate ? 'eye-off-outline' : 'eye-outline'}
+          size={16} color={priv.isPrivate ? C.yellow : C.textTertiary} />
       </TouchableOpacity>
     </View>
   );
