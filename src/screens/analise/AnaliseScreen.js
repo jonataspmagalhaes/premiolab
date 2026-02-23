@@ -855,30 +855,62 @@ function HBar(props) {
 function DonutChart(props) {
   var segments = props.segments || [];
   var s = props.size || 110;
+  var selected = props.selected != null ? props.selected : -1;
+  var onSelect = props.onSelect;
   var strokeW = 10;
   var r = (s / 2) - strokeW;
   var circ = 2 * Math.PI * r;
   var offset = 0;
 
+  function handleTouch(e) {
+    if (!onSelect || segments.length === 0) return;
+    var tx = e.nativeEvent.locationX - s / 2;
+    var ty = e.nativeEvent.locationY - s / 2;
+    var dist = Math.sqrt(tx * tx + ty * ty);
+    if (dist < r - strokeW * 1.5 || dist > r + strokeW * 1.5) {
+      onSelect(-1);
+      return;
+    }
+    var angle = Math.atan2(ty, tx) * 180 / Math.PI;
+    var adjusted = (angle + 90 + 360) % 360;
+    var cum = 0;
+    for (var i = 0; i < segments.length; i++) {
+      cum += segments[i].pct * 3.6;
+      if (adjusted < cum) {
+        onSelect(i === selected ? -1 : i);
+        return;
+      }
+    }
+    onSelect(-1);
+  }
+
   return (
-    <Svg width={s} height={s} viewBox={'0 0 ' + s + ' ' + s}>
-      <Circle cx={s / 2} cy={s / 2} r={r} fill="none"
-        stroke="rgba(255,255,255,0.03)" strokeWidth={strokeW} />
-      {segments.map(function (seg, i) {
-        var dash = (seg.pct / 100) * circ;
-        var gap = circ - dash;
-        var o = offset;
-        offset += dash;
-        return (
-          <Circle key={i} cx={s / 2} cy={s / 2} r={r} fill="none"
-            stroke={seg.color} strokeWidth={strokeW}
-            strokeDasharray={dash + ' ' + gap}
-            strokeDashoffset={-o}
-            strokeLinecap="round"
-            rotation={-90} origin={s / 2 + ',' + s / 2} />
-        );
-      })}
-    </Svg>
+    <View
+      onStartShouldSetResponder={function() { return !!onSelect; }}
+      onResponderRelease={handleTouch}>
+      <Svg width={s} height={s} viewBox={'0 0 ' + s + ' ' + s}>
+        <Circle cx={s / 2} cy={s / 2} r={r} fill="none"
+          stroke="rgba(255,255,255,0.03)" strokeWidth={strokeW} />
+        {segments.map(function (seg, i) {
+          var dash = (seg.pct / 100) * circ;
+          var gap = circ - dash;
+          var o = offset;
+          offset += dash;
+          var isSel = i === selected;
+          var segOpacity = selected === -1 ? 1 : (isSel ? 1 : 0.3);
+          var segStrokeW = isSel ? strokeW + 3 : strokeW;
+          return (
+            <Circle key={i} cx={s / 2} cy={s / 2} r={r} fill="none"
+              stroke={seg.color} strokeWidth={segStrokeW}
+              strokeDasharray={dash + ' ' + gap}
+              strokeDashoffset={-o}
+              strokeLinecap="round"
+              opacity={segOpacity}
+              rotation={-90} origin={s / 2 + ',' + s / 2} />
+          );
+        })}
+      </Svg>
+    </View>
   );
 }
 
@@ -4178,6 +4210,7 @@ function PremioMediaLineChart(props) {
 function DesfechosChart(props) {
   var opcByStatus = props.opcByStatus || {};
   var _w = useState(0); var w = _w[0]; var setW = _w[1];
+  var _sel = useState(-1); var sel = _sel[0]; var setSel = _sel[1];
 
   if (w === 0) {
     return React.createElement(View, { onLayout: function(e) { setW(e.nativeEvent.layout.width); }, style: { height: 1 } });
@@ -4214,6 +4247,15 @@ function DesfechosChart(props) {
 
   function vToH(v) { return (v / maxVal) * drawH; }
 
+  function handleTouch(e) {
+    if (drawW <= 0 || categories.length === 0) return;
+    var x = e.nativeEvent.locationX - leftPad;
+    var idx = Math.floor(x / groupW);
+    if (idx < 0) idx = 0;
+    if (idx >= categories.length) idx = categories.length - 1;
+    setSel(idx === sel ? -1 : idx);
+  }
+
   var els = [];
 
   // Grid lines
@@ -4235,6 +4277,8 @@ function DesfechosChart(props) {
     var bCat = categories[bi];
     var bSt = opcByStatus[bCat.key] || { count: 0, put: 0, call: 0 };
     var cx = leftPad + groupW * bi + groupW / 2;
+    var isSel = bi === sel;
+    var barOpacity = sel === -1 ? 0.85 : (isSel ? 1 : 0.3);
 
     // PUT bar (left)
     var putH = vToH(bSt.put || 0);
@@ -4243,12 +4287,14 @@ function DesfechosChart(props) {
     if (putH > 0) {
       els.push(React.createElement(SvgRect, {
         key: 'p' + bi, x: putX, y: putY, width: barW, height: putH,
-        rx: 3, fill: C.red, opacity: 0.85,
+        rx: 3, fill: C.red, opacity: barOpacity,
       }));
-      els.push(React.createElement(SvgText, {
-        key: 'pv' + bi, x: putX + barW / 2, y: putY - 4,
-        fill: C.red, fontSize: 9, fontFamily: F.mono, fontWeight: '700', textAnchor: 'middle',
-      }, String(bSt.put || 0)));
+      if (sel === -1 || isSel) {
+        els.push(React.createElement(SvgText, {
+          key: 'pv' + bi, x: putX + barW / 2, y: putY - 4,
+          fill: C.red, fontSize: 9, fontFamily: F.mono, fontWeight: '700', textAnchor: 'middle',
+        }, String(bSt.put || 0)));
+      }
     }
 
     // CALL bar (right)
@@ -4258,18 +4304,42 @@ function DesfechosChart(props) {
     if (callH > 0) {
       els.push(React.createElement(SvgRect, {
         key: 'c' + bi, x: callX, y: callY, width: barW, height: callH,
-        rx: 3, fill: C.acoes, opacity: 0.85,
+        rx: 3, fill: C.acoes, opacity: barOpacity,
+      }));
+      if (sel === -1 || isSel) {
+        els.push(React.createElement(SvgText, {
+          key: 'cv' + bi, x: callX + barW / 2, y: callY - 4,
+          fill: C.acoes, fontSize: 9, fontFamily: F.mono, fontWeight: '700', textAnchor: 'middle',
+        }, String(bSt.call || 0)));
+      }
+    }
+
+    // Tooltip for selected group
+    if (isSel) {
+      var tipW = 100;
+      var tipH = 32;
+      var tipX = cx - tipW / 2;
+      var tipY = 0;
+      if (tipX < leftPad) tipX = leftPad;
+      if (tipX + tipW > w - rightPad) tipX = w - rightPad - tipW;
+      els.push(React.createElement(SvgRect, {
+        key: 'tip' + bi, x: tipX, y: tipY, width: tipW, height: tipH,
+        rx: 5, fill: C.surface, opacity: 0.95,
       }));
       els.push(React.createElement(SvgText, {
-        key: 'cv' + bi, x: callX + barW / 2, y: callY - 4,
+        key: 'tp' + bi, x: tipX + tipW / 2, y: tipY + 12,
+        fill: C.red, fontSize: 9, fontFamily: F.mono, fontWeight: '700', textAnchor: 'middle',
+      }, 'PUT: ' + String(bSt.put || 0)));
+      els.push(React.createElement(SvgText, {
+        key: 'tc' + bi, x: tipX + tipW / 2, y: tipY + 24,
         fill: C.acoes, fontSize: 9, fontFamily: F.mono, fontWeight: '700', textAnchor: 'middle',
-      }, String(bSt.call || 0)));
+      }, 'CALL: ' + String(bSt.call || 0)));
     }
 
     // Category label
     els.push(React.createElement(SvgText, {
       key: 'l' + bi, x: cx, y: chartH - 12,
-      fill: bCat.color, fontSize: 9, fontFamily: F.body, fontWeight: '600', textAnchor: 'middle',
+      fill: isSel ? C.text : bCat.color, fontSize: 9, fontFamily: F.body, fontWeight: isSel ? '700' : '600', textAnchor: 'middle',
     }, bCat.label));
 
     // Total count below label
@@ -4279,7 +4349,7 @@ function DesfechosChart(props) {
     }, String(bSt.count || 0) + ' total'));
   }
 
-  return React.createElement(View, null,
+  return React.createElement(View, { onLayout: function(e) { setW(e.nativeEvent.layout.width); } },
     // Legend
     React.createElement(View, { style: { flexDirection: 'row', justifyContent: 'center', gap: 20, marginBottom: 8 } },
       React.createElement(View, { style: { flexDirection: 'row', alignItems: 'center', gap: 4 } },
@@ -4292,7 +4362,9 @@ function DesfechosChart(props) {
       )
     ),
     // Chart
-    React.createElement(Svg, { width: w, height: chartH }, els)
+    React.createElement(TouchableOpacity, { activeOpacity: 1, onPress: handleTouch },
+      React.createElement(Svg, { width: w, height: chartH }, els)
+    )
   );
 }
 
@@ -5541,6 +5613,7 @@ export default function AnaliseScreen(props) {
   var _searchResult = useState(null); var searchResult = _searchResult[0]; var setSearchResult = _searchResult[1];
   var _searchError = useState(''); var searchError = _searchError[0]; var setSearchError = _searchError[1];
   var _provSub = useState('visao'); var provSub = _provSub[0]; var setProvSub = _provSub[1];
+  var _selDonut = useState(-1); var selDonut = _selDonut[0]; var setSelDonut = _selDonut[1];
   var _savedRebalTargets = useState(null); var savedRebalTargets = _savedRebalTargets[0]; var setSavedRebalTargets = _savedRebalTargets[1];
   var _ibovHistory = useState([]); var ibovHistory = _ibovHistory[0]; var setIbovHistory = _ibovHistory[1];
   var _catShowAllEnc = useState(false); var catShowAllEnc = _catShowAllEnc[0]; var setCatShowAllEnc = _catShowAllEnc[1];
@@ -8974,11 +9047,21 @@ export default function AnaliseScreen(props) {
                       <Text style={styles.sectionTitle}>ALOCAÇÃO POR CLASSE</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 8 }}>
                         <View style={{ position: 'relative', width: 130, height: 130 }}>
-                          <DonutChart segments={allocSegments} size={130} />
-                          <View style={styles.donutCenter}>
-                            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>TOTAL</Text>
-                            <Text style={{ fontSize: 16, fontWeight: '800', color: C.text, fontFamily: F.display }}>{allocSegments.length}</Text>
-                            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>classes</Text>
+                          <DonutChart segments={allocSegments} size={130} selected={selDonut} onSelect={setSelDonut} />
+                          <View style={[styles.donutCenter, { pointerEvents: 'none' }]}>
+                            {selDonut >= 0 && selDonut < allocSegments.length ? (
+                              <>
+                                <Text style={{ fontSize: 9, color: allocSegments[selDonut].color, fontFamily: F.mono, fontWeight: '700' }}>{allocSegments[selDonut].label}</Text>
+                                <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, fontFamily: F.display }}>{allocSegments[selDonut].pct.toFixed(1) + '%'}</Text>
+                                <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>{'R$ ' + fmt(allocSegments[selDonut].val)}</Text>
+                              </>
+                            ) : (
+                              <>
+                                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>TOTAL</Text>
+                                <Text style={{ fontSize: 16, fontWeight: '800', color: C.text, fontFamily: F.display }}>{allocSegments.length}</Text>
+                                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>classes</Text>
+                              </>
+                            )}
                           </View>
                         </View>
                         <View style={{ flex: 1, gap: 6 }}>

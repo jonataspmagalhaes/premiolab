@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, ScrollView, StyleSheet, RefreshControl, TouchableOpacity } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import Svg, { Rect as SvgRect, Line as SvgLine, Text as SvgText } from 'react-native-svg';
+import Svg, { Rect as SvgRect, Line as SvgLine, Text as SvgText, G } from 'react-native-svg';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getProventos, getOpcoes, getOperacoes, getPositions, getMovimentacoes } from '../../services/database';
@@ -214,10 +214,11 @@ function BarChartSingle(props) {
   var data = props.data || [];
   var color = props.color || C.green;
   var _w = useState(0); var w = _w[0]; var setW = _w[1];
+  var _sel = useState(-1); var sel = _sel[0]; var setSel = _sel[1];
   var h = 160;
   var padL = 50;
   var padR = 10;
-  var padT = 15;
+  var padT = 20;
   var padB = 30;
 
   if (!data.length || !w) {
@@ -236,6 +237,15 @@ function BarChartSingle(props) {
   var barW = Math.min(28, (chartW / data.length) * 0.6);
   var gap = chartW / data.length;
 
+  function handleTouch(e) {
+    if (chartW <= 0 || data.length === 0) return;
+    var x = e.nativeEvent.locationX - padL;
+    var idx = Math.floor(x / gap);
+    if (idx < 0) idx = 0;
+    if (idx >= data.length) idx = data.length - 1;
+    setSel(idx === sel ? -1 : idx);
+  }
+
   var gridLines = [];
   for (var g = 0; g <= 4; g++) {
     var gy = padT + chartH - (g / 4) * chartH;
@@ -245,31 +255,52 @@ function BarChartSingle(props) {
 
   return (
     <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }}>
-      <Svg width={w} height={h}>
-        {gridLines.map(function(gl, gi) {
-          return (
-            <React.Fragment key={gi}>
-              <SvgLine x1={padL} y1={gl.y} x2={w - padR} y2={gl.y}
-                stroke={C.border} strokeWidth={0.5} />
-              <SvgText x={padL - 6} y={gl.y + 3} fill={C.dim} fontSize={9}
-                fontFamily={F.mono} textAnchor="end">{gl.label}</SvgText>
-            </React.Fragment>
-          );
-        })}
-        {data.map(function(d, i) {
-          var barH = (d.value / maxVal) * chartH;
-          var x = padL + i * gap + (gap - barW) / 2;
-          var y = padT + chartH - barH;
-          return (
-            <React.Fragment key={i}>
-              <SvgRect x={x} y={y} width={barW} height={barH}
-                rx={3} fill={d.color || color} opacity={0.85} />
-              <SvgText x={x + barW / 2} y={h - 6} fill={C.dim} fontSize={8}
-                fontFamily={F.mono} textAnchor="middle">{d.label}</SvgText>
-            </React.Fragment>
-          );
-        })}
-      </Svg>
+      <TouchableOpacity activeOpacity={1} onPress={handleTouch}>
+        <Svg width={w} height={h}>
+          {gridLines.map(function(gl, gi) {
+            return (
+              <React.Fragment key={gi}>
+                <SvgLine x1={padL} y1={gl.y} x2={w - padR} y2={gl.y}
+                  stroke={C.border} strokeWidth={0.5} />
+                <SvgText x={padL - 6} y={gl.y + 3} fill={C.dim} fontSize={9}
+                  fontFamily={F.mono} textAnchor="end">{gl.label}</SvgText>
+              </React.Fragment>
+            );
+          })}
+          {data.map(function(d, i) {
+            var barH = (d.value / maxVal) * chartH;
+            var x = padL + i * gap + (gap - barW) / 2;
+            var y = padT + chartH - barH;
+            var isSel = i === sel;
+            var barOpacity = sel === -1 ? 0.85 : (isSel ? 1 : 0.3);
+            var tipW = 80;
+            var tipH = 18;
+            var tipX = x + barW / 2 - tipW / 2;
+            var tipY = y - tipH - 6;
+            if (tipY < 2) tipY = 2;
+            if (tipX < padL) tipX = padL;
+            if (tipX + tipW > w - padR) tipX = w - padR - tipW;
+            return (
+              <React.Fragment key={i}>
+                <SvgRect x={x} y={y} width={barW} height={barH}
+                  rx={3} fill={d.color || color} opacity={barOpacity} />
+                {isSel ? (
+                  <G>
+                    <SvgRect x={tipX} y={tipY} width={tipW} height={tipH}
+                      rx={5} fill={C.surface} opacity={0.95} />
+                    <SvgText x={x + barW / 2} y={tipY + 13} fill={C.green}
+                      fontSize={10} fontFamily={F.mono} fontWeight="700" textAnchor="middle">
+                      {'R$ ' + fmt(d.value)}
+                    </SvgText>
+                  </G>
+                ) : null}
+                <SvgText x={x + barW / 2} y={h - 6} fill={isSel ? C.text : C.dim} fontSize={8}
+                  fontFamily={F.mono} textAnchor="middle" fontWeight={isSel ? '700' : '400'}>{d.label}</SvgText>
+              </React.Fragment>
+            );
+          })}
+        </Svg>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -279,10 +310,11 @@ function BarChartDual(props) {
   var color1 = props.color1 || C.green;
   var color2 = props.color2 || C.red;
   var _w = useState(0); var w = _w[0]; var setW = _w[1];
-  var h = 160;
+  var _sel = useState(-1); var sel = _sel[0]; var setSel = _sel[1];
+  var h = 170;
   var padL = 50;
   var padR = 10;
-  var padT = 15;
+  var padT = 34;
   var padB = 30;
 
   if (!data.length || !w) {
@@ -304,6 +336,15 @@ function BarChartDual(props) {
   var pairW = chartW / data.length;
   var barW = Math.min(12, pairW * 0.35);
 
+  function handleTouch(e) {
+    if (chartW <= 0 || data.length === 0) return;
+    var x = e.nativeEvent.locationX - padL;
+    var idx = Math.floor(x / pairW);
+    if (idx < 0) idx = 0;
+    if (idx >= data.length) idx = data.length - 1;
+    setSel(idx === sel ? -1 : idx);
+  }
+
   var gridLines = [];
   for (var g = 0; g <= 4; g++) {
     var gy = padT + chartH - (g / 4) * chartH;
@@ -313,33 +354,57 @@ function BarChartDual(props) {
 
   return (
     <View onLayout={function(e) { setW(e.nativeEvent.layout.width); }}>
-      <Svg width={w} height={h}>
-        {gridLines.map(function(gl, gi) {
-          return (
-            <React.Fragment key={gi}>
-              <SvgLine x1={padL} y1={gl.y} x2={w - padR} y2={gl.y}
-                stroke={C.border} strokeWidth={0.5} />
-              <SvgText x={padL - 6} y={gl.y + 3} fill={C.dim} fontSize={9}
-                fontFamily={F.mono} textAnchor="end">{gl.label}</SvgText>
-            </React.Fragment>
-          );
-        })}
-        {data.map(function(d, i) {
-          var cx = padL + i * pairW + pairW / 2;
-          var h1 = (d.v1 / maxVal) * chartH;
-          var h2 = (d.v2 / maxVal) * chartH;
-          return (
-            <React.Fragment key={i}>
-              <SvgRect x={cx - barW - 1} y={padT + chartH - h1}
-                width={barW} height={h1} rx={2} fill={color1} opacity={0.85} />
-              <SvgRect x={cx + 1} y={padT + chartH - h2}
-                width={barW} height={h2} rx={2} fill={color2} opacity={0.85} />
-              <SvgText x={cx} y={h - 6} fill={C.dim} fontSize={8}
-                fontFamily={F.mono} textAnchor="middle">{d.label}</SvgText>
-            </React.Fragment>
-          );
-        })}
-      </Svg>
+      <TouchableOpacity activeOpacity={1} onPress={handleTouch}>
+        <Svg width={w} height={h}>
+          {gridLines.map(function(gl, gi) {
+            return (
+              <React.Fragment key={gi}>
+                <SvgLine x1={padL} y1={gl.y} x2={w - padR} y2={gl.y}
+                  stroke={C.border} strokeWidth={0.5} />
+                <SvgText x={padL - 6} y={gl.y + 3} fill={C.dim} fontSize={9}
+                  fontFamily={F.mono} textAnchor="end">{gl.label}</SvgText>
+              </React.Fragment>
+            );
+          })}
+          {data.map(function(d, i) {
+            var cx = padL + i * pairW + pairW / 2;
+            var h1 = (d.v1 / maxVal) * chartH;
+            var h2 = (d.v2 / maxVal) * chartH;
+            var isSel = i === sel;
+            var barOpacity = sel === -1 ? 0.85 : (isSel ? 1 : 0.3);
+            var tipW = 90;
+            var tipH = 28;
+            var tipX = cx - tipW / 2;
+            var tipY = 2;
+            if (tipX < padL) tipX = padL;
+            if (tipX + tipW > w - padR) tipX = w - padR - tipW;
+            return (
+              <React.Fragment key={i}>
+                <SvgRect x={cx - barW - 1} y={padT + chartH - h1}
+                  width={barW} height={h1} rx={2} fill={color1} opacity={barOpacity} />
+                <SvgRect x={cx + 1} y={padT + chartH - h2}
+                  width={barW} height={h2} rx={2} fill={color2} opacity={barOpacity} />
+                {isSel ? (
+                  <G>
+                    <SvgRect x={tipX} y={tipY} width={tipW} height={tipH}
+                      rx={5} fill={C.surface} opacity={0.95} />
+                    <SvgText x={tipX + tipW / 2} y={tipY + 12} fill={color1}
+                      fontSize={9} fontFamily={F.mono} fontWeight="700" textAnchor="middle">
+                      {'R$ ' + fmt(d.v1)}
+                    </SvgText>
+                    <SvgText x={tipX + tipW / 2} y={tipY + 23} fill={color2}
+                      fontSize={9} fontFamily={F.mono} fontWeight="700" textAnchor="middle">
+                      {'R$ ' + fmt(d.v2)}
+                    </SvgText>
+                  </G>
+                ) : null}
+                <SvgText x={cx} y={h - 6} fill={isSel ? C.text : C.dim} fontSize={8}
+                  fontFamily={F.mono} textAnchor="middle" fontWeight={isSel ? '700' : '400'}>{d.label}</SvgText>
+              </React.Fragment>
+            );
+          })}
+        </Svg>
+      </TouchableOpacity>
     </View>
   );
 }
