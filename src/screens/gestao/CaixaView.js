@@ -420,6 +420,7 @@ export default function CaixaView(props) {
         saidas: hSummary.totalSaidas,
         saldo: hSummary.saldo,
         porCategoria: hSummary.porCategoria,
+        movs: hSummary.movs || [],
       });
     }
     setAllSummaries(summaries);
@@ -1124,7 +1125,105 @@ export default function CaixaView(props) {
         );
       })}
 
-      {/* ══════ 3. MOVIMENTAÇÕES RECENTES (Timeline) ══════ */}
+      {/* ══════ 3. GRÁFICO ENTRADAS VS SAÍDAS (6 meses) ══════ */}
+      {hist6m.length > 0 ? (
+        <View>
+          <SectionLabel>ENTRADAS VS SAÍDAS</SectionLabel>
+          <Glass padding={14}>
+            <BarChart6m data={hist6m} selected={selectedMonth} onSelect={handleSelectMonth} />
+          </Glass>
+
+          {/* Drill-down: lista de entradas e saídas do mês selecionado */}
+          {selectedMonth != null && hist6m[selectedMonth] && hist6m[selectedMonth].movs && hist6m[selectedMonth].movs.length > 0 ? (function() {
+            var selMovs = hist6m[selectedMonth].movs;
+            var entradas = [];
+            var saidas = [];
+            for (var dm = 0; dm < selMovs.length; dm++) {
+              if (selMovs[dm].tipo === 'entrada') entradas.push(selMovs[dm]);
+              else if (selMovs[dm].tipo === 'saida') saidas.push(selMovs[dm]);
+            }
+            entradas.sort(function(a, b) { return (b.valor || 0) - (a.valor || 0); });
+            saidas.sort(function(a, b) { return (b.valor || 0) - (a.valor || 0); });
+
+            function renderMovList(items, color, sign) {
+              if (items.length === 0) return (
+                <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, fontStyle: 'italic', paddingVertical: 4 }}>Nenhuma</Text>
+              );
+              return items.map(function(m, mi) {
+                var catLabel = CAT_LABELS[m.categoria] || m.categoria;
+                var catIcon = CAT_IONICONS[m.categoria] || 'ellipse-outline';
+                return (
+                  <View key={m.id || mi} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 5, borderTopWidth: mi > 0 ? 1 : 0, borderTopColor: C.border }}>
+                    <Ionicons name={catIcon} size={14} color={color} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 12, color: C.text, fontFamily: F.body }} numberOfLines={1}>
+                        {m.ticker ? m.ticker + ' · ' : ''}{m.descricao || catLabel}
+                      </Text>
+                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                        {m.conta || ''}{m.conta ? ' · ' : ''}{new Date(m.data).toLocaleDateString('pt-BR')}
+                      </Text>
+                    </View>
+                    <Text style={[{ fontSize: 12, fontWeight: '700', color: color, fontFamily: F.mono }, ps]}>
+                      {sign}R$ {fmt(m.valor)}
+                    </Text>
+                  </View>
+                );
+              });
+            }
+
+            return (
+              <Glass padding={14}>
+                <Text style={{ fontSize: 11, color: C.text, fontFamily: F.mono, fontWeight: '700', marginBottom: 8 }}>
+                  {hist6m[selectedMonth].label.toUpperCase() + ' — DETALHAMENTO'}
+                </Text>
+
+                {entradas.length > 0 ? (
+                  <View style={{ marginBottom: saidas.length > 0 ? 12 : 0 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                      <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: C.green }} />
+                      <Text style={{ fontSize: 11, color: C.green, fontFamily: F.mono, fontWeight: '700' }}>
+                        {'ENTRADAS (' + entradas.length + ')'}
+                      </Text>
+                    </View>
+                    {renderMovList(entradas, C.green, '+')}
+                  </View>
+                ) : null}
+
+                {saidas.length > 0 ? (
+                  <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                      <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: C.red }} />
+                      <Text style={{ fontSize: 11, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                        {'SAÍDAS (' + saidas.length + ')'}
+                      </Text>
+                    </View>
+                    {renderMovList(saidas, C.red, '-')}
+                  </View>
+                ) : null}
+              </Glass>
+            );
+          })() : null}
+        </View>
+      ) : null}
+
+      {/* ══════ 4. POR CATEGORIA ══════ */}
+      {periodoPorCategoria && Object.keys(periodoPorCategoria).length > 0 ? (
+        <View>
+          <SectionLabel>POR CATEGORIA ({periodo === 'M' ? 'MÊS ATUAL' : periodo === '3M' ? '3 MESES' : periodo === '6M' ? '6 MESES' : '1 ANO'})</SectionLabel>
+          <Glass padding={14}>
+            <CategoryBreakdown
+              data={periodoPorCategoria}
+              total={periodoEntradas + periodoSaidas}
+              movs={movs}
+              expandedCat={expandedCat}
+              onToggleCat={handleToggleCat}
+              navigation={navigation}
+            />
+          </Glass>
+        </View>
+      ) : null}
+
+      {/* ══════ 5. MOVIMENTAÇÕES RECENTES (Timeline) ══════ */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionLabel>MOVIMENTAÇÕES RECENTES</SectionLabel>
         {movs.length > 0 ? (
@@ -1196,33 +1295,6 @@ export default function CaixaView(props) {
           })}
         </View>
       )}
-
-      {/* ══════ 4. GRÁFICO ENTRADAS VS SAÍDAS (6 meses) ══════ */}
-      {hist6m.length > 0 ? (
-        <View>
-          <SectionLabel>ENTRADAS VS SAÍDAS</SectionLabel>
-          <Glass padding={14}>
-            <BarChart6m data={hist6m} selected={selectedMonth} onSelect={handleSelectMonth} />
-          </Glass>
-        </View>
-      ) : null}
-
-      {/* ══════ 5. POR CATEGORIA ══════ */}
-      {periodoPorCategoria && Object.keys(periodoPorCategoria).length > 0 ? (
-        <View>
-          <SectionLabel>POR CATEGORIA ({periodo === 'M' ? 'MÊS ATUAL' : periodo === '3M' ? '3 MESES' : periodo === '6M' ? '6 MESES' : '1 ANO'})</SectionLabel>
-          <Glass padding={14}>
-            <CategoryBreakdown
-              data={periodoPorCategoria}
-              total={periodoEntradas + periodoSaidas}
-              movs={movs}
-              expandedCat={expandedCat}
-              onToggleCat={handleToggleCat}
-              navigation={navigation}
-            />
-          </Glass>
-        </View>
-      ) : null}
 
       {/* Reconciliar — discreto no final */}
       {movs.length > 0 ? (

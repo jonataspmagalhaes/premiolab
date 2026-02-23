@@ -850,6 +850,7 @@ export async function getMovimentacoesSummary(userId, mes, ano) {
     saldo: totalEntradas - totalSaidas,
     porCategoria: porCategoria,
     total: movs.length,
+    movs: movs,
   };
 }
 
@@ -1414,5 +1415,40 @@ export async function upsertIRPagamento(userId, month, pago) {
       pago: pago,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id,month' });
+  return { error: result.error };
+}
+
+// ═══════════ SAVED ANALYSES ═══════════
+
+export async function getSavedAnalyses(userId) {
+  var result = await supabase
+    .from('saved_analyses')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  return { data: result.data || [], error: result.error };
+}
+
+export async function addSavedAnalysis(userId, analysis) {
+  var payload = { user_id: userId };
+  var keys = Object.keys(analysis);
+  for (var i = 0; i < keys.length; i++) {
+    payload[keys[i]] = analysis[keys[i]];
+  }
+  var result = await supabase
+    .from('saved_analyses')
+    .insert(payload)
+    .select()
+    .single();
+  return { data: result.data, error: result.error };
+}
+
+export async function deleteSavedAnalysis(userId, id) {
+  var result = await supabase
+    .from('saved_analyses')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', userId);
   return { error: result.error };
 }
