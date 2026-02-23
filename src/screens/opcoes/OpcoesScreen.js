@@ -3248,9 +3248,9 @@ export default function OpcoesScreen() {
       <View style={styles.subTabs}>
         {[
           { k: 'ativas', l: 'Ativas (' + ativas.length + ')', c: C.opcoes },
-          { k: 'pendentes', l: 'Pendentes (' + expired.length + ')', c: C.yellow },
-          { k: 'sim', l: 'Calculadora', c: C.opcoes },
-          { k: 'hist', l: 'Histórico (' + historico.length + ')', c: C.opcoes },
+          { k: 'pendentes', l: 'Pend. (' + expired.length + ')', c: C.yellow },
+          { k: 'sim', l: 'Calc.', c: C.opcoes },
+          { k: 'hist', l: 'Hist. (' + historico.length + ')', c: C.opcoes },
         ].map(function(t) {
           return (
             <Pill key={t.k} active={sub === t.k} color={t.c} onPress={function() { setSub(t.k); }}>{t.l}</Pill>
@@ -3699,7 +3699,7 @@ export default function OpcoesScreen() {
 var styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   content: { padding: 18, gap: SIZE.gap },
-  subTabs: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  subTabs: { flexDirection: 'row', gap: 6 },
 
   opTicker: { fontSize: 16, fontWeight: '700', color: C.text, fontFamily: F.display },
   opCode: { fontSize: 12, color: C.opcoes, fontFamily: F.mono, marginBottom: 6 },
