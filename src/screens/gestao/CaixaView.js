@@ -80,6 +80,12 @@ var PERIODOS = [
   { k: '1A', l: '1A', months: 12 },
 ];
 
+var CAIXA_FAB_ITEMS = [
+  { label: 'Movimentação', icon: 'swap-vertical-outline', color: C.green, screen: 'AddMovimentacao' },
+  { label: 'Nova Conta', icon: 'add-circle-outline', color: C.rf, screen: 'AddConta' },
+  { label: 'Extrato', icon: 'receipt-outline', color: C.yellow, screen: 'Extrato' },
+];
+
 // ══════════════════════════════════════════════
 // HELPER: Agrupar movimentações por data
 // ══════════════════════════════════════════════
@@ -1224,8 +1230,8 @@ export default function CaixaView(props) {
       <View style={{ height: SIZE.tabBarHeight + 20 }} />
     </ScrollView>
 
-    {/* FAB compartilhado */}
-    <Fab navigation={navigation} />
+    {/* FAB contextual — ações de caixa */}
+    <Fab navigation={navigation} items={CAIXA_FAB_ITEMS} />
   </View>
   );
 }

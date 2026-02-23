@@ -18,6 +18,7 @@ var ITEMS = [
 
 export default function Fab(props) {
   var navigation = props.navigation;
+  var items = props.items || ITEMS;
   var _open = useState(false);
   var open = _open[0];
   var setOpen = _open[1];
@@ -26,10 +27,14 @@ export default function Fab(props) {
     <View style={styles.wrap}>
       {open ? (
         <View style={{ marginBottom: 12, gap: 8, alignItems: 'flex-end' }}>
-          {ITEMS.map(function(item, i) {
+          {items.map(function(item, i) {
             return (
               <TouchableOpacity key={i} activeOpacity={0.7}
-                onPress={function() { setOpen(false); navigation.navigate(item.screen); }}
+                onPress={function() {
+                  setOpen(false);
+                  if (item.onPress) { item.onPress(); }
+                  else if (item.screen) { navigation.navigate(item.screen, item.params || undefined); }
+                }}
                 style={{
                   flexDirection: 'row', alignItems: 'center', gap: 8,
                   paddingHorizontal: 16, paddingVertical: 12,
