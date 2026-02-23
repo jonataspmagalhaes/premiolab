@@ -65,7 +65,7 @@ supabase/
 ### Tabs (5 abas)
 1. **Home** - Patrimonio, renda mensal, alertas, eventos, historico
 2. **Carteira** - Sub-tabs "Ativos" (portfolio via CarteiraScreen) + "Caixa" (fluxo de caixa via CaixaView). Icone briefcase. Componente: GestaoScreen
-3. **Opcoes** - Cards com gregas BS, moneyness, cobertura, simulador, historico. 5 sub-tabs (ativas, pendentes, sim, cadeia, hist)
+3. **Opcoes** - Cards com gregas BS, moneyness, cobertura, simulador, historico. 4 sub-tabs (ativas, pendentes, sim, hist)
 4. **Renda** - Sub-tabs "Resumo" (RendaResumoView) + "Proventos" (ProventosScreen embedded) + "Relatorios" (RelatoriosScreen embedded). Icone cash. Componente: RendaScreen
 5. **Mais** - Menu de configuracoes, utilidades + acesso a Analise Completa (stack screen)
 
@@ -227,7 +227,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Editar saldo direto**: botao "Editar saldo" no card expandido permite definir novo valor, registra movimentacao `ajuste_manual` com diff
 - **Excluir movimentacao com reversao**: long press em movimentacao exclui e reverte saldo automaticamente (entrada excluida = subtrai, saida excluida = soma de volta). Movimentacoes auto-geradas (compra/venda, premio, dividendo etc) sao bloqueadas
 
-### Opcoes (OpcoesScreen) — 5 sub-tabs (ativas, pendentes, sim, cadeia, hist)
+### Opcoes (OpcoesScreen) — 4 sub-tabs (ativas, pendentes, sim, hist)
 - **Black-Scholes completo**: pricing, gregas (delta, gamma, theta, vega), IV implicita
 - **Moneyness**: badges ITM/ATM/OTM com cor por direcao e texto "Strike R$ X . Y% acima/abaixo"
 - **Cobertura inteligente** (usa `por_corretora` das transacoes, nao do card):
@@ -982,7 +982,7 @@ Reorganizacao das 5 tabs para acesso direto a features core. Motivacao: Carteira
 |---------|-------|--------|
 | 1 | Home | Home (inalterada) |
 | 2 | Gestao (Carteira/Caixa/Relatorios) | **Carteira** (Ativos/Caixa) |
-| 3 | Opcoes (6 sub-tabs) | **Opcoes** (5 sub-tabs, sem Indicadores) |
+| 3 | Opcoes (6 sub-tabs) | **Opcoes** (4 sub-tabs: ativas, pendentes, calculadora, historico) |
 | 4 | Analise (4 sub-tabs) | **Renda** (Resumo/Proventos/Relatorios) |
 | 5 | Mais (Config/Operacoes/Aprender/App) | **Mais** (+Analise Completa, -Proventos) |
 
@@ -1181,8 +1181,30 @@ Edge Function `analyze-option` usa Claude Haiku 4.5 via API Anthropic para anali
 - **Tom didatico**: "explique como para investidor iniciante/intermediario, termos tecnicos com explicacao entre parenteses"
 - **Sizing por capital**: se capital informado, IA calcula e sugere qtd exata de opcoes por estrategia (max 2-5% capital por operacao)
 - **Multi-leg**: descreve cada perna individualmente, identifica nome da estrategia, analisa posicao combinada
-- **Contexto**: inclui portfolio do usuario, posicao no ativo, indicadores tecnicos (HV, RSI, Beta)
+- **Contexto**: inclui portfolio do usuario, posicao no ativo, indicadores tecnicos (HV, RSI, Beta), indicadores manuais (VH, VWAP, OI)
 - **Regra de brevidade**: max 800 chars por secao para nao estourar tokens
+
+### Regras do prompt da IA
+| Regra | Descricao |
+|-------|-----------|
+| COBERTURA (ABSOLUTA) | Nunca sugere venda descoberta/naked de CALL. Se usuario tem N acoes, max N opcoes de CALL vendidas. Se 0 acoes, redireciona para CSP ou compra |
+| CLAREZA | Cada perna de cada estrategia no formato 'VENDER X CALL strike R$Y a R$Z' — nunca omitir COMPRAR/VENDER ou CALL/PUT |
+| RISCO-PRIMEIRO | Sempre apresentar perda maxima ANTES do ganho potencial |
+| SAIDA | Toda estrategia DEVE incluir criterios de saida: quando lucrar, quando cortar perda, quando rolar |
+| CSP | Para toda PUT vendida: capital necessario se exercida (strike x qty), preco efetivo de compra (strike - premio) |
+| COVERED CALL | Para toda CALL vendida coberta: strike vs PM (lucro se exercida?), yield mensal, custo de oportunidade |
+| REGRAS B3 | Opcoes americanas (exercicio a qualquer momento), liquidacao fisica D+1, risco de exercicio antecipado perto de data-ex |
+| IR | 15% swing / 20% day trade, sem isencao R$20k, premios sao receita tributavel |
+| QUANTIDADE | Sempre em numero de opcoes (ex: 'vender 200 opcoes'), nunca contratos ou lotes |
+| STRIKES | Se cadeia disponivel, IA so pode usar strikes da lista fornecida |
+
+### Alertas dinamicos no prompt (ativados por contexto)
+| Alerta | Condicao | Acao |
+|--------|----------|------|
+| DTE Curto | DTE <= 7 dias | Alerta gamma explosivo e pin risk |
+| DTE Ideal | DTE 30-45 dias | Menciona zona ideal de decaimento de theta |
+| VI Baixa | VI < 70% da VH | Alerta premios baratos demais para venda |
+| Liquidez Baixa | OI < 200 | Alerta risco de spread largo |
 
 ### Fluxo client-side
 1. SimuladorBS monta payload com `legs[]`, `objetivo`, `capital`, `portfolio`, gregas agregadas, cenarios
@@ -1252,7 +1274,7 @@ Simulador de opcoes suporta multiplas pernas para montar spreads, iron condors, 
 | Arquivo | Mudanca |
 |---------|---------|
 | `src/screens/opcoes/OpcoesScreen.js` | PayoffChart multi-leg, SimuladorBS legs state + helpers, Leg Cards UI, Presets, CadeiaSintetica addLegMode |
-| `supabase/functions/analyze-option/index.ts` | Claude Haiku API, prompt multi-leg + didatico + sizing, max_tokens 8192 |
+| `supabase/functions/analyze-option/index.ts` | Claude Haiku API, prompt multi-leg + didatico + sizing + regras B3/IR/cobertura/saida, max_tokens 8192 |
 | `src/services/geminiService.js` | Cache key com legs hash + objetivo + capital |
 
 ## Bugs Conhecidos / Investigar

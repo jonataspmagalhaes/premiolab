@@ -1,14 +1,14 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, TextInput, Alert, Dimensions, Modal,
-  ActivityIndicator,
+  ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import Svg, { Line, Rect, Path, Text as SvgText } from 'react-native-svg';
 import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators, getProfile, addMovimentacaoComSaldo, addMovimentacao } from '../../services/database';
+import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators, getProfile, addMovimentacaoComSaldo, addMovimentacao, getSavedAnalyses, addSavedAnalysis, deleteSavedAnalysis } from '../../services/database';
 import { enrichPositionsWithPrices, clearPriceCache, fetchPrices } from '../../services/priceService';
 import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { supabase } from '../../config/supabase';
@@ -18,6 +18,7 @@ import { SkeletonOpcoes, EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import Sensitive from '../../components/Sensitive';
 import * as Haptics from 'expo-haptics';
+import Toast from 'react-native-toast-message';
 var geminiService = require('../../services/geminiService');
 var analyzeOption = geminiService.analyzeOption;
 
@@ -59,8 +60,9 @@ function todayBr() {
 }
 
 // ═══════════════════════════════════════
-// BLACK-SCHOLES MATH
+// BLACK-SCHOLES-MERTON MATH (com dividendos)
 // ═══════════════════════════════════════
+// Todas as funções aceitam q (dividend yield contínuo) como último param opcional (default 0)
 
 // Standard normal CDF (Abramowitz & Stegun approximation)
 function normCDF(x) {
@@ -84,69 +86,78 @@ function normPDF(x) {
   return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
 }
 
-// Black-Scholes d1 and d2
-function bsD1D2(s, k, t, r, sigma) {
+// BSM d1 and d2 (q = dividend yield contínuo, default 0)
+function bsD1D2(s, k, t, r, sigma, q) {
   if (t <= 0 || sigma <= 0 || s <= 0 || k <= 0) return { d1: 0, d2: 0 };
-  var d1 = (Math.log(s / k) + (r + sigma * sigma / 2) * t) / (sigma * Math.sqrt(t));
+  var qVal = q || 0;
+  var d1 = (Math.log(s / k) + (r - qVal + sigma * sigma / 2) * t) / (sigma * Math.sqrt(t));
   var d2 = d1 - sigma * Math.sqrt(t);
   return { d1: d1, d2: d2 };
 }
 
-// BS option price
-function bsPrice(s, k, t, r, sigma, tipo) {
+// BSM option price (q = dividend yield contínuo, default 0)
+function bsPrice(s, k, t, r, sigma, tipo, q) {
   if (t <= 0) {
     if (tipo === 'call') return Math.max(0, s - k);
     return Math.max(0, k - s);
   }
-  var dd = bsD1D2(s, k, t, r, sigma);
+  var qVal = q || 0;
+  var dd = bsD1D2(s, k, t, r, sigma, qVal);
   if (tipo === 'call') {
-    return s * normCDF(dd.d1) - k * Math.exp(-r * t) * normCDF(dd.d2);
+    return s * Math.exp(-qVal * t) * normCDF(dd.d1) - k * Math.exp(-r * t) * normCDF(dd.d2);
   }
-  return k * Math.exp(-r * t) * normCDF(-dd.d2) - s * normCDF(-dd.d1);
+  return k * Math.exp(-r * t) * normCDF(-dd.d2) - s * Math.exp(-qVal * t) * normCDF(-dd.d1);
 }
 
-// BS Greeks
-function bsGreeks(s, k, t, r, sigma, tipo) {
+// BSM Greeks (q = dividend yield contínuo, default 0)
+function bsGreeks(s, k, t, r, sigma, tipo, q) {
   if (s <= 0 || k <= 0 || t <= 0 || sigma <= 0) {
     return { delta: 0, gamma: 0, theta: 0, vega: 0 };
   }
-  var dd = bsD1D2(s, k, t, r, sigma);
+  var qVal = q || 0;
+  var dd = bsD1D2(s, k, t, r, sigma, qVal);
   var sqrtT = Math.sqrt(t);
+  var expQT = Math.exp(-qVal * t);
 
   // Delta
   var delta;
   if (tipo === 'call') {
-    delta = normCDF(dd.d1);
+    delta = expQT * normCDF(dd.d1);
   } else {
-    delta = normCDF(dd.d1) - 1;
+    delta = expQT * (normCDF(dd.d1) - 1);
   }
 
   // Gamma (same for call and put)
-  var gamma = normPDF(dd.d1) / (s * sigma * sqrtT);
+  var gamma = expQT * normPDF(dd.d1) / (s * sigma * sqrtT);
 
   // Theta (per day)
   var thetaAnnual;
   if (tipo === 'call') {
-    thetaAnnual = -(s * normPDF(dd.d1) * sigma) / (2 * sqrtT) - r * k * Math.exp(-r * t) * normCDF(dd.d2);
+    thetaAnnual = -(s * expQT * normPDF(dd.d1) * sigma) / (2 * sqrtT)
+      + qVal * s * expQT * normCDF(dd.d1)
+      - r * k * Math.exp(-r * t) * normCDF(dd.d2);
   } else {
-    thetaAnnual = -(s * normPDF(dd.d1) * sigma) / (2 * sqrtT) + r * k * Math.exp(-r * t) * normCDF(-dd.d2);
+    thetaAnnual = -(s * expQT * normPDF(dd.d1) * sigma) / (2 * sqrtT)
+      - qVal * s * expQT * normCDF(-dd.d1)
+      + r * k * Math.exp(-r * t) * normCDF(-dd.d2);
   }
   var theta = thetaAnnual / 365;
 
   // Vega (per 1% IV change)
-  var vega = s * sqrtT * normPDF(dd.d1) / 100;
+  var vega = s * expQT * sqrtT * normPDF(dd.d1) / 100;
 
   return { delta: delta, gamma: gamma, theta: theta, vega: vega };
 }
 
-// Implied Volatility via Newton-Raphson
-function bsIV(s, k, t, r, marketPrice, tipo) {
+// Implied Volatility via Newton-Raphson (q = dividend yield, default 0)
+function bsIV(s, k, t, r, marketPrice, tipo, q) {
   if (marketPrice <= 0 || s <= 0 || k <= 0 || t <= 0) return 0.35;
-  var sigma = 0.30; // initial guess
+  var qVal = q || 0;
+  var sigma = 0.30;
   for (var i = 0; i < 20; i++) {
-    var price = bsPrice(s, k, t, r, sigma, tipo);
-    var dd = bsD1D2(s, k, t, r, sigma);
-    var vegaVal = s * Math.sqrt(t) * normPDF(dd.d1);
+    var price = bsPrice(s, k, t, r, sigma, tipo, qVal);
+    var dd = bsD1D2(s, k, t, r, sigma, qVal);
+    var vegaVal = s * Math.exp(-qVal * t) * Math.sqrt(t) * normPDF(dd.d1);
     if (vegaVal < 0.0001) break;
     var diff = price - marketPrice;
     sigma = sigma - diff / vegaVal;
@@ -155,6 +166,95 @@ function bsIV(s, k, t, r, marketPrice, tipo) {
     if (Math.abs(diff) < 0.001) break;
   }
   return Math.max(0.01, Math.min(5, sigma));
+}
+
+// ═══════════════════════════════════════
+// AMERICAN OPTION PRICING (aproximação)
+// ═══════════════════════════════════════
+
+function bsPriceAmerican(s, k, t, r, sigma, tipo, q) {
+  var qVal = q || 0;
+  var euroPrice = bsPrice(s, k, t, r, sigma, tipo, qVal);
+  if (t <= 0 || sigma <= 0 || s <= 0 || k <= 0) return euroPrice;
+
+  // American call sem dividendos = europeia (sem prêmio de exercício antecipado)
+  // Com dividendos: pequeno prêmio para ITM calls
+  if (tipo === 'call') {
+    if (qVal <= 0) return euroPrice;
+    // Aproximação: blend entre europeia e intrínseco para deep ITM com dividendos
+    var callIntrinsic = Math.max(0, s - k);
+    if (callIntrinsic > 0 && s > k * 1.05) {
+      var earlyPremium = callIntrinsic * qVal * t * 0.5;
+      return Math.max(euroPrice, euroPrice + earlyPremium);
+    }
+    return euroPrice;
+  }
+
+  // Para puts: aproximação quadrática (early exercise premium)
+  var intrinsic = Math.max(0, k - s);
+  if (intrinsic <= euroPrice) return euroPrice;
+
+  // Deep ITM put: blend em direção ao intrínseco
+  var moneyness = k / s;
+  var correction = 0;
+  if (moneyness > 1.0) {
+    correction = (intrinsic - euroPrice) * (1 - Math.exp(-r * t)) * Math.min(1, (moneyness - 1) * 5);
+  }
+
+  return Math.max(euroPrice, Math.max(intrinsic, euroPrice + correction));
+}
+
+// ═══════════════════════════════════════
+// CADEIA: STRIKE STEP, IV SKEW, BID/ASK
+// ═══════════════════════════════════════
+
+// Blue chips BR com liquidez alta em opções (step R$0.50 mesmo acima de R$15)
+var LIQUID_TICKERS = {
+  'PETR4': true, 'VALE3': true, 'BBDC4': true, 'ITUB4': true,
+  'BBAS3': true, 'B3SA3': true, 'ABEV3': true, 'WEGE3': true,
+  'RENT3': true, 'SUZB3': true, 'PETR3': true, 'ITSA4': true,
+  'GGBR4': true, 'CSNA3': true, 'BPAC11': true, 'MGLU3': true,
+};
+
+function getB3StrikeStep(spotVal, ticker) {
+  // Blue chips mantêm step R$0.50 mesmo com spot > R$15
+  var isLiquid = ticker && LIQUID_TICKERS[ticker.toUpperCase()];
+  if (isLiquid) return 0.50;
+  if (spotVal < 15) return 0.50;
+  if (spotVal < 50) return 1.00;
+  if (spotVal < 100) return 2.00;
+  return 5.00;
+}
+
+// IV Skew/Smile: quadrática + left-skew (puts OTM mais caras)
+function applyIVSkew(baseIV, strike, spot, skewStrength) {
+  if (!skewStrength || skewStrength <= 0 || spot <= 0) return baseIV;
+  var moneyness = (strike - spot) / spot;
+  // Smile (ambas as pontas para cima)
+  var smile = 0.8 * skewStrength * moneyness * moneyness;
+  // Left-skew (puts OTM mais caras — padrão mercado de ações)
+  var leftSkew = 0;
+  if (moneyness < 0) {
+    leftSkew = 0.3 * skewStrength * Math.abs(moneyness);
+  }
+  return baseIV * (1 + smile + leftSkew);
+}
+
+// Bid/Ask simulado com spread realista
+function simulateBidAsk(theoPrice, spot, strike) {
+  if (theoPrice <= 0) return { bid: 0, ask: 0, mid: 0, spread: 0 };
+  // Spread base: 2% do teórico (mínimo R$0.01)
+  var baseSpread = Math.max(0.01, theoPrice * 0.02);
+  // Fator OTM: spread alarga para opções longe do spot
+  var otmFactor = 1.0;
+  var dist = spot > 0 ? Math.abs(spot - strike) / spot : 0;
+  if (dist > 0.10) otmFactor = 1.5;
+  if (dist > 0.20) otmFactor = 2.5;
+  if (theoPrice < 0.10) otmFactor = Math.max(otmFactor, 3);
+  var halfSpread = (baseSpread * otmFactor) / 2;
+  var bid = Math.max(0.01, theoPrice - halfSpread); // piso B3: R$0.01
+  var ask = theoPrice + halfSpread;
+  return { bid: bid, ask: ask, mid: theoPrice, spread: ask - bid };
 }
 
 // ═══════════════════════════════════════
@@ -482,10 +582,10 @@ function PayoffChart(props) {
             left: Math.min(touchInfo.x, chartWidth - 100),
             top: 4,
           }]}>
-            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 10, color: C.sub, fontFamily: F.mono }, ps]}>
+            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 11, color: C.sub, fontFamily: F.mono }, ps]}>
               {'Ativo R$ ' + fmt(touchInfo.price)}
             </Text>
-            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 11, fontWeight: '700', fontFamily: F.mono,
+            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 12, fontWeight: '700', fontFamily: F.mono,
               color: touchInfo.pl >= 0 ? C.green : C.red }, ps]}>
               {'P&L ' + (touchInfo.pl >= 0 ? '+' : '') + 'R$ ' + fmt(touchInfo.pl)}
             </Text>
@@ -652,12 +752,12 @@ var OpCard = React.memo(function OpCard(props) {
       </View>
       {/* Corretora */}
       {op.corretora ? (
-        <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body, marginBottom: 4 }}>{op.corretora}</Text>
+        <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body, marginBottom: 4 }}>{op.corretora}</Text>
       ) : null}
       {/* Premio: unitario + total */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-        <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>PREMIO</Text>
-        <Text style={[{ fontSize: 10, color: C.sub, fontFamily: F.mono }, ps]}>
+        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>PREMIO</Text>
+        <Text style={[{ fontSize: 11, color: C.sub, fontFamily: F.mono }, ps]}>
           {'R$ ' + fmt(op.premio || 0) + ' x ' + (op.quantidade || 0)}
         </Text>
         <Text style={[{ fontSize: 13, fontWeight: '800', color: C.green, fontFamily: F.display }, ps]}>
@@ -682,7 +782,7 @@ var OpCard = React.memo(function OpCard(props) {
           { l: 'Spot', v: spotPrice > 0 ? 'R$ ' + fmt(spotPrice) : '–' },
           { l: 'Delta', v: greeks.delta.toFixed(2) },
           { l: 'Theta', v: (greeks.theta * (op.quantidade || 1) >= 0 ? '+' : '') + 'R$ ' + fmt(greeks.theta * (op.quantidade || 1)) + '/d' },
-          { l: 'IV', v: greeks.iv.toFixed(0) + '%' },
+          { l: 'VI', v: greeks.iv.toFixed(0) + '%' },
         ].map(function(g, i) {
           return (
             <View key={i} style={{ alignItems: 'center', flex: 1 }}>
@@ -704,11 +804,11 @@ var OpCard = React.memo(function OpCard(props) {
         var ivColor = C.dim;
         var ivGlow = false;
         if (ratio != null && ratio >= 1.3) {
-          ivLabel = 'IV ALTA';
+          ivLabel = 'VI ALTA';
           ivColor = C.red;
           ivGlow = true;
         } else if (ratio != null && ratio <= 0.7) {
-          ivLabel = 'IV BAIXA';
+          ivLabel = 'VI BAIXA';
           ivColor = C.green;
           ivGlow = true;
         }
@@ -726,10 +826,10 @@ var OpCard = React.memo(function OpCard(props) {
               ivGlow ? { color: ivColor, fontWeight: '700' } : { color: C.sub },
               ps,
             ]}>
-              {'IV: ' + iv.toFixed(0) + '%'}
+              {'VI: ' + iv.toFixed(0) + '%'}
             </Text>
             {ivLabel ? <Badge text={ivLabel} color={ivColor} /> : null}
-            <TouchableOpacity onPress={function() { setInfoModal({ title: 'HV / IV', text: 'HV = volatilidade histórica 20d. IV = volatilidade implícita. IV > 130% HV = prêmio caro (venda favorecida). IV < 70% HV = prêmio barato (compra favorecida).' }); }}>
+            <TouchableOpacity onPress={function() { setInfoModal({ title: 'HV / VI', text: 'HV = volatilidade histórica 20d. VI = volatilidade implícita. VI > 130% HV = prêmio caro (venda favorecida). VI < 70% HV = prêmio barato (compra favorecida).' }); }}>
               <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
             </TouchableOpacity>
           </View>
@@ -770,9 +870,9 @@ var OpCard = React.memo(function OpCard(props) {
       {showClose ? (
         <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
           {op.ticker_opcao ? (
-            <Text style={{ fontSize: 11, color: C.opcoes, fontFamily: F.mono, marginBottom: 6 }}>{op.ticker_opcao}</Text>
+            <Text style={{ fontSize: 12, color: C.opcoes, fontFamily: F.mono, marginBottom: 6 }}>{op.ticker_opcao}</Text>
           ) : null}
-          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4 }}>PRÊMIO RECOMPRA (R$)</Text>
+          <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4 }}>PRÊMIO RECOMPRA (R$)</Text>
           <TextInput
             value={premRecompra}
             onChangeText={setPremRecompra}
@@ -785,7 +885,7 @@ var OpCard = React.memo(function OpCard(props) {
               fontSize: 15, color: C.text, fontFamily: F.body,
             }}
           />
-          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4, marginTop: 10 }}>QUANTIDADE</Text>
+          <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4, marginTop: 10 }}>QUANTIDADE</Text>
           <TextInput
             value={qtyFechamento}
             onChangeText={function(t) { setQtyFechamento(t.replace(/\D/g, '')); }}
@@ -803,11 +903,11 @@ var OpCard = React.memo(function OpCard(props) {
             ]}
           />
           {qtyFechamento.length > 0 && !qtyFechamentoValid ? (
-            <Text style={{ fontSize: 10, color: C.red, fontFamily: F.body, marginTop: 2 }}>
+            <Text style={{ fontSize: 11, color: C.red, fontFamily: F.body, marginTop: 2 }}>
               {qtyFechamentoVal > (op.quantidade || 0) ? 'Máximo: ' + (op.quantidade || 0) : 'Quantidade inválida'}
             </Text>
           ) : null}
-          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4, marginTop: 10 }}>DATA DO ENCERRAMENTO</Text>
+          <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4, marginTop: 10 }}>DATA DO ENCERRAMENTO</Text>
           <TextInput
             value={dataFechamento}
             onChangeText={function(t) { setDataFechamento(maskDate(t)); }}
@@ -826,7 +926,7 @@ var OpCard = React.memo(function OpCard(props) {
             ]}
           />
           {dataFechamento.length === 10 && !dataFechamentoValid ? (
-            <Text style={{ fontSize: 10, color: C.red, fontFamily: F.body, marginTop: 2 }}>Data inválida</Text>
+            <Text style={{ fontSize: 11, color: C.red, fontFamily: F.body, marginTop: 2 }}>Data inválida</Text>
           ) : null}
           {recompraVal > 0 && qtyFechamentoValid ? (function() {
             var recompraTotal = recompraVal * qtyFechamentoVal;
@@ -835,13 +935,13 @@ var OpCard = React.memo(function OpCard(props) {
             return (
               <View style={{ marginTop: 8 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>RECOMPRA TOTAL</Text>
+                  <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>RECOMPRA TOTAL</Text>
                   <Text style={[{ fontSize: 13, fontWeight: '700', color: C.red, fontFamily: F.mono }, ps]}>
                     {'R$ ' + fmt(recompraTotal)}
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>P&L DO ENCERRAMENTO</Text>
+                  <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>P&L DO ENCERRAMENTO</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Text style={[{ fontSize: 16, fontWeight: '800', color: closePL >= 0 ? C.green : C.red, fontFamily: F.display }, ps]}>
                       {(closePL >= 0 ? '+' : '') + 'R$ ' + fmt(closePL)}
@@ -891,12 +991,12 @@ var TUTORIAL_STEPS = [
   {
     title: 'Parâmetros do Simulador',
     icon: 'settings-outline',
-    text: 'Spot: preço atual do ativo no mercado.\n\nStrike: preço de exercício da opção. Quanto mais distante do spot, mais barata (OTM).\n\nPrêmio: valor da opção por unidade. Se você vende 100 opções a R$1,20, recebe R$120.\n\nIV (Volatilidade Implícita): expectativa do mercado sobre oscilação futura. IV alta = prêmios maiores = bom para vender.\n\nDTE: dias até o vencimento. Mais DTE = mais prêmio, mas mais risco de movimento.\n\nQtd: número total de opções (não contratos).',
+    text: 'Spot: preço atual do ativo no mercado.\n\nStrike: preço de exercício da opção. Quanto mais distante do spot, mais barata (OTM).\n\nPrêmio: valor da opção por unidade. Se você vende 100 opções a R$1,20, recebe R$120.\n\nVI (Volatilidade Implícita): expectativa do mercado sobre oscilação futura. VI alta = prêmios maiores = bom para vender.\n\nDTE: dias até o vencimento. Mais DTE = mais prêmio, mas mais risco de movimento.\n\nQtd: número total de opções (não contratos).',
   },
   {
     title: 'As Gregas',
     icon: 'analytics-outline',
-    text: 'Delta (Δ): sensibilidade ao preço do ativo.\n• Delta 0.30: opção sobe R$0,30 se ativo subir R$1\n• Vendedor quer delta baixo (longe do strike)\n• PUT tem delta negativo\n\nGamma (Γ): velocidade de mudança do delta.\n• Gamma alto perto do strike e do vencimento\n• Risco para vendedores: delta muda rápido\n\nTheta (Θ): perda de valor por dia.\n• Favorece VENDEDORES (time decay a seu favor)\n• Acelera nos últimos 30 dias\n\nVega (ν): sensibilidade à volatilidade.\n• IV subindo = opção mais cara\n• Vendedor quer IV caindo após a venda',
+    text: 'Delta (Δ): sensibilidade ao preço do ativo.\n• Delta 0.30: opção sobe R$0,30 se ativo subir R$1\n• Vendedor quer delta baixo (longe do strike)\n• PUT tem delta negativo\n\nGamma (Γ): velocidade de mudança do delta.\n• Gamma alto perto do strike e do vencimento\n• Risco para vendedores: delta muda rápido\n\nTheta (Θ): perda de valor por dia.\n• Favorece VENDEDORES (time decay a seu favor)\n• Acelera nos últimos 30 dias\n\nVega (ν): sensibilidade à volatilidade.\n• VI subindo = opção mais cara\n• Vendedor quer VI caindo após a venda',
   },
   {
     title: 'Gráfico de Payoff',
@@ -909,19 +1009,19 @@ var TUTORIAL_STEPS = [
     text: 'Simula o resultado se o ativo se mover +5%, -5%, +10% ou -10%, usando Black-Scholes com 5 dias a menos de DTE.\n\nValor verde = lucro estimado\nValor vermelho = prejuízo estimado\n\nExemplo prático:\nVocê vendeu PUT de PETR4, strike R$34, prêmio R$1,20.\nSe PETR4 subir 5%, a PUT desvaloriza e você lucra.\nSe cair 10%, a PUT valoriza e você perde.\n\nUse para definir se o risco/retorno compensa antes de operar.',
   },
   {
-    title: 'Cadeia de Opções',
-    icon: 'grid-outline',
-    text: 'A tabela mostra preços teóricos (Black-Scholes) para diferentes strikes:\n\n• Lado esquerdo: CALLs\n• Lado direito: PUTs\n• Centro: strike e distância % do spot\n\nITM (In The Money): opção com valor intrínseco. CALL ITM = spot > strike.\nATM (At The Money): strike ≈ spot.\nOTM (Out The Money): sem valor intrínseco. Mais barata.\n\nDelta ao lado de cada preço indica probabilidade de exercício.\n\nToque em qualquer CALL ou PUT para preencher o simulador automaticamente com aquele strike e preço.\n\nUse "+ Outro" para analisar tickers fora da sua carteira.',
+    title: 'Calculadora de Opções',
+    icon: 'calculator-outline',
+    text: 'Digite um strike (pode ser quebrado, ex: 32.68) para ver o preço justo calculado pelo Black-Scholes.\n\n• CALL e PUT: preço teórico, delta, gamma, theta, vega\n• Bid/Ask simulado com spread realista\n\nPREÇOS DO MERCADO:\nCopie o bid/ask da sua corretora para comparar com o preço justo. O app calcula se está CARO, JUSTO ou BARATO e sugere operações.\n\nTABELA DE STRIKES:\nMostra strikes vizinhos com preços e gregas. Toque para analisar.\n\nUse "+ Outro" para analisar tickers fora da sua carteira.',
   },
   {
     title: 'Indicadores Técnicos',
     icon: 'pulse-outline',
-    text: 'HV 20d (Volatilidade Histórica):\nOscilação real do ativo nos últimos 20 dias. Compare com IV: se IV > HV, prêmios estão caros (bom para vender).\n\nRSI 14:\n• > 70: sobrecomprado (possível queda)\n• < 30: sobrevendido (possível alta)\n• 30-70: neutro\n\nBeta:\n• > 1.2: mais volátil que o mercado\n• < 0.8: mais defensivo\n• = 1: acompanha o mercado\n\nMax Drawdown:\nMaior queda do pico ao vale. Indica risco histórico máximo.\n\nSMA/EMA: médias móveis — suporte e resistência dinâmicos.\nATR: amplitude média diária — útil para definir stops.\nBB Width: largura das Bandas de Bollinger — baixa = baixa volatilidade (breakout próximo).',
+    text: 'HV 20d (Volatilidade Histórica):\nOscilação real do ativo nos últimos 20 dias. Compare com VI: se VI > HV, prêmios estão caros (bom para vender).\n\nRSI 14:\n• > 70: sobrecomprado (possível queda)\n• < 30: sobrevendido (possível alta)\n• 30-70: neutro\n\nBeta:\n• > 1.2: mais volátil que o mercado\n• < 0.8: mais defensivo\n• = 1: acompanha o mercado\n\nMax Drawdown:\nMaior queda do pico ao vale. Indica risco histórico máximo.\n\nSMA/EMA: médias móveis — suporte e resistência dinâmicos.\nATR: amplitude média diária — útil para definir stops.\nBB Width: largura das Bandas de Bollinger — baixa = baixa volatilidade (breakout próximo).',
   },
   {
     title: 'Estratégias Práticas',
     icon: 'rocket-outline',
-    text: 'Venda Coberta (Covered Call):\nVocê TEM as ações e vende CALL OTM. Recebe prêmio como renda extra. Se exercido, vende as ações com lucro.\n\nCSP (Cash-Secured Put):\nVocê QUER comprar o ativo mais barato. Vende PUT OTM. Se exercido, compra com desconto (strike - prêmio).\n\nWheel Strategy:\n1. Vende PUT → se exercido, compra ações\n2. Com as ações, vende CALL → se exercido, vende\n3. Repete o ciclo recebendo prêmios\n\nDicas:\n• IV alta = prêmios maiores (melhor para vender)\n• DTE 21-45 dias: melhor relação theta/risco\n• Strikes OTM 5-10%: equilíbrio prêmio/segurança\n• Sempre cheque cobertura antes de vender',
+    text: 'Venda Coberta (Covered Call):\nVocê TEM as ações e vende CALL OTM. Recebe prêmio como renda extra. Se exercido, vende as ações com lucro.\n\nCSP (Cash-Secured Put):\nVocê QUER comprar o ativo mais barato. Vende PUT OTM. Se exercido, compra com desconto (strike - prêmio).\n\nWheel Strategy:\n1. Vende PUT → se exercido, compra ações\n2. Com as ações, vende CALL → se exercido, vende\n3. Repete o ciclo recebendo prêmios\n\nDicas:\n• VI alta = prêmios maiores (melhor para vender)\n• DTE 21-45 dias: melhor relação theta/risco\n• Strikes OTM 5-10%: equilíbrio prêmio/segurança\n• Sempre cheque cobertura antes de vender',
   },
 ];
 
@@ -931,6 +1031,11 @@ var TUTORIAL_STEPS = [
 function AiAnalysisModal(props) {
   var analysis = props.analysis;
   var onClose = props.onClose;
+  var onSave = props.onSave;
+  var _saved = useState(false); var saved = _saved[0]; var setSaved = _saved[1];
+
+  // Reset saved state when analysis changes (new analysis generated)
+  useEffect(function() { setSaved(false); }, [analysis]);
 
   if (!analysis) return null;
 
@@ -954,10 +1059,23 @@ function AiAnalysisModal(props) {
           <Ionicons name="sparkles" size={20} color={C.accent} />
           <Text style={{ fontSize: 17, fontWeight: '800', color: C.text, fontFamily: F.display }}>Análise IA</Text>
         </View>
-        <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          accessibilityRole="button" accessibilityLabel="Fechar análise">
-          <Ionicons name="close-circle-outline" size={28} color={C.sub} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          {onSave ? (
+            <TouchableOpacity disabled={saved}
+              onPress={function() { onSave(); setSaved(true); }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityRole="button" accessibilityLabel={saved ? 'Análise salva' : 'Salvar análise'}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6,
+                backgroundColor: saved ? C.green + '18' : C.accent + '18', borderWidth: 1, borderColor: saved ? C.green + '40' : C.accent + '40' }}>
+              <Ionicons name={saved ? 'checkmark-circle' : 'bookmark-outline'} size={14} color={saved ? C.green : C.accent} />
+              <Text style={{ fontSize: 12, fontWeight: '600', color: saved ? C.green : C.accent, fontFamily: F.body }}>{saved ? 'Salvo' : 'Salvar'}</Text>
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button" accessibilityLabel="Fechar análise">
+            <Ionicons name="close-circle-outline" size={28} color={C.sub} />
+          </TouchableOpacity>
+        </View>
       </View>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SIZE.padding, gap: SIZE.gap, paddingBottom: 50 }}>
         {secs.map(function(sec) {
@@ -978,7 +1096,7 @@ function AiAnalysisModal(props) {
             <Glass key={sec.key} glow={sec.color} padding={16}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
                 <Ionicons name={sec.icon} size={16} color={sec.color} />
-                <Text style={{ fontSize: 11, fontWeight: '700', color: sec.color, fontFamily: F.mono, letterSpacing: 0.8 }}>{sec.label}</Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: sec.color, fontFamily: F.mono, letterSpacing: 0.8 }}>{sec.label}</Text>
               </View>
               <Text style={{ fontSize: 13, color: C.text, fontFamily: F.body, lineHeight: 22 }}>{formatted}</Text>
             </Glass>
@@ -994,7 +1112,7 @@ function AiAnalysisModal(props) {
         ) : null}
 
         <View style={{ padding: 12, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: C.border }}>
-          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, textAlign: 'center', lineHeight: 16 }}>
+          <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, textAlign: 'center', lineHeight: 17 }}>
             Análise gerada por IA. Não constitui recomendação de investimento. Use como ferramenta educacional complementar à sua própria análise.
           </Text>
         </View>
@@ -1003,76 +1121,98 @@ function AiAnalysisModal(props) {
   );
 }
 
-function SimuladorBS(props) {
+// ═══════════════════════════════════════
+// CALCULADORA UNIVERSAL DE OPÇÕES
+// ═══════════════════════════════════════
+function CalculadoraOpcoes(props) {
   var ps = usePrivacyStyle();
-  var simSelicRate = props.selicRate || 13.25;
-  var setInfoModal = props.setInfoModal;
-  var simParams = props.simParams;
   var positions = props.positions || [];
   var indicatorsMap = props.indicators || {};
-  var onChainSelect = props.onChainSelect;
-  var setTutStep = props.setTutStep;
-  // Shared params (same underlying)
-  var s3 = useState('34.30'); var spot = s3[0]; var setSpot = s3[1];
-  var s6 = useState('35'); var ivInput = s6[0]; var setIvInput = s6[1];
-  var s7 = useState('21'); var dte = s7[0]; var setDte = s7[1];
+  var chainSelicRate = props.selicRate || 13.25;
 
-  // Multi-leg state
-  var _legs = useState([{ id: 1, tipo: 'CALL', direcao: 'venda', strike: '36.00', premio: '1.20', qty: '100' }]);
-  var legs = _legs[0]; var setLegs = _legs[1];
-  var _activeLeg = useState(0); var activeLeg = _activeLeg[0]; var setActiveLeg = _activeLeg[1];
-  var _nextLegId = useState(2); var nextLegId = _nextLegId[0]; var setNextLegId = _nextLegId[1];
+  // Unique tickers with spot prices
+  var tickers = [];
+  var tickerSpots = {};
+  for (var ti = 0; ti < positions.length; ti++) {
+    var pt = positions[ti];
+    if (tickers.indexOf(pt.ticker) === -1) {
+      tickers.push(pt.ticker);
+      tickerSpots[pt.ticker] = pt.preco_atual || pt.pm || 0;
+    }
+  }
 
-  // Active leg shorthand
-  var curLeg = legs[activeLeg] || legs[0];
-  var tipo = curLeg.tipo || 'CALL';
-  var direcao = curLeg.direcao || 'venda';
-  var strike = curLeg.strike || '';
-  var premio = curLeg.premio || '';
-  var qty = curLeg.qty || '100';
+  var defaultTicker = tickers.length > 0 ? tickers[0] : null;
 
-  // Leg helpers
-  function updateLeg(idx, field, val) {
-    var newLegs = [];
-    for (var ul = 0; ul < legs.length; ul++) {
-      if (ul === idx) {
-        var copy = {};
-        var kk = Object.keys(legs[ul]);
-        for (var ki = 0; ki < kk.length; ki++) { copy[kk[ki]] = legs[ul][kk[ki]]; }
-        copy[field] = val;
-        newLegs.push(copy);
-      } else {
-        newLegs.push(legs[ul]);
+  var _chainTicker = useState(defaultTicker);
+  var chainTicker = _chainTicker[0]; var setChainTicker = _chainTicker[1];
+  var _chainIV = useState('');
+  var chainIV = _chainIV[0]; var setChainIV = _chainIV[1];
+  var _chainDTE = useState('');
+  var chainDTE = _chainDTE[0]; var setChainDTE = _chainDTE[1];
+  var _customTicker = useState(''); var customTicker = _customTicker[0]; var setCustomTicker = _customTicker[1];
+  var _customSpot = useState(''); var customSpot = _customSpot[0]; var setCustomSpot = _customSpot[1];
+  var _showCustom = useState(false); var showCustom = _showCustom[0]; var setShowCustom = _showCustom[1];
+  var _fetchingSpot = useState(false); var fetchingSpot = _fetchingSpot[0]; var setFetchingSpot = _fetchingSpot[1];
+  var _optionStyle = useState('europeia'); var optionStyle = _optionStyle[0]; var setOptionStyle = _optionStyle[1];
+  var _skewSel = useState('auto'); var skewSel = _skewSel[0]; var setSkewSel = _skewSel[1];
+  var _strikeInput = useState(''); var strikeInput = _strikeInput[0]; var setStrikeInput = _strikeInput[1];
+  var _mktCallBid = useState(''); var mktCallBid = _mktCallBid[0]; var setMktCallBid = _mktCallBid[1];
+  var _mktCallAsk = useState(''); var mktCallAsk = _mktCallAsk[0]; var setMktCallAsk = _mktCallAsk[1];
+  var _mktPutBid = useState(''); var mktPutBid = _mktPutBid[0]; var setMktPutBid = _mktPutBid[1];
+  var _mktPutAsk = useState(''); var mktPutAsk = _mktPutAsk[0]; var setMktPutAsk = _mktPutAsk[1];
+  var _spotOverride = useState(''); var spotOverride = _spotOverride[0]; var setSpotOverride = _spotOverride[1];
+  var _tableStep = useState('auto'); var tableStep = _tableStep[0]; var setTableStep = _tableStep[1];
+
+  // Context indicators (manual inputs)
+  var _hvInput = useState(''); var hvInput = _hvInput[0]; var setHvInput = _hvInput[1];
+  var _vwapInput = useState(''); var vwapInput = _vwapInput[0]; var setVwapInput = _vwapInput[1];
+  var _oiInput = useState(''); var oiInput = _oiInput[0]; var setOiInput = _oiInput[1];
+
+  var handleTickerChange = function(tk) {
+    setChainTicker(tk);
+    setShowCustom(false);
+    setSpotOverride('');
+  };
+
+  var handleCustomApply = function() {
+    var tk = customTicker.toUpperCase().trim();
+    if (!tk) return;
+    var sp = parseFloat(customSpot);
+    if (!sp || sp <= 0) return;
+    tickerSpots[tk] = sp;
+    if (tickers.indexOf(tk) === -1) tickers.push(tk);
+    setChainTicker(tk);
+    setShowCustom(false);
+    setSpotOverride('');
+  };
+
+  var handleFetchCustomSpot = function() {
+    var tk = customTicker.toUpperCase().trim();
+    if (!tk || tk.length < 2) return;
+    setFetchingSpot(true);
+    fetchPrices([tk]).then(function(priceMap) {
+      var p = priceMap && priceMap[tk];
+      if (p && p.price) {
+        setCustomSpot(String(p.price.toFixed(2)));
       }
-    }
-    setLegs(newLegs);
-  }
+      setFetchingSpot(false);
+    }).catch(function() { setFetchingSpot(false); });
+  };
 
-  function addLeg(params) {
-    var newLeg = {
-      id: nextLegId,
-      tipo: (params && params.tipo) || 'CALL',
-      direcao: (params && params.direcao) || 'venda',
-      strike: (params && params.strike) || '',
-      premio: (params && params.premio) || '',
-      qty: (params && params.qty) || '100',
-    };
-    setNextLegId(nextLegId + 1);
-    var newLegs = legs.concat([newLeg]);
-    setLegs(newLegs);
-    setActiveLeg(newLegs.length - 1);
-  }
+  // Current ticker HV for badge
+  var currentHV = (chainTicker && indicatorsMap[chainTicker] && indicatorsMap[chainTicker].hv_20)
+    ? indicatorsMap[chainTicker].hv_20
+    : null;
 
-  function removeLeg(idx) {
-    if (legs.length <= 1) return;
-    var newLegs = [];
-    for (var rl = 0; rl < legs.length; rl++) {
-      if (rl !== idx) newLegs.push(legs[rl]);
-    }
-    setLegs(newLegs);
-    if (activeLeg >= newLegs.length) { setActiveLeg(newLegs.length - 1); }
-    else if (activeLeg > idx) { setActiveLeg(activeLeg - 1); }
-  }
+  var apiSpot = tickerSpots[chainTicker] || 0;
+  var spot = (spotOverride !== '' && parseFloat(spotOverride) > 0) ? parseFloat(spotOverride) : apiSpot;
+  var ivVal = (parseFloat(chainIV) || 0) / 100;
+  var dteVal = parseInt(chainDTE) || 0;
+  var tYears = dteVal / 365;
+  var r = chainSelicRate / 100;
+
+  // Pricing function based on option style
+  var priceFn = (optionStyle === 'americana') ? bsPriceAmerican : bsPrice;
 
   // AI Analysis states
   var _aiAnalysis = useState(null); var aiAnalysis = _aiAnalysis[0]; var setAiAnalysis = _aiAnalysis[1];
@@ -1082,234 +1222,344 @@ function SimuladorBS(props) {
   var _aiObj = useState('renda'); var aiObjetivo = _aiObj[0]; var setAiObjetivo = _aiObj[1];
   var _aiCapital = useState(''); var aiCapital = _aiCapital[0]; var setAiCapital = _aiCapital[1];
 
-  // Apply params from chain tap
-  React.useEffect(function() {
-    if (!simParams) return;
-    // Shared params always update
-    if (simParams.spot) setSpot(simParams.spot);
-    if (simParams.iv) setIvInput(simParams.iv);
-    if (simParams.dte) setDte(simParams.dte);
+  // Saved analyses states
+  var authUser = useAuth().user;
+  var _savedList = useState([]); var savedList = _savedList[0]; var setSavedList = _savedList[1];
+  var _showSavedDD = useState(false); var showSavedDD = _showSavedDD[0]; var setShowSavedDD = _showSavedDD[1];
+  var _savingAnalysis = useState(false); var savingAnalysis = _savingAnalysis[0]; var setSavingAnalysis = _savingAnalysis[1];
 
-    if (simParams.addAsLeg) {
-      // Add as new leg (from chain or preset)
-      addLeg({
-        tipo: simParams.tipo || 'CALL',
-        direcao: simParams.direcao || 'venda',
-        strike: simParams.strike || '',
-        premio: simParams.premio || '',
-        qty: simParams.qty || '100',
+  // Load saved analyses on mount
+  useFocusEffect(useCallback(function() {
+    if (authUser && authUser.id) {
+      getSavedAnalyses(authUser.id).then(function(res) {
+        if (res.data) setSavedList(res.data);
       });
+    }
+  }, [authUser && authUser.id]));
+
+  // Parse strike + market prices first (needed for auto-skew)
+  var fk = parseFloat(strikeInput) || 0;
+  var hasResult = fk > 0 && spot > 0 && ivVal > 0 && tYears > 0;
+  var fDist = (spot > 0 && fk > 0) ? ((fk - spot) / spot * 100) : 0;
+
+  var mcBid = parseFloat(mktCallBid) || 0;
+  var mcAsk = parseFloat(mktCallAsk) || 0;
+  var mpBid = parseFloat(mktPutBid) || 0;
+  var mpAsk = parseFloat(mktPutAsk) || 0;
+  var mcMid = (mcBid > 0 && mcAsk > 0) ? (mcBid + mcAsk) / 2 : (mcBid > 0 ? mcBid : mcAsk);
+  var mpMid = (mpBid > 0 && mpAsk > 0) ? (mpBid + mpAsk) / 2 : (mpBid > 0 ? mpBid : mpAsk);
+  var hasCallMkt = mcMid > 0;
+  var hasPutMkt = mpMid > 0;
+
+  // IV implícita do mercado (bsIV não depende de skew — Newton-Raphson puro)
+  var callMktIV = (hasCallMkt && hasResult) ? bsIV(spot, fk, tYears, r, mcMid, 'call') : 0;
+  var putMktIV = (hasPutMkt && hasResult) ? bsIV(spot, fk, tYears, r, mpMid, 'put') : 0;
+
+  // Skew — auto-detect from market IVs or manual
+  var skewStrength = 1;
+  var skewAutoLabel = '';
+  if (skewSel === 'auto') {
+    if (callMktIV > 0 && putMktIV > 0) {
+      var ivDiffPp = (putMktIV - callMktIV) * 100;
+      if (ivDiffPp > 8) {
+        skewStrength = 2; skewAutoLabel = 'Forte';
+      } else if (ivDiffPp > 2) {
+        skewStrength = 1; skewAutoLabel = 'Leve';
+      } else {
+        skewStrength = 0; skewAutoLabel = 'Flat';
+      }
+    } else if (callMktIV > 0 || putMktIV > 0) {
+      var singleIV = callMktIV > 0 ? callMktIV : putMktIV;
+      var ivRatio = singleIV / ivVal;
+      if (ivRatio > 1.3) {
+        skewStrength = 2; skewAutoLabel = 'Forte';
+      } else if (ivRatio > 1.05) {
+        skewStrength = 1; skewAutoLabel = 'Leve';
+      } else {
+        skewStrength = 0; skewAutoLabel = 'Flat';
+      }
     } else {
-      // Replace first leg (single-leg compat)
-      var newLeg = {
-        id: legs[0] ? legs[0].id : 1,
-        tipo: simParams.tipo || legs[0].tipo || 'CALL',
-        direcao: simParams.direcao || legs[0].direcao || 'venda',
-        strike: simParams.strike || legs[0].strike || '',
-        premio: simParams.premio || legs[0].premio || '',
-        qty: legs[0].qty || '100',
-      };
-      setLegs([newLeg]);
-      setActiveLeg(0);
+      skewStrength = 1; skewAutoLabel = 'Leve';
     }
-  }, [simParams]);
-
-  var sVal = parseFloat(spot) || 0;
-  var dVal = parseInt(dte) || 0;
-  var t = dVal / 365;
-  var r = simSelicRate / 100;
-  var baseSigma = parseFloat(ivInput) / 100 || 0.30;
-
-  // Active leg parsed values (for single-leg display compat)
-  var kVal = parseFloat(strike) || 0;
-  var pVal = parseFloat(premio) || 0;
-  var qVal = parseInt(qty) || 0;
-  var tipoLower = tipo.toLowerCase();
-
-  // Per-leg IV: compute from premium if available, else use base IV
-  function legIV(leg) {
-    var lTipo = (leg.tipo || 'CALL').toLowerCase();
-    var lStrike = parseFloat(leg.strike) || 0;
-    var lPremio = parseFloat(leg.premio) || 0;
-    if (lPremio > 0 && sVal > 0 && lStrike > 0 && t > 0) {
-      return bsIV(sVal, lStrike, t, r, lPremio, lTipo);
-    }
-    return baseSigma;
+  } else {
+    skewStrength = parseInt(skewSel) || 0;
   }
 
-  // Active leg sigma (for IV display)
-  var sigma = legIV(curLeg);
+  // BS calculations for the strike (uses skewStrength)
+  var fIV = hasResult ? applyIVSkew(ivVal, fk, spot, skewStrength) : 0;
+  var fCallMid = hasResult ? priceFn(spot, fk, tYears, r, fIV, 'call') : 0;
+  var fPutMid = hasResult ? priceFn(spot, fk, tYears, r, fIV, 'put') : 0;
+  var fCallG = hasResult ? bsGreeks(spot, fk, tYears, r, fIV, 'call') : { delta: 0, gamma: 0, theta: 0, vega: 0 };
+  var fPutG = hasResult ? bsGreeks(spot, fk, tYears, r, fIV, 'put') : { delta: 0, gamma: 0, theta: 0, vega: 0 };
+  var fCallBA = hasResult ? simulateBidAsk(fCallMid, spot, fk) : { bid: 0, ask: 0 };
+  var fPutBA = hasResult ? simulateBidAsk(fPutMid, spot, fk) : { bid: 0, ask: 0 };
 
-  // Aggregated greeks across all legs
-  var netDelta = 0, netGamma = 0, netTheta = 0, netVega = 0;
-  var netPremio = 0; // positive = net credit, negative = net debit
-  var netBsTheo = 0;
-  var totalQty = 0;
+  // Decision engine
+  function analyzePrice(theoMid, mktMid, mktIV, theoIV, tipo) {
+    if (!mktMid || mktMid <= 0 || !theoMid || theoMid <= 0) return null;
+    var diff = mktMid - theoMid;
+    var diffPct = (diff / theoMid) * 100;
+    var ivDiff = mktIV > 0 ? (mktIV - theoIV) * 100 : 0;
+    var verdict = '';
+    var verdictColor = C.sub;
+    var icon = 'remove-circle-outline';
+    var suggestion = '';
 
-  for (var li = 0; li < legs.length; li++) {
-    var leg = legs[li];
-    var lTipo = (leg.tipo || 'CALL').toLowerCase();
-    var lStrike = parseFloat(leg.strike) || 0;
-    var lPremio = parseFloat(leg.premio) || 0;
-    var lQty = parseInt(leg.qty) || 0;
-    var lSign = (leg.direcao === 'venda' || leg.direcao === 'lancamento') ? -1 : 1;
-    var lSigma = legIV(leg);
-
-    totalQty += lQty;
-    // venda receives premium (+), compra pays (-)
-    netPremio += lPremio * lQty * (-lSign);
-
-    if (sVal > 0 && lStrike > 0 && t > 0) {
-      var lGreeks = bsGreeks(sVal, lStrike, t, r, lSigma, lTipo);
-      netDelta += lGreeks.delta * lQty * lSign;
-      netGamma += lGreeks.gamma * lQty * lSign;
-      netTheta += lGreeks.theta * lQty * lSign;
-      netVega += lGreeks.vega * lQty * lSign;
-      netBsTheo += bsPrice(sVal, lStrike, t, r, lSigma, lTipo) * lQty * (-lSign);
+    var pct = Math.abs(diffPct).toFixed(0);
+    if (diffPct > 12) {
+      verdict = 'CARO'; verdictColor = C.red; icon = 'arrow-up-circle';
+      if (tipo === 'call') {
+        suggestion = 'Call ' + pct + '% acima do justo. Bom para VENDER call (coberta ou trava de baixa) — você recebe prêmio inflado. Evite COMPRAR call agora.';
+      } else {
+        suggestion = 'Put ' + pct + '% acima do justo. Bom para VENDER put (CSP) — prêmio gordo a seu favor. Evite COMPRAR put como hedge agora, está caro.';
+      }
+    } else if (diffPct > 5) {
+      verdict = 'ACIMA'; verdictColor = C.etfs; icon = 'arrow-up-circle-outline';
+      if (tipo === 'call') {
+        suggestion = 'Call ' + pct + '% acima do justo. Tendência favorável para VENDER call. Para COMPRAR call, aguarde preço mais baixo.';
+      } else {
+        suggestion = 'Put ' + pct + '% acima do justo. Tendência favorável para VENDER put. Para COMPRAR put (hedge), aguarde queda do prêmio.';
+      }
+    } else if (diffPct < -12) {
+      verdict = 'BARATO'; verdictColor = C.green; icon = 'arrow-down-circle';
+      if (tipo === 'call') {
+        suggestion = 'Call ' + pct + '% abaixo do justo. Bom para COMPRAR call (aposta de alta ou trava de alta) — desconto real. Evite VENDER call, prêmio baixo.';
+      } else {
+        suggestion = 'Put ' + pct + '% abaixo do justo. Bom para COMPRAR put (hedge barato). Evite VENDER put (CSP) — prêmio muito baixo pelo risco.';
+      }
+    } else if (diffPct < -5) {
+      verdict = 'ABAIXO'; verdictColor = C.rf; icon = 'arrow-down-circle-outline';
+      if (tipo === 'call') {
+        suggestion = 'Call ' + pct + '% abaixo do justo. Tendência favorável para COMPRAR call. Para VENDER call, o prêmio está magro.';
+      } else {
+        suggestion = 'Put ' + pct + '% abaixo do justo. Tendência favorável para COMPRAR put (hedge). Para VENDER put, o prêmio compensa pouco.';
+      }
+    } else {
+      verdict = 'JUSTO'; verdictColor = C.yellow; icon = 'checkmark-circle-outline';
+      if (tipo === 'call') {
+        suggestion = 'Call no preço justo (±' + pct + '%). Sem distorção — tanto vender call coberta quanto comprar call são válidos conforme sua estratégia.';
+      } else {
+        suggestion = 'Put no preço justo (±' + pct + '%). Sem distorção — tanto vender put (CSP) quanto comprar put (hedge) são válidos conforme sua estratégia.';
+      }
     }
+
+    return {
+      diff: diff, diffPct: diffPct, ivDiff: ivDiff,
+      verdict: verdict, verdictColor: verdictColor, icon: icon,
+      suggestion: suggestion, mktIV: mktIV,
+    };
   }
 
-  // Active leg greeks (for single-leg compat display)
-  var greeks = (sVal > 0 && kVal > 0 && t > 0)
-    ? bsGreeks(sVal, kVal, t, r, sigma, tipoLower)
-    : { delta: 0, gamma: 0, theta: 0, vega: 0 };
-  var bsTheoPrice = (sVal > 0 && kVal > 0 && t > 0)
-    ? bsPrice(sVal, kVal, t, r, sigma, tipoLower)
-    : 0;
+  var callAnalysis = hasCallMkt ? analyzePrice(fCallMid, mcMid, callMktIV, fIV, 'call') : null;
+  var putAnalysis = hasPutMkt ? analyzePrice(fPutMid, mpMid, putMktIV, fIV, 'put') : null;
 
-  var isMultiLeg = legs.length > 1;
-  var premioTotal = isMultiLeg ? netPremio : pVal * qVal;
-  var contratos = Math.floor(totalQty / 100);
-
-  // What-If scenarios with proper BS (multi-leg)
-  var scenarios = [
-    { label: '+5%', pctMove: 0.05 },
-    { label: '-5%', pctMove: -0.05 },
-    { label: '+10%', pctMove: 0.10 },
-    { label: '-10%', pctMove: -0.10 },
-  ];
-
-  function calcScenarioResult(pctMove) {
-    var newSpot = sVal * (1 + pctMove);
-    var newT = Math.max(0.001, (dVal - 5) / 365);
-    var totalPL = 0;
-    for (var si = 0; si < legs.length; si++) {
-      var sLeg = legs[si];
-      var sLTipo = (sLeg.tipo || 'CALL').toLowerCase();
-      var sLStrike = parseFloat(sLeg.strike) || 0;
-      var sLPremio = parseFloat(sLeg.premio) || 0;
-      var sLQty = parseInt(sLeg.qty) || 0;
-      var sLSigma = legIV(sLeg);
-      var sLSign = (sLeg.direcao === 'venda' || sLeg.direcao === 'lancamento') ? -1 : 1;
-      var newPrice = bsPrice(newSpot, sLStrike, newT, r, sLSigma, sLTipo);
-      // venda: (premium - newPrice) * qty; compra: (newPrice - premium) * qty
-      totalPL += (sLPremio - newPrice) * sLQty * (-sLSign);
-    }
-    return totalPL;
+  // Parser para valores abreviados: "27,96m" → 27960000, "1.200" → 1200, "500k" → 500000
+  function parseAbrevNum(str) {
+    if (!str || str === '') return NaN;
+    var s = str.toLowerCase().trim().replace(/\s/g, '');
+    // Detecta sufixo k/m/b
+    var mult = 1;
+    if (s.indexOf('b') !== -1) { mult = 1000000000; s = s.replace('b', ''); }
+    else if (s.indexOf('m') !== -1) { mult = 1000000; s = s.replace('m', ''); }
+    else if (s.indexOf('k') !== -1) { mult = 1000; s = s.replace('k', ''); }
+    // Remove pontos de milhar e troca vírgula por ponto decimal
+    s = s.replace(/\./g, '').replace(',', '.');
+    var num = parseFloat(s);
+    if (isNaN(num)) return NaN;
+    return Math.round(num * mult);
   }
 
-  // Format greek value adaptively
-  function fmtGreek(val) {
-    var abs = Math.abs(val);
-    if (abs >= 100) return val.toFixed(0);
-    if (abs >= 10) return val.toFixed(1);
-    if (abs >= 1) return val.toFixed(2);
-    if (abs >= 0.01) return val.toFixed(3);
-    return val.toFixed(4);
+  // ═══ MOTOR DE DECISÃO — alertas baseados em indicadores de contexto ═══
+  function generateContextAlerts() {
+    var alerts = [];
+    var viUsuario = parseFloat(chainIV) || 0;
+    var vhVal = parseFloat(hvInput);
+    var vwapVal = parseFloat(vwapInput.replace(',', '.'));
+    var caVal = parseAbrevNum(oiInput);
+
+    // Regra 1: VI vs VH (Termômetro de Preço)
+    if (vhVal > 0 && viUsuario > 0) {
+      if (viUsuario > vhVal) {
+        var viVhDiff = (viUsuario - vhVal).toFixed(1);
+        alerts.push({
+          icon: 'flame-outline',
+          color: C.etfs,
+          title: 'Prêmio Inflado (VI > VH)',
+          text: 'A Volatilidade Implícita (' + viUsuario.toFixed(1) + '%) está ' + viVhDiff + ' pontos acima da Volatilidade Histórica (' + vhVal.toFixed(1) + '%). '
+            + 'O mercado está precificando mais volatilidade do que o ativo historicamente apresenta. '
+            + 'Cenário favorável para VENDER opções (prêmio caro).',
+          badge: 'VENDA',
+          badgeColor: C.etfs,
+        });
+      } else {
+        var vhViDiff = (vhVal - viUsuario).toFixed(1);
+        alerts.push({
+          icon: 'pricetag-outline',
+          color: C.green,
+          title: 'Prêmio Descontado (VI < VH)',
+          text: 'A Volatilidade Implícita (' + viUsuario.toFixed(1) + '%) está ' + vhViDiff + ' pontos abaixo da Volatilidade Histórica (' + vhVal.toFixed(1) + '%). '
+            + 'O mercado está subprecificando a volatilidade real do ativo. '
+            + 'Cenário favorável para COMPRAR opções (prêmio barato).',
+          badge: 'COMPRA',
+          badgeColor: C.green,
+        });
+      }
+    }
+
+    // Regra 2: VWAP vs Spot (Tendência)
+    if (vwapVal > 0 && spot > 0) {
+      var vwapDiffPct = ((spot - vwapVal) / vwapVal * 100).toFixed(2);
+      if (spot > vwapVal) {
+        alerts.push({
+          icon: 'trending-up-outline',
+          color: C.green,
+          title: 'Tendência Intradiária de ALTA',
+          text: 'Spot (R$ ' + fmt(spot) + ') está ' + vwapDiffPct + '% acima do VWAP (R$ ' + fmt(vwapVal) + '). '
+            + 'Pressão compradora no dia. Apoia estratégias com Calls ou venda de Puts (CSP).',
+          badge: 'ALTA',
+          badgeColor: C.green,
+        });
+      } else {
+        var vwapDiffAbs = Math.abs(parseFloat(vwapDiffPct)).toFixed(2);
+        alerts.push({
+          icon: 'trending-down-outline',
+          color: C.red,
+          title: 'Tendência Intradiária de BAIXA',
+          text: 'Spot (R$ ' + fmt(spot) + ') está ' + vwapDiffAbs + '% abaixo do VWAP (R$ ' + fmt(vwapVal) + '). '
+            + 'Pressão vendedora no dia. Apoia estratégias com Puts ou venda de Calls.',
+          badge: 'BAIXA',
+          badgeColor: C.red,
+        });
+      }
+    }
+
+    // Regra 3: Liquidez (Contratos em Aberto)
+    if (!isNaN(caVal) && caVal >= 0 && oiInput !== '') {
+      var caFmt = caVal.toLocaleString('pt-BR');
+      if (caVal < 100) {
+        alerts.push({
+          icon: 'warning-outline',
+          color: C.yellow,
+          title: 'Baixa Liquidez',
+          text: 'Apenas ' + caFmt + ' contratos em aberto. Risco de não conseguir sair da operação ou sofrer com spread bid/ask alto. '
+            + 'Prefira opções com mais de 500 contratos em aberto para maior liquidez.',
+          badge: 'CUIDADO',
+          badgeColor: C.yellow,
+        });
+      } else if (caVal >= 100 && caVal < 500) {
+        alerts.push({
+          icon: 'alert-circle-outline',
+          color: C.etfs,
+          title: 'Liquidez Moderada',
+          text: caFmt + ' contratos em aberto. Liquidez aceitável, mas o spread pode ser amplo. '
+            + 'Considere usar ordens limitadas para não pagar spread excessivo.',
+          badge: 'ATENÇÃO',
+          badgeColor: C.etfs,
+        });
+      } else {
+        alerts.push({
+          icon: 'checkmark-circle-outline',
+          color: C.green,
+          title: 'Boa Liquidez',
+          text: caFmt + ' contratos em aberto. Liquidez adequada para entrar e sair da operação com facilidade.',
+          badge: 'OK',
+          badgeColor: C.green,
+        });
+      }
+    }
+
+    return alerts;
   }
 
-  // Strategy presets
-  function applyPreset(key) {
-    if (sVal <= 0) return;
-    var step;
-    if (sVal < 20) { step = 1; }
-    else if (sVal <= 50) { step = 2; }
-    else { step = 5; }
+  var contextAlerts = hasResult ? generateContextAlerts() : [];
 
-    var atm = Math.round(sVal / step) * step;
-    var newLegs = [];
-    var nid = nextLegId;
-
-    function mkLeg(tp, dir, sk, q) {
-      var p = (t > 0) ? bsPrice(sVal, sk, t, r, baseSigma, tp.toLowerCase()) : 0;
-      var lg = { id: nid, tipo: tp, direcao: dir, strike: sk.toFixed(2), premio: p.toFixed(2), qty: String(q || 100) };
-      nid = nid + 1;
-      return lg;
-    }
-
-    if (key === 'credit_call') {
-      // Bear Call Spread: sell call near ATM, buy call OTM
-      newLegs.push(mkLeg('CALL', 'venda', atm + step, 100));
-      newLegs.push(mkLeg('CALL', 'compra', atm + step * 2, 100));
-    } else if (key === 'credit_put') {
-      // Bull Put Spread: sell put near ATM, buy put OTM
-      newLegs.push(mkLeg('PUT', 'venda', atm - step, 100));
-      newLegs.push(mkLeg('PUT', 'compra', atm - step * 2, 100));
-    } else if (key === 'iron_condor') {
-      // Short Iron Condor: sell put + sell call near ATM, buy wings
-      newLegs.push(mkLeg('PUT', 'venda', atm - step, 100));
-      newLegs.push(mkLeg('PUT', 'compra', atm - step * 2, 100));
-      newLegs.push(mkLeg('CALL', 'venda', atm + step, 100));
-      newLegs.push(mkLeg('CALL', 'compra', atm + step * 2, 100));
-    } else if (key === 'straddle') {
-      // Short Straddle: sell call + put at ATM
-      newLegs.push(mkLeg('CALL', 'venda', atm, 100));
-      newLegs.push(mkLeg('PUT', 'venda', atm, 100));
-    } else if (key === 'strangle') {
-      // Short Strangle: sell OTM call + OTM put
-      newLegs.push(mkLeg('CALL', 'venda', atm + step, 100));
-      newLegs.push(mkLeg('PUT', 'venda', atm - step, 100));
-    } else if (key === 'butterfly') {
-      // Long Call Butterfly: buy 1 lower, sell 2 middle, buy 1 upper
-      newLegs.push(mkLeg('CALL', 'compra', atm - step, 100));
-      newLegs.push(mkLeg('CALL', 'venda', atm, 200));
-      newLegs.push(mkLeg('CALL', 'compra', atm + step, 100));
-    }
-
-    if (newLegs.length > 0) {
-      setLegs(newLegs);
-      setNextLegId(nid);
-      setActiveLeg(0);
-    }
+  // What-If scenarios — retorna objeto com dados completos
+  function calcScenario(pctMove, tipo) {
+    if (!hasResult) return null;
+    var newSpot = spot * (1 + pctMove);
+    var newT = Math.max(0.001, (dteVal - 5) / 365);
+    var newIV = applyIVSkew(ivVal, fk, newSpot, skewStrength);
+    var newPrice = priceFn(newSpot, fk, newT, r, newIV, tipo);
+    var theoNow = tipo === 'call' ? fCallMid : fPutMid;
+    var mktPrice = tipo === 'call' ? mcMid : mpMid;
+    var premioRef = mktPrice > 0 ? mktPrice : theoNow;
+    // P&L por opção (unitário): venda = recebeu - recompra; compra = valor_novo - pagou
+    var plVenda = premioRef - newPrice;
+    var plCompra = newPrice - premioRef;
+    return {
+      newSpot: newSpot,
+      newPrice: newPrice,
+      premioRef: premioRef,
+      plVenda: plVenda,
+      plCompra: plCompra,
+    };
   }
 
+  // Generate mini-table strikes (memoized)
+  var effectiveStep = tableStep === 'auto' ? getB3StrikeStep(spot, chainTicker) : parseFloat(tableStep);
+  var miniTableData = useMemo(function() {
+    if (!hasResult) return [];
+    var miniStep = effectiveStep;
+    var miniStrikes = [];
+    for (var ms = -5; ms <= 5; ms++) {
+      var msk = fk + ms * miniStep;
+      if (msk > 0) miniStrikes.push(msk);
+    }
+    // Always include the exact user strike
+    var hasExact = false;
+    for (var chk = 0; chk < miniStrikes.length; chk++) {
+      if (Math.abs(miniStrikes[chk] - fk) < 0.001) { hasExact = true; break; }
+    }
+    if (!hasExact) {
+      miniStrikes.push(fk);
+      miniStrikes.sort(function(a, b) { return a - b; });
+    }
+    // Compute all data
+    var rows = [];
+    for (var ri = 0; ri < miniStrikes.length; ri++) {
+      var msk2 = miniStrikes[ri];
+      var mIV = applyIVSkew(ivVal, msk2, spot, skewStrength);
+      var mCallG = bsGreeks(spot, msk2, tYears, r, mIV, 'call');
+      var mPutG = bsGreeks(spot, msk2, tYears, r, mIV, 'put');
+      rows.push({
+        sk: msk2,
+        isUser: Math.abs(msk2 - fk) < 0.001,
+        isAtm: Math.abs(msk2 - spot) / spot < 0.01,
+        callP: priceFn(spot, msk2, tYears, r, mIV, 'call'),
+        putP: priceFn(spot, msk2, tYears, r, mIV, 'put'),
+        callDelta: mCallG.delta,
+        putDelta: mPutG.delta,
+        callTheta: mCallG.theta,
+        putTheta: mPutG.theta,
+        callGamma: mCallG.gamma,
+        putGamma: mPutG.gamma,
+        callVega: mCallG.vega,
+        putVega: mPutG.vega,
+        iv: mIV,
+      });
+    }
+    return rows;
+  }, [spot, fk, ivVal, tYears, r, skewStrength, optionStyle, chainTicker, effectiveStep]);
+
+  // AI Analysis handler
   function handleAiAnalysis() {
     if (aiLoading) return;
-    if (sVal <= 0 || kVal <= 0) return;
+    if (spot <= 0 || fk <= 0) return;
 
-    // Find matching position for context
-    // Priority: 1) ticker from simParams, 2) match by spot price, 3) none
     var basePos = null;
-    if (simParams && simParams.ticker) {
+    if (chainTicker) {
       for (var pi = 0; pi < positions.length; pi++) {
-        if (positions[pi].ticker && positions[pi].ticker.toUpperCase() === simParams.ticker.toUpperCase()) {
-          basePos = positions[pi];
-          break;
-        }
-      }
-    }
-    if (!basePos) {
-      // Try to match by spot price (closest match within 1%)
-      var bestDiff = Infinity;
-      for (var pi2 = 0; pi2 < positions.length; pi2++) {
-        var posPrice = positions[pi2].preco_atual || positions[pi2].pm || 0;
-        if (posPrice > 0) {
-          var diff = Math.abs(posPrice - sVal) / posPrice;
-          if (diff < 0.01 && diff < bestDiff) {
-            bestDiff = diff;
-            basePos = positions[pi2];
-          }
+        if (positions[pi].ticker && positions[pi].ticker.toUpperCase() === chainTicker.toUpperCase()) {
+          basePos = positions[pi]; break;
         }
       }
     }
 
-    // Find matching indicators
     var tickerInd = null;
     if (basePos && basePos.ticker && indicatorsMap) {
       tickerInd = indicatorsMap[basePos.ticker.toUpperCase()] || null;
     }
 
-    // Build portfolio summary for context
     var portfolioSummary = [];
     var portfolioTotal = 0;
     for (var psi = 0; psi < positions.length; psi++) {
@@ -1317,58 +1567,44 @@ function SimuladorBS(props) {
       var posVal = (pos.preco_atual || pos.pm || 0) * (pos.quantidade || 0);
       portfolioTotal += posVal;
       if (pos.ticker) {
-        portfolioSummary.push({
-          ticker: pos.ticker,
-          qty: pos.quantidade || 0,
-          valor: Math.round(posVal),
-        });
+        portfolioSummary.push({ ticker: pos.ticker, qty: pos.quantidade || 0, valor: Math.round(posVal) });
       }
     }
 
-    // Build scenarios results
     var scenarioResults = [];
-    for (var si = 0; si < scenarios.length; si++) {
-      scenarioResults.push({
-        label: scenarios[si].label,
-        result: calcScenarioResult(scenarios[si].pctMove),
-      });
+    var scMoves = [0.05, -0.05, 0.10, -0.10];
+    for (var si = 0; si < scMoves.length; si++) {
+      var lbl = (scMoves[si] > 0 ? '+' : '') + (scMoves[si] * 100).toFixed(0) + '%';
+      var scn = calcScenario(scMoves[si], 'call');
+      scenarioResults.push({ label: lbl, result: scn ? scn.plVenda * 100 : 0 });
     }
 
-    // Build legs array for AI
-    var aiLegs = [];
-    for (var ali = 0; ali < legs.length; ali++) {
-      var aiLeg = legs[ali];
-      aiLegs.push({
-        tipo: aiLeg.tipo || 'CALL',
-        direcao: aiLeg.direcao || 'venda',
-        strike: parseFloat(aiLeg.strike) || 0,
-        premio: parseFloat(aiLeg.premio) || 0,
-        qty: parseInt(aiLeg.qty) || 0,
-      });
+    // Build strikes from mini-table
+    var availStrikes = [];
+    for (var avi = 0; avi < miniTableData.length; avi++) {
+      availStrikes.push(miniTableData[avi].sk);
     }
 
     var data = {
-      tipo: tipo,
-      direcao: direcao,
+      tipo: 'CALL',
+      direcao: 'venda',
       objetivo: aiObjetivo,
-      spot: sVal,
-      strike: kVal,
-      premio: pVal,
-      iv: sigma * 100,
-      dte: dVal,
-      qty: qVal,
-      legs: aiLegs,
+      spot: spot,
+      strike: fk,
+      premio: mcMid > 0 ? mcMid : fCallMid,
+      iv: fIV * 100,
+      dte: dteVal,
+      qty: 100,
       greeks: {
-        delta: netDelta,
-        gamma: netGamma,
-        theta: netTheta,
-        vega: netVega,
+        delta: fCallG.delta,
+        gamma: fCallG.gamma,
+        theta: fCallG.theta,
+        vega: fCallG.vega,
       },
-      netPremio: netPremio,
-      premioTotal: premioTotal,
-      bsTheoPrice: isMultiLeg ? netBsTheo : bsTheoPrice,
+      premioTotal: (mcMid > 0 ? mcMid : fCallMid) * 100,
+      bsTheoPrice: fCallMid,
       scenarios: scenarioResults,
-      selicRate: simSelicRate,
+      selicRate: chainSelicRate,
       indicators: tickerInd,
       position: basePos ? {
         ticker: basePos.ticker,
@@ -1378,6 +1614,10 @@ function SimuladorBS(props) {
       } : null,
       capital: aiCapital ? parseFloat(aiCapital.replace(/\./g, '').replace(',', '.')) : null,
       portfolio: portfolioSummary.length > 0 ? { ativos: portfolioSummary, total: Math.round(portfolioTotal) } : null,
+      availableStrikes: availStrikes.length > 0 ? availStrikes : null,
+      hvManual: hvInput ? parseFloat(hvInput) : null,
+      vwap: vwapInput ? parseFloat(vwapInput.replace(',', '.')) : null,
+      openInterest: oiInput ? parseAbrevNum(oiInput) : null,
     };
 
     setAiLoading(true);
@@ -1399,534 +1639,327 @@ function SimuladorBS(props) {
     });
   }
 
-  function renderField(label, val, setter, suffix) {
+  // ═══ Save/Load Analysis Handlers ═══
+  function buildSavePayload(includeAi) {
+    var calcState = {
+      strikeInput: strikeInput,
+      chainIV: chainIV,
+      chainDTE: chainDTE,
+      mktCallBid: mktCallBid,
+      mktCallAsk: mktCallAsk,
+      mktPutBid: mktPutBid,
+      mktPutAsk: mktPutAsk,
+      spotOverride: spotOverride,
+      tableStep: tableStep,
+      optionStyle: optionStyle,
+      skewSel: skewSel,
+      aiObjetivo: aiObjetivo,
+      aiCapital: aiCapital,
+      customTicker: customTicker,
+      customSpot: customSpot,
+      hvInput: hvInput,
+      vwapInput: vwapInput,
+      oiInput: oiInput,
+    };
+    var payload = {
+      ticker: (chainTicker || customTicker || '').toUpperCase().trim(),
+      strike: fk || null,
+      spot: spot || null,
+      iv: parseFloat(chainIV) || null,
+      dte: parseInt(chainDTE) || null,
+      option_style: optionStyle,
+      skew: skewSel,
+      objetivo: aiObjetivo,
+      capital: aiCapital ? parseFloat(aiCapital.replace(/\./g, '').replace(',', '.')) || null : null,
+      calculator_state: calcState,
+    };
+    if (includeAi && aiAnalysis) {
+      payload.ai_analysis = aiAnalysis;
+    }
+    return payload;
+  }
+
+  function handleSaveAnalysis(includeAi) {
+    if (!authUser || !authUser.id) return;
+    if (savingAnalysis) return;
+    var tk = (chainTicker || customTicker || '').toUpperCase().trim();
+    if (!tk) {
+      Toast.show({ type: 'error', text1: 'Selecione um ativo primeiro' });
+      return;
+    }
+    setSavingAnalysis(true);
+    var payload = buildSavePayload(includeAi);
+    addSavedAnalysis(authUser.id, payload).then(function(res) {
+      setSavingAnalysis(false);
+      if (res.error) {
+        Toast.show({ type: 'error', text1: 'Erro ao salvar', text2: res.error.message || '' });
+      } else {
+        if (res.data) {
+          var newList = [res.data];
+          for (var i = 0; i < savedList.length; i++) { newList.push(savedList[i]); }
+          setSavedList(newList);
+        }
+        Toast.show({ type: 'success', text1: 'Análise salva', text2: tk + (includeAi ? ' (com IA)' : '') });
+      }
+    }).catch(function() {
+      setSavingAnalysis(false);
+      Toast.show({ type: 'error', text1: 'Erro ao salvar análise' });
+    });
+  }
+
+  function handleLoadAnalysis(item) {
+    var cs = item.calculator_state || {};
+    // Ticker
+    var tk = (item.ticker || '').toUpperCase().trim();
+    if (tk && tk !== (chainTicker || '').toUpperCase().trim()) {
+      if (tickerSpots[tk]) {
+        setChainTicker(tk);
+      } else if (cs.customSpot) {
+        setCustomTicker(tk);
+        setCustomSpot(cs.customSpot);
+        tickerSpots[tk] = parseFloat(cs.customSpot) || 0;
+        if (tickers.indexOf(tk) === -1) tickers.push(tk);
+        setChainTicker(tk);
+      } else {
+        setChainTicker(tk);
+      }
+    }
+    // Restore calculator fields
+    if (cs.strikeInput !== undefined) setStrikeInput(cs.strikeInput);
+    if (cs.chainIV !== undefined) setChainIV(cs.chainIV);
+    if (cs.chainDTE !== undefined) setChainDTE(cs.chainDTE);
+    if (cs.optionStyle !== undefined) setOptionStyle(cs.optionStyle);
+    if (cs.skewSel !== undefined) setSkewSel(cs.skewSel);
+    if (cs.spotOverride !== undefined) setSpotOverride(cs.spotOverride);
+    if (cs.tableStep !== undefined) setTableStep(cs.tableStep);
+    if (cs.mktCallBid !== undefined) setMktCallBid(cs.mktCallBid);
+    if (cs.mktCallAsk !== undefined) setMktCallAsk(cs.mktCallAsk);
+    if (cs.mktPutBid !== undefined) setMktPutBid(cs.mktPutBid);
+    if (cs.mktPutAsk !== undefined) setMktPutAsk(cs.mktPutAsk);
+    if (cs.aiObjetivo !== undefined) setAiObjetivo(cs.aiObjetivo);
+    if (cs.aiCapital !== undefined) setAiCapital(cs.aiCapital);
+    if (cs.hvInput !== undefined) setHvInput(cs.hvInput);
+    if (cs.vwapInput !== undefined) setVwapInput(cs.vwapInput);
+    if (cs.oiInput !== undefined) setOiInput(cs.oiInput);
+    // Restore AI analysis if present — open modal to show it
+    if (item.ai_analysis) {
+      setAiAnalysis(item.ai_analysis);
+      setAiModalOpen(true);
+    }
+    setShowSavedDD(false);
+    Toast.show({ type: 'success', text1: 'Análise carregada', text2: tk + (item.strike ? ' @ ' + Number(item.strike).toFixed(2) : '') });
+  }
+
+  function handleDeleteAnalysis(id) {
+    Alert.alert('Excluir análise', 'Tem certeza que deseja excluir esta análise salva?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Excluir', style: 'destructive', onPress: function() {
+        if (!authUser || !authUser.id) return;
+        deleteSavedAnalysis(authUser.id, id).then(function(res) {
+          if (res.error) {
+            Toast.show({ type: 'error', text1: 'Erro ao excluir' });
+          } else {
+            var filtered = [];
+            for (var i = 0; i < savedList.length; i++) {
+              if (savedList[i].id !== id) filtered.push(savedList[i]);
+            }
+            setSavedList(filtered);
+            Toast.show({ type: 'success', text1: 'Análise excluída' });
+          }
+        });
+      }},
+    ]);
+  }
+
+  function formatSavedDate(dateStr) {
+    if (!dateStr) return '';
+    var d = new Date(dateStr);
+    var day = d.getDate(); if (day < 10) day = '0' + day;
+    var month = d.getMonth() + 1; if (month < 10) month = '0' + month;
+    var hrs = d.getHours(); if (hrs < 10) hrs = '0' + hrs;
+    var mins = d.getMinutes(); if (mins < 10) mins = '0' + mins;
+    return day + '/' + month + ' ' + hrs + ':' + mins;
+  }
+
+  // Render helpers
+  function renderMktInput(label, val, setter, color) {
     return (
-      <View style={styles.simField}>
-        <Text style={styles.simFieldLabel}>{label}</Text>
-        <View style={styles.simFieldInput}>
-          <TextInput value={val} onChangeText={setter} keyboardType="numeric"
-            style={styles.simFieldText} placeholderTextColor={C.dim} />
-          {suffix ? <Text style={styles.simFieldSuffix}>{suffix}</Text> : null}
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, textAlign: 'center', marginBottom: 2 }}>{label}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderRadius: 6, borderWidth: 1, borderColor: color + '30', paddingHorizontal: 6, height: 34 }}>
+          <TextInput value={val} onChangeText={setter} keyboardType="decimal-pad" placeholder="0.00"
+            placeholderTextColor={C.dim}
+            style={{ flex: 1, fontSize: 13, color: C.text, fontFamily: F.mono, padding: 0, textAlign: 'center' }} />
         </View>
+      </View>
+    );
+  }
+
+  function renderAnalysisBadge(analysis) {
+    if (!analysis) return null;
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 6, backgroundColor: analysis.verdictColor + '18' }}>
+        <Ionicons name={analysis.icon} size={14} color={analysis.verdictColor} />
+        <Text style={{ fontSize: 12, fontWeight: '800', color: analysis.verdictColor, fontFamily: F.display }}>{analysis.verdict}</Text>
+        <Text style={{ fontSize: 11, color: analysis.verdictColor + 'CC', fontFamily: F.mono }}>
+          {(analysis.diffPct >= 0 ? '+' : '') + analysis.diffPct.toFixed(1) + '%'}
+        </Text>
+      </View>
+    );
+  }
+
+  function renderOptionCard(tipo, theoMid, theoG, theoBA, mktMid, analysis, mktIV, color) {
+    return (
+      <View style={{ padding: 10, borderRadius: 10, backgroundColor: color + '06', borderWidth: 1, borderColor: color + '18', gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Badge text={tipo} color={color} />
+            <Text style={[{ fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.mono }, ps]}>{'BS R$ ' + fmt(theoMid)}</Text>
+          </View>
+          {analysis ? renderAnalysisBadge(analysis) : null}
+        </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+          <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>{'Δ ' + theoG.delta.toFixed(2)}</Text>
+          <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>{'Γ ' + theoG.gamma.toFixed(4)}</Text>
+          <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>{'Θ ' + theoG.theta.toFixed(4)}</Text>
+          <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>{'ν ' + theoG.vega.toFixed(4)}</Text>
+        </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+          <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>{'Bid R$ ' + fmt(theoBA.bid)}</Text>
+          <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>{'Ask R$ ' + fmt(theoBA.ask)}</Text>
+          <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>{'Spread R$ ' + fmt(theoBA.ask - theoBA.bid)}</Text>
+        </View>
+        {analysis ? (
+          <View style={{ gap: 4, paddingTop: 6, borderTopWidth: 1, borderTopColor: color + '12' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>Mercado (mid)</Text>
+              <Text style={[{ fontSize: 14, fontWeight: '700', color: analysis.verdictColor, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(mktMid)}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>Diferença</Text>
+              <Text style={[{ fontSize: 12, fontWeight: '600', color: analysis.verdictColor, fontFamily: F.mono }, ps]}>
+                {(analysis.diff >= 0 ? '+' : '') + 'R$ ' + fmt(Math.abs(analysis.diff)) + ' (' + (analysis.diffPct >= 0 ? '+' : '') + analysis.diffPct.toFixed(1) + '%)'}
+              </Text>
+            </View>
+            {mktIV > 0 ? (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>VI Mercado</Text>
+                <Text style={[{ fontSize: 12, fontWeight: '600', color: C.opcoes, fontFamily: F.mono }, ps]}>
+                  {(mktIV * 100).toFixed(1) + '% (modelo ' + (fIV * 100).toFixed(1) + '%)'}
+                </Text>
+              </View>
+            ) : null}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 5, marginTop: 2, padding: 6, borderRadius: 6, backgroundColor: analysis.verdictColor + '08' }}>
+              <Ionicons name="bulb-outline" size={13} color={analysis.verdictColor} style={{ marginTop: 1 }} />
+              <Text style={{ flex: 1, fontSize: 12, color: analysis.verdictColor, fontFamily: F.body, lineHeight: 17 }}>
+                {analysis.suggestion}
+              </Text>
+            </View>
+          </View>
+        ) : null}
       </View>
     );
   }
 
   return (
     <View style={{ gap: SIZE.gap }}>
-      {/* Tutorial button */}
-      <TouchableOpacity activeOpacity={0.7} onPress={function() { setTutStep(0); }}
-        accessibilityRole="button" accessibilityLabel="Tutorial do simulador"
-        style={{
-          flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-          paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10,
-          backgroundColor: C.opcoes + '12', borderWidth: 1, borderColor: C.opcoes + '30',
-        }}>
-        <Ionicons name="school-outline" size={16} color={C.opcoes} />
-        <Text style={{ fontSize: 13, fontWeight: '700', color: C.opcoes, fontFamily: F.display }}>Como Simular e Analisar</Text>
-      </TouchableOpacity>
-
-      {/* Leg Cards */}
-      {legs.length > 0 ? (
-        <View style={{ gap: 6 }}>
-          {legs.map(function(lg, idx) {
-            var isActive = idx === activeLeg;
-            var lgTipo = lg.tipo || 'CALL';
-            var lgDir = lg.direcao || 'venda';
-            var lgStrike = lg.strike || '—';
-            var lgPremio = lg.premio || '—';
-            var lgQty = lg.qty || '100';
+      {/* Ticker selector + saved analyses button */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 }}>ATIVO</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}
+          contentContainerStyle={{ gap: 5, paddingRight: 8 }}>
+          {tickers.map(function(tk) {
+            var isActive = chainTicker === tk && !showCustom;
             return (
-              <TouchableOpacity key={lg.id} activeOpacity={0.7}
-                onPress={function() { setActiveLeg(idx); }}
-                style={{
-                  flexDirection: 'row', alignItems: 'center', gap: 8,
-                  paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10,
-                  backgroundColor: isActive ? C.opcoes + '15' : 'rgba(255,255,255,0.03)',
-                  borderWidth: 1.5, borderColor: isActive ? C.opcoes : C.border,
-                }}>
-                <Text style={{ fontSize: 12, fontWeight: '800', color: C.dim, fontFamily: F.mono, width: 18 }}>{'#' + (idx + 1)}</Text>
-                <Badge text={lgTipo} color={lgTipo === 'CALL' ? C.green : C.red} />
-                <Badge text={lgDir === 'venda' ? 'V' : 'C'} color={lgDir === 'venda' ? C.etfs : C.rf} />
-                <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono, flex: 1 }}>
-                  {'K ' + lgStrike + ' | P ' + lgPremio + ' | x' + lgQty}
-                </Text>
-                {legs.length > 1 ? (
-                  <TouchableOpacity hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    onPress={function() { removeLeg(idx); }}>
-                    <Ionicons name="close-circle" size={18} color={C.red + '80'} />
-                  </TouchableOpacity>
-                ) : null}
+              <TouchableOpacity key={tk} activeOpacity={0.7}
+                onPress={function() { handleTickerChange(tk); }}
+                style={{ paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
+                  backgroundColor: isActive ? C.acoes + '25' : C.card,
+                  borderWidth: 1, borderColor: isActive ? C.acoes : C.border }}>
+                <Text style={{ fontSize: 12, fontWeight: isActive ? '700' : '500',
+                  color: isActive ? C.acoes : C.sub, fontFamily: F.mono }}>{tk}</Text>
               </TouchableOpacity>
             );
           })}
           <TouchableOpacity activeOpacity={0.7}
-            onPress={function() { addLeg({ tipo: 'CALL', direcao: 'venda' }); }}
-            style={{
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-              paddingVertical: 8, borderRadius: 10,
-              backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: C.border, borderStyle: 'dashed',
-            }}>
-            <Ionicons name="add-circle-outline" size={16} color={C.opcoes} />
-            <Text style={{ fontSize: 12, fontWeight: '600', color: C.opcoes, fontFamily: F.body }}>Adicionar Perna</Text>
+            onPress={function() { setShowCustom(true); setChainTicker(null); }}
+            style={{ paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
+              backgroundColor: showCustom ? C.opcoes + '25' : C.card,
+              borderWidth: 1, borderColor: showCustom ? C.opcoes : C.border }}>
+            <Text style={{ fontSize: 12, fontWeight: showCustom ? '700' : '500',
+              color: showCustom ? C.opcoes : C.sub, fontFamily: F.mono }}>+ Outro</Text>
           </TouchableOpacity>
-        </View>
-      ) : null}
-
-      {/* Strategy Presets */}
-      <View style={{ gap: 6 }}>
-        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, fontWeight: '600' }}>ESTRATÉGIAS PRONTAS</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -4 }}
-          contentContainerStyle={{ paddingHorizontal: 4, gap: 6 }}>
-          {[
-            { key: 'credit_call', label: 'Credit Call' },
-            { key: 'credit_put', label: 'Credit Put' },
-            { key: 'iron_condor', label: 'Iron Condor' },
-            { key: 'straddle', label: 'Straddle' },
-            { key: 'strangle', label: 'Strangle' },
-            { key: 'butterfly', label: 'Butterfly' },
-          ].map(function(preset) {
-            return (
-              <TouchableOpacity key={preset.key} activeOpacity={0.7}
-                onPress={function() { applyPreset(preset.key); }}
-                style={{
-                  paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8,
-                  backgroundColor: C.accent + '12', borderWidth: 1, borderColor: C.accent + '30',
-                }}>
-                <Text style={{ fontSize: 11, fontWeight: '600', color: C.accent, fontFamily: F.body }}>{preset.label}</Text>
-              </TouchableOpacity>
-            );
-          })}
         </ScrollView>
+        {/* Saved analyses toggle */}
+        <TouchableOpacity activeOpacity={0.7}
+          onPress={function() { setShowSavedDD(!showSavedDD); }}
+          accessibilityRole="button" accessibilityLabel="Análises salvas"
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingVertical: 5, paddingHorizontal: 8, borderRadius: 6,
+            backgroundColor: showSavedDD ? C.accent + '25' : C.card,
+            borderWidth: 1, borderColor: showSavedDD ? C.accent : C.border }}>
+          <Ionicons name={showSavedDD ? 'bookmark' : 'bookmark-outline'} size={14} color={showSavedDD ? C.accent : C.sub} />
+          {savedList.length > 0 ? (
+            <View style={{ backgroundColor: C.accent, borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff', fontFamily: F.mono }}>{savedList.length}</Text>
+            </View>
+          ) : null}
+        </TouchableOpacity>
       </View>
 
-      {/* Tipo + Direcao (edits active leg) */}
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <View style={{ flex: 1, flexDirection: 'row', gap: 6 }}>
-          {['CALL', 'PUT'].map(function(tp) {
-            return <Pill key={tp} active={tipo === tp} color={tp === 'CALL' ? C.green : C.red} onPress={function() { updateLeg(activeLeg, 'tipo', tp); }}>{tp}</Pill>;
-          })}
-        </View>
-        <View style={{ flex: 1, flexDirection: 'row', gap: 6 }}>
-          <Pill active={direcao === 'venda'} color={C.accent} onPress={function() { updateLeg(activeLeg, 'direcao', 'venda'); }}>Venda</Pill>
-          <Pill active={direcao === 'compra'} color={C.accent} onPress={function() { updateLeg(activeLeg, 'direcao', 'compra'); }}>Compra</Pill>
-        </View>
-      </View>
-
-      {/* Inputs */}
-      <Glass padding={14}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-          <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, fontWeight: '600' }}>PARÂMETROS</Text>
-          <TouchableOpacity hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            onPress={function() { setInfoModal({ title: 'Parâmetros da Simulação', text: 'Spot: preço atual do ativo-objeto no mercado.\n\nStrike: preço de exercício da opção.\n\nPrêmio: valor pago (compra) ou recebido (venda) por opção.\n\nIV: volatilidade implícita — quanto o mercado espera que o ativo oscile. Maior IV = opção mais cara.\n\nDTE: dias até o vencimento. Quanto menor, mais rápido o theta come o prêmio.\n\nQtd: número total de opções (100 opções = 1 contrato).' }); }}>
-            <Ionicons name="information-circle-outline" size={14} color={C.accent} />
-          </TouchableOpacity>
-        </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-          {renderField('Spot', spot, setSpot, 'R$')}
-          {renderField('Strike', strike, function(v) { updateLeg(activeLeg, 'strike', v); }, 'R$')}
-          {renderField('Prêmio', premio, function(v) { updateLeg(activeLeg, 'premio', v); }, 'R$')}
-          {renderField('IV', ivInput, setIvInput, '%')}
-          {renderField('DTE', dte, setDte, 'dias')}
-          {renderField('Qtd', qty, function(v) { updateLeg(activeLeg, 'qty', v); })}
-        </View>
-      </Glass>
-
-      {/* Gregas */}
-      <Glass glow={C.opcoes} padding={14}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-          <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>GREGAS (BLACK-SCHOLES)</Text>
-          <TouchableOpacity hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            onPress={function() { setInfoModal({ title: 'Gregas (Black-Scholes)', text: 'Delta: quanto o preço da opção muda para cada R$1 do ativo. Delta 0.30 = opção sobe R$0.30 se ativo subir R$1.\n\nGamma: aceleração do delta. Gamma alto perto do strike e vencimento.\n\nTheta: perda de valor por dia (time decay). Favorece vendedores.\n\nVega: sensibilidade à volatilidade. Se IV subir 1%, preço da opção sobe ~Vega reais.' }); }}>
-            <Ionicons name="information-circle-outline" size={14} color={C.accent} />
-          </TouchableOpacity>
-        </View>
-        {isMultiLeg ? (
-          <Text style={{ fontSize: 10, color: C.opcoes, fontFamily: F.mono, textAlign: 'center', marginBottom: 4 }}>
-            {'Posição líquida (' + legs.length + ' pernas)'}
-          </Text>
-        ) : null}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: 8 }}>
-          {[
-            { l: 'Delta', v: fmtGreek(isMultiLeg ? netDelta : greeks.delta), c: Math.abs(isMultiLeg ? netDelta : greeks.delta) > (isMultiLeg ? 10 : 0.5) ? C.green : C.sub },
-            { l: 'Gamma', v: fmtGreek(isMultiLeg ? netGamma : greeks.gamma), c: C.sub },
-            { l: 'Theta', v: fmtGreek(isMultiLeg ? netTheta : greeks.theta), c: (isMultiLeg ? netTheta : greeks.theta) > 0 ? C.green : C.red },
-            { l: 'Vega', v: fmtGreek(isMultiLeg ? netVega : greeks.vega), c: C.acoes },
-          ].map(function(g, i) {
-            return (
-              <View key={i} style={{ alignItems: 'center' }}>
-                <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{g.l}</Text>
-                <Text style={[{ fontSize: 18, fontWeight: '800', color: g.c, fontFamily: F.display }, ps]}>{g.v}</Text>
-              </View>
-            );
-          })}
-        </View>
-        {/* IV + BS Price */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: 10, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 8 }}>
-          <View style={{ alignItems: 'center' }}>
-            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>IV IMPLÍCITA</Text>
-            <Text style={[{ fontSize: 14, fontWeight: '700', color: C.opcoes, fontFamily: F.mono }, ps]}>{(sigma * 100).toFixed(1)}%</Text>
+      {/* Saved analyses dropdown */}
+      {showSavedDD ? (
+        <Glass padding={12}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <Ionicons name="bookmark" size={14} color={C.accent} />
+            <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>ANÁLISES SALVAS</Text>
           </View>
-          {isMultiLeg ? (
-            <View style={{ alignItems: 'center' }}>
-              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{netPremio >= 0 ? 'CRÉDITO LÍQ.' : 'DÉBITO LÍQ.'}</Text>
-              <Text style={[{ fontSize: 14, fontWeight: '700', color: netPremio >= 0 ? C.green : C.red, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(Math.abs(netPremio))}</Text>
-            </View>
+          {savedList.length === 0 ? (
+            <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.body, textAlign: 'center', paddingVertical: 12 }}>
+              Nenhuma análise salva ainda
+            </Text>
           ) : (
-            <View style={{ alignItems: 'center' }}>
-              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>PREÇO BS</Text>
-              <Text style={[{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(bsTheoPrice)}</Text>
+            <View style={{ gap: 6 }}>
+              {savedList.map(function(item) {
+                return (
+                  <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8,
+                    padding: 8, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: C.border }}>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.mono }}>{item.ticker}</Text>
+                        {item.strike ? (
+                          <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>{'@ ' + Number(item.strike).toFixed(2)}</Text>
+                        ) : null}
+                        {item.ai_analysis ? (
+                          <View style={{ backgroundColor: C.accent + '25', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                            <Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>IA</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>
+                        {formatSavedDate(item.created_at) + (item.dte ? ' | DTE ' + item.dte + 'd' : '') + (item.option_style ? ' | ' + (item.option_style === 'americana' ? 'Amer.' : 'Eur.') : '')}
+                      </Text>
+                    </View>
+                    <TouchableOpacity activeOpacity={0.7}
+                      onPress={function() { handleLoadAnalysis(item); }}
+                      accessibilityRole="button" accessibilityLabel={'Carregar análise de ' + item.ticker}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      style={{ padding: 6, borderRadius: 6, backgroundColor: C.accent + '15' }}>
+                      <Ionicons name="download-outline" size={16} color={C.accent} />
+                    </TouchableOpacity>
+                    <TouchableOpacity activeOpacity={0.7}
+                      onPress={function() { handleDeleteAnalysis(item.id); }}
+                      accessibilityRole="button" accessibilityLabel={'Excluir análise de ' + item.ticker}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      style={{ padding: 6, borderRadius: 6, backgroundColor: C.red + '15' }}>
+                      <Ionicons name="trash-outline" size={16} color={C.red} />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
             </View>
           )}
-          {isMultiLeg ? (
-            <View style={{ alignItems: 'center' }}>
-              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>THETA/DIA</Text>
-              <Text style={[{ fontSize: 14, fontWeight: '700', color: netTheta > 0 ? C.green : C.red, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(netTheta)}</Text>
-            </View>
-          ) : (
-            <View style={{ alignItems: 'center' }}>
-              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>MERCADO</Text>
-              <Text style={[{ fontSize: 14, fontWeight: '700', color: bsTheoPrice > pVal ? C.green : C.red, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(pVal)}</Text>
-            </View>
-          )}
-        </View>
-      </Glass>
-
-      {/* Payoff Chart */}
-      {sVal > 0 && kVal > 0 && pVal > 0 ? (
-        <Glass padding={14}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <SectionLabel>PAYOFF NO VENCIMENTO</SectionLabel>
-            <TouchableOpacity hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              onPress={function() { setInfoModal({ title: 'Gráfico de Payoff', text: isMultiLeg
-                ? 'Mostra o lucro ou prejuízo combinado de todas as pernas no vencimento.\n\nÁrea verde = faixa de lucro\nÁrea vermelha = faixa de prejuízo\nLinhas tracejadas = breakevens (equilíbrios)\nLinha pontilhada = spot (preço atual)\n\nToque no gráfico e arraste para ver o P&L exato em cada ponto.'
-                : 'Mostra o lucro ou prejuízo no vencimento para cada preço possível do ativo.\n\nÁrea verde = faixa de lucro\nÁrea vermelha = faixa de prejuízo\nLinha tracejada = breakeven (equilíbrio)\nLinha pontilhada = spot (preço atual)\n\nToque no gráfico e arraste para ver o P&L exato em cada ponto.\n\nVenda de CALL: lucro máximo limitado ao prêmio, risco ilimitado acima do strike + prêmio.\nVenda de PUT (CSP): lucro = prêmio, risco = strike ir a zero.\nCompra: prejuízo máximo = prêmio pago.' }); }}>
-              <Ionicons name="information-circle-outline" size={14} color={C.accent} />
-            </TouchableOpacity>
-          </View>
-          <Sensitive>
-          <View style={{ marginTop: 8 }}>
-            <PayoffChart
-              legs={legs}
-              tipo={tipoLower}
-              direcao={direcao}
-              strike={kVal}
-              premio={pVal}
-              quantidade={qVal}
-              spotPrice={sVal}
-            />
-          </View>
-          </Sensitive>
         </Glass>
       ) : null}
-
-      {/* Resumo */}
-      <Glass padding={14}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <SectionLabel>RESUMO</SectionLabel>
-          <TouchableOpacity hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            onPress={function() { setInfoModal({ title: 'Resumo da Simulação', text: isMultiLeg
-              ? 'Crédito/Débito líquido: soma dos prêmios de todas as pernas (venda = crédito, compra = débito).\n\nTheta/dia: ganho (positivo) ou perda (negativo) diário pelo time decay da posição combinada.\n\nContratos: total de opções em todas as pernas.'
-              : 'Prêmio total: valor total recebido (venda) ou pago (compra) = prêmio x quantidade.\n\nTheta/dia: quanto você ganha (venda) ou perde (compra) por dia pelo time decay.\n\nBreakeven: preço do ativo onde você não ganha nem perde no vencimento.\n\nContratos: cada contrato = 100 opções na B3.' }); }}>
-            <Ionicons name="information-circle-outline" size={14} color={C.accent} />
-          </TouchableOpacity>
-        </View>
-        <View style={{ gap: 6, marginTop: 6 }}>
-          {isMultiLeg ? (
-            [
-              { l: netPremio >= 0 ? 'Crédito líquido' : 'Débito líquido', v: 'R$ ' + fmt(Math.abs(netPremio)), c: netPremio >= 0 ? C.green : C.red },
-              { l: 'Theta/dia', v: 'R$ ' + fmt(netTheta), c: netTheta > 0 ? C.green : C.red },
-              { l: 'Pernas', v: legs.length + ' pernas', c: C.text },
-              { l: 'Total opções', v: totalQty + ' (' + contratos + ' contratos)', c: C.text },
-            ].map(function(rr, i) {
-              return (
-                <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
-                  <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body }}>{rr.l}</Text>
-                  <Text style={[{ fontSize: 14, fontWeight: '600', color: rr.c || C.text, fontFamily: F.mono }, ps]}>{rr.v}</Text>
-                </View>
-              );
-            })
-          ) : (
-            [
-              { l: 'Prêmio total', v: 'R$ ' + fmt(premioTotal) },
-              { l: 'Theta/dia', v: 'R$ ' + fmt(greeks.theta * qVal) },
-              { l: 'Breakeven', v: 'R$ ' + fmt(tipoLower === 'call' ? kVal + pVal : kVal - pVal) },
-              { l: 'Contratos', v: contratos + ' (' + qVal + ' opções)' },
-            ].map(function(rr, i) {
-              return (
-                <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
-                  <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body }}>{rr.l}</Text>
-                  <Text style={[{ fontSize: 14, fontWeight: '600', color: C.text, fontFamily: F.mono }, ps]}>{rr.v}</Text>
-                </View>
-              );
-            })
-          )}
-        </View>
-      </Glass>
-
-      {/* What-If Scenarios */}
-      <Glass glow={C.etfs} padding={14}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <SectionLabel>CENÁRIOS WHAT-IF</SectionLabel>
-          <TouchableOpacity hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            onPress={function() { setInfoModal({ title: 'Cenários What-If', text: 'Simula o resultado da operação se o ativo subir ou cair 5% ou 10%.\n\nO cálculo usa Black-Scholes com o novo preço do ativo e DTE reduzido em 5 dias (simulando passagem de tempo).\n\nValor positivo (verde) = lucro no cenário.\nValor negativo (vermelho) = prejuízo no cenário.\n\nUse para avaliar o risco/retorno antes de abrir a operação.' }); }}>
-            <Ionicons name="information-circle-outline" size={14} color={C.accent} />
-          </TouchableOpacity>
-        </View>
-        <View style={{ gap: 6, marginTop: 8 }}>
-          {scenarios.map(function(sc, i) {
-            var result = calcScenarioResult(sc.pctMove);
-            var isPos = result >= 0;
-            var scColor = isPos ? C.green : C.red;
-            return (
-              <View key={i} style={{
-                flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-                padding: 10, borderRadius: 8,
-                backgroundColor: scColor + '06', borderWidth: 1, borderColor: scColor + '14',
-              }}>
-                <Text style={{ fontSize: 12, fontWeight: '600', color: C.text, fontFamily: F.display }}>
-                  {'Ativo ' + sc.label}
-                </Text>
-                <Text style={[{ fontSize: 13, fontWeight: '700', color: scColor, fontFamily: F.mono }, ps]}>
-                  {isPos ? '+' : ''}R$ {fmt(Math.abs(result))}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-      </Glass>
-
-      {/* AI Objective + Button */}
-      <Glass padding={14}>
-        <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, letterSpacing: 0.8, fontWeight: '600', marginBottom: 8 }}>OBJETIVO DA ANÁLISE</Text>
-        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-          {[
-            { key: 'renda', label: 'Renda', icon: 'cash-outline' },
-            { key: 'protecao', label: 'Proteção', icon: 'shield-outline' },
-            { key: 'especulacao', label: 'Especulação', icon: 'trending-up-outline' },
-          ].map(function(obj) {
-            var sel = aiObjetivo === obj.key;
-            return (
-              <TouchableOpacity key={obj.key} activeOpacity={0.7}
-                onPress={function() { setAiObjetivo(obj.key); }}
-                style={{
-                  flexDirection: 'row', alignItems: 'center', gap: 5,
-                  paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10,
-                  backgroundColor: sel ? C.accent + '25' : 'transparent',
-                  borderWidth: 1, borderColor: sel ? C.accent : C.border,
-                }}>
-                <Ionicons name={obj.icon} size={14} color={sel ? C.accent : C.dim} />
-                <Text style={{ fontSize: 12, fontWeight: sel ? '700' : '500', color: sel ? C.accent : C.sub, fontFamily: F.body }}>
-                  {obj.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 }}>
-          <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, letterSpacing: 0.8, fontWeight: '600' }}>CAPITAL</Text>
-          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderRadius: 8, borderWidth: 1, borderColor: C.border, paddingHorizontal: 10, height: 36 }}>
-            <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono, marginRight: 4 }}>R$</Text>
-            <TextInput
-              value={aiCapital}
-              onChangeText={setAiCapital}
-              keyboardType="numeric"
-              placeholder="opcional"
-              placeholderTextColor={C.dim}
-              style={{ flex: 1, fontSize: 13, color: C.text, fontFamily: F.mono, padding: 0 }}
-            />
-          </View>
-          <InfoTip text="Informe seu capital disponível para opções. A IA avaliará se o tamanho da posição é adequado e sugerirá sizing." size={13} />
-        </View>
-      </Glass>
-
-      <TouchableOpacity
-        activeOpacity={0.7}
-        disabled={aiLoading || sVal <= 0 || kVal <= 0}
-        onPress={handleAiAnalysis}
-        accessibilityRole="button"
-        accessibilityLabel="Analisar operação com inteligência artificial"
-        style={{
-          flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-          gap: 8, paddingVertical: 14, borderRadius: SIZE.radius,
-          backgroundColor: C.accent + '18', borderWidth: 1, borderColor: C.accent + '40',
-          opacity: (aiLoading || sVal <= 0 || kVal <= 0) ? 0.5 : 1,
-        }}>
-        {aiLoading ? (
-          <ActivityIndicator size="small" color={C.accent} />
-        ) : (
-          <Ionicons name="sparkles-outline" size={18} color={C.accent} />
-        )}
-        <Text style={{ fontSize: 14, fontWeight: '700', color: C.accent, fontFamily: F.display }}>
-          {aiLoading ? 'Analisando...' : 'Analisar com IA'}
-        </Text>
-      </TouchableOpacity>
-
-      {/* AI Error */}
-      {aiError ? (
-        <View style={{ padding: 10, borderRadius: 10, backgroundColor: C.red + '10', borderWidth: 1, borderColor: C.red + '25' }}>
-          <Text style={{ fontSize: 12, color: C.red, fontFamily: F.body, textAlign: 'center' }}>{aiError}</Text>
-        </View>
-      ) : null}
-
-      {/* AI Analysis Modal */}
-      <Modal visible={aiModalOpen} animationType="slide" transparent={false}
-        onRequestClose={function() { setAiModalOpen(false); }}>
-        <AiAnalysisModal analysis={aiAnalysis} onClose={function() { setAiModalOpen(false); }} />
-      </Modal>
-
-    </View>
-  );
-}
-
-// ═══════════════════════════════════════
-// CADEIA SINTETICA (BS)
-// ═══════════════════════════════════════
-function CadeiaSintetica(props) {
-  var ps = usePrivacyStyle();
-  var positions = props.positions || [];
-  var indicatorsMap = props.indicators || {};
-  var chainSelicRate = props.selicRate || 13.25;
-  var onSelect = props.onSelect;
-
-  // Unique tickers with spot prices
-  var tickers = [];
-  var tickerSpots = {};
-  for (var ti = 0; ti < positions.length; ti++) {
-    var pt = positions[ti];
-    if (tickers.indexOf(pt.ticker) === -1) {
-      tickers.push(pt.ticker);
-      tickerSpots[pt.ticker] = pt.preco_atual || pt.pm || 0;
-    }
-  }
-
-  // Default IV from HV 20d if available
-  var defaultTicker = tickers.length > 0 ? tickers[0] : null;
-  var defaultIV = '35';
-  if (defaultTicker && indicatorsMap[defaultTicker] && indicatorsMap[defaultTicker].hv_20) {
-    defaultIV = String(Math.round(indicatorsMap[defaultTicker].hv_20));
-  }
-
-  var _chainTicker = useState(defaultTicker);
-  var chainTicker = _chainTicker[0]; var setChainTicker = _chainTicker[1];
-  var _chainIV = useState(defaultIV);
-  var chainIV = _chainIV[0]; var setChainIV = _chainIV[1];
-  var _chainDTE = useState('21');
-  var chainDTE = _chainDTE[0]; var setChainDTE = _chainDTE[1];
-  var _customTicker = useState(''); var customTicker = _customTicker[0]; var setCustomTicker = _customTicker[1];
-  var _customSpot = useState(''); var customSpot = _customSpot[0]; var setCustomSpot = _customSpot[1];
-  var _showCustom = useState(false); var showCustom = _showCustom[0]; var setShowCustom = _showCustom[1];
-  var _fetchingSpot = useState(false); var fetchingSpot = _fetchingSpot[0]; var setFetchingSpot = _fetchingSpot[1];
-  var _addLegMode = useState(false); var addLegMode = _addLegMode[0]; var setAddLegMode = _addLegMode[1];
-
-  // When ticker changes, update IV to that ticker's HV
-  var handleTickerChange = function(tk) {
-    setChainTicker(tk);
-    setShowCustom(false);
-    var newIV = '35';
-    if (indicatorsMap[tk] && indicatorsMap[tk].hv_20) {
-      newIV = String(Math.round(indicatorsMap[tk].hv_20));
-    }
-    setChainIV(newIV);
-    // Notify simulator of new ticker/spot
-    if (onSelect && tickerSpots[tk]) {
-      onSelect({
-        spot: tickerSpots[tk].toFixed(2),
-        iv: newIV,
-        ticker: tk,
-      });
-    }
-  };
-
-  var handleCustomApply = function() {
-    var tk = customTicker.toUpperCase().trim();
-    if (!tk) return;
-    var sp = parseFloat(customSpot);
-    if (!sp || sp <= 0) return;
-    tickerSpots[tk] = sp;
-    if (tickers.indexOf(tk) === -1) tickers.push(tk);
-    setChainTicker(tk);
-    setShowCustom(false);
-    setChainIV('35');
-    // Notify simulator of custom ticker/spot
-    if (onSelect) {
-      onSelect({
-        spot: sp.toFixed(2),
-        iv: '35',
-        ticker: tk,
-      });
-    }
-  };
-
-  var handleFetchCustomSpot = function() {
-    var tk = customTicker.toUpperCase().trim();
-    if (!tk || tk.length < 2) return;
-    setFetchingSpot(true);
-    fetchPrices([tk]).then(function(priceMap) {
-      var p = priceMap && priceMap[tk];
-      if (p && p.price) {
-        setCustomSpot(String(p.price.toFixed(2)));
-      }
-      setFetchingSpot(false);
-    }).catch(function() { setFetchingSpot(false); });
-  };
-
-  // Current ticker HV for badge
-  var currentHV = (chainTicker && indicatorsMap[chainTicker] && indicatorsMap[chainTicker].hv_20)
-    ? indicatorsMap[chainTicker].hv_20
-    : null;
-
-  var spot = tickerSpots[chainTicker] || 0;
-  var ivVal = (parseFloat(chainIV) || 35) / 100;
-  var dteVal = parseInt(chainDTE) || 21;
-  var tYears = dteVal / 365;
-  var r = chainSelicRate / 100;
-
-  // Generate strikes
-  var strikeStep;
-  if (spot < 20) { strikeStep = 1; }
-  else if (spot <= 50) { strikeStep = 2; }
-  else { strikeStep = 5; }
-
-  var centerStrike = Math.round(spot / strikeStep) * strikeStep;
-  var strikes = [];
-  for (var si = -5; si <= 5; si++) {
-    strikes.push(centerStrike + si * strikeStep);
-  }
-
-  // Find ATM strike (closest to spot)
-  var atmStrike = strikes[0];
-  var atmDiff = Math.abs(strikes[0] - spot);
-  for (var ai = 1; ai < strikes.length; ai++) {
-    var d = Math.abs(strikes[ai] - spot);
-    if (d < atmDiff) { atmDiff = d; atmStrike = strikes[ai]; }
-  }
-
-  function getSimpleMoneyness(tipo, strike, spotVal) {
-    if (!spotVal || spotVal <= 0) return 'OTM';
-    var diff = Math.abs(spotVal - strike) / strike * 100;
-    if (diff < 1) return 'ATM';
-    if (tipo === 'call') return spotVal > strike ? 'ITM' : 'OTM';
-    return spotVal < strike ? 'ITM' : 'OTM';
-  }
-
-  return (
-    <View style={{ gap: SIZE.gap }}>
-      {/* Ticker selector */}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-        {tickers.map(function(tk) {
-          return (
-            <Pill key={tk} active={chainTicker === tk && !showCustom} color={C.acoes}
-              onPress={function() { handleTickerChange(tk); }}>
-              {tk}
-            </Pill>
-          );
-        })}
-        <Pill active={showCustom} color={C.opcoes}
-          onPress={function() { setShowCustom(true); setChainTicker(null); }}>
-          + Outro
-        </Pill>
-      </View>
 
       {/* Custom ticker input */}
       {showCustom ? (
@@ -1964,14 +1997,27 @@ function CadeiaSintetica(props) {
         </Glass>
       ) : null}
 
-      {/* Spot display + HV badge */}
-      {spot > 0 ? (
+      {/* Spot editável + HV badge */}
+      {apiSpot > 0 || spotOverride !== '' ? (
         <Glass padding={10}>
           <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
-            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>SPOT</Text>
-            <Text style={[{ fontSize: 18, fontWeight: '800', color: C.text, fontFamily: F.display }, ps]}>
-              {'R$ ' + fmt(spot)}
-            </Text>
+            <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>SPOT</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderRadius: 8, borderWidth: 1, borderColor: spotOverride !== '' ? C.accent + '60' : C.border, paddingHorizontal: 8, height: 34 }}>
+              <Text style={{ fontSize: 14, color: C.dim, fontFamily: F.mono, marginRight: 2 }}>R$</Text>
+              <TextInput
+                value={spotOverride !== '' ? spotOverride : fmt(apiSpot)}
+                onChangeText={function(t) { setSpotOverride(t.replace(/[^0-9.,]/g, '')); }}
+                onFocus={function() { if (spotOverride === '') setSpotOverride(fmt(apiSpot)); }}
+                keyboardType="decimal-pad"
+                style={{ fontSize: 18, fontWeight: '800', color: C.text, fontFamily: F.display, padding: 0, minWidth: 70, textAlign: 'center' }}
+                maxFontSizeMultiplier={1.5}
+              />
+            </View>
+            {spotOverride !== '' ? (
+              <TouchableOpacity onPress={function() { setSpotOverride(''); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="refresh-outline" size={16} color={C.accent} />
+              </TouchableOpacity>
+            ) : null}
             {currentHV != null ? (
               <Badge text={'HV 20d: ' + currentHV.toFixed(0) + '%'} color={C.opcoes} />
             ) : null}
@@ -1987,195 +2033,558 @@ function CadeiaSintetica(props) {
         </Glass>
       ) : null}
 
-      {/* IV + DTE inputs */}
+      {/* ═══ STRIKE ═══ */}
       <Glass padding={14}>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Ionicons name="calculator" size={16} color={C.accent} />
+          <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '700', letterSpacing: 0.8 }}>STRIKE</Text>
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderRadius: 8, borderWidth: 1.5, borderColor: C.accent + '50', paddingHorizontal: 10, height: 40 }}>
+            <Text style={{ fontSize: 13, color: C.dim, fontFamily: F.mono, marginRight: 4 }}>R$</Text>
+            <TextInput
+              value={strikeInput}
+              onChangeText={setStrikeInput}
+              keyboardType="decimal-pad"
+              placeholder="ex: 32.68"
+              placeholderTextColor={C.dim}
+              style={{ flex: 1, fontSize: 15, color: C.text, fontFamily: F.mono, padding: 0 }}
+            />
+          </View>
+          {hasResult ? (
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>DIST</Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: Math.abs(fDist) <= 2 ? C.yellow : C.sub, fontFamily: F.mono }}>
+                {(fDist >= 0 ? '+' : '') + fDist.toFixed(1) + '%'}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+        {!hasResult ? (
+          <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.body, textAlign: 'center', marginTop: 10 }}>
+            Digite o strike para calcular preço justo, gregas e comparar com o mercado
+          </Text>
+        ) : null}
+
+        {/* Skew */}
+        <View style={{ flexDirection: 'row', gap: 6, marginTop: 10, alignItems: 'center' }}>
+          <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono, letterSpacing: 0.6 }}>SKEW</Text>
+          <Pill active={skewSel === 'auto'} color={C.accent} onPress={function() { setSkewSel('auto'); }}>
+            {'Auto' + (skewSel === 'auto' && skewAutoLabel ? ' (' + skewAutoLabel + ')' : '')}
+          </Pill>
+          <Pill active={skewSel === '0'} color={C.dim} onPress={function() { setSkewSel('0'); }}>Flat</Pill>
+          <Pill active={skewSel === '1'} color={C.opcoes} onPress={function() { setSkewSel('1'); }}>Leve</Pill>
+          <Pill active={skewSel === '2'} color={C.yellow} onPress={function() { setSkewSel('2'); }}>Forte</Pill>
+          <InfoTip text={"Auto: detecta o skew a partir dos preços de mercado (bid/ask) que você informar. Se put VI > call VI → skew. Sem dados de mercado, usa Leve.\n\nFlat: VI igual para todos os strikes.\nLeve: OTM levemente mais caras (padrão B3).\nForte: cenários de estresse."} />
+        </View>
+
+      </Glass>
+
+      {/* ═══ INDICADORES ═══ */}
+      <Glass padding={14}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+          <Ionicons name="analytics-outline" size={13} color={C.opcoes} />
+          <Text style={{ fontSize: 12, color: C.opcoes, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>INDICADORES</Text>
+          <InfoTip text={"Preencha com dados da sua plataforma (ProfitChart, Tryd, etc.) para calcular o preço justo e ativar o Motor de Decisão com alertas automáticos."} size={12} />
+        </View>
+        {/* Linha 1: VI, DTE, Vol. Histórica */}
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.simFieldLabel}>IV (%)</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <Text style={styles.simFieldLabel}>VI (%)</Text>
+              <InfoTip title="Volatilidade Implícita (VI)" text={"É a volatilidade que o mercado está \"embutindo\" no preço da opção. Quanto maior a VI, mais caro o prêmio.\n\nOnde encontrar: no ProfitChart, Tryd ou na sua corretora, busque por \"VI\" ou \"IV\" no book da opção.\n\nPara que serve aqui: é o principal input do modelo Black-Scholes para calcular o preço justo da opção. Também é comparada com a Vol. Histórica para saber se o prêmio está caro ou barato."} size={11} />
+            </View>
             <View style={styles.simFieldInput}>
-              <TextInput value={chainIV} onChangeText={setChainIV} keyboardType="numeric"
-                style={styles.simFieldText} placeholderTextColor={C.dim} />
+              <TextInput value={chainIV} onChangeText={setChainIV} keyboardType="decimal-pad"
+                placeholder="ex: 35" placeholderTextColor={C.dim}
+                style={styles.simFieldText} />
               <Text style={styles.simFieldSuffix}>%</Text>
             </View>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.simFieldLabel}>DTE (dias)</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <Text style={styles.simFieldLabel}>DTE (dias)</Text>
+              <InfoTip title="DTE (Days to Expiration)" text={"Dias até o vencimento da opção. Quanto menos dias, mais rápido a opção perde valor (efeito Theta).\n\nOnde encontrar: conte os dias corridos entre hoje e a data de vencimento da opção (incluindo o dia do vencimento).\n\nPara que serve aqui: é usado no cálculo Black-Scholes. Opções com DTE curto têm Theta acelerado, o que beneficia vendedores."} size={11} />
+            </View>
             <View style={styles.simFieldInput}>
               <TextInput value={chainDTE} onChangeText={setChainDTE} keyboardType="numeric"
-                style={styles.simFieldText} placeholderTextColor={C.dim} />
+                placeholder="ex: 21" placeholderTextColor={C.dim}
+                style={styles.simFieldText} />
               <Text style={styles.simFieldSuffix}>dias</Text>
             </View>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.simFieldLabel}>Taxa</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <Text style={styles.simFieldLabel}>Vol. Histórica</Text>
+              <InfoTip title="Volatilidade Histórica (VH)" text={"Mede o quanto o preço do ativo oscilou no passado (geralmente últimos 20 ou 30 pregões), expressa em % anualizada.\n\nOnde encontrar: no ProfitChart, Tryd ou qualquer plataforma de análise técnica, busque por \"HV\" ou \"Vol. Histórica\" no painel do ativo base.\n\nPara que serve aqui: comparar com a VI (Volatilidade Implícita) para saber se o prêmio da opção está caro ou barato."} size={11} />
+            </View>
+            <View style={styles.simFieldInput}>
+              <TextInput value={hvInput} onChangeText={setHvInput} keyboardType="decimal-pad"
+                placeholder="ex: 28" placeholderTextColor={C.dim}
+                style={styles.simFieldText} />
+              <Text style={styles.simFieldSuffix}>%</Text>
+            </View>
+          </View>
+        </View>
+        {/* Linha 2: VWAP, Contratos em Aberto, Taxa */}
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <Text style={styles.simFieldLabel}>VWAP</Text>
+              <InfoTip title="VWAP (Volume Weighted Average Price)" text={"Preço Médio Ponderado por Volume do dia. É o preço \"justo\" intradiário — quanto em média os participantes pagaram naquele dia, considerando o volume de cada negócio.\n\nOnde encontrar: no ProfitChart, Tryd ou Home Broker, ative o indicador VWAP no gráfico intradiário do ativo base.\n\nPara que serve aqui: se o Spot está acima do VWAP, há pressão compradora (tendência de alta). Se está abaixo, há pressão vendedora (tendência de baixa)."} size={11} />
+            </View>
+            <View style={styles.simFieldInput}>
+              <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono, marginRight: 2 }}>R$</Text>
+              <TextInput value={vwapInput} onChangeText={setVwapInput} keyboardType="decimal-pad"
+                placeholder="ex: 32.50" placeholderTextColor={C.dim}
+                style={styles.simFieldText} />
+            </View>
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <Text style={styles.simFieldLabel}>Contr. Aberto</Text>
+              <InfoTip title="Contratos em Aberto (Open Interest)" text={"Quantidade total de contratos de opções que ainda não foram encerrados (exercidos, expirados ou recomprados). Quanto maior, mais líquida é a opção.\n\nOnde encontrar: no book de ofertas da opção na sua corretora ou plataforma (ProfitChart, Tryd), geralmente aparece como \"OI\" ou \"Open Interest\".\n\nPara que serve aqui: opções com poucos contratos em aberto têm spread alto entre compra e venda — você pode ter dificuldade para entrar ou sair da operação a um preço justo.\n\nVocê pode digitar valores abreviados: 27,96m = 27.960.000 | 500k = 500.000"} size={11} />
+            </View>
+            <View style={styles.simFieldInput}>
+              <TextInput value={oiInput} onChangeText={setOiInput} keyboardType="default"
+                placeholder="ex: 27,96m" placeholderTextColor={C.dim}
+                autoCapitalize="none"
+                style={styles.simFieldText} />
+            </View>
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <Text style={styles.simFieldLabel}>Taxa</Text>
+              <InfoTip title="Taxa Selic (livre de risco)" text={"Taxa básica de juros da economia brasileira, usada como taxa livre de risco no modelo Black-Scholes.\n\nEste valor é carregado automaticamente do seu perfil (configurado em Mais > Selic). Não precisa preencher manualmente.\n\nPara que serve aqui: quanto maior a taxa, maior o prêmio teórico das Calls e menor o das Puts."} size={11} />
+            </View>
             <View style={[styles.simFieldInput, { backgroundColor: 'rgba(255,255,255,0.01)' }]}>
               <Text style={[styles.simFieldText, { color: C.dim }]}>{chainSelicRate.toFixed(2)}</Text>
               <Text style={styles.simFieldSuffix}>%</Text>
             </View>
           </View>
         </View>
+        {chainIV === '' && chainDTE === '' && hvInput === '' && vwapInput === '' && oiInput === '' ? (
+          <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, textAlign: 'center', marginTop: 6 }}>
+            Preencha os indicadores da sua plataforma para calcular e gerar alertas
+          </Text>
+        ) : null}
       </Glass>
 
-      {/* Options chain grid */}
-      <Glass padding={0}>
-        {/* Header */}
-        <View style={styles.chainHeader}>
-          <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', gap: 4 }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>CALL</Text>
-          </View>
-          <View style={styles.chainStrike}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>STRIKE</Text>
-          </View>
-          <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'center', gap: 4 }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: C.red, fontFamily: F.mono }}>PUT</Text>
-          </View>
-        </View>
+      {/* ═══ RESULTS (only when strike is valid) ═══ */}
+      {hasResult ? (
+        <View style={{ gap: SIZE.gap }}>
 
-        {/* Sub-header */}
-        <View style={[styles.chainRow, { paddingVertical: 4 }]}>
-          <View style={{ flex: 1, flexDirection: 'row' }}>
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={styles.chainDelta}>Delta</Text>
-            </View>
-            <View style={{ flex: 1.2, alignItems: 'center' }}>
-              <Text style={styles.chainDelta}>Preco</Text>
-            </View>
-            <View style={{ flex: 0.8, alignItems: 'center' }}>
-              <Text style={styles.chainDelta}>Tipo</Text>
-            </View>
-          </View>
-          <View style={styles.chainStrike}>
-            <Text style={styles.chainDelta}>Dist%</Text>
-          </View>
-          <View style={{ flex: 1, flexDirection: 'row' }}>
-            <View style={{ flex: 0.8, alignItems: 'center' }}>
-              <Text style={styles.chainDelta}>Tipo</Text>
-            </View>
-            <View style={{ flex: 1.2, alignItems: 'center' }}>
-              <Text style={styles.chainDelta}>Preco</Text>
-            </View>
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Text style={styles.chainDelta}>Delta</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Strike rows */}
-        {strikes.map(function(sk, idx) {
-          var isAtm = sk === atmStrike;
-          var callPrice = spot > 0 && tYears > 0 ? bsPrice(spot, sk, tYears, r, ivVal, 'call') : 0;
-          var putPrice = spot > 0 && tYears > 0 ? bsPrice(spot, sk, tYears, r, ivVal, 'put') : 0;
-          var callGreeks = spot > 0 && tYears > 0 ? bsGreeks(spot, sk, tYears, r, ivVal, 'call') : { delta: 0 };
-          var putGreeks = spot > 0 && tYears > 0 ? bsGreeks(spot, sk, tYears, r, ivVal, 'put') : { delta: 0 };
-          var callMon = getSimpleMoneyness('call', sk, spot);
-          var putMon = getSimpleMoneyness('put', sk, spot);
-
-          var monColor = { ITM: C.green, ATM: C.yellow, OTM: C.dim };
-
-          // Strike distance from spot
-          var distPct = spot > 0 ? ((sk - spot) / spot * 100) : 0;
-          var distStr = (distPct >= 0 ? '+' : '') + distPct.toFixed(1) + '%';
-          var distColor = isAtm ? C.yellow : (Math.abs(distPct) <= 5 ? C.sub : C.dim);
-
-          // Row background: ATM highlighted, ITM with subtle green/red tint
-          var rowBg = isAtm ? styles.chainAtm
-            : callMon === 'ITM' ? styles.chainItm
-            : putMon === 'ITM' ? styles.chainItmPut
-            : null;
-
-          function handleChainTap(tipoTap, price) {
-            if (onSelect && spot > 0) {
-              onSelect({
-                tipo: tipoTap.toUpperCase(),
-                direcao: 'venda',
-                spot: spot.toFixed(2),
-                strike: sk.toFixed(2),
-                premio: price.toFixed(2),
-                iv: chainIV,
-                dte: chainDTE,
-                ticker: chainTicker || '',
-                addAsLeg: addLegMode,
-              });
-            }
-          }
-
-          return (
-            <View key={idx} style={[styles.chainRow, rowBg]}>
-              {/* CALL side — tappable */}
-              <TouchableOpacity activeOpacity={0.6} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
-                onPress={function() { handleChainTap('CALL', callPrice); }}>
-                <View style={{ flex: 1, alignItems: 'center' }}>
-                  <Text style={[styles.chainDelta, callMon === 'ITM' && { color: C.green, fontWeight: '700' }, ps]}>{callGreeks.delta.toFixed(2)}</Text>
-                </View>
-                <View style={{ flex: 1.2, alignItems: 'center' }}>
-                  <Text style={[styles.chainPrice, callMon === 'ITM' && { color: C.green }, ps]}>{'R$ ' + fmt(callPrice)}</Text>
-                </View>
-                <View style={{ flex: 0.8, alignItems: 'center' }}>
-                  <Badge text={callMon} color={monColor[callMon] || C.dim} />
-                </View>
-              </TouchableOpacity>
-
-              {/* Strike center + distance */}
-              <View style={styles.chainStrike}>
-                <Text style={[{
-                  fontSize: 13, fontWeight: '700', fontFamily: F.mono,
-                  color: isAtm ? C.accent : C.text,
-                }, ps]}>
-                  {fmt(sk)}
-                </Text>
-                <Text style={{ fontSize: 8, color: distColor, fontFamily: F.mono, marginTop: 1 }}>
-                  {isAtm ? 'ATM' : distStr}
-                </Text>
-              </View>
-
-              {/* PUT side — tappable */}
-              <TouchableOpacity activeOpacity={0.6} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
-                onPress={function() { handleChainTap('PUT', putPrice); }}>
-                <View style={{ flex: 0.8, alignItems: 'center' }}>
-                  <Badge text={putMon} color={monColor[putMon] || C.dim} />
-                </View>
-                <View style={{ flex: 1.2, alignItems: 'center' }}>
-                  <Text style={[styles.chainPrice, putMon === 'ITM' && { color: C.red }, ps]}>{'R$ ' + fmt(putPrice)}</Text>
-                </View>
-                <View style={{ flex: 1, alignItems: 'center' }}>
-                  <Text style={[styles.chainDelta, putMon === 'ITM' && { color: C.red, fontWeight: '700' }, ps]}>{putGreeks.delta.toFixed(2)}</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-          );
-        })}
-      </Glass>
-
-      {/* Legend + Add as Leg toggle */}
-      <View style={{ paddingHorizontal: 4, gap: 6 }}>
-        <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, textAlign: 'center' }}>
-          {currentHV != null
-            ? 'IV inicializado com HV 20d (' + currentHV.toFixed(0) + '%). Ajuste manualmente se necessário.'
-            : 'Preços teóricos via Black-Scholes. IV e DTE ajustáveis.'}
-        </Text>
-        {onSelect ? (
-          <View style={{ gap: 4 }}>
-            <Text style={{ fontSize: 11, color: C.opcoes, fontFamily: F.body, textAlign: 'center' }}>
-              {addLegMode
-                ? 'Toque para ADICIONAR perna ao simulador'
-                : 'Toque em CALL ou PUT para simular'}
+          {/* Context line */}
+          <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12 }}>
+            <Text style={{ fontSize: 12, color: C.opcoes, fontFamily: F.mono }}>
+              {'VI: ' + (fIV * 100).toFixed(1) + '%' + (skewStrength > 0 ? ' (c/ skew)' : '')}
             </Text>
+            <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>
+              {'Black-Scholes | DTE ' + dteVal + 'd'}
+            </Text>
+          </View>
+
+          {/* Market prices input */}
+          <Glass padding={12}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <Ionicons name="pricetags-outline" size={13} color={C.etfs} />
+              <Text style={{ fontSize: 12, color: C.etfs, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>PREÇOS DO MERCADO (opcional)</Text>
+              <InfoTip text="Copie o bid e ask da sua corretora para comparar com o preço justo calculado pelo Black-Scholes. Isso revela se a opção está cara ou barata no mercado." size={12} />
+            </View>
+            <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-end', marginBottom: 6 }}>
+              <View style={{ width: 42, justifyContent: 'flex-end', paddingBottom: 8 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: C.green, fontFamily: F.display, textAlign: 'center' }}>CALL</Text>
+              </View>
+              {renderMktInput('Bid', mktCallBid, setMktCallBid, C.green)}
+              {renderMktInput('Ask', mktCallAsk, setMktCallAsk, C.green)}
+            </View>
+            <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-end' }}>
+              <View style={{ width: 42, justifyContent: 'flex-end', paddingBottom: 8 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: C.red, fontFamily: F.display, textAlign: 'center' }}>PUT</Text>
+              </View>
+              {renderMktInput('Bid', mktPutBid, setMktPutBid, C.red)}
+              {renderMktInput('Ask', mktPutAsk, setMktPutAsk, C.red)}
+            </View>
+            {!hasCallMkt && !hasPutMkt ? (
+              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, textAlign: 'center', marginTop: 4 }}>
+                Copie o bid/ask da sua corretora para ver se está caro ou barato
+              </Text>
+            ) : null}
+          </Glass>
+
+          {/* CALL analysis card */}
+          {renderOptionCard('CALL', fCallMid, fCallG, fCallBA, mcMid, callAnalysis, callMktIV, C.green)}
+
+          {/* PUT analysis card */}
+          {renderOptionCard('PUT', fPutMid, fPutG, fPutBA, mpMid, putAnalysis, putMktIV, C.red)}
+
+          {/* Resumo rápido */}
+          <Glass padding={12}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <Ionicons name="document-text-outline" size={14} color={C.accent} />
+              <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>RESUMO</Text>
+            </View>
+            <View style={{ gap: 4 }}>
+              {[
+                { l: 'CALL - Breakeven (venda)', v: 'R$ ' + fmt(fk + fCallMid), c: C.green },
+                { l: 'PUT - Breakeven (venda)', v: 'R$ ' + fmt(fk - fPutMid), c: C.red },
+                { l: 'Theta/dia CALL (100 opções)', v: 'R$ ' + fmt(fCallG.theta * 100), c: fCallG.theta > 0 ? C.green : C.red },
+                { l: 'Theta/dia PUT (100 opções)', v: 'R$ ' + fmt(fPutG.theta * 100), c: fPutG.theta > 0 ? C.green : C.red },
+                hasCallMkt ? { l: 'Prêmio mercado CALL (100)', v: 'R$ ' + fmt(mcMid * 100), c: C.text } : null,
+                hasPutMkt ? { l: 'Prêmio mercado PUT (100)', v: 'R$ ' + fmt(mpMid * 100), c: C.text } : null,
+              ].map(function(rr, i) {
+                if (!rr) return null;
+                return (
+                  <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
+                    <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>{rr.l}</Text>
+                    <Text style={[{ fontSize: 13, fontWeight: '600', color: rr.c, fontFamily: F.mono }, ps]}>{rr.v}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </Glass>
+
+          {/* ═══ MOTOR DE DECISÃO — alertas de contexto ═══ */}
+          {contextAlerts.length > 0 ? (
+            <Glass padding={12} glow={C.opcoes}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                <Ionicons name="bulb-outline" size={14} color={C.opcoes} />
+                <Text style={{ fontSize: 12, color: C.opcoes, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>MOTOR DE DECISÃO</Text>
+                <InfoTip text={"Alertas gerados cruzando a VI que você digitou com os indicadores de contexto (Vol. Histórica, VWAP, Contratos em Aberto). Quanto mais campos preencher, mais completa a análise."} size={12} />
+              </View>
+              <View style={{ gap: 8 }}>
+                {contextAlerts.map(function(al, idx) {
+                  return (
+                    <View key={idx} style={{ padding: 10, borderRadius: 10, backgroundColor: al.color + '08', borderWidth: 1, borderColor: al.color + '18' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <Ionicons name={al.icon} size={15} color={al.color} />
+                        <Text style={{ flex: 1, fontSize: 13, fontWeight: '700', color: al.color, fontFamily: F.display }}>{al.title}</Text>
+                        <View style={{ backgroundColor: al.badgeColor + '25', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 4 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: al.badgeColor, fontFamily: F.mono }}>{al.badge}</Text>
+                        </View>
+                      </View>
+                      <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body, lineHeight: 18 }}>{al.text}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </Glass>
+          ) : null}
+
+          {/* ═══ SALVAR ANÁLISE ═══ */}
+          <TouchableOpacity activeOpacity={0.7} disabled={savingAnalysis}
+            onPress={function() { handleSaveAnalysis(!!aiAnalysis); }}
+            accessibilityRole="button" accessibilityLabel="Salvar análise atual"
+            style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+              gap: 6, paddingVertical: 10, borderRadius: SIZE.radius,
+              backgroundColor: C.card, borderWidth: 1, borderColor: C.border,
+              opacity: savingAnalysis ? 0.5 : 1,
+            }}>
+            {savingAnalysis ? (
+              <ActivityIndicator size="small" color={C.accent} />
+            ) : (
+              <Ionicons name="bookmark-outline" size={16} color={C.accent} />
+            )}
+            <Text style={{ fontSize: 13, fontWeight: '600', color: C.accent, fontFamily: F.body }}>
+              {savingAnalysis ? 'Salvando...' : 'Salvar análise'}
+            </Text>
+            {aiAnalysis ? (
+              <View style={{ backgroundColor: C.accent + '25', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>+IA</Text>
+              </View>
+            ) : null}
+          </TouchableOpacity>
+
+          {/* ═══ TABELA DE STRIKES ═══ */}
+          <Glass padding={12}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <Ionicons name="grid-outline" size={13} color={C.accent} />
+              <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>TABELA DE STRIKES</Text>
+            </View>
+            {/* Step filter */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}
+              contentContainerStyle={{ gap: 4 }}>
+              {['auto', '0.25', '0.50', '0.75', '1.00', '2.00', '5.00'].map(function(sv) {
+                var isAct = tableStep === sv;
+                var lbl = sv === 'auto' ? 'Auto (' + getB3StrikeStep(spot, chainTicker).toFixed(2) + ')' : 'R$ ' + sv;
+                return (
+                  <TouchableOpacity key={sv} activeOpacity={0.7}
+                    onPress={function() { setTableStep(sv); }}
+                    style={{ paddingVertical: 4, paddingHorizontal: 8, borderRadius: 5,
+                      backgroundColor: isAct ? C.accent + '25' : C.card,
+                      borderWidth: 1, borderColor: isAct ? C.accent : C.border }}>
+                    <Text style={{ fontSize: 11, fontWeight: isAct ? '700' : '400',
+                      color: isAct ? C.accent : C.sub, fontFamily: F.mono }}>{lbl}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            {/* Header */}
+            <View style={{ flexDirection: 'row', paddingVertical: 3, paddingHorizontal: 2, borderBottomWidth: 1, borderBottomColor: C.border }}>
+              <Text style={{ flex: 1.2, fontSize: 9, color: C.dim, fontFamily: F.mono, textAlign: 'center' }}>STRIKE</Text>
+              <Text style={{ flex: 0.9, fontSize: 9, color: C.green + 'AA', fontFamily: F.mono, textAlign: 'center' }}>CALL</Text>
+              <Text style={{ flex: 0.6, fontSize: 9, color: C.green + 'AA', fontFamily: F.mono, textAlign: 'center' }}>Delta</Text>
+              <Text style={{ flex: 0.6, fontSize: 9, color: C.green + 'AA', fontFamily: F.mono, textAlign: 'center' }}>Theta</Text>
+              <Text style={{ flex: 0.9, fontSize: 9, color: C.red + 'AA', fontFamily: F.mono, textAlign: 'center' }}>PUT</Text>
+              <Text style={{ flex: 0.6, fontSize: 9, color: C.red + 'AA', fontFamily: F.mono, textAlign: 'center' }}>Delta</Text>
+              <Text style={{ flex: 0.6, fontSize: 9, color: C.red + 'AA', fontFamily: F.mono, textAlign: 'center' }}>Theta</Text>
+            </View>
+            {/* Rows */}
+            {miniTableData.map(function(row, mi) {
+              var rowBgMini = row.isUser ? { backgroundColor: C.accent + '15' }
+                : row.isAtm ? { backgroundColor: C.yellow + '08' }
+                : (mi % 2 === 0) ? { backgroundColor: 'rgba(255,255,255,0.01)' } : null;
+              var callIsOtm = spot <= row.sk;
+              var putIsOtm = spot >= row.sk;
+              return (
+                <TouchableOpacity key={mi} activeOpacity={0.6}
+                  onPress={function() { setStrikeInput(row.sk.toFixed(2)); }}
+                  style={[{ flexDirection: 'row', paddingVertical: 5, paddingHorizontal: 2, borderRadius: 4 }, rowBgMini]}>
+                  <View style={{ flex: 1.2, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 2 }}>
+                    {row.isUser ? <Ionicons name="chevron-forward" size={7} color={C.accent} /> : null}
+                    <Text style={[{ fontSize: 11, fontFamily: F.mono, fontWeight: row.isUser ? '800' : '500', color: row.isUser ? C.accent : row.isAtm ? C.yellow : C.text }, ps]}>
+                      {row.sk.toFixed(2)}
+                    </Text>
+                  </View>
+                  <Text style={[{ flex: 0.9, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: callIsOtm ? C.sub : C.green, fontWeight: callIsOtm ? '400' : '600' }, ps]}>
+                    {fmt(row.callP)}
+                  </Text>
+                  <Text style={[{ flex: 0.6, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: C.dim }, ps]}>
+                    {row.callDelta.toFixed(2)}
+                  </Text>
+                  <Text style={[{ flex: 0.6, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: row.callTheta > 0 ? C.green + '80' : C.red + '80' }, ps]}>
+                    {row.callTheta.toFixed(4)}
+                  </Text>
+                  <Text style={[{ flex: 0.9, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: putIsOtm ? C.sub : C.red, fontWeight: putIsOtm ? '400' : '600' }, ps]}>
+                    {fmt(row.putP)}
+                  </Text>
+                  <Text style={[{ flex: 0.6, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: C.dim }, ps]}>
+                    {row.putDelta.toFixed(2)}
+                  </Text>
+                  <Text style={[{ flex: 0.6, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: row.putTheta > 0 ? C.green + '80' : C.red + '80' }, ps]}>
+                    {row.putTheta.toFixed(4)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, textAlign: 'center', marginTop: 3 }}>
+              Toque em um strike para analisar
+            </Text>
+          </Glass>
+
+          {/* ═══ CENÁRIOS WHAT-IF ═══ */}
+          <Glass glow={C.etfs} padding={12}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <Ionicons name="git-branch-outline" size={14} color={C.etfs} />
+              <Text style={{ fontSize: 12, color: C.etfs, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>CENÁRIOS WHAT-IF</Text>
+              <InfoTip text={"Se o ativo subir ou cair X%, qual será o novo preço da opção e o resultado (P&L) por unidade.\n\nVenda: lucro se opção fica mais barata.\nCompra: lucro se opção fica mais cara.\n\nConsidera DTE - 5 dias e VI ajustada."} size={12} />
+            </View>
+            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, marginBottom: 8 }}>
+              {'Strike R$ ' + fmt(fk) + ' | Spot R$ ' + fmt(spot) + ' | DTE ' + dteVal + ' → ' + Math.max(1, dteVal - 5) + 'd'}
+            </Text>
+            {/* Header */}
+            <View style={{ flexDirection: 'row', paddingBottom: 4, borderBottomWidth: 1, borderBottomColor: C.border, marginBottom: 4 }}>
+              <Text style={{ width: 42, fontSize: 9, color: C.dim, fontFamily: F.mono }}>Ativo</Text>
+              <Text style={{ width: 48, fontSize: 9, color: C.dim, fontFamily: F.mono, textAlign: 'center' }}>Spot</Text>
+              <Text style={{ flex: 1, fontSize: 9, color: C.green + 'BB', fontFamily: F.mono, textAlign: 'center' }}>Call R$</Text>
+              <Text style={{ flex: 1, fontSize: 9, color: C.green + 'BB', fontFamily: F.mono, textAlign: 'center' }}>P&L Vd</Text>
+              <Text style={{ flex: 1, fontSize: 9, color: C.red + 'BB', fontFamily: F.mono, textAlign: 'center' }}>Put R$</Text>
+              <Text style={{ flex: 1, fontSize: 9, color: C.red + 'BB', fontFamily: F.mono, textAlign: 'center' }}>P&L Vd</Text>
+            </View>
+            {/* Rows */}
+            {[{ l: '+10%', m: 0.10 }, { l: '+5%', m: 0.05 }, { l: '-5%', m: -0.05 }, { l: '-10%', m: -0.10 }].map(function(sc, i) {
+              var csc = calcScenario(sc.m, 'call');
+              var psc = calcScenario(sc.m, 'put');
+              if (!csc || !psc) return null;
+              var cPL = csc.plVenda;
+              var pPL = psc.plVenda;
+              return (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, borderBottomWidth: i < 3 ? 1 : 0, borderBottomColor: C.border + '30' }}>
+                  <Text style={{ width: 42, fontSize: 12, fontWeight: '600', color: sc.m > 0 ? C.green : C.red, fontFamily: F.mono }}>{sc.l}</Text>
+                  <Text style={[{ width: 48, fontSize: 11, color: C.sub, fontFamily: F.mono, textAlign: 'center' }, ps]}>
+                    {fmt(csc.newSpot)}
+                  </Text>
+                  <Text style={[{ flex: 1, fontSize: 11, color: C.text, fontFamily: F.mono, textAlign: 'center' }, ps]}>
+                    {fmt(csc.newPrice)}
+                  </Text>
+                  <Text style={[{ flex: 1, fontSize: 11, fontWeight: '600', color: cPL >= 0 ? C.green : C.red, fontFamily: F.mono, textAlign: 'center' }, ps]}>
+                    {(cPL >= 0 ? '+' : '') + fmt(cPL)}
+                  </Text>
+                  <Text style={[{ flex: 1, fontSize: 11, color: C.text, fontFamily: F.mono, textAlign: 'center' }, ps]}>
+                    {fmt(psc.newPrice)}
+                  </Text>
+                  <Text style={[{ flex: 1, fontSize: 11, fontWeight: '600', color: pPL >= 0 ? C.green : C.red, fontFamily: F.mono, textAlign: 'center' }, ps]}>
+                    {(pPL >= 0 ? '+' : '') + fmt(pPL)}
+                  </Text>
+                </View>
+              );
+            })}
+            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, marginTop: 6 }}>
+              P&L Vd = resultado por opção se você vendeu. Positivo = lucro (opção desvalorizou). Negativo = prejuízo (opção valorizou).
+            </Text>
+          </Glass>
+
+          {/* ═══ ANÁLISE IA ═══ */}
+          <Glass padding={14}>
+            <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono, letterSpacing: 0.8, fontWeight: '600', marginBottom: 8 }}>OBJETIVO DA ANÁLISE IA</Text>
+            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+              {[
+                { key: 'renda', label: 'Renda', icon: 'cash-outline' },
+                { key: 'protecao', label: 'Proteção', icon: 'shield-outline' },
+                { key: 'especulacao', label: 'Especulação', icon: 'trending-up-outline' },
+              ].map(function(obj) {
+                var sel = aiObjetivo === obj.key;
+                return (
+                  <TouchableOpacity key={obj.key} activeOpacity={0.7}
+                    onPress={function() { setAiObjetivo(obj.key); }}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 5,
+                      paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10,
+                      backgroundColor: sel ? C.accent + '25' : 'transparent',
+                      borderWidth: 1, borderColor: sel ? C.accent : C.border,
+                    }}>
+                    <Ionicons name={obj.icon} size={14} color={sel ? C.accent : C.dim} />
+                    <Text style={{ fontSize: 12, fontWeight: sel ? '700' : '500', color: sel ? C.accent : C.sub, fontFamily: F.body }}>
+                      {obj.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 }}>
+              <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono, letterSpacing: 0.8, fontWeight: '600' }}>CAPITAL</Text>
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderRadius: 8, borderWidth: 1, borderColor: C.border, paddingHorizontal: 10, height: 36 }}>
+                <Text style={{ fontSize: 13, color: C.dim, fontFamily: F.mono, marginRight: 4 }}>R$</Text>
+                <TextInput value={aiCapital} keyboardType="numeric"
+                  onChangeText={function(t) {
+                    var nums = t.replace(/\D/g, '');
+                    if (!nums) { setAiCapital(''); return; }
+                    var n = parseInt(nums, 10);
+                    setAiCapital(n.toLocaleString('pt-BR'));
+                  }}
+                  placeholder="10.000"
+                  placeholderTextColor={C.dim}
+                  style={{ flex: 1, fontSize: 13, color: C.text, fontFamily: F.mono, padding: 0 }} />
+              </View>
+              <InfoTip text={"Capital disponível para venda de put (CSP).\n\nSizing:\n• Venda Call: limitada pelas ações que você possui (coberta)\n• Venda Put: limitada pelo capital (margem = strike x 100)\n• Sugestão conservadora: 2-5% do capital por operação\n\nA IA usará esses dados para recomendar quantidade ideal."} size={13} />
+            </View>
+            {/* Sizing preview */}
+            {aiCapital && parseFloat(aiCapital.replace(/\./g, '').replace(',', '.')) > 0 && hasResult ? (
+              <View style={{ marginTop: 8, padding: 8, borderRadius: 8, backgroundColor: C.accent + '08', borderWidth: 1, borderColor: C.accent + '15' }}>
+                {(function() {
+                  var cap = parseFloat(aiCapital.replace(/\./g, '').replace(',', '.'));
+                  var premCall = hasCallMkt ? mcMid : fCallMid;
+                  var premPut = hasPutMkt ? mpMid : fPutMid;
+                  var margemPut = fk * 100;
+
+                  // Call coberta: baseada na qtd de ações que possui do ticker
+                  var curPos = null;
+                  for (var spi = 0; spi < positions.length; spi++) {
+                    if (positions[spi].ticker && positions[spi].ticker.toUpperCase() === chainTicker.toUpperCase()) {
+                      curPos = positions[spi]; break;
+                    }
+                  }
+                  var sharesOwned = curPos ? (curPos.quantidade || 0) : 0;
+                  var maxOpcoesCall = Math.floor(sharesOwned / 100) * 100;
+
+                  // Put CSP: baseada no capital / margem (strike × 100)
+                  var opcoesPut2 = margemPut > 0 ? Math.floor((cap * 0.02) / margemPut) * 100 : 0;
+                  var opcoesPut5 = margemPut > 0 ? Math.floor((cap * 0.05) / margemPut) * 100 : 0;
+                  var maxOpcoesPut = margemPut > 0 ? Math.floor(cap / margemPut) * 100 : 0;
+
+                  return (
+                    <View style={{ gap: 4 }}>
+                      <Text style={{ fontSize: 11, color: C.accent, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>SIZING ESTIMADO</Text>
+                      {/* Call coberta — depende de ações em carteira */}
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body }}>
+                          {'Venda Call (coberta)'}
+                        </Text>
+                        {maxOpcoesCall > 0 ? (
+                          <Text style={{ fontSize: 11, color: C.green, fontFamily: F.mono, fontWeight: '600' }}>
+                            {maxOpcoesCall + ' opções (' + sharesOwned + ' ações)'}
+                          </Text>
+                        ) : (
+                          <Text style={{ fontSize: 11, color: C.yellow, fontFamily: F.mono, fontWeight: '600' }}>
+                            Sem ações em carteira
+                          </Text>
+                        )}
+                      </View>
+                      {/* Put CSP — depende do capital */}
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body }}>
+                          {'Venda Put (margem R$ ' + Math.round(margemPut).toLocaleString('pt-BR') + '/100 opções)'}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: C.red, fontFamily: F.mono, fontWeight: '600' }}>
+                          {opcoesPut2 + '-' + opcoesPut5 + ' opções'}
+                        </Text>
+                      </View>
+                      {maxOpcoesCall > 0 ? (
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, marginTop: 2 }}>
+                          {'Call: máx ' + maxOpcoesCall + ' opções cobertas. Put: 2-5% do capital (máx ' + maxOpcoesPut + ' opções).'}
+                        </Text>
+                      ) : (
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, marginTop: 2 }}>
+                          {'Put: 2-5% do capital (máx ' + maxOpcoesPut + ' opções). Call descoberta requer margem.'}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })()}
+              </View>
+            ) : null}
+          </Glass>
+
+          <TouchableOpacity activeOpacity={0.7} disabled={aiLoading || spot <= 0 || fk <= 0}
+            onPress={handleAiAnalysis}
+            accessibilityRole="button" accessibilityLabel="Analisar operação com inteligência artificial"
+            style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+              gap: 8, paddingVertical: 14, borderRadius: SIZE.radius,
+              backgroundColor: C.accent + '18', borderWidth: 1, borderColor: C.accent + '40',
+              opacity: (aiLoading || spot <= 0 || fk <= 0) ? 0.5 : 1,
+            }}>
+            {aiLoading ? (
+              <ActivityIndicator size="small" color={C.accent} />
+            ) : (
+              <Ionicons name="sparkles-outline" size={18} color={C.accent} />
+            )}
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.accent, fontFamily: F.display }}>
+              {aiLoading ? 'Analisando...' : 'Analisar com IA'}
+            </Text>
+          </TouchableOpacity>
+
+          {aiError ? (
+            <View style={{ padding: 10, borderRadius: 10, backgroundColor: C.red + '10', borderWidth: 1, borderColor: C.red + '25' }}>
+              <Text style={{ fontSize: 12, color: C.red, fontFamily: F.body, textAlign: 'center' }}>{aiError}</Text>
+            </View>
+          ) : null}
+
+          {/* Button to re-open AI analysis if already generated */}
+          {aiAnalysis && !aiLoading ? (
             <TouchableOpacity activeOpacity={0.7}
-              onPress={function() { setAddLegMode(!addLegMode); }}
+              onPress={function() { setAiModalOpen(true); }}
+              accessibilityRole="button" accessibilityLabel="Ver análise da IA"
               style={{
-                flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-                paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, alignSelf: 'center',
-                backgroundColor: addLegMode ? C.opcoes + '20' : 'transparent',
-                borderWidth: 1, borderColor: addLegMode ? C.opcoes : C.border,
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                gap: 8, paddingVertical: 12, borderRadius: SIZE.radius,
+                backgroundColor: C.accent + '10', borderWidth: 1, borderColor: C.accent + '30',
               }}>
-              <Ionicons name={addLegMode ? 'layers' : 'layers-outline'} size={14} color={addLegMode ? C.opcoes : C.dim} />
-              <Text style={{ fontSize: 11, fontWeight: addLegMode ? '700' : '500', color: addLegMode ? C.opcoes : C.dim, fontFamily: F.body }}>
-                {addLegMode ? 'Modo Multi-Perna ON' : 'Adicionar como perna'}
+              <Ionicons name="sparkles" size={16} color={C.accent} />
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.accent, fontFamily: F.display }}>
+                Ver análise salva IA
               </Text>
             </TouchableOpacity>
-          </View>
-        ) : null}
-      </View>
+          ) : null}
+
+        </View>
+      ) : null}
+
+      {/* AI Analysis Modal */}
+      <Modal visible={aiModalOpen} animationType="slide" transparent={false}
+        onRequestClose={function() { setAiModalOpen(false); }}>
+        <AiAnalysisModal analysis={aiAnalysis} onClose={function() { setAiModalOpen(false); }}
+          onSave={function() { handleSaveAnalysis(true); }} />
+      </Modal>
     </View>
   );
 }
@@ -2205,8 +2614,6 @@ export default function OpcoesScreen() {
   var _selicSt = useState(13.25); var selicRate = _selicSt[0]; var setSelicRate = _selicSt[1];
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
-  var _simParams = useState(null); var simParams = _simParams[0]; var setSimParams = _simParams[1];
-  var _recalculating = useState(false); var recalculating = _recalculating[0]; var setRecalculating = _recalculating[1];
   var _tut = useState(-1); var tutStep = _tut[0]; var setTutStep = _tut[1];
 
   var load = async function() {
@@ -2826,12 +3233,13 @@ export default function OpcoesScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
     <ScrollView
       ref={scrollRef}
       style={{ flex: 1 }}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />
       }
@@ -2841,8 +3249,7 @@ export default function OpcoesScreen() {
         {[
           { k: 'ativas', l: 'Ativas (' + ativas.length + ')', c: C.opcoes },
           { k: 'pendentes', l: 'Pendentes (' + expired.length + ')', c: C.yellow },
-          { k: 'sim', l: 'Simulador', c: C.opcoes },
-          { k: 'ind', l: 'Indicadores', c: C.acoes },
+          { k: 'sim', l: 'Calculadora', c: C.opcoes },
           { k: 'hist', l: 'Histórico (' + historico.length + ')', c: C.opcoes },
         ].map(function(t) {
           return (
@@ -2856,7 +3263,7 @@ export default function OpcoesScreen() {
         <View style={{ gap: SIZE.gap }}>
           {exercicioAuto ? (
             <View style={{ padding: 10, borderRadius: 10, backgroundColor: C.opcoes + '10', borderWidth: 1, borderColor: C.opcoes + '25' }}>
-              <Text style={{ fontSize: 11, color: C.opcoes, fontFamily: F.body, textAlign: 'center' }}>
+              <Text style={{ fontSize: 12, color: C.opcoes, fontFamily: F.body, textAlign: 'center' }}>
                 Exercício automático ativado — opções vencidas serão resolvidas automaticamente ao recarregar.
               </Text>
             </View>
@@ -2881,7 +3288,7 @@ export default function OpcoesScreen() {
                       <Text style={[styles.opPremio, { color: C.green }, ps]}>+R$ {fmt(expPrem)}</Text>
                     </View>
                     {expOp.ticker_opcao ? (
-                      <Text style={{ fontSize: 11, color: C.opcoes, fontFamily: F.mono, marginBottom: 4 }}>{expOp.ticker_opcao}</Text>
+                      <Text style={{ fontSize: 12, color: C.opcoes, fontFamily: F.mono, marginBottom: 4 }}>{expOp.ticker_opcao}</Text>
                     ) : null}
                     <View style={{ flexDirection: 'row', gap: 12, marginBottom: 8 }}>
                       <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>
@@ -2899,13 +3306,13 @@ export default function OpcoesScreen() {
                         onPress={function() { handleExpiredPo(expOp.id); }}
                         style={{ flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: C.green + '40', backgroundColor: C.green + '08', alignItems: 'center' }}
                       >
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: C.green, fontFamily: F.display }}>Virou Pó</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: C.green, fontFamily: F.display }}>Virou Pó</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={function() { handleExercida(expOp); }}
                         style={{ flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: C.etfs + '40', backgroundColor: C.etfs + '08', alignItems: 'center' }}
                       >
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: C.etfs, fontFamily: F.display }}>Foi exercida</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: C.etfs, fontFamily: F.display }}>Foi exercida</Text>
                       </TouchableOpacity>
                     </View>
                   </Glass>
@@ -2946,7 +3353,7 @@ export default function OpcoesScreen() {
                   ].map(function(m, i) {
                     return (
                       <View key={i} style={{ alignItems: 'center', flex: 1 }}>
-                        <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
                         <Text style={{ fontSize: 18, fontWeight: '800', color: m.c, fontFamily: F.display, marginTop: 2 }}>{m.v}</Text>
                       </View>
                     );
@@ -2957,7 +3364,7 @@ export default function OpcoesScreen() {
               {/* BANNER: gregas usando PM */}
               {!pricesAvailable && positions.length > 0 ? (
                 <View style={{ padding: 8, borderRadius: 8, backgroundColor: 'rgba(245,158,11,0.08)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)' }}>
-                  <Text style={{ fontSize: 11, color: '#f59e0b', fontFamily: F.mono, textAlign: 'center' }}>
+                  <Text style={{ fontSize: 12, color: '#f59e0b', fontFamily: F.mono, textAlign: 'center' }}>
                     Gregas usando PM (cotações indisponíveis)
                   </Text>
                 </View>
@@ -2992,11 +3399,11 @@ export default function OpcoesScreen() {
                               {v.ativo_base} {tipoLabel}
                             </Text>
                             {v.ticker_opcao ? (
-                              <Text style={{ fontSize: 10, color: C.opcoes, fontFamily: F.mono }}>{v.ticker_opcao}</Text>
+                              <Text style={{ fontSize: 11, color: C.opcoes, fontFamily: F.mono }}>{v.ticker_opcao}</Text>
                             ) : null}
                           </View>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>
+                            <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>
                               {new Date(v.vencimento).toLocaleDateString('pt-BR')}
                             </Text>
                             <Badge text={daysLeft + 'd'} color={dayColor} />
@@ -3020,144 +3427,11 @@ export default function OpcoesScreen() {
         </View>
       )}
 
-      {/* SIMULADOR TAB (Cadeia + Simulador combinados) */}
+      {/* CALCULADORA TAB */}
       {sub === 'sim' && (
         <View style={{ gap: SIZE.gap }}>
-          <SectionLabel>CADEIA DE OPÇÕES</SectionLabel>
-          <CadeiaSintetica positions={positions} indicators={indicators} selicRate={selicRate}
-            onSelect={function(params) { setSimParams(params); }} />
-          <View style={{ height: 1, backgroundColor: C.border, marginVertical: 4 }} />
-          <SectionLabel>SIMULADOR BLACK-SCHOLES</SectionLabel>
-          <SimuladorBS selicRate={selicRate} setInfoModal={setInfoModal} simParams={simParams}
-            positions={positions} indicators={indicators} setTutStep={setTutStep} />
-        </View>
-      )}
-
-      {/* INDICADORES TAB */}
-      {sub === 'ind' && (
-        <View style={{ gap: SIZE.gap }}>
-          {/* Tutorial shortcut — opens at Indicadores step */}
-          <TouchableOpacity activeOpacity={0.7} onPress={function() { setTutStep(7); }}
-            accessibilityRole="button" accessibilityLabel="Tutorial de indicadores"
-            style={{
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-              paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10,
-              backgroundColor: C.acoes + '12', borderWidth: 1, borderColor: C.acoes + '30',
-            }}>
-            <Ionicons name="school-outline" size={16} color={C.acoes} />
-            <Text style={{ fontSize: 13, fontWeight: '700', color: C.acoes, fontFamily: F.display }}>Entender os Indicadores</Text>
-          </TouchableOpacity>
-
-          {/* Recalculate button */}
-          <TouchableOpacity activeOpacity={0.7} disabled={recalculating}
-            onPress={function() {
-              if (!user) return;
-              setRecalculating(true);
-              runDailyCalculation(user.id).then(function(calcResult) {
-                if (calcResult.data && calcResult.data.length > 0) {
-                  var newMap = {};
-                  var mapKeys = Object.keys(indicators);
-                  for (var mk = 0; mk < mapKeys.length; mk++) {
-                    newMap[mapKeys[mk]] = indicators[mapKeys[mk]];
-                  }
-                  for (var ci = 0; ci < calcResult.data.length; ci++) {
-                    newMap[calcResult.data[ci].ticker] = calcResult.data[ci];
-                  }
-                  setIndicators(newMap);
-                }
-                setRecalculating(false);
-              }).catch(function() { setRecalculating(false); });
-            }}
-            style={{
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-              paddingVertical: 12, borderRadius: 10,
-              backgroundColor: C.acoes + '12', borderWidth: 1, borderColor: C.acoes + '30',
-            }}>
-            {recalculating ? (
-              <ActivityIndicator size="small" color={C.acoes} />
-            ) : (
-              <Ionicons name="refresh-outline" size={16} color={C.acoes} />
-            )}
-            <Text style={{ fontSize: 13, fontWeight: '700', color: C.acoes, fontFamily: F.display }}>
-              {recalculating ? 'Calculando...' : 'Recalcular Indicadores'}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Summary table */}
-          {Object.keys(indicators).length === 0 ? (
-            <Glass padding={24}>
-              <EmptyState ionicon="analytics-outline" message="Nenhum indicador calculado ainda." hint="Toque em Recalcular para gerar." />
-            </Glass>
-          ) : (
-            <>
-              {/* Table header */}
-              <Glass padding={0}>
-                <View style={[styles.chainHeader, { paddingHorizontal: 8 }]}>
-                  <View style={{ flex: 1.4 }}><Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>TICKER</Text></View>
-                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>HV 20d</Text></View>
-                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>RSI 14</Text></View>
-                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>Beta</Text></View>
-                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>Max DD</Text></View>
-                </View>
-
-                {/* Table rows */}
-                {Object.keys(indicators).map(function(tk, ri) {
-                  var ind = indicators[tk];
-                  if (!ind) return null;
-                  var hvVal = ind.hv_20 != null ? ind.hv_20.toFixed(0) + '%' : '-';
-                  var rsiVal = ind.rsi_14 != null ? ind.rsi_14.toFixed(0) : '-';
-                  var betaVal = ind.beta != null ? ind.beta.toFixed(2) : '-';
-                  var ddVal = ind.max_drawdown != null ? ind.max_drawdown.toFixed(0) + '%' : '-';
-                  var rsiColor = ind.rsi_14 != null ? (ind.rsi_14 > 70 ? C.red : ind.rsi_14 < 30 ? C.green : C.sub) : C.dim;
-                  var betaColor = ind.beta != null ? (ind.beta > 1.2 ? C.red : ind.beta < 0.8 ? C.green : C.sub) : C.dim;
-                  return (
-                    <View key={tk} style={[styles.chainRow, { paddingHorizontal: 8 }, ri % 2 === 0 && { backgroundColor: 'rgba(255,255,255,0.015)' }]}>
-                      <View style={{ flex: 1.4 }}><Text style={{ fontSize: 12, fontWeight: '600', color: C.text, fontFamily: F.display }}>{tk}</Text></View>
-                      <View style={{ flex: 1, alignItems: 'center' }}><Text style={[{ fontSize: 12, color: C.sub, fontFamily: F.mono }, ps]}>{hvVal}</Text></View>
-                      <View style={{ flex: 1, alignItems: 'center' }}><Text style={[{ fontSize: 12, color: rsiColor, fontFamily: F.mono, fontWeight: ind.rsi_14 != null && (ind.rsi_14 > 70 || ind.rsi_14 < 30) ? '700' : '400' }, ps]}>{rsiVal}</Text></View>
-                      <View style={{ flex: 1, alignItems: 'center' }}><Text style={[{ fontSize: 12, color: betaColor, fontFamily: F.mono }, ps]}>{betaVal}</Text></View>
-                      <View style={{ flex: 1, alignItems: 'center' }}><Text style={[{ fontSize: 12, color: C.red, fontFamily: F.mono }, ps]}>{ddVal}</Text></View>
-                    </View>
-                  );
-                })}
-              </Glass>
-
-              {/* Detailed cards per ticker */}
-              {Object.keys(indicators).map(function(tk) {
-                var ind = indicators[tk];
-                if (!ind) return null;
-                var fields = [
-                  { l: 'HV 20d', v: ind.hv_20 != null ? ind.hv_20.toFixed(1) + '%' : '-', c: C.opcoes },
-                  { l: 'RSI 14', v: ind.rsi_14 != null ? ind.rsi_14.toFixed(1) : '-', c: ind.rsi_14 != null ? (ind.rsi_14 > 70 ? C.red : ind.rsi_14 < 30 ? C.green : C.sub) : C.dim },
-                  { l: 'SMA 20', v: ind.sma_20 != null ? 'R$ ' + fmt(ind.sma_20) : '-', c: C.acoes },
-                  { l: 'EMA 9', v: ind.ema_9 != null ? 'R$ ' + fmt(ind.ema_9) : '-', c: C.acoes },
-                  { l: 'Beta', v: ind.beta != null ? ind.beta.toFixed(2) : '-', c: ind.beta != null ? (ind.beta > 1.2 ? C.red : ind.beta < 0.8 ? C.green : C.sub) : C.dim },
-                  { l: 'ATR 14', v: ind.atr_14 != null ? 'R$ ' + fmt(ind.atr_14) : '-', c: C.etfs },
-                  { l: 'BB Width', v: ind.bb_width != null ? ind.bb_width.toFixed(1) + '%' : '-', c: C.rf },
-                  { l: 'Max DD', v: ind.max_drawdown != null ? ind.max_drawdown.toFixed(1) + '%' : '-', c: C.red },
-                ];
-                var calcDate = ind.data_calculo ? new Date(ind.data_calculo).toLocaleDateString('pt-BR') : null;
-                return (
-                  <Glass key={tk} padding={14}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, fontFamily: F.display }}>{tk}</Text>
-                      {calcDate ? <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{calcDate}</Text> : null}
-                    </View>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                      {fields.map(function(f, fi) {
-                        return (
-                          <View key={fi} style={{ width: '23%', alignItems: 'center', paddingVertical: 6 }}>
-                            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginBottom: 3 }}>{f.l}</Text>
-                            <Text style={[{ fontSize: 13, fontWeight: '700', color: f.c, fontFamily: F.mono }, ps]}>{f.v}</Text>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  </Glass>
-                );
-              })}
-            </>
-          )}
+          <SectionLabel>CALCULADORA DE OPÇÕES</SectionLabel>
+          <CalculadoraOpcoes positions={positions} indicators={indicators} selicRate={selicRate} />
         </View>
       )}
 
@@ -3259,34 +3533,34 @@ export default function OpcoesScreen() {
                           </Text>
                         </View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                          <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>
                             {new Date(op.vencimento).toLocaleDateString('pt-BR')}
                           </Text>
                           <Badge text={statusLabel} color={stColor} />
                           {op.corretora ? (
-                            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{op.corretora}</Text>
+                            <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>{op.corretora}</Text>
                           ) : null}
                         </View>
                         {isFechada ? (
                           <View style={{ marginTop: 4, gap: 2 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                              <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>
+                              <Text style={[{ fontSize: 11, color: C.dim, fontFamily: F.mono }, ps]}>
                                 {'Recompra: R$ ' + fmt(op.premio_fechamento || 0) + ' x ' + (op.quantidade || 0)}
                               </Text>
                               {op.data_fechamento ? (
-                                <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                                <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>
                                   {'em ' + new Date(op.data_fechamento + 'T12:00:00').toLocaleDateString('pt-BR')}
                                 </Text>
                               ) : null}
                             </View>
                             <View style={{ flexDirection: 'row', gap: 12, marginTop: 2 }}>
-                              <Text style={[{ fontSize: 10, color: C.sub, fontFamily: F.mono }, ps]}>
+                              <Text style={[{ fontSize: 11, color: C.sub, fontFamily: F.mono }, ps]}>
                                 {'Recebido: R$ ' + fmt(premTotal)}
                               </Text>
-                              <Text style={[{ fontSize: 10, color: C.red, fontFamily: F.mono }, ps]}>
+                              <Text style={[{ fontSize: 11, color: C.red, fontFamily: F.mono }, ps]}>
                                 {'Recompra: R$ ' + fmt((op.premio_fechamento || 0) * (op.quantidade || 0))}
                               </Text>
-                              <Text style={[{ fontSize: 10, fontWeight: '700', color: histPL >= 0 ? C.green : C.red, fontFamily: F.mono }, ps]}>
+                              <Text style={[{ fontSize: 11, fontWeight: '700', color: histPL >= 0 ? C.green : C.red, fontFamily: F.mono }, ps]}>
                                 {'Resultado: ' + (histPL >= 0 ? '+' : '') + 'R$ ' + fmt(histPL)}
                               </Text>
                             </View>
@@ -3294,13 +3568,13 @@ export default function OpcoesScreen() {
                         ) : null}
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={[{ fontSize: 14, fontWeight: '700', color: histDisplayColor, fontFamily: F.mono }, ps]}>
+                        <Text style={[{ fontSize: 15, fontWeight: '700', color: histDisplayColor, fontFamily: F.mono }, ps]}>
                           {histDisplayVal}
                         </Text>
                         {isFechada ? (
-                          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>P&L</Text>
+                          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>P&L</Text>
                         ) : (
-                          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>Prêmio</Text>
+                          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>Prêmio</Text>
                         )}
                       </View>
                     </View>
@@ -3418,7 +3692,7 @@ export default function OpcoesScreen() {
     </Modal>
 
     <Fab navigation={navigation} />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -3427,19 +3701,19 @@ var styles = StyleSheet.create({
   content: { padding: 18, gap: SIZE.gap },
   subTabs: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
 
-  opTicker: { fontSize: 15, fontWeight: '700', color: C.text, fontFamily: F.display },
-  opCode: { fontSize: 11, color: C.opcoes, fontFamily: F.mono, marginBottom: 6 },
-  opPremio: { fontSize: 14, fontWeight: '700', fontFamily: F.mono },
+  opTicker: { fontSize: 16, fontWeight: '700', color: C.text, fontFamily: F.display },
+  opCode: { fontSize: 12, color: C.opcoes, fontFamily: F.mono, marginBottom: 6 },
+  opPremio: { fontSize: 15, fontWeight: '700', fontFamily: F.mono },
 
   greeksRow: {
     flexDirection: 'row', justifyContent: 'space-between',
     paddingVertical: 8, marginTop: 4,
     borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.04)',
   },
-  greekLabel: { fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 },
-  greekValue: { fontSize: 11, color: C.sub, fontFamily: F.mono, fontWeight: '500', marginTop: 2 },
+  greekLabel: { fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 },
+  greekValue: { fontSize: 12, color: C.sub, fontFamily: F.mono, fontWeight: '500', marginTop: 2 },
 
-  actionLink: { fontSize: 11, color: C.accent, fontFamily: F.mono, fontWeight: '600' },
+  actionLink: { fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '600' },
 
   addBtn: {
     backgroundColor: C.opcoes, borderRadius: 14,
@@ -3453,7 +3727,7 @@ var styles = StyleSheet.create({
   },
 
   simField: { width: '48%' },
-  simFieldLabel: { fontSize: 11, color: C.dim, fontFamily: F.mono, marginBottom: 3 },
+  simFieldLabel: { fontSize: 12, color: C.dim, fontFamily: F.mono, marginBottom: 3 },
   simFieldInput: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.02)',
@@ -3461,7 +3735,7 @@ var styles = StyleSheet.create({
     paddingHorizontal: 10, height: 42,
   },
   simFieldText: { flex: 1, fontSize: 15, color: C.text, fontFamily: F.mono, padding: 0 },
-  simFieldSuffix: { fontSize: 11, color: C.dim, fontFamily: F.mono, marginLeft: 4 },
+  simFieldSuffix: { fontSize: 12, color: C.dim, fontFamily: F.mono, marginLeft: 4 },
 
   // Payoff chart
   payoffContainer: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' },
@@ -3472,8 +3746,8 @@ var styles = StyleSheet.create({
   chainHeader: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: C.border },
   chainCell: { flex: 1, alignItems: 'center' },
   chainStrike: { width: 60, alignItems: 'center' },
-  chainPrice: { fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.mono },
-  chainDelta: { fontSize: 11, color: C.dim, fontFamily: F.mono },
+  chainPrice: { fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono },
+  chainDelta: { fontSize: 12, color: C.dim, fontFamily: F.mono },
   chainItm: { backgroundColor: 'rgba(34,197,94,0.06)' },
   chainItmPut: { backgroundColor: 'rgba(239,68,68,0.06)' },
   chainAtm: { backgroundColor: 'rgba(245,158,11,0.06)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)' },
