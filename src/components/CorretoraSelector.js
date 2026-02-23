@@ -57,7 +57,7 @@ var ALL_INSTITUTIONS = [
   { name: 'PicPay', moeda: 'BRL', tipo: 'banco' },
   // Corretoras INT
   { name: 'Avenue', moeda: 'USD', tipo: 'corretora' },
-  { name: 'Nomad', moeda: 'USD', tipo: 'corretora' },
+  { name: 'Nomad', moeda: 'USD', tipo: 'banco' },
   { name: 'Interactive Brokers', moeda: 'USD', tipo: 'corretora' },
   { name: 'Stake', moeda: 'USD', tipo: 'corretora' },
   { name: 'Charles Schwab', moeda: 'USD', tipo: 'corretora' },
@@ -68,6 +68,9 @@ var ALL_INSTITUTIONS = [
   { name: 'eToro', moeda: 'USD', tipo: 'corretora' },
   { name: 'Revolut', moeda: 'USD', tipo: 'corretora' },
   { name: 'Wise', moeda: 'USD', tipo: 'corretora' },
+  // Bancos INT
+  { name: 'HSBC', moeda: 'QAR', tipo: 'banco' },
+  { name: 'Al Rayan Bank', moeda: 'QAR', tipo: 'banco' },
 ];
 
 var DEFAULTS_BR = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];

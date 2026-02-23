@@ -392,6 +392,9 @@ export async function upsertSaldo(userId, data) {
   if (data.moeda) {
     payload.moeda = data.moeda;
   }
+  if (data.tipo) {
+    payload.tipo = data.tipo;
+  }
   var result = await supabase
     .from('saldos_corretora')
     .upsert(payload, { onConflict: 'user_id,corretora,moeda' });

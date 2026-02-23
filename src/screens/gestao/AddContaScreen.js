@@ -110,6 +110,7 @@ export default function AddContaScreen(props) {
         corretora: nomeNorm,
         saldo: saldoNum,
         moeda: moeda,
+        tipo: tipo,
       });
 
       if (result.error) {

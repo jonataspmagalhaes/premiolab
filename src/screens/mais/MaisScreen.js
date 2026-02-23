@@ -11,7 +11,7 @@ var SECTIONS = [
     title: 'CONFIGURAÇÕES',
     items: [
       { icon: '📊', label: 'Taxa Selic', value: '_selic_', color: C.accent, route: 'ConfigSelic' },
-      { icon: '🏛', label: 'Corretoras', value: 'Gerenciar', color: C.acoes, route: 'ConfigCorretoras' },
+      { icon: '🏛', label: 'Contas', value: 'Corretoras e Bancos', color: C.acoes, route: 'ConfigCorretoras' },
       { icon: '🔔', label: 'Alertas', value: 'Ativados', color: C.green, route: 'ConfigAlertas' },
       { icon: '🎯', label: 'Meta Mensal', value: 'Configurar', color: C.yellow, route: 'ConfigMeta' },
     ],
