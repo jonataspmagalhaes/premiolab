@@ -109,11 +109,11 @@ CREATE POLICY "user_corretoras_own" ON user_corretoras FOR ALL USING (auth.uid()
 CREATE TABLE IF NOT EXISTS saldos_corretora (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) NOT NULL,
-  name TEXT NOT NULL,
+  corretora TEXT NOT NULL,
   tipo TEXT DEFAULT 'corretora' CHECK (tipo IN ('corretora', 'banco')),
   saldo NUMERIC DEFAULT 0,
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id, name)
+  UNIQUE(user_id, corretora)
 );
 CREATE INDEX idx_saldos_user ON saldos_corretora(user_id);
 ALTER TABLE saldos_corretora ENABLE ROW LEVEL SECURITY;
@@ -370,3 +370,22 @@ ALTER TABLE operacoes ADD COLUMN IF NOT EXISTS taxa_cambio NUMERIC;
 
 -- Backfill: todas as operacoes existentes sao brasileiras
 UPDATE operacoes SET mercado = 'BR' WHERE mercado IS NULL;
+
+-- ══════════════════════════════════════════════
+-- 18. IR PAGAMENTOS (status de pagamento DARF)
+-- ══════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS ir_pagamentos (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) NOT NULL,
+  month TEXT NOT NULL,
+  pago BOOLEAN DEFAULT false,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, month)
+);
+CREATE INDEX IF NOT EXISTS idx_ir_pag_user ON ir_pagamentos(user_id);
+ALTER TABLE ir_pagamentos ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "ir_pagamentos_own" ON ir_pagamentos FOR ALL USING (auth.uid() = user_id);
+
+-- 19. PREJUIZO ANTERIOR (campo JSONB no profiles para IR)
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS prejuizo_anterior JSONB
+  DEFAULT '{"acoes":0,"fii":0,"etf":0,"stock_int":0}';

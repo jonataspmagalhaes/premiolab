@@ -1394,3 +1394,25 @@ export async function getDashboard(userId) {
     };
   }
 }
+
+// ═══════════ IR PAGAMENTOS ═══════════
+
+export async function getIRPagamentos(userId) {
+  var result = await supabase
+    .from('ir_pagamentos')
+    .select('*')
+    .eq('user_id', userId);
+  return { data: result.data || [], error: result.error };
+}
+
+export async function upsertIRPagamento(userId, month, pago) {
+  var result = await supabase
+    .from('ir_pagamentos')
+    .upsert({
+      user_id: userId,
+      month: month,
+      pago: pago,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,month' });
+  return { error: result.error };
+}

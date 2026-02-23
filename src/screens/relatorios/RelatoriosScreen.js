@@ -1,10 +1,14 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, RefreshControl, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, RefreshControl, TouchableOpacity, TextInput } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import Svg, { Rect as SvgRect, Line as SvgLine, Text as SvgText, G } from 'react-native-svg';
+import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
+import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getProventos, getOpcoes, getOperacoes, getPositions, getMovimentacoes } from '../../services/database';
+import { animateLayout } from '../../utils/a11y';
+import { getProventos, getOpcoes, getOperacoes, getPositions, getMovimentacoes, getIRPagamentos, upsertIRPagamento, getProfile, updateProfile } from '../../services/database';
 import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
@@ -75,6 +79,42 @@ function filterByPeriod(items, dateField, periodDays) {
   });
 }
 
+// ═══════════ DARF HELPERS ═══════════
+
+function getDarfVencimento(monthKey) {
+  var parts = monthKey.split('-');
+  var year = parseInt(parts[0], 10);
+  var month = parseInt(parts[1], 10);
+  var nextMonth = month + 1;
+  var nextYear = year;
+  if (nextMonth > 12) { nextMonth = 1; nextYear++; }
+  var lastDay = new Date(nextYear, nextMonth, 0);
+  var dow = lastDay.getDay();
+  if (dow === 0) lastDay.setDate(lastDay.getDate() - 2);
+  if (dow === 6) lastDay.setDate(lastDay.getDate() - 1);
+  var dd = lastDay.getDate();
+  var mm = lastDay.getMonth() + 1;
+  return (dd < 10 ? '0' : '') + dd + '/' + (mm < 10 ? '0' : '') + mm + '/' + lastDay.getFullYear();
+}
+
+function buildDarfText(r) {
+  var lines = [];
+  lines.push('=== DARF - Imposto de Renda ===');
+  lines.push('');
+  lines.push('Codigo da Receita: 6015');
+  lines.push('Periodo de Apuracao: ' + formatMonthLabel(r.month));
+  lines.push('Data de Vencimento: ' + getDarfVencimento(r.month));
+  lines.push('Valor Principal: R$ ' + fmt(r.impostoTotal));
+  lines.push('');
+  if (r.impostoAcoes > 0) lines.push('Acoes: R$ ' + fmt(r.impostoAcoes) + ' (15%)');
+  if (r.impostoFII > 0) lines.push('FIIs: R$ ' + fmt(r.impostoFII) + ' (20%)');
+  if (r.impostoETF > 0) lines.push('ETFs: R$ ' + fmt(r.impostoETF) + ' (15%)');
+  if (r.impostoStockInt > 0) lines.push('Stocks INT: R$ ' + fmt(r.impostoStockInt) + ' (15%)');
+  lines.push('');
+  lines.push('Acesse o e-CAC ou Sicalc para gerar o Pix/boleto da DARF.');
+  return lines.join('\n');
+}
+
 // ═══════════ IR COMPUTATION (from AnaliseScreen) ═══════════
 
 function computeIR(ops) {
@@ -113,9 +153,15 @@ function computeIR(ops) {
           vendasFII: 0, ganhoFII: 0, perdaFII: 0,
           vendasETF: 0, ganhoETF: 0, perdaETF: 0,
           vendasStockInt: 0, ganhoStockInt: 0, perdaStockInt: 0,
+          vendas: [],
         };
       }
       var mr = monthResults[mKey];
+      mr.vendas.push({
+        ticker: ticker, categoria: cat, qty: op.quantidade,
+        preco: op.preco, pm: pm, vendaTotal: vendaTotal,
+        ganho: ganho, data: op.data,
+      });
       if (cat === 'fii') {
         mr.vendasFII += vendaTotal;
         if (ganho >= 0) mr.ganhoFII += ganho; else mr.perdaFII += Math.abs(ganho);
@@ -134,12 +180,12 @@ function computeIR(ops) {
   return monthResults;
 }
 
-function computeTaxByMonth(monthResults) {
+function computeTaxByMonth(monthResults, prejInicial) {
   var months = Object.keys(monthResults).sort();
-  var prejAcumAcoes = 0;
-  var prejAcumFII = 0;
-  var prejAcumETF = 0;
-  var prejAcumStockInt = 0;
+  var prejAcumAcoes = (prejInicial && prejInicial.acoes) || 0;
+  var prejAcumFII = (prejInicial && prejInicial.fii) || 0;
+  var prejAcumETF = (prejInicial && prejInicial.etf) || 0;
+  var prejAcumStockInt = (prejInicial && prejInicial.stock_int) || 0;
   var results = [];
 
   months.forEach(function(mKey) {
@@ -203,6 +249,7 @@ function computeTaxByMonth(monthResults) {
       impostoTotal: impostoAcoes + impostoFII + impostoETF + impostoStockInt,
       alertaAcoes20k: mr.vendasAcoes > 20000,
       prejAcumAcoes: prejAcumAcoes, prejAcumFII: prejAcumFII, prejAcumETF: prejAcumETF, prejAcumStockInt: prejAcumStockInt,
+      vendas: mr.vendas || [],
     });
   });
   return results;
@@ -466,6 +513,15 @@ export default function RelatoriosScreen(props) {
   var _movimentacoes = useState([]); var movimentacoes = _movimentacoes[0]; var setMovimentacoes = _movimentacoes[1];
   var _divMonthSel = useState(-1); var divMonthSel = _divMonthSel[0]; var setDivMonthSel = _divMonthSel[1];
 
+  // IR states
+  var _irExpanded = useState(null); var irExpanded = _irExpanded[0]; var setIrExpanded = _irExpanded[1];
+  var _irDrillMonth = useState(null); var irDrillMonth = _irDrillMonth[0]; var setIrDrillMonth = _irDrillMonth[1];
+  var _irDrillCat = useState(null); var irDrillCat = _irDrillCat[0]; var setIrDrillCat = _irDrillCat[1];
+  var _irPagamentos = useState({}); var irPagamentos = _irPagamentos[0]; var setIrPagamentos = _irPagamentos[1];
+  var _prejAnterior = useState({ acoes: 0, fii: 0, etf: 0, stock_int: 0 }); var prejAnterior = _prejAnterior[0]; var setPrejAnterior = _prejAnterior[1];
+  var _editingPrej = useState(false); var editingPrej = _editingPrej[0]; var setEditingPrej = _editingPrej[1];
+  var _darfMonth = useState(null); var darfMonth = _darfMonth[0]; var setDarfMonth = _darfMonth[1];
+
   var load = async function() {
     if (!user) return;
     var results = await Promise.all([
@@ -474,6 +530,8 @@ export default function RelatoriosScreen(props) {
       getOperacoes(user.id),
       getPositions(user.id),
       getMovimentacoes(user.id, {}),
+      getIRPagamentos(user.id),
+      getProfile(user.id),
     ]);
     setProventos(results[0].data || []);
     setOpcoes(results[1].data || []);
@@ -481,6 +539,19 @@ export default function RelatoriosScreen(props) {
     setPositions(results[3].data || []);
     setEncerradas(results[3].encerradas || []);
     setMovimentacoes(results[4].data || []);
+
+    // IR pagamentos -> object keyed by month
+    var pagRows = results[5].data || [];
+    var pagMap = {};
+    for (var pi = 0; pi < pagRows.length; pi++) { pagMap[pagRows[pi].month] = pagRows[pi].pago; }
+    setIrPagamentos(pagMap);
+
+    // Prejuizo anterior from profile
+    var profile = results[6].data;
+    if (profile && profile.prejuizo_anterior) {
+      setPrejAnterior(profile.prejuizo_anterior);
+    }
+
     setLoading(false);
   };
 
@@ -744,7 +815,7 @@ export default function RelatoriosScreen(props) {
   // ═══════════ IR DATA ═══════════
 
   var irMonthResults = computeIR(operacoes);
-  var irTaxByMonth = computeTaxByMonth(irMonthResults);
+  var irTaxByMonth = computeTaxByMonth(irMonthResults, prejAnterior);
   // Filter by period
   var irFiltered = periodDays ? irTaxByMonth.filter(function(r) {
     var cutoff = new Date();
@@ -760,6 +831,67 @@ export default function RelatoriosScreen(props) {
     if (r.alertaAcoes20k) irMesesAlerta++;
   });
   var lastIR = irFiltered.length > 0 ? irFiltered[irFiltered.length - 1] : null;
+
+  // Contagem PAGOS
+  var irPagos = 0;
+  var irComImposto = 0;
+  irFiltered.forEach(function(r) {
+    if (r.impostoTotal > 0) {
+      irComImposto++;
+      if (irPagamentos[r.month]) irPagos++;
+    }
+  });
+
+  // ═══════════ IR HANDLERS ═══════════
+
+  var handleToggleIRMonth = function(monthKey) {
+    animateLayout();
+    if (irExpanded === monthKey) {
+      setIrExpanded(null);
+      setDarfMonth(null);
+      setIrDrillMonth(null);
+      setIrDrillCat(null);
+    } else {
+      setIrExpanded(monthKey);
+      setDarfMonth(null);
+      setIrDrillMonth(null);
+      setIrDrillCat(null);
+    }
+  };
+
+  var handleTogglePago = function(monthKey) {
+    var newPago = !irPagamentos[monthKey];
+    var updated = {};
+    var keys = Object.keys(irPagamentos);
+    for (var i = 0; i < keys.length; i++) { updated[keys[i]] = irPagamentos[keys[i]]; }
+    updated[monthKey] = newPago;
+    setIrPagamentos(updated);
+    upsertIRPagamento(user.id, monthKey, newPago);
+    Toast.show({ type: 'success', text1: newPago ? 'Marcado como pago' : 'Marcado como pendente' });
+  };
+
+  var handleCopyDarf = function(r) {
+    var text = buildDarfText(r);
+    Clipboard.setStringAsync(text);
+    Toast.show({ type: 'success', text1: 'DARF copiada', text2: 'Dados copiados para a área de transferência' });
+  };
+
+  var handleToggleDrillVendas = function(monthKey, cat) {
+    animateLayout();
+    if (irDrillMonth === monthKey && irDrillCat === cat) {
+      setIrDrillMonth(null);
+      setIrDrillCat(null);
+    } else {
+      setIrDrillMonth(monthKey);
+      setIrDrillCat(cat);
+    }
+  };
+
+  var handleSavePrejAnterior = function() {
+    updateProfile(user.id, { prejuizo_anterior: prejAnterior });
+    setEditingPrej(false);
+    Toast.show({ type: 'success', text1: 'Prejuízo anterior salvo' });
+  };
 
   // ═══════════ RENDER ═══════════
 
@@ -1439,26 +1571,126 @@ export default function RelatoriosScreen(props) {
               </View>
               <View style={styles.resumoDivider} />
               <View style={{ alignItems: 'center', flex: 1 }}>
-                <Text style={styles.resumoLabel}>ALERTAS {'>'}20K</Text>
+                <Text style={styles.resumoLabel}>{'>'}20K</Text>
                 <Text style={[styles.resumoVal, { color: irMesesAlerta > 0 ? C.yellow : C.green }]}>
                   {irMesesAlerta}
+                </Text>
+              </View>
+              <View style={styles.resumoDivider} />
+              <View style={{ alignItems: 'center', flex: 1 }}>
+                <Text style={styles.resumoLabel}>PAGOS</Text>
+                <Text style={[styles.resumoVal, { color: irPagos === irComImposto && irComImposto > 0 ? C.green : C.yellow }]}>
+                  {irPagos + '/' + irComImposto}
                 </Text>
               </View>
             </View>
             <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border,
               flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <InfoTip text="O cálculo de IR usa o preço médio geral do ativo (todas as corretoras juntas), conforme exigido pela Receita Federal. Ações com vendas até R$20 mil/mês são isentas. Alíquotas: ações 15%, FIIs 20%, ETFs 15%, stocks internacionais 15% (sem isenção de R$20k). Prejuízos acumulados são compensados nos meses seguintes." size={12} />
+              <InfoTip text="O cálculo de IR usa o preço médio geral do ativo (todas as corretoras juntas), conforme exigido pela Receita Federal. Ações com vendas até R$20 mil/mês são isentas. Alíquotas: ações 15%, FIIs 20%, ETFs 15%, stocks internacionais 15% (sem isenção de R$20k). Prejuízos acumulados são compensados nos meses seguintes. A data de vencimento da DARF não considera feriados nacionais." size={12} />
               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, flex: 1 }}>
-                IR calculado com PM geral (Receita Federal). O P&L em Operações usa PM por corretora.
+                IR calculado com PM geral (Receita Federal).
               </Text>
             </View>
           </Glass>
 
-          {/* Prejuízo acumulado */}
+          {/* Prejuízo de meses anteriores (editável) */}
+          <Glass padding={14}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 6 }}>
+              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8 }}>
+                PREJUÍZO DE MESES ANTERIORES
+              </Text>
+              <InfoTip text="Informe aqui prejuízos acumulados de antes de usar o app. Eles serão compensados automaticamente nos meses seguintes, reduzindo o IR devido." size={12} />
+            </View>
+            {editingPrej ? (
+              <View style={{ gap: 10 }}>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.acoes, fontFamily: F.mono, marginBottom: 4 }}>Ações</Text>
+                    <TextInput
+                      style={styles.irPrejField}
+                      value={String(prejAnterior.acoes || 0)}
+                      onChangeText={function(t) { setPrejAnterior({ acoes: parseFloat(t) || 0, fii: prejAnterior.fii, etf: prejAnterior.etf, stock_int: prejAnterior.stock_int }); }}
+                      keyboardType="decimal-pad" placeholder="0" placeholderTextColor={C.dim} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.fiis, fontFamily: F.mono, marginBottom: 4 }}>FIIs</Text>
+                    <TextInput
+                      style={styles.irPrejField}
+                      value={String(prejAnterior.fii || 0)}
+                      onChangeText={function(t) { setPrejAnterior({ acoes: prejAnterior.acoes, fii: parseFloat(t) || 0, etf: prejAnterior.etf, stock_int: prejAnterior.stock_int }); }}
+                      keyboardType="decimal-pad" placeholder="0" placeholderTextColor={C.dim} />
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.etfs, fontFamily: F.mono, marginBottom: 4 }}>ETFs</Text>
+                    <TextInput
+                      style={styles.irPrejField}
+                      value={String(prejAnterior.etf || 0)}
+                      onChangeText={function(t) { setPrejAnterior({ acoes: prejAnterior.acoes, fii: prejAnterior.fii, etf: parseFloat(t) || 0, stock_int: prejAnterior.stock_int }); }}
+                      keyboardType="decimal-pad" placeholder="0" placeholderTextColor={C.dim} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.stock_int, fontFamily: F.mono, marginBottom: 4 }}>Stocks INT</Text>
+                    <TextInput
+                      style={styles.irPrejField}
+                      value={String(prejAnterior.stock_int || 0)}
+                      onChangeText={function(t) { setPrejAnterior({ acoes: prejAnterior.acoes, fii: prejAnterior.fii, etf: prejAnterior.etf, stock_int: parseFloat(t) || 0 }); }}
+                      keyboardType="decimal-pad" placeholder="0" placeholderTextColor={C.dim} />
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity onPress={handleSavePrejAnterior}
+                    style={{ flex: 1, backgroundColor: C.green + '15', borderRadius: 8, paddingVertical: 8, alignItems: 'center', borderWidth: 1, borderColor: C.green + '30' }}>
+                    <Text style={{ color: C.green, fontFamily: F.display, fontSize: 12 }}>Salvar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={function() { setEditingPrej(false); }}
+                    style={{ flex: 1, backgroundColor: C.surface, borderRadius: 8, paddingVertical: 8, alignItems: 'center', borderWidth: 1, borderColor: C.border }}>
+                    <Text style={{ color: C.dim, fontFamily: F.display, fontSize: 12 }}>Cancelar</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <View>
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>Ações</Text>
+                    <Text style={{ fontSize: 12, color: prejAnterior.acoes > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }}>
+                      {'R$ ' + fmt(prejAnterior.acoes || 0)}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>FIIs</Text>
+                    <Text style={{ fontSize: 12, color: prejAnterior.fii > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }}>
+                      {'R$ ' + fmt(prejAnterior.fii || 0)}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>ETFs</Text>
+                    <Text style={{ fontSize: 12, color: prejAnterior.etf > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }}>
+                      {'R$ ' + fmt(prejAnterior.etf || 0)}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>Stocks</Text>
+                    <Text style={{ fontSize: 12, color: prejAnterior.stock_int > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }}>
+                      {'R$ ' + fmt(prejAnterior.stock_int || 0)}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity onPress={function() { setEditingPrej(true); }}
+                  style={{ marginTop: 8, alignSelf: 'flex-start' }}>
+                  <Text style={{ fontSize: 11, color: C.accent, fontFamily: F.body, fontWeight: '600' }}>Editar</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </Glass>
+
+          {/* Prejuízo acumulado (rolling) */}
           {lastIR && (lastIR.prejAcumAcoes > 0 || lastIR.prejAcumFII > 0 || lastIR.prejAcumETF > 0 || lastIR.prejAcumStockInt > 0) && (
             <Glass padding={14}>
               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 8 }}>
-                PREJUÍZO ACUMULADO
+                PREJUÍZO ACUMULADO ATUAL
               </Text>
               <View style={{ flexDirection: 'row', gap: 12 }}>
                 {lastIR.prejAcumAcoes > 0 && (
@@ -1497,7 +1729,7 @@ export default function RelatoriosScreen(props) {
             </Glass>
           )}
 
-          {/* Por Mês */}
+          {/* Por Mês — Detalhamento */}
           <SectionLabel>DETALHAMENTO MENSAL</SectionLabel>
           {irFiltered.length === 0 && (
             <EmptyState ionicon="calculator-outline" title="Sem vendas"
@@ -1505,69 +1737,263 @@ export default function RelatoriosScreen(props) {
           )}
           {irFiltered.slice().reverse().map(function(r) {
             var hasImposto = r.impostoTotal > 0;
+            var isExpanded = irExpanded === r.month;
+            var isPago = irPagamentos[r.month] || false;
+            var irColor = hasImposto ? (isPago ? C.green : C.red) : C.dim;
+
             return (
               <Glass key={r.month} padding={0}>
-                <View style={styles.tickerHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                {/* Header — tappable expand/collapse */}
+                <TouchableOpacity activeOpacity={0.7} onPress={function() { handleToggleIRMonth(r.month); }}
+                  style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 14, gap: 6 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                     <Text style={styles.tickerName}>{formatMonthLabel(r.month)}</Text>
                     {hasImposto && <Badge text="DARF" color={C.red} />}
                     {r.alertaAcoes20k && <Badge text={'>20K'} color={C.yellow} />}
+                    {hasImposto && (
+                      <TouchableOpacity activeOpacity={0.7}
+                        onPress={function() { handleTogglePago(r.month); }}>
+                        <Badge text={isPago ? 'PAGO' : 'PENDENTE'} color={isPago ? C.green : C.yellow} />
+                      </TouchableOpacity>
+                    )}
                   </View>
-                  <Text style={[styles.tickerTotal, { color: hasImposto ? C.red : C.green }]}>
-                    {hasImposto ? 'IR R$ ' + fmt(r.impostoTotal) : 'Isento'}
+                  <Text style={[styles.tickerTotal, { color: irColor }]}>
+                    {hasImposto ? 'R$ ' + fmt(r.impostoTotal) : 'Isento'}
                   </Text>
-                </View>
+                  <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={C.dim} />
+                </TouchableOpacity>
 
-                {/* Ações */}
-                {(r.vendasAcoes > 0 || r.ganhoAcoes > 0 || r.perdaAcoes > 0) && (
-                  <View style={[styles.irClassRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
-                    <Text style={[styles.irClassLabel, { color: C.acoes }]}>Ações</Text>
-                    <View style={styles.irClassDetail}>
-                      <Text style={styles.irText}>{'Vendas: R$ ' + fmt(r.vendasAcoes)}</Text>
-                      {r.ganhoAcoes > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Ganho: R$ ' + fmt(r.ganhoAcoes)}</Text>}
-                      {r.perdaAcoes > 0 && <Text style={[styles.irText, { color: C.red }]}>{'Perda: R$ ' + fmt(r.perdaAcoes)}</Text>}
-                      {r.impostoAcoes > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }]}>{'IR 15%: R$ ' + fmt(r.impostoAcoes)}</Text>}
-                      {r.vendasAcoes <= 20000 && r.vendasAcoes > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Isento (vendas ≤ R$20k)'}</Text>}
-                    </View>
-                  </View>
-                )}
+                {/* Expanded content */}
+                {isExpanded && (
+                  <View>
+                    {/* ── Ações ── */}
+                    {(r.vendasAcoes > 0 || r.ganhoAcoes > 0 || r.perdaAcoes > 0) && (
+                      <View style={{ borderTopWidth: 1, borderTopColor: C.border }}>
+                        <View style={styles.irClassRow}>
+                          <Text style={[styles.irClassLabel, { color: C.acoes }]}>Ações</Text>
+                          <View style={styles.irClassDetail}>
+                            <TouchableOpacity activeOpacity={0.7} onPress={function() { handleToggleDrillVendas(r.month, 'acao'); }}>
+                              <Text style={[styles.irText, { textDecorationLine: 'underline' }]}>{'Vendas: R$ ' + fmt(r.vendasAcoes)}</Text>
+                            </TouchableOpacity>
+                            {r.ganhoAcoes > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Ganho: R$ ' + fmt(r.ganhoAcoes)}</Text>}
+                            {r.perdaAcoes > 0 && <Text style={[styles.irText, { color: C.red }]}>{'Perda: R$ ' + fmt(r.perdaAcoes)}</Text>}
+                            {r.impostoAcoes > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }]}>{'IR 15%: R$ ' + fmt(r.impostoAcoes)}</Text>}
+                            {r.vendasAcoes <= 20000 && r.vendasAcoes > 0 && (
+                              <Text style={[styles.irText, { color: C.dim, fontStyle: 'italic' }]}>{'Isento conforme regra de R$ 20k'}</Text>
+                            )}
+                          </View>
+                        </View>
+                        {irDrillMonth === r.month && irDrillCat === 'acao' && (function() {
+                          var catVendas = (r.vendas || []).filter(function(v) { return v.categoria === 'acao'; });
+                          if (catVendas.length === 0) return null;
+                          return (
+                            <View style={{ paddingHorizontal: 14, paddingBottom: 8, gap: 4 }}>
+                              {catVendas.map(function(v, vi) {
+                                return (
+                                  <View key={vi} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 50 }}>
+                                    <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, fontWeight: '600', width: 54 }}>{v.ticker}</Text>
+                                    <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, flex: 1 }}>{v.qty + ' cotas'}</Text>
+                                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }}>{'R$ ' + fmt(v.vendaTotal)}</Text>
+                                    <Text style={{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }}>
+                                      {(v.ganho >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(v.ganho))}
+                                    </Text>
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          );
+                        })()}
+                      </View>
+                    )}
 
-                {/* FIIs */}
-                {(r.vendasFII > 0 || r.ganhoFII > 0 || r.perdaFII > 0) && (
-                  <View style={[styles.irClassRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
-                    <Text style={[styles.irClassLabel, { color: C.fiis }]}>FIIs</Text>
-                    <View style={styles.irClassDetail}>
-                      <Text style={styles.irText}>{'Vendas: R$ ' + fmt(r.vendasFII)}</Text>
-                      {r.ganhoFII > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Ganho: R$ ' + fmt(r.ganhoFII)}</Text>}
-                      {r.perdaFII > 0 && <Text style={[styles.irText, { color: C.red }]}>{'Perda: R$ ' + fmt(r.perdaFII)}</Text>}
-                      {r.impostoFII > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }]}>{'IR 20%: R$ ' + fmt(r.impostoFII)}</Text>}
-                    </View>
-                  </View>
-                )}
+                    {/* ── FIIs ── */}
+                    {(r.vendasFII > 0 || r.ganhoFII > 0 || r.perdaFII > 0) && (
+                      <View style={{ borderTopWidth: 1, borderTopColor: C.border }}>
+                        <View style={styles.irClassRow}>
+                          <Text style={[styles.irClassLabel, { color: C.fiis }]}>FIIs</Text>
+                          <View style={styles.irClassDetail}>
+                            <TouchableOpacity activeOpacity={0.7} onPress={function() { handleToggleDrillVendas(r.month, 'fii'); }}>
+                              <Text style={[styles.irText, { textDecorationLine: 'underline' }]}>{'Vendas: R$ ' + fmt(r.vendasFII)}</Text>
+                            </TouchableOpacity>
+                            {r.ganhoFII > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Ganho: R$ ' + fmt(r.ganhoFII)}</Text>}
+                            {r.perdaFII > 0 && <Text style={[styles.irText, { color: C.red }]}>{'Perda: R$ ' + fmt(r.perdaFII)}</Text>}
+                            {r.impostoFII > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }]}>{'IR 20%: R$ ' + fmt(r.impostoFII)}</Text>}
+                          </View>
+                        </View>
+                        {irDrillMonth === r.month && irDrillCat === 'fii' && (function() {
+                          var catVendas = (r.vendas || []).filter(function(v) { return v.categoria === 'fii'; });
+                          if (catVendas.length === 0) return null;
+                          return (
+                            <View style={{ paddingHorizontal: 14, paddingBottom: 8, gap: 4 }}>
+                              {catVendas.map(function(v, vi) {
+                                return (
+                                  <View key={vi} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 50 }}>
+                                    <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, fontWeight: '600', width: 54 }}>{v.ticker}</Text>
+                                    <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, flex: 1 }}>{v.qty + ' cotas'}</Text>
+                                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }}>{'R$ ' + fmt(v.vendaTotal)}</Text>
+                                    <Text style={{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }}>
+                                      {(v.ganho >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(v.ganho))}
+                                    </Text>
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          );
+                        })()}
+                      </View>
+                    )}
 
-                {/* ETFs */}
-                {(r.vendasETF > 0 || r.ganhoETF > 0 || r.perdaETF > 0) && (
-                  <View style={[styles.irClassRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
-                    <Text style={[styles.irClassLabel, { color: C.etfs }]}>ETFs</Text>
-                    <View style={styles.irClassDetail}>
-                      <Text style={styles.irText}>{'Vendas: R$ ' + fmt(r.vendasETF)}</Text>
-                      {r.ganhoETF > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Ganho: R$ ' + fmt(r.ganhoETF)}</Text>}
-                      {r.perdaETF > 0 && <Text style={[styles.irText, { color: C.red }]}>{'Perda: R$ ' + fmt(r.perdaETF)}</Text>}
-                      {r.impostoETF > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }]}>{'IR 15%: R$ ' + fmt(r.impostoETF)}</Text>}
-                    </View>
-                  </View>
-                )}
+                    {/* ── ETFs ── */}
+                    {(r.vendasETF > 0 || r.ganhoETF > 0 || r.perdaETF > 0) && (
+                      <View style={{ borderTopWidth: 1, borderTopColor: C.border }}>
+                        <View style={styles.irClassRow}>
+                          <Text style={[styles.irClassLabel, { color: C.etfs }]}>ETFs</Text>
+                          <View style={styles.irClassDetail}>
+                            <TouchableOpacity activeOpacity={0.7} onPress={function() { handleToggleDrillVendas(r.month, 'etf'); }}>
+                              <Text style={[styles.irText, { textDecorationLine: 'underline' }]}>{'Vendas: R$ ' + fmt(r.vendasETF)}</Text>
+                            </TouchableOpacity>
+                            {r.ganhoETF > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Ganho: R$ ' + fmt(r.ganhoETF)}</Text>}
+                            {r.perdaETF > 0 && <Text style={[styles.irText, { color: C.red }]}>{'Perda: R$ ' + fmt(r.perdaETF)}</Text>}
+                            {r.impostoETF > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }]}>{'IR 15%: R$ ' + fmt(r.impostoETF)}</Text>}
+                          </View>
+                        </View>
+                        {irDrillMonth === r.month && irDrillCat === 'etf' && (function() {
+                          var catVendas = (r.vendas || []).filter(function(v) { return v.categoria === 'etf'; });
+                          if (catVendas.length === 0) return null;
+                          return (
+                            <View style={{ paddingHorizontal: 14, paddingBottom: 8, gap: 4 }}>
+                              {catVendas.map(function(v, vi) {
+                                return (
+                                  <View key={vi} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 50 }}>
+                                    <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, fontWeight: '600', width: 54 }}>{v.ticker}</Text>
+                                    <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, flex: 1 }}>{v.qty + ' cotas'}</Text>
+                                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }}>{'R$ ' + fmt(v.vendaTotal)}</Text>
+                                    <Text style={{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }}>
+                                      {(v.ganho >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(v.ganho))}
+                                    </Text>
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          );
+                        })()}
+                      </View>
+                    )}
 
-                {/* Stocks Internacionais */}
-                {(r.vendasStockInt > 0 || r.ganhoStockInt > 0 || r.perdaStockInt > 0) && (
-                  <View style={[styles.irClassRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
-                    <Text style={[styles.irClassLabel, { color: C.stock_int }]}>Stocks INT</Text>
-                    <View style={styles.irClassDetail}>
-                      <Text style={styles.irText}>{'Vendas: R$ ' + fmt(r.vendasStockInt)}</Text>
-                      {r.ganhoStockInt > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Ganho: R$ ' + fmt(r.ganhoStockInt)}</Text>}
-                      {r.perdaStockInt > 0 && <Text style={[styles.irText, { color: C.red }]}>{'Perda: R$ ' + fmt(r.perdaStockInt)}</Text>}
-                      {r.impostoStockInt > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }]}>{'IR 15%: R$ ' + fmt(r.impostoStockInt)}</Text>}
-                    </View>
+                    {/* ── Stocks Internacionais ── */}
+                    {(r.vendasStockInt > 0 || r.ganhoStockInt > 0 || r.perdaStockInt > 0) && (
+                      <View style={{ borderTopWidth: 1, borderTopColor: C.border }}>
+                        <View style={styles.irClassRow}>
+                          <Text style={[styles.irClassLabel, { color: C.stock_int }]}>Stocks INT</Text>
+                          <View style={styles.irClassDetail}>
+                            <TouchableOpacity activeOpacity={0.7} onPress={function() { handleToggleDrillVendas(r.month, 'stock_int'); }}>
+                              <Text style={[styles.irText, { textDecorationLine: 'underline' }]}>{'Vendas: R$ ' + fmt(r.vendasStockInt)}</Text>
+                            </TouchableOpacity>
+                            {r.ganhoStockInt > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Ganho: R$ ' + fmt(r.ganhoStockInt)}</Text>}
+                            {r.perdaStockInt > 0 && <Text style={[styles.irText, { color: C.red }]}>{'Perda: R$ ' + fmt(r.perdaStockInt)}</Text>}
+                            {r.impostoStockInt > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }]}>{'IR 15%: R$ ' + fmt(r.impostoStockInt)}</Text>}
+                          </View>
+                        </View>
+                        {irDrillMonth === r.month && irDrillCat === 'stock_int' && (function() {
+                          var catVendas = (r.vendas || []).filter(function(v) { return v.categoria === 'stock_int'; });
+                          if (catVendas.length === 0) return null;
+                          return (
+                            <View style={{ paddingHorizontal: 14, paddingBottom: 8, gap: 4 }}>
+                              {catVendas.map(function(v, vi) {
+                                return (
+                                  <View key={vi} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 50 }}>
+                                    <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, fontWeight: '600', width: 54 }}>{v.ticker}</Text>
+                                    <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, flex: 1 }}>{v.qty + ' cotas'}</Text>
+                                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }}>{'R$ ' + fmt(v.vendaTotal)}</Text>
+                                    <Text style={{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }}>
+                                      {(v.ganho >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(v.ganho))}
+                                    </Text>
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          );
+                        })()}
+                      </View>
+                    )}
+
+                    {/* ── Gerar DARF ── */}
+                    {hasImposto && (
+                      <View style={{ paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: C.border }}>
+                        <TouchableOpacity activeOpacity={0.7}
+                          onPress={function() { setDarfMonth(darfMonth === r.month ? null : r.month); }}
+                          style={{ backgroundColor: C.accent + '15', borderRadius: 8, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: C.accent + '30' }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Ionicons name="document-text-outline" size={14} color={C.accent} />
+                            <Text style={{ color: C.accent, fontFamily: F.display, fontSize: 13 }}>
+                              {darfMonth === r.month ? 'Fechar DARF' : 'Gerar DARF'}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    {/* ── Painel DARF ── */}
+                    {darfMonth === r.month && (
+                      <View style={{ paddingHorizontal: 14, paddingBottom: 14, gap: 8, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 10 }}>
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8 }}>DADOS DA DARF</Text>
+                        <View style={{ gap: 4 }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body }}>Código da Receita</Text>
+                            <Text style={{ fontSize: 11, color: C.text, fontFamily: F.mono, fontWeight: '600' }}>6015</Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body }}>Período de Apuração</Text>
+                            <Text style={{ fontSize: 11, color: C.text, fontFamily: F.mono, fontWeight: '600' }}>{formatMonthLabel(r.month)}</Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body }}>Data de Vencimento</Text>
+                            <Text style={{ fontSize: 11, color: C.text, fontFamily: F.mono, fontWeight: '600' }}>{getDarfVencimento(r.month)}</Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body }}>Valor Principal</Text>
+                            <Text style={{ fontSize: 11, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>{'R$ ' + fmt(r.impostoTotal)}</Text>
+                          </View>
+                          {r.impostoAcoes > 0 && (
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 10 }}>
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>Ações (15%)</Text>
+                              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>{'R$ ' + fmt(r.impostoAcoes)}</Text>
+                            </View>
+                          )}
+                          {r.impostoFII > 0 && (
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 10 }}>
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>FIIs (20%)</Text>
+                              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>{'R$ ' + fmt(r.impostoFII)}</Text>
+                            </View>
+                          )}
+                          {r.impostoETF > 0 && (
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 10 }}>
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>ETFs (15%)</Text>
+                              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>{'R$ ' + fmt(r.impostoETF)}</Text>
+                            </View>
+                          )}
+                          {r.impostoStockInt > 0 && (
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 10 }}>
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>Stocks INT (15%)</Text>
+                              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>{'R$ ' + fmt(r.impostoStockInt)}</Text>
+                            </View>
+                          )}
+                        </View>
+                        <TouchableOpacity activeOpacity={0.7} onPress={function() { handleCopyDarf(r); }}
+                          style={{ backgroundColor: C.green + '15', borderRadius: 8, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: C.green + '30', marginTop: 4 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Ionicons name="copy-outline" size={14} color={C.green} />
+                            <Text style={{ color: C.green, fontFamily: F.display, fontSize: 13 }}>Copiar Dados</Text>
+                          </View>
+                        </TouchableOpacity>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                          <InfoTip text="O código 6015 se aplica a operações de swing trade em bolsa (ações, FIIs, ETFs). Stocks internacionais podem usar código 0190. Acesse o e-CAC (ecac.fazenda.gov.br) ou o Sicalc para gerar a DARF com código de barras ou Pix. A data de vencimento não considera feriados nacionais — verifique no Sicalc." size={12} />
+                          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, flex: 1 }}>
+                            Acesse o e-CAC ou Sicalc para gerar o Pix/boleto da DARF.
+                          </Text>
+                        </View>
+                      </View>
+                    )}
                   </View>
                 )}
               </Glass>
@@ -1630,4 +2056,10 @@ var styles = StyleSheet.create({
   monthSub: { fontSize: 10, fontFamily: F.mono, fontWeight: '600' },
   movIconWrap: { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
   movIconText: { fontSize: 14, fontWeight: '700' },
+
+  irPrejField: {
+    flex: 1, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 6, color: C.text, fontFamily: F.mono,
+    fontSize: 12, backgroundColor: 'rgba(255,255,255,0.03)',
+  },
 });
