@@ -19,6 +19,7 @@ import { enrichPositionsWithPrices, fetchPriceHistory, fetchHistoryRouted, clear
 import { Glass, Badge, Pill, SectionLabel, InfoTip, PressableCard, FundamentalAccordion, Fab } from '../../components';
 import { MiniLineChart } from '../../components/InteractiveChart';
 import { SkeletonCarteira, EmptyState } from '../../components/States';
+import { usePrivacyStyle } from '../../components/Sensitive';
 
 // ══════════ HELPERS ══════════
 var FILTERS = [
@@ -98,6 +99,7 @@ function HBar(props) {
   var suffix = props.suffix || '%';
   var isNeg = value < 0;
   var barPct = clamp(Math.abs(value) / Math.abs(maxValue) * 100, 2, 100);
+  var ps = usePrivacyStyle();
 
   return (
     <View style={styles.hbarRow}>
@@ -109,7 +111,7 @@ function HBar(props) {
           borderColor: color + '80',
         }]} />
       </View>
-      <Text style={[styles.hbarValue, { color: isNeg ? C.red : color }]}>
+      <Text style={[styles.hbarValue, { color: isNeg ? C.red : color }, ps]}>
         {isNeg ? '' : '+'}{value.toFixed(1)}{suffix}
       </Text>
     </View>
@@ -124,6 +126,7 @@ function BenchmarkChart(props) {
   var height = props.height || 80;
   var _w = useState(0);
   var w = _w[0]; var setW = _w[1];
+  var ps = usePrivacyStyle();
 
   if (w === 0 || lines.length === 0) {
     return <View onLayout={function (e) { setW(e.nativeEvent.layout.width); }} style={{ height: height }} />;
@@ -172,7 +175,7 @@ function BenchmarkChart(props) {
               <View style={{ width: 10, height: 2, borderRadius: 1, backgroundColor: line.color,
                 opacity: i === 0 ? 1 : 0.5 }} />
               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{line.label}</Text>
-              <Text style={{ fontSize: 10, color: line.color, fontWeight: '600', fontFamily: F.mono }}>
+              <Text style={[{ fontSize: 10, color: line.color, fontWeight: '600', fontFamily: F.mono }, ps]}>
                 {line.data.length > 0 ? (line.data[line.data.length - 1]).toFixed(1) + '%' : ''}
               </Text>
             </View>
@@ -200,6 +203,7 @@ var PositionCard = React.memo(function PositionCard(props) {
   var fundLoading = props.fundLoading;
   var opcoesForTicker = props.opcoesForTicker;
   var indicatorData = props.indicator;
+  var ps = usePrivacyStyle();
 
   var color = PRODUCT_COLORS[pos.categoria] || C.accent;
   var catLabel = CAT_LABELS[pos.categoria] || (pos.categoria || '').toUpperCase();
@@ -251,7 +255,7 @@ var PositionCard = React.memo(function PositionCard(props) {
     return (
       <View key={label} style={{ width: '48%', marginBottom: 8 }}>
         <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{label}</Text>
-        <Text style={{ fontSize: 12, color: metricColor || C.text, fontFamily: F.mono, fontWeight: '600', marginTop: 1 }}>{value}</Text>
+        <Text style={[{ fontSize: 12, color: metricColor || C.text, fontFamily: F.mono, fontWeight: '600', marginTop: 1 }, ps]}>{value}</Text>
       </View>
     );
   }
@@ -280,12 +284,12 @@ var PositionCard = React.memo(function PositionCard(props) {
             ) : null}
           </View>
           <View style={{ alignItems: 'flex-end' }}>
-            <Text style={styles.cardPriceMain}>
+            <Text style={[styles.cardPriceMain, ps]}>
               {hasPrice ? (posIsInt && pos.preco_atual_usd != null ? 'US$ ' + fmt(pos.preco_atual_usd) : 'R$ ' + fmt(precoRef)) : '–'}
             </Text>
             {hasPrice && pos.change_day != null && pos.change_day !== 0 ? (
               <View style={[styles.typeBadge, { backgroundColor: (pos.change_day > 0 ? C.green : C.red) + '14', marginTop: 2 }]}>
-                <Text style={[styles.typeBadgeText, { color: pos.change_day > 0 ? C.green : C.red }]}>
+                <Text style={[styles.typeBadgeText, { color: pos.change_day > 0 ? C.green : C.red }, ps]}>
                   {pos.change_day > 0 ? '▲' : '▼'} {Math.abs(pos.change_day).toFixed(2) + '%'}
                 </Text>
               </View>
@@ -298,13 +302,13 @@ var PositionCard = React.memo(function PositionCard(props) {
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 16 }}>
             <View>
               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>PM</Text>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }}>
+              <Text style={[{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }, ps]}>
                 {posSymbol + ' ' + fmt(pos.pm)}
               </Text>
             </View>
             <View>
               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>QTD</Text>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }}>
+              <Text style={[{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }, ps]}>
                 {pos.quantidade.toLocaleString('pt-BR')}
               </Text>
             </View>
@@ -331,7 +335,7 @@ var PositionCard = React.memo(function PositionCard(props) {
                   <Ionicons name={sections['desempenho'] ? 'chevron-down' : 'chevron-forward'} size={14} color={C.accent} />
                   <Text style={{ fontSize: 11, fontWeight: '700', color: C.accent, fontFamily: F.display }}>DESEMPENHO</Text>
                 </View>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: pnlColor, fontFamily: F.mono }}>
+                <Text style={[{ fontSize: 12, fontWeight: '700', color: pnlColor, fontFamily: F.mono }, ps]}>
                   {isPos ? '+' : ''}R$ {fmt(pnl)}
                 </Text>
               </TouchableOpacity>
@@ -400,6 +404,7 @@ function RFCard(props) {
   var onToggle = props.onToggle;
   var onEdit = props.onEdit;
   var onDelete = props.onDelete;
+  var ps = usePrivacyStyle();
 
   var valor = parseFloat(rf.valor_aplicado) || 0;
   var tipoLabel = TIPO_LABELS[rf.tipo] || rf.tipo;
@@ -421,11 +426,11 @@ function RFCard(props) {
               </Text>
             </View>
           </View>
-          <Text style={[styles.cardPL, { color: C.rf }]}>R$ {fmt(valor)}</Text>
+          <Text style={[styles.cardPL, { color: C.rf }, ps]}>R$ {fmt(valor)}</Text>
         </View>
         <View style={styles.cardRow2}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Text style={styles.cardPriceMain}>{formatTaxa(rf.taxa, rf.indexador)}</Text>
+            <Text style={[styles.cardPriceMain, ps]}>{formatTaxa(rf.taxa, rf.indexador)}</Text>
             {rf.corretora ? <Text style={styles.cardPriceSub}>{rf.corretora}</Text> : null}
           </View>
           <Badge text={daysLeft + 'd'} color={dayColor} />
@@ -434,15 +439,15 @@ function RFCard(props) {
           <View style={styles.expandedWrap}>
             <View style={styles.expandedStats}>
               {[
-                { l: 'Valor aplicado', v: 'R$ ' + fmt(valor) },
-                { l: 'Taxa', v: formatTaxa(rf.taxa, rf.indexador) },
+                { l: 'Valor aplicado', v: 'R$ ' + fmt(valor), fin: true },
+                { l: 'Taxa', v: formatTaxa(rf.taxa, rf.indexador), fin: true },
                 { l: 'Vencimento', v: new Date(rf.vencimento).toLocaleDateString('pt-BR') },
                 { l: 'Corretora', v: rf.corretora || '–' },
               ].map(function (d, j) {
                 return (
                   <View key={j} style={styles.expandedStatItem}>
                     <Text style={styles.expandedStatLabel}>{d.l}</Text>
-                    <Text style={styles.expandedStatValue}>{d.v}</Text>
+                    <Text style={[styles.expandedStatValue, d.fin ? ps : null]}>{d.v}</Text>
                   </View>
                 );
               })}
@@ -470,6 +475,7 @@ function RFCard(props) {
 export default function CarteiraScreen(props) {
   var navigation = props.navigation;
   var user = useAuth().user;
+  var ps = usePrivacyStyle();
   var _navigating = useRef(false);
 
   useFocusEffect(useCallback(function() { _navigating.current = false; }, []));
@@ -769,17 +775,17 @@ export default function CarteiraScreen(props) {
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View>
             <Text style={styles.heroLabel}>PATRIMÔNIO EM CARTEIRA</Text>
-            <Text style={styles.heroValue}>R$ {fmt(totalValue)}</Text>
+            <Text style={[styles.heroValue, ps]}>R$ {fmt(totalValue)}</Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Text style={styles.heroLabel}>P&L ABERTO</Text>
               <InfoTip text="Ganho ou perda das posições que você ainda tem em carteira, comparando o preço atual com o preço médio de compra." size={12} />
             </View>
-            <Text style={[styles.heroPL, { color: isPosTotal ? C.green : C.red }]}>
+            <Text style={[styles.heroPL, { color: isPosTotal ? C.green : C.red }, ps]}>
               {isPosTotal ? '+' : '-'}R$ {fmt(Math.abs(totalPL))}
             </Text>
-            <Text style={[styles.heroPLSub, { color: isPosTotal ? C.green : C.red }]}>
+            <Text style={[styles.heroPLSub, { color: isPosTotal ? C.green : C.red }, ps]}>
               {isPosTotal ? '▲' : '▼'} {Math.abs(totalPLPct).toFixed(1)}% geral
             </Text>
           </View>
@@ -795,10 +801,10 @@ export default function CarteiraScreen(props) {
               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{encerradas.length} encerrada(s) + vendas parciais</Text>
             </View>
             <View style={{ alignItems: 'flex-end' }}>
-              <Text style={[styles.heroPL, { color: isPosRealizado ? C.green : C.red }]}>
+              <Text style={[styles.heroPL, { color: isPosRealizado ? C.green : C.red }, ps]}>
                 {isPosRealizado ? '+' : '-'}R$ {fmt(Math.abs(plRealizado))}
               </Text>
-              <Text style={[styles.heroPLSub, { color: isPosRealizado ? C.green : C.red }]}>
+              <Text style={[styles.heroPLSub, { color: isPosRealizado ? C.green : C.red }, ps]}>
                 {isPosRealizado ? '▲' : '▼'} {Math.abs(plRealizadoPct).toFixed(1)}%
               </Text>
             </View>
@@ -935,10 +941,10 @@ export default function CarteiraScreen(props) {
                       <Badge text={plLabel} color={plColor} />
                     </View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8 }}>
-                      <Text style={{ fontSize: 18, fontWeight: '700', color: plColor, fontFamily: F.mono }}>
+                      <Text style={[{ fontSize: 18, fontWeight: '700', color: plColor, fontFamily: F.mono }, ps]}>
                         {e.pl_realizado >= 0 ? '+' : ''}{eSymbol + ' '}{fmt(e.pl_realizado)}
                       </Text>
-                      <Text style={{ fontSize: 13, fontWeight: '600', color: plColor, fontFamily: F.mono }}>
+                      <Text style={[{ fontSize: 13, fontWeight: '600', color: plColor, fontFamily: F.mono }, ps]}>
                         {plIcon} {Math.abs(plPct).toFixed(1)}%
                       </Text>
                     </View>
@@ -946,13 +952,13 @@ export default function CarteiraScreen(props) {
                       paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border }}>
                       <View>
                         <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>COMPRA</Text>
-                        <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>{e.total_comprado + ' un · PM ' + eSymbol + ' ' + fmt(pmCompra)}</Text>
-                        <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{'Total ' + eSymbol + ' ' + fmt(e.custo_compras)}</Text>
+                        <Text style={[{ fontSize: 12, color: C.sub, fontFamily: F.mono }, ps]}>{e.total_comprado + ' un · PM ' + eSymbol + ' ' + fmt(pmCompra)}</Text>
+                        <Text style={[{ fontSize: 11, color: C.dim, fontFamily: F.mono }, ps]}>{'Total ' + eSymbol + ' ' + fmt(e.custo_compras)}</Text>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>VENDA</Text>
-                        <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>{e.total_vendido + ' un · PM ' + eSymbol + ' ' + fmt(pmVenda)}</Text>
-                        <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{'Total ' + eSymbol + ' ' + fmt(e.receita_vendas)}</Text>
+                        <Text style={[{ fontSize: 12, color: C.sub, fontFamily: F.mono }, ps]}>{e.total_vendido + ' un · PM ' + eSymbol + ' ' + fmt(pmVenda)}</Text>
+                        <Text style={[{ fontSize: 11, color: C.dim, fontFamily: F.mono }, ps]}>{'Total ' + eSymbol + ' ' + fmt(e.receita_vendas)}</Text>
                       </View>
                     </View>
                   </Glass>

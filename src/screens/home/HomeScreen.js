@@ -14,6 +14,8 @@ import { runDividendSync, shouldSyncDividends } from '../../services/dividendSer
 import { Badge, Logo, Wordmark, InfoTip, Fab } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import InteractiveChart from '../../components/InteractiveChart';
+import { usePrivacyStyle } from '../../components/Sensitive';
+import Sensitive from '../../components/Sensitive';
 
 var W = Dimensions.get('window').width;
 var PAD = 16;
@@ -60,6 +62,7 @@ function AlertRow(props) {
   var desc = props.desc;
   var badge = props.badge;
   var onPress = props.onPress;
+  var ps = props.ps;
   var gc = {
     critico: ['#f59e0b', '#ef4444'],
     warning: ['#f59e0b', '#f97316'],
@@ -94,7 +97,7 @@ function AlertRow(props) {
             ) : null}
           </View>
           {desc ? (
-            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', fontFamily: F.body, lineHeight: 18, paddingLeft: 21 }}>
+            <Text style={[{ fontSize: 13, color: 'rgba(255,255,255,0.45)', fontFamily: F.body, lineHeight: 18, paddingLeft: 21 }, ps]}>
               {desc}
             </Text>
           ) : null}
@@ -165,6 +168,7 @@ export default function HomeScreen({ navigation }) {
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
   var _alertsExpanded = useState(false); var alertsExpanded = _alertsExpanded[0]; var setAlertsExpanded = _alertsExpanded[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
+  var ps = usePrivacyStyle();
 
   var load = async function () {
     if (!user) return;
@@ -473,26 +477,26 @@ export default function HomeScreen({ navigation }) {
                 </TouchableOpacity>
               </View>
               {rentabilidadeMes > 0 ? (
-                <Text style={{ fontSize: 12, color: '#22c55e', fontFamily: F.mono, fontWeight: '600' }}>
+                <Text style={[{ fontSize: 12, color: '#22c55e', fontFamily: F.mono, fontWeight: '600' }, ps]}>
                   +{rentabilidadeMes.toFixed(2)}% /mês
                 </Text>
               ) : null}
             </View>
 
             <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 6 }}>
-              <Text style={st.heroPrefix}>R$ </Text>
-              <Text style={st.heroValue}>{fmt2(patrimonio).split(',')[0]}</Text>
-              <Text style={st.heroCents}>,{fmt2(patrimonio).split(',')[1]}</Text>
+              <Text style={[st.heroPrefix, ps]}>R$ </Text>
+              <Text style={[st.heroValue, ps]}>{fmt2(patrimonio).split(',')[0]}</Text>
+              <Text style={[st.heroCents, ps]}>,{fmt2(patrimonio).split(',')[1]}</Text>
             </View>
 
             {/* Breakdown: renda variável + renda fixa */}
             {rfTotalAplicado > 0 && patrimonioAcoes > 0 ? (
               <View style={{ flexDirection: 'row', gap: 16, marginTop: 8 }}>
                 <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono }}>
-                  Renda Var. <Text style={{ color: P.acao.color }}>{fmt(patrimonioAcoes)}</Text>
+                  Renda Var. <Text style={[{ color: P.acao.color }, ps]}>{fmt(patrimonioAcoes)}</Text>
                 </Text>
                 <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono }}>
-                  Renda Fixa <Text style={{ color: P.rf.color }}>{fmt(rfTotalAplicado)}</Text>
+                  Renda Fixa <Text style={[{ color: P.rf.color }, ps]}>{fmt(rfTotalAplicado)}</Text>
                 </Text>
               </View>
             ) : null}
@@ -526,14 +530,16 @@ export default function HomeScreen({ navigation }) {
               {/* Chart or placeholder */}
               {hasRealChart ? (
                 <View style={{ marginHorizontal: -6 }}>
-                  <InteractiveChart
-                    data={filteredChartData}
-                    color="#0ea5e9"
-                    height={120}
-                    fontFamily={F.mono}
-                    label="Evolução do patrimônio"
-                    onTouchStateChange={setChartTouching}
-                  />
+                  <Sensitive>
+                    <InteractiveChart
+                      data={filteredChartData}
+                      color="#0ea5e9"
+                      height={120}
+                      fontFamily={F.mono}
+                      label="Evolução do patrimônio"
+                      onTouchStateChange={setChartTouching}
+                    />
+                  </Sensitive>
                 </View>
               ) : (
                 <View style={{
@@ -573,7 +579,7 @@ export default function HomeScreen({ navigation }) {
                       <View key={k} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: P[k].color }} />
                         <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontFamily: F.body }}>{P[k].short}</Text>
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.6)', fontFamily: F.mono }}>{pct.toFixed(0)}%</Text>
+                        <Text style={[{ fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.6)', fontFamily: F.mono }, ps]}>{pct.toFixed(0)}%</Text>
                       </View>
                     );
                   })}
@@ -587,7 +593,7 @@ export default function HomeScreen({ navigation }) {
         <View style={{ flexDirection: 'row', gap: 6, marginBottom: 14 }}>
           <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
             <Text style={{ fontSize: 10, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>RENT. MÊS</Text>
-            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 15, fontWeight: '800', color: rentabilidadeMes > 1 ? C.green : C.yellow, fontFamily: F.mono, marginTop: 2 }}>
+            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 15, fontWeight: '800', color: rentabilidadeMes > 1 ? C.green : C.yellow, fontFamily: F.mono, marginTop: 2 }, ps]}>
               {rentabilidadeMes.toFixed(2) + '%'}
             </Text>
           </View>
@@ -621,7 +627,7 @@ export default function HomeScreen({ navigation }) {
 
           {/* Total grande + comparação vs anterior */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 26, fontWeight: '800', color: rendaTotalMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.display }}>
+            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 26, fontWeight: '800', color: rendaTotalMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.display }, ps]}>
               {fmt(rendaTotalMes)}
             </Text>
             {rendaCompare ? (
@@ -631,7 +637,7 @@ export default function HomeScreen({ navigation }) {
                 borderColor: (rendaBetter ? '#22c55e' : '#ef4444') + '30',
                 borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
               }}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: rendaBetter ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+                <Text style={[{ fontSize: 11, fontWeight: '700', color: rendaBetter ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
                   {rendaCompare}
                 </Text>
               </View>
@@ -646,7 +652,7 @@ export default function HomeScreen({ navigation }) {
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.opcao.color }} />
                   <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>P&L Opções</Text>
                 </View>
-                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: plMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+                <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 13, fontWeight: '700', color: plMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
                   {fmt(plMes)}
                 </Text>
               </View>
@@ -657,7 +663,7 @@ export default function HomeScreen({ navigation }) {
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.acao.color }} />
                   <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos Ações</Text>
                 </View>
-                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.acao > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
+                <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.acao > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
                   {fmt(dividendosCatMes.acao)}
                 </Text>
               </View>
@@ -668,7 +674,7 @@ export default function HomeScreen({ navigation }) {
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.fii.color }} />
                   <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Rendimentos FIIs</Text>
                 </View>
-                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.fii > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
+                <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.fii > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
                   {fmt(dividendosCatMes.fii)}
                 </Text>
               </View>
@@ -679,7 +685,7 @@ export default function HomeScreen({ navigation }) {
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.etf.color }} />
                   <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos ETFs</Text>
                 </View>
-                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.etf > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
+                <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.etf > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
                   {fmt(dividendosCatMes.etf)}
                 </Text>
               </View>
@@ -690,7 +696,7 @@ export default function HomeScreen({ navigation }) {
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.stock_int.color }} />
                   <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos Stocks</Text>
                 </View>
-                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.stock_int > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
+                <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.stock_int > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
                   {fmt(dividendosCatMes.stock_int)}
                 </Text>
               </View>
@@ -701,7 +707,7 @@ export default function HomeScreen({ navigation }) {
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.rf }} />
                   <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Renda Fixa</Text>
                 </View>
-                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 13, fontWeight: '700', color: rfRendaMensal > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
+                <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 13, fontWeight: '700', color: rfRendaMensal > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
                   {fmt(rfRendaMensal)}
                 </Text>
               </View>
@@ -718,20 +724,20 @@ export default function HomeScreen({ navigation }) {
                 META MENSAL
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: C.accent, fontFamily: F.display }}>
+                <Text style={[{ fontSize: 18, fontWeight: '800', color: C.accent, fontFamily: F.display }, ps]}>
                   {fmt(rendaTotalMes)}
                 </Text>
-                <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', fontFamily: F.display, marginLeft: 4 }}>
+                <Text style={[{ fontSize: 12, color: 'rgba(255,255,255,0.25)', fontFamily: F.display, marginLeft: 4 }, ps]}>
                   / {fmt(meta)}
                 </Text>
               </View>
               {(plMes !== 0 || dividendosMes > 0 || rfRendaMensal > 0) ? (
-                <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', fontFamily: F.mono, marginTop: 3 }}>
+                <Text style={[{ fontSize: 10, color: 'rgba(255,255,255,0.2)', fontFamily: F.mono, marginTop: 3 }, ps]}>
                   {'P&L Opções ' + fmt(plMes) + ' + Div ' + fmt(dividendosMes) + ' + RF ' + fmt(rfRendaMensal)}
                 </Text>
               ) : null}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
-                <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 14, color: rendaMediaAnual >= meta ? '#22c55e' : 'rgba(255,255,255,0.45)', fontFamily: F.mono, fontWeight: '700' }}>
+                <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 14, color: rendaMediaAnual >= meta ? '#22c55e' : 'rgba(255,255,255,0.45)', fontFamily: F.mono, fontWeight: '700' }, ps]}>
                   {'Média ' + new Date().getFullYear() + ': ' + fmt(rendaMediaAnual) + '/mês'}
                 </Text>
                 <TouchableOpacity onPress={function() { setInfoModal({ title: 'Média Anual', text: 'Média calculada com base nos meses completos do ano. O mês atual (incompleto) não entra no denominador para não distorcer o resultado.' }); }}>
@@ -740,10 +746,10 @@ export default function HomeScreen({ navigation }) {
               </View>
             </View>
             <View style={{ alignItems: 'center' }}>
-              <Text style={{
+              <Text style={[{
                 fontSize: 22, fontWeight: '800', fontFamily: F.mono,
                 color: metaPct >= 100 ? '#22c55e' : metaPct >= 50 ? '#f59e0b' : C.accent,
-              }}>{metaPct.toFixed(0)}%</Text>
+              }, ps]}>{metaPct.toFixed(0)}%</Text>
               <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, letterSpacing: 0.5, marginTop: 2 }}>DA META</Text>
             </View>
           </View>
@@ -755,7 +761,7 @@ export default function HomeScreen({ navigation }) {
             />
           </View>
           {metaPct < 100 && metaPct > 0 ? (
-            <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, textAlign: 'right', marginTop: 5 }}>
+            <Text style={[{ fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, textAlign: 'right', marginTop: 5 }, ps]}>
               {'Faltam ' + fmt(meta - rendaTotalMes)}
             </Text>
           ) : null}
@@ -796,7 +802,7 @@ export default function HomeScreen({ navigation }) {
                     setInfoModal({ title: 'Proventos Pagos Hoje', detailType: 'proventos', detail: phDetailData });
                   };
                 }
-                return <AlertRow key={i} type={a.type} title={a.title} desc={a.desc} badge={a.badge} onPress={alertOnPress} />;
+                return <AlertRow key={i} type={a.type} title={a.title} desc={a.desc} badge={a.badge} onPress={alertOnPress} ps={ps} />;
               })}
               {showCollapse ? (
                 <TouchableOpacity onPress={function() { setAlertsExpanded(!alertsExpanded); }}
@@ -859,11 +865,11 @@ export default function HomeScreen({ navigation }) {
                             <Text style={{ fontSize: 9, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }}>{tipoLabel}</Text>
                           </View>
                         </View>
-                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#22c55e', fontFamily: F.mono }}>
+                        <Text style={[{ fontSize: 14, fontWeight: '800', color: '#22c55e', fontFamily: F.mono }, ps]}>
                           {'R$ ' + fmt(tkData.total)}
                         </Text>
                       </View>
-                      <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginBottom: 4 }}>
+                      <Text style={[{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginBottom: 4 }, ps]}>
                         {tkData.qty + ' cotas × R$ ' + fmt(tkData.vpc) + '/cota'}
                       </Text>
                       {corrKeys.length > 0 ? (
@@ -879,7 +885,7 @@ export default function HomeScreen({ navigation }) {
                                     {'(' + corrData.qty + ' cotas)'}
                                   </Text>
                                 </View>
-                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }}>
+                                <Text style={[{ fontSize: 12, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }, ps]}>
                                   {'R$ ' + fmt(corrData.valor)}
                                 </Text>
                               </View>
@@ -893,7 +899,7 @@ export default function HomeScreen({ navigation }) {
                 <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.06)' }} />
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.display }}>Total</Text>
-                  <Text style={{ fontSize: 16, fontWeight: '800', color: '#22c55e', fontFamily: F.mono }}>
+                  <Text style={[{ fontSize: 16, fontWeight: '800', color: '#22c55e', fontFamily: F.mono }, ps]}>
                     {'R$ ' + fmt(infoModal.detail.total)}
                   </Text>
                 </View>

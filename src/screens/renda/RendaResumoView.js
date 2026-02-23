@@ -10,6 +10,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getDashboard } from '../../services/database';
 import { Glass, InfoTip } from '../../components';
 import { EmptyState } from '../../components/States';
+import { usePrivacyStyle } from '../../components/Sensitive';
 
 var P = {
   acao: { color: PRODUCT_COLORS.acao || C.acoes },
@@ -31,6 +32,7 @@ function fmt(v) {
 export default function RendaResumoView(props) {
   var navigation = props.navigation;
   var _auth = useAuth(); var user = _auth.user;
+  var ps = usePrivacyStyle();
 
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
@@ -117,7 +119,7 @@ export default function RendaResumoView(props) {
 
         {/* Total + comparação */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 30, fontWeight: '800', color: rendaTotalMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.display }}>
+          <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 30, fontWeight: '800', color: rendaTotalMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.display }, ps]}>
             {fmt(rendaTotalMes)}
           </Text>
           {rendaCompare ? (
@@ -127,7 +129,7 @@ export default function RendaResumoView(props) {
               borderColor: (rendaBetter ? '#22c55e' : '#ef4444') + '30',
               borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
             }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: rendaBetter ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+              <Text style={[{ fontSize: 11, fontWeight: '700', color: rendaBetter ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
                 {rendaCompare}
               </Text>
             </View>
@@ -141,7 +143,7 @@ export default function RendaResumoView(props) {
               <View style={[st.dot, { backgroundColor: P.opcao.color }]} />
               <Text style={st.bText}>P&L Opções</Text>
             </View>
-            <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: plMes >= 0 ? '#22c55e' : '#ef4444' }]}>
+            <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: plMes >= 0 ? '#22c55e' : '#ef4444' }, ps]}>
               {fmt(plMes)}
             </Text>
           </View>
@@ -150,7 +152,7 @@ export default function RendaResumoView(props) {
               <View style={[st.dot, { backgroundColor: P.acao.color }]} />
               <Text style={st.bText}>Dividendos Ações</Text>
             </View>
-            <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: dividendosCatMes.acao > 0 ? '#22c55e' : C.dim }]}>
+            <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: dividendosCatMes.acao > 0 ? '#22c55e' : C.dim }, ps]}>
               {fmt(dividendosCatMes.acao)}
             </Text>
           </View>
@@ -159,7 +161,7 @@ export default function RendaResumoView(props) {
               <View style={[st.dot, { backgroundColor: P.fii.color }]} />
               <Text style={st.bText}>Rendimentos FIIs</Text>
             </View>
-            <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: dividendosCatMes.fii > 0 ? '#22c55e' : C.dim }]}>
+            <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: dividendosCatMes.fii > 0 ? '#22c55e' : C.dim }, ps]}>
               {fmt(dividendosCatMes.fii)}
             </Text>
           </View>
@@ -169,7 +171,7 @@ export default function RendaResumoView(props) {
                 <View style={[st.dot, { backgroundColor: P.etf.color }]} />
                 <Text style={st.bText}>Dividendos ETFs</Text>
               </View>
-              <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#22c55e' }]}>
+              <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#22c55e' }, ps]}>
                 {fmt(dividendosCatMes.etf)}
               </Text>
             </View>
@@ -180,7 +182,7 @@ export default function RendaResumoView(props) {
                 <View style={[st.dot, { backgroundColor: P.stock_int.color }]} />
                 <Text style={st.bText}>Dividendos Stocks</Text>
               </View>
-              <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#22c55e' }]}>
+              <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#22c55e' }, ps]}>
                 {fmt(dividendosCatMes.stock_int)}
               </Text>
             </View>
@@ -190,7 +192,7 @@ export default function RendaResumoView(props) {
               <View style={[st.dot, { backgroundColor: C.rf }]} />
               <Text style={st.bText}>Renda Fixa</Text>
             </View>
-            <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: rfRendaMensal > 0 ? '#22c55e' : C.dim }]}>
+            <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: rfRendaMensal > 0 ? '#22c55e' : C.dim }, ps]}>
               {fmt(rfRendaMensal)}
             </Text>
           </View>
@@ -206,20 +208,20 @@ export default function RendaResumoView(props) {
               META MENSAL
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-              <Text style={{ fontSize: 18, fontWeight: '800', color: C.accent, fontFamily: F.display }}>
+              <Text style={[{ fontSize: 18, fontWeight: '800', color: C.accent, fontFamily: F.display }, ps]}>
                 {fmt(rendaTotalMes)}
               </Text>
-              <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', fontFamily: F.display, marginLeft: 4 }}>
+              <Text style={[{ fontSize: 12, color: 'rgba(255,255,255,0.25)', fontFamily: F.display, marginLeft: 4 }, ps]}>
                 / {fmt(meta)}
               </Text>
             </View>
             {(plMes !== 0 || dividendosMes > 0 || rfRendaMensal > 0) ? (
-              <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', fontFamily: F.mono, marginTop: 3 }}>
+              <Text style={[{ fontSize: 10, color: 'rgba(255,255,255,0.2)', fontFamily: F.mono, marginTop: 3 }, ps]}>
                 {'P&L Opções ' + fmt(plMes) + ' + Div ' + fmt(dividendosMes) + ' + RF ' + fmt(rfRendaMensal)}
               </Text>
             ) : null}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
-              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 14, color: rendaMediaAnual >= meta ? '#22c55e' : 'rgba(255,255,255,0.45)', fontFamily: F.mono, fontWeight: '700' }}>
+              <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 14, color: rendaMediaAnual >= meta ? '#22c55e' : 'rgba(255,255,255,0.45)', fontFamily: F.mono, fontWeight: '700' }, ps]}>
                 {'Média ' + new Date().getFullYear() + ': ' + fmt(rendaMediaAnual) + '/mês'}
               </Text>
               <InfoTip
@@ -229,10 +231,10 @@ export default function RendaResumoView(props) {
             </View>
           </View>
           <View style={{ alignItems: 'center' }}>
-            <Text style={{
+            <Text style={[{
               fontSize: 26, fontWeight: '800', fontFamily: F.mono,
               color: metaPct >= 100 ? '#22c55e' : metaPct >= 50 ? '#f59e0b' : C.accent,
-            }}>{metaPct.toFixed(0) + '%'}</Text>
+            }, ps]}>{metaPct.toFixed(0) + '%'}</Text>
             <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, letterSpacing: 0.5, marginTop: 2 }}>DA META</Text>
           </View>
         </View>
@@ -244,7 +246,7 @@ export default function RendaResumoView(props) {
           />
         </View>
         {metaPct < 100 && metaPct > 0 ? (
-          <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, textAlign: 'right', marginTop: 5 }}>
+          <Text style={[{ fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, textAlign: 'right', marginTop: 5 }, ps]}>
             {'Faltam ' + fmt(meta - rendaTotalMes)}
           </Text>
         ) : null}
@@ -259,13 +261,13 @@ export default function RendaResumoView(props) {
           <View style={{ flexDirection: 'row', gap: 14 }}>
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginBottom: 4 }}>RECEBIDOS</Text>
-              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 18, fontWeight: '800', color: '#22c55e', fontFamily: F.mono }}>
+              <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 18, fontWeight: '800', color: '#22c55e', fontFamily: F.mono }, ps]}>
                 {fmt(dividendosRecebidosMes)}
               </Text>
             </View>
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginBottom: 4 }}>A RECEBER</Text>
-              <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 18, fontWeight: '800', color: C.yellow, fontFamily: F.mono }}>
+              <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 18, fontWeight: '800', color: C.yellow, fontFamily: F.mono }, ps]}>
                 {fmt(dividendosAReceberMes)}
               </Text>
             </View>
@@ -281,19 +283,19 @@ export default function RendaResumoView(props) {
         <View style={{ flexDirection: 'row', gap: 14 }}>
           <View style={{ flex: 1, alignItems: 'center' }}>
             <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginBottom: 4 }}>P&L MÉDIA 3M</Text>
-            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 16, fontWeight: '800', color: plMedia3m >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 16, fontWeight: '800', color: plMedia3m >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
               {fmt(plMedia3m)}
             </Text>
           </View>
           <View style={{ flex: 1, alignItems: 'center' }}>
             <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginBottom: 4 }}>RENT. MÊS</Text>
-            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 16, fontWeight: '800', color: rentabilidadeMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }}>
+            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 16, fontWeight: '800', color: rentabilidadeMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
               {(rentabilidadeMes >= 0 ? '+' : '') + rentabilidadeMes.toFixed(2) + '%'}
             </Text>
           </View>
           <View style={{ flex: 1, alignItems: 'center' }}>
             <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginBottom: 4 }}>MÉDIA ANUAL</Text>
-            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 16, fontWeight: '800', color: rendaMediaAnual > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }}>
+            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 16, fontWeight: '800', color: rendaMediaAnual > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
               {fmt(rendaMediaAnual)}
             </Text>
           </View>

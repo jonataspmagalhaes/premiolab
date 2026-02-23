@@ -12,3 +12,4 @@ export { default as CorretoraSelector, DEFAULTS_RF, ALL_INSTITUTIONS, getInstitu
 export { default as FundamentalAccordion } from './FundamentalAccordion';
 export { default as FundamentalChart } from './FundamentalChart';
 export { default as Fab } from './Fab';
+export { default as Sensitive, usePrivacyStyle } from './Sensitive';

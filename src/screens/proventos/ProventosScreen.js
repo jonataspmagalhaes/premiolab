@@ -12,6 +12,7 @@ import { getProventos, deleteProvento, addProvento, getProfile } from '../../ser
 import { runDividendSync } from '../../services/dividendService';
 import { Glass, Badge, Pill, SectionLabel, SwipeableRow } from '../../components';
 import { SkeletonProventos, EmptyState } from '../../components/States';
+import { usePrivacyStyle } from '../../components/Sensitive';
 import * as Haptics from 'expo-haptics';
 
 var TIPO_LABELS = {
@@ -78,6 +79,7 @@ export default function ProventosScreen(props) {
   var _lastSync = useState(null); var lastSync = _lastSync[0]; var setLastSync = _lastSync[1];
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
+  var ps = usePrivacyStyle();
 
   var load = async function() {
     if (!user) return;
@@ -312,7 +314,7 @@ export default function ProventosScreen(props) {
 
         <Glass glow={isPendente ? C.yellow : C.fiis} padding={16}>
           <Text style={styles.totalLabel}>{isPendente ? 'TOTAL A RECEBER' : 'TOTAL RECEBIDO'}</Text>
-          <Text style={[styles.totalValue, isPendente && { color: C.yellow }]}>
+          <Text style={[styles.totalValue, isPendente && { color: C.yellow }, ps]}>
             {'R$ ' + totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </Text>
           <Text style={styles.totalCount}>
@@ -357,7 +359,7 @@ export default function ProventosScreen(props) {
     var group = months[ym];
     return (
       <View>
-        <SectionLabel right={'R$ ' + fmt(group.total)}>
+        <SectionLabel right={<Text style={ps}>{'R$ ' + fmt(group.total)}</Text>}>
           {monthLabel(ym)}
         </SectionLabel>
         <Glass padding={0}>
@@ -380,13 +382,13 @@ export default function ProventosScreen(props) {
                     </View>
                     <Text style={styles.provDate}>{isoToBr(p.data_pagamento)}</Text>
                     {p.quantidade > 0 && p.valor_por_cota > 0 && (
-                      <Text style={styles.provDetail}>
+                      <Text style={[styles.provDetail, ps]}>
                         {p.quantidade + ' x R$ ' + fmt4(p.valor_por_cota)}
                       </Text>
                     )}
                   </View>
                   <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                    <Text style={[styles.provValor, isPendente && { color: C.yellow }]}>
+                    <Text style={[styles.provValor, isPendente && { color: C.yellow }, ps]}>
                       {(isPendente ? '' : '+') + 'R$ ' + fmt(valorTotal)}
                     </Text>
                     <TouchableOpacity onPress={function() {

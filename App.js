@@ -4,6 +4,7 @@ import { useFonts } from 'expo-font';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider } from './src/contexts/AuthContext';
+import { PrivacyProvider } from './src/contexts/PrivacyContext';
 import AppNavigator from './src/navigation/AppNavigator';
 
 const C = { bg: '#070a11', accent: '#6C5CE7' };
@@ -31,7 +32,9 @@ export default function App() {
       <SafeAreaProvider>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <AuthProvider>
-          <AppNavigator />
+          <PrivacyProvider>
+            <AppNavigator />
+          </PrivacyProvider>
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

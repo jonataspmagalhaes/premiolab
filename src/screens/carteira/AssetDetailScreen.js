@@ -13,6 +13,8 @@ import { fetchYahooPrices, fetchYahooHistory } from '../../services/yahooService
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import * as Haptics from 'expo-haptics';
 import InteractiveChart from '../../components/InteractiveChart';
+import { usePrivacyStyle } from '../../components/Sensitive';
+import Sensitive from '../../components/Sensitive';
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -198,6 +200,8 @@ export default function AssetDetailScreen(props) {
   var s12 = useState(''); var dataFim = s12[0]; var setDataFim = s12[1];
   var s13 = useState({}); var expandedCorretora = s13[0]; var setExpandedCorretora = s13[1];
   var s14 = useState([]); var opcoes = s14[0]; var setOpcoes = s14[1];
+
+  var ps = usePrivacyStyle();
 
   useEffect(function() { loadData(); }, []);
 
@@ -534,7 +538,7 @@ export default function AssetDetailScreen(props) {
         <View style={{ flex: 1 }}>
           <Text style={styles.corretoraName}>{corretora}</Text>
           {pmCorretora > 0 ? (
-            <Text style={styles.corretoraPm}>{'PM ' + currPrefix + fmt(pmCorretora)}</Text>
+            <Text style={[styles.corretoraPm, ps]}>{'PM ' + currPrefix + fmt(pmCorretora)}</Text>
           ) : null}
         </View>
         <Text style={styles.corretoraCount}>{count}</Text>
@@ -555,12 +559,12 @@ export default function AssetDetailScreen(props) {
             <Badge text={t.tipo.toUpperCase()} color={t.tipo === 'compra' ? C.acoes : C.red} />
             <Text style={styles.txnDate}>{new Date(t.data).toLocaleDateString('pt-BR')}</Text>
           </View>
-          <Text style={styles.txnDetail}>
+          <Text style={[styles.txnDetail, ps]}>
             {t.quantidade + ' x ' + currPrefix + fmt(t.preco || 0)}
           </Text>
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
-          <Text style={[styles.txnTotal, { color: t.tipo === 'compra' ? C.acoes : C.red }]}>
+          <Text style={[styles.txnTotal, { color: t.tipo === 'compra' ? C.acoes : C.red }, ps]}>
             {currPrefix + fmt(totalTxn)}
           </Text>
           <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -594,7 +598,7 @@ export default function AssetDetailScreen(props) {
             <Text style={styles.txnDate}>{new Date(p.data_pagamento).toLocaleDateString('pt-BR')}</Text>
           </View>
         </View>
-        <Text style={[styles.txnTotal, { color: C.green }]}>{'+'  + currPrefix + fmt(valProv)}</Text>
+        <Text style={[styles.txnTotal, { color: C.green }, ps]}>{'+'  + currPrefix + fmt(valProv)}</Text>
       </View>
     );
   };
@@ -615,11 +619,11 @@ export default function AssetDetailScreen(props) {
               <Badge text={(p.tipo || 'DIV').toUpperCase()} color={C.fiis} />
               <Text style={styles.txnDate}>{new Date(p.data_pagamento).toLocaleDateString('pt-BR')}</Text>
             </View>
-            <Text style={styles.txnDetail}>
+            <Text style={[styles.txnDetail, ps]}>
               {qtyCorretora + ' x ' + currPrefix + fmt(p.valor_por_cota || 0)}
             </Text>
           </View>
-          <Text style={[styles.txnTotal, { color: C.green }]}>{'+'  + currPrefix + fmt(valProv)}</Text>
+          <Text style={[styles.txnTotal, { color: C.green }, ps]}>{'+'  + currPrefix + fmt(valProv)}</Text>
         </View>
       );
     }
@@ -677,7 +681,7 @@ export default function AssetDetailScreen(props) {
               {/* Cotacao + variacao dia */}
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
-                  <Text style={styles.priceHeroValue}>{currPrefix}{fmt(priceData.price)}</Text>
+                  <Text style={[styles.priceHeroValue, ps]}>{currPrefix}{fmt(priceData.price)}</Text>
                   <Badge
                     text={(priceData.changePercent >= 0 ? '+' : '') + priceData.changePercent.toFixed(2) + '%'}
                     color={priceData.changePercent >= 0 ? C.green : C.red}
@@ -690,19 +694,19 @@ export default function AssetDetailScreen(props) {
                 <View style={styles.plRow}>
                   <View style={styles.plItem}>
                     <Text style={styles.plLabel}>P&L TOTAL</Text>
-                    <Text style={[styles.plValue, { color: plTotal >= 0 ? C.green : C.red }]}>
+                    <Text style={[styles.plValue, { color: plTotal >= 0 ? C.green : C.red }, ps]}>
                       {(plTotal >= 0 ? '+' : '-') + currPrefix + fmt(Math.abs(plTotal))}
                     </Text>
                   </View>
                   <View style={styles.plItem}>
                     <Text style={styles.plLabel}>P&L %</Text>
-                    <Text style={[styles.plValue, { color: plPct >= 0 ? C.green : C.red }]}>
+                    <Text style={[styles.plValue, { color: plPct >= 0 ? C.green : C.red }, ps]}>
                       {plPct >= 0 ? '+' : ''}{plPct.toFixed(2)}%
                     </Text>
                   </View>
                   <View style={styles.plItem}>
                     <Text style={styles.plLabel}>VALOR ATUAL</Text>
-                    <Text style={[styles.plValue, { color: C.text }]}>
+                    <Text style={[styles.plValue, { color: C.text }, ps]}>
                       {currPrefix + fmt(valorAtual)}
                     </Text>
                   </View>
@@ -727,7 +731,7 @@ export default function AssetDetailScreen(props) {
         {historyData.length >= 2 ? (
           <Glass padding={14}>
             <SectionLabel>HISTÓRICO 30 DIAS</SectionLabel>
-            <View style={{ marginTop: 4 }}>
+            <Sensitive style={{ marginTop: 4 }}>
               <InteractiveChart
                 data={historyData}
                 color={C.accent}
@@ -735,7 +739,7 @@ export default function AssetDetailScreen(props) {
                 fontFamily={F.mono}
                 label={ticker + ' - 30 dias'}
               />
-            </View>
+            </Sensitive>
           </Glass>
         ) : null}
 
@@ -757,7 +761,7 @@ export default function AssetDetailScreen(props) {
                 return (
                   <View key={idx} style={styles.indItem}>
                     <Text style={styles.indLabel}>{d.l}</Text>
-                    <Text style={[styles.indValue, { color: d.c }]}>{d.v}</Text>
+                    <Text style={[styles.indValue, { color: d.c }, ps]}>{d.v}</Text>
                   </View>
                 );
               })}
@@ -785,7 +789,7 @@ export default function AssetDetailScreen(props) {
               return (
                 <View key={idx} style={styles.posItem}>
                   <Text style={styles.posItemLabel}>{d.l}</Text>
-                  <Text style={styles.posItemValue}>{d.v}</Text>
+                  <Text style={[styles.posItemValue, ps]}>{d.v}</Text>
                 </View>
               );
             })}
@@ -885,7 +889,7 @@ export default function AssetDetailScreen(props) {
         {/* ══════ TOTAL PROVENTOS (resumo) ══════ */}
         {filteredProvs.length > 0 ? (
           <View style={styles.provSummary}>
-            <Text style={styles.provSummaryText}>
+            <Text style={[styles.provSummaryText, ps]}>
               {filteredProvs.length + ' proventos no periodo - Total ' + currPrefix + fmt(filteredProvsTotal)}
             </Text>
           </View>

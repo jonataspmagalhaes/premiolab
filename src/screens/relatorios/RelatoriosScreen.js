@@ -11,6 +11,8 @@ import { animateLayout } from '../../utils/a11y';
 import { getProventos, getOpcoes, getOperacoes, getPositions, getMovimentacoes, getIRPagamentos, upsertIRPagamento, getProfile, updateProfile } from '../../services/database';
 import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
+import { usePrivacyStyle } from '../../components/Sensitive';
+import Sensitive from '../../components/Sensitive';
 
 // ═══════════ CONSTANTS ═══════════
 
@@ -478,6 +480,7 @@ function HBarRow(props) {
   var value = props.value;
   var total = props.total;
   var color = props.color;
+  var ps = usePrivacyStyle();
   var pct = total > 0 ? (value / total) * 100 : 0;
   return (
     <View style={styles.hbarRow}>
@@ -488,7 +491,7 @@ function HBarRow(props) {
       <View style={styles.hbarTrack}>
         <View style={[styles.hbarFill, { width: pct + '%', backgroundColor: color }]} />
       </View>
-      <Text style={styles.hbarVal}>{'R$ ' + fmt(value)}</Text>
+      <Text style={[styles.hbarVal, ps]}>{'R$ ' + fmt(value)}</Text>
     </View>
   );
 }
@@ -499,6 +502,7 @@ export default function RelatoriosScreen(props) {
   var navigation = props.navigation;
   var embedded = props.embedded || false;
   var user = useAuth().user;
+  var ps = usePrivacyStyle();
 
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
@@ -949,17 +953,17 @@ export default function RelatoriosScreen(props) {
             <View style={styles.resumoRow}>
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={styles.resumoLabel}>ENTRADAS</Text>
-                <Text style={[styles.resumoVal, { color: C.green }]}>{'R$ ' + fmt(caixaEntradas)}</Text>
+                <Text style={[styles.resumoVal, { color: C.green }, ps]}>{'R$ ' + fmt(caixaEntradas)}</Text>
               </View>
               <View style={styles.resumoDivider} />
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={styles.resumoLabel}>SAÍDAS</Text>
-                <Text style={[styles.resumoVal, { color: C.red }]}>{'R$ ' + fmt(caixaSaidas)}</Text>
+                <Text style={[styles.resumoVal, { color: C.red }, ps]}>{'R$ ' + fmt(caixaSaidas)}</Text>
               </View>
               <View style={styles.resumoDivider} />
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={styles.resumoLabel}>SALDO</Text>
-                <Text style={[styles.resumoVal, { color: (caixaEntradas - caixaSaidas) >= 0 ? C.green : C.red }]}>
+                <Text style={[styles.resumoVal, { color: (caixaEntradas - caixaSaidas) >= 0 ? C.green : C.red }, ps]}>
                   {'R$ ' + fmt(caixaEntradas - caixaSaidas)}
                 </Text>
               </View>
@@ -981,17 +985,19 @@ export default function RelatoriosScreen(props) {
                     <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>Saídas</Text>
                   </View>
                 </View>
-                <BarChartDual
-                  data={caixaMonthKeys.map(function(mk) {
-                    return {
-                      label: formatMonthLabel(mk),
-                      v1: caixaByMonth[mk].entradas,
-                      v2: caixaByMonth[mk].saidas,
-                    };
-                  })}
-                  color1={C.green}
-                  color2={C.red}
-                />
+                <Sensitive>
+                  <BarChartDual
+                    data={caixaMonthKeys.map(function(mk) {
+                      return {
+                        label: formatMonthLabel(mk),
+                        v1: caixaByMonth[mk].entradas,
+                        v2: caixaByMonth[mk].saidas,
+                      };
+                    })}
+                    color1={C.green}
+                    color2={C.red}
+                  />
+                </Sensitive>
               </Glass>
             </View>
           )}
@@ -1028,17 +1034,17 @@ export default function RelatoriosScreen(props) {
                       <View style={{ flex: 1 }}>
                         <Text style={styles.tickerName}>{conta}</Text>
                       </View>
-                      <Text style={[styles.tickerTotal, { color: saldo >= 0 ? C.green : C.red }]}>
+                      <Text style={[styles.tickerTotal, { color: saldo >= 0 ? C.green : C.red }, ps]}>
                         {'R$ ' + fmt(saldo)}
                       </Text>
                     </View>
                     <View style={[styles.itemRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
                       <Text style={[styles.itemLabel, { color: C.green }]}>Entradas</Text>
-                      <Text style={[styles.itemVal, { color: C.green }]}>{'R$ ' + fmt(info.entradas)}</Text>
+                      <Text style={[styles.itemVal, { color: C.green }, ps]}>{'R$ ' + fmt(info.entradas)}</Text>
                     </View>
                     <View style={[styles.itemRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
                       <Text style={[styles.itemLabel, { color: C.red }]}>Saídas</Text>
-                      <Text style={[styles.itemVal, { color: C.red }]}>{'R$ ' + fmt(info.saidas)}</Text>
+                      <Text style={[styles.itemVal, { color: C.red }, ps]}>{'R$ ' + fmt(info.saidas)}</Text>
                     </View>
                   </Glass>
                 );
@@ -1060,9 +1066,9 @@ export default function RelatoriosScreen(props) {
                 <View style={styles.monthHeader}>
                   <Text style={styles.monthLabel}>{formatMonthLabel(mk)}</Text>
                   <View style={{ flexDirection: 'row', gap: 10 }}>
-                    <Text style={[styles.monthSub, { color: C.green }]}>{'+' + fmt(group.entradas)}</Text>
-                    <Text style={[styles.monthSub, { color: C.red }]}>{'-' + fmt(group.saidas)}</Text>
-                    <Text style={[styles.monthSub, { color: saldoMes >= 0 ? C.green : C.red }]}>{'= ' + fmt(saldoMes)}</Text>
+                    <Text style={[styles.monthSub, { color: C.green }, ps]}>{'+' + fmt(group.entradas)}</Text>
+                    <Text style={[styles.monthSub, { color: C.red }, ps]}>{'-' + fmt(group.saidas)}</Text>
+                    <Text style={[styles.monthSub, { color: saldoMes >= 0 ? C.green : C.red }, ps]}>{'= ' + fmt(saldoMes)}</Text>
                   </View>
                 </View>
                 <Glass padding={0}>
@@ -1084,7 +1090,7 @@ export default function RelatoriosScreen(props) {
                             {m.ticker ? <Badge text={m.ticker} color={C.acoes} /> : null}
                           </View>
                         </View>
-                        <Text style={[styles.itemVal, { color: movColor }]}>
+                        <Text style={[styles.itemVal, { color: movColor }, ps]}>
                           {(isEntrada ? '+' : '-') + 'R$ ' + fmt(m.valor)}
                         </Text>
                       </View>
@@ -1105,7 +1111,7 @@ export default function RelatoriosScreen(props) {
             <View style={styles.resumoRow}>
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={styles.resumoLabel}>TOTAL RECEBIDO</Text>
-                <Text style={[styles.resumoVal, { color: C.green }]}>{'R$ ' + fmt(divTotal)}</Text>
+                <Text style={[styles.resumoVal, { color: C.green }, ps]}>{'R$ ' + fmt(divTotal)}</Text>
               </View>
               <View style={styles.resumoDivider} />
               <View style={{ alignItems: 'center', flex: 1 }}>
@@ -1125,13 +1131,15 @@ export default function RelatoriosScreen(props) {
             <View>
               <SectionLabel>EVOLUÇÃO MENSAL</SectionLabel>
               <Glass padding={12}>
-                <BarChartSingle
-                  data={divMonthKeys.map(function(mk) {
-                    return { label: formatMonthLabel(mk), value: divByMonth[mk].total };
-                  })}
-                  color={C.fiis}
-                  onSelect={setDivMonthSel}
-                />
+                <Sensitive>
+                  <BarChartSingle
+                    data={divMonthKeys.map(function(mk) {
+                      return { label: formatMonthLabel(mk), value: divByMonth[mk].total };
+                    })}
+                    color={C.fiis}
+                    onSelect={setDivMonthSel}
+                  />
+                </Sensitive>
                 {divMonthSel >= 0 && divMonthSel < divMonthKeys.length ? (function() {
                   var selMk = divMonthKeys[divMonthSel];
                   var selMonth = divByMonth[selMk];
@@ -1159,7 +1167,7 @@ export default function RelatoriosScreen(props) {
                             </View>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{tkPct + '%'}</Text>
-                              <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>
+                              <Text style={[{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }, ps]}>
                                 {'R$ ' + fmt(tkVal)}
                               </Text>
                             </View>
@@ -1193,7 +1201,7 @@ export default function RelatoriosScreen(props) {
           )}
 
           {/* Por Ativo */}
-          <SectionLabel right={'R$ ' + fmt(divTotal)}>POR ATIVO</SectionLabel>
+          <SectionLabel>POR ATIVO</SectionLabel>
           {divTickerKeys.length === 0 && (
             <EmptyState ionicon="cash-outline" title="Sem proventos"
               description="Nenhum provento encontrado no período selecionado" />
@@ -1212,7 +1220,7 @@ export default function RelatoriosScreen(props) {
                     </View>
                     <Text style={styles.tickerCount}>{info.items.length + ' proventos'}</Text>
                   </View>
-                  <Text style={[styles.tickerTotal, { color: C.green }]}>{'R$ ' + fmt(info.total)}</Text>
+                  <Text style={[styles.tickerTotal, { color: C.green }, ps]}>{'R$ ' + fmt(info.total)}</Text>
                 </View>
                 {info.items.slice(0, 10).map(function(p, pi) {
                   return (
@@ -1223,11 +1231,11 @@ export default function RelatoriosScreen(props) {
                           <Badge text={p.tipo_provento || 'dividendo'} color={TIPO_COLORS[p.tipo_provento] || C.fiis} />
                           <Text style={styles.itemDate}>{formatDate(p.data_pagamento)}</Text>
                         </View>
-                        <Text style={styles.itemDetail}>
+                        <Text style={[styles.itemDetail, ps]}>
                           {fmt(p.valor_por_cota || 0) + ' × ' + (p.quantidade || 0) + ' cotas'}
                         </Text>
                       </View>
-                      <Text style={[styles.itemVal, { color: C.green }]}>{'R$ ' + fmt(p.valor_total)}</Text>
+                      <Text style={[styles.itemVal, { color: C.green }, ps]}>{'R$ ' + fmt(p.valor_total)}</Text>
                     </View>
                   );
                 })}
@@ -1260,14 +1268,14 @@ export default function RelatoriosScreen(props) {
                         <Text style={styles.tickerName}>{corr}</Text>
                         <Text style={styles.tickerCount}>{tickerList.length + ' ativos'}</Text>
                       </View>
-                      <Text style={[styles.tickerTotal, { color: C.green }]}>{'R$ ' + fmt(corrTotal)}</Text>
+                      <Text style={[styles.tickerTotal, { color: C.green }, ps]}>{'R$ ' + fmt(corrTotal)}</Text>
                     </View>
                     {tickerList.map(function(t, ti) {
                       return (
                         <View key={t}
                           style={[styles.itemRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
                           <Text style={styles.itemLabel}>{t}</Text>
-                          <Text style={[styles.itemVal, { color: C.green }]}>{'R$ ' + fmt(tickers[t])}</Text>
+                          <Text style={[styles.itemVal, { color: C.green }, ps]}>{'R$ ' + fmt(tickers[t])}</Text>
                         </View>
                       );
                     })}
@@ -1287,17 +1295,17 @@ export default function RelatoriosScreen(props) {
             <View style={styles.resumoRow}>
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={styles.resumoLabel}>PRÊMIOS</Text>
-                <Text style={[styles.resumoVal, { color: C.green }]}>{'R$ ' + fmt(opcPremios)}</Text>
+                <Text style={[styles.resumoVal, { color: C.green }, ps]}>{'R$ ' + fmt(opcPremios)}</Text>
               </View>
               <View style={styles.resumoDivider} />
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={styles.resumoLabel}>RECOMPRAS</Text>
-                <Text style={[styles.resumoVal, { color: C.red }]}>{'R$ ' + fmt(opcRecompras)}</Text>
+                <Text style={[styles.resumoVal, { color: C.red }, ps]}>{'R$ ' + fmt(opcRecompras)}</Text>
               </View>
               <View style={styles.resumoDivider} />
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={styles.resumoLabel}>RESULTADO</Text>
-                <Text style={[styles.resumoVal, { color: (opcPremios - opcRecompras) >= 0 ? C.green : C.red }]}>
+                <Text style={[styles.resumoVal, { color: (opcPremios - opcRecompras) >= 0 ? C.green : C.red }, ps]}>
                   {'R$ ' + fmt(opcPremios - opcRecompras)}
                 </Text>
               </View>
@@ -1317,7 +1325,7 @@ export default function RelatoriosScreen(props) {
                   <Text style={{ fontSize: 18, color: C.text, fontFamily: F.mono, fontWeight: '700', textAlign: 'center', marginTop: 2 }}>
                     {info.count}
                   </Text>
-                  <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono, textAlign: 'center', marginTop: 2 }}>
+                  <Text style={[{ fontSize: 9, color: C.sub, fontFamily: F.mono, textAlign: 'center', marginTop: 2 }, ps]}>
                     {'R$ ' + fmt(info.premio)}
                   </Text>
                 </Glass>
@@ -1340,23 +1348,25 @@ export default function RelatoriosScreen(props) {
                     <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>Recompras</Text>
                   </View>
                 </View>
-                <BarChartDual
-                  data={opcMonthKeys.map(function(mk) {
-                    return {
-                      label: formatMonthLabel(mk),
-                      v1: opcByMonth[mk].premios,
-                      v2: opcByMonth[mk].recompras,
-                    };
-                  })}
-                  color1={C.green}
-                  color2={C.red}
-                />
+                <Sensitive>
+                  <BarChartDual
+                    data={opcMonthKeys.map(function(mk) {
+                      return {
+                        label: formatMonthLabel(mk),
+                        v1: opcByMonth[mk].premios,
+                        v2: opcByMonth[mk].recompras,
+                      };
+                    })}
+                    color1={C.green}
+                    color2={C.red}
+                  />
+                </Sensitive>
               </Glass>
             </View>
           )}
 
           {/* Por Ativo Base */}
-          <SectionLabel right={'R$ ' + fmt(opcPremios - opcRecompras)}>POR ATIVO BASE</SectionLabel>
+          <SectionLabel>POR ATIVO BASE</SectionLabel>
           {opcBaseKeys.length === 0 && (
             <EmptyState ionicon="trending-up-outline" title="Sem opções"
               description="Nenhuma opção encontrada no período selecionado" />
@@ -1372,10 +1382,10 @@ export default function RelatoriosScreen(props) {
                     <Text style={styles.tickerCount}>{info.items.length + ' opções'}</Text>
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={[styles.tickerTotal, { color: resultado >= 0 ? C.green : C.red }]}>
+                    <Text style={[styles.tickerTotal, { color: resultado >= 0 ? C.green : C.red }, ps]}>
                       {'R$ ' + fmt(resultado)}
                     </Text>
-                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>
+                    <Text style={[{ fontSize: 9, color: C.sub, fontFamily: F.mono }, ps]}>
                       {'P: ' + fmt(info.premios) + ' | R: ' + fmt(info.recompras)}
                     </Text>
                   </View>
@@ -1393,11 +1403,11 @@ export default function RelatoriosScreen(props) {
                           <Text style={styles.itemLabel}>{op.ticker_opcao || ''}</Text>
                           <Badge text={op.status || 'ativa'} color={STATUS_COLORS[op.status] || C.dim} />
                         </View>
-                        <Text style={styles.itemDetail}>
+                        <Text style={[styles.itemDetail, ps]}>
                           {'Strike ' + fmt(op.strike) + ' × ' + (op.quantidade || 0) + ' | Prêmio ' + fmt(op.premio)}
                         </Text>
                       </View>
-                      <Text style={[styles.itemVal, { color: pl >= 0 ? C.green : C.red }]}>
+                      <Text style={[styles.itemVal, { color: pl >= 0 ? C.green : C.red }, ps]}>
                         {(pl >= 0 ? '+' : '') + 'R$ ' + fmt(pl)}
                       </Text>
                     </View>
@@ -1424,17 +1434,17 @@ export default function RelatoriosScreen(props) {
             <View style={styles.resumoRow}>
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={styles.resumoLabel}>COMPRAS</Text>
-                <Text style={[styles.resumoVal, { color: C.acoes }]}>{'R$ ' + fmt(opsCompras)}</Text>
+                <Text style={[styles.resumoVal, { color: C.acoes }, ps]}>{'R$ ' + fmt(opsCompras)}</Text>
               </View>
               <View style={styles.resumoDivider} />
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={styles.resumoLabel}>VENDAS</Text>
-                <Text style={[styles.resumoVal, { color: C.green }]}>{'R$ ' + fmt(opsVendas)}</Text>
+                <Text style={[styles.resumoVal, { color: C.green }, ps]}>{'R$ ' + fmt(opsVendas)}</Text>
               </View>
               <View style={styles.resumoDivider} />
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={styles.resumoLabel}>CUSTOS</Text>
-                <Text style={[styles.resumoVal, { color: C.yellow }]}>{'R$ ' + fmt(opsCustos)}</Text>
+                <Text style={[styles.resumoVal, { color: C.yellow }, ps]}>{'R$ ' + fmt(opsCustos)}</Text>
               </View>
             </View>
             {plRealizadoTotal !== 0 ? (
@@ -1447,7 +1457,7 @@ export default function RelatoriosScreen(props) {
                   </View>
                   <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>PM por corretora</Text>
                 </View>
-                <Text style={[styles.resumoVal, { color: plRealizadoTotal >= 0 ? C.green : C.red }]}>
+                <Text style={[styles.resumoVal, { color: plRealizadoTotal >= 0 ? C.green : C.red }, ps]}>
                   {plRealizadoTotal >= 0 ? '+' : ''}{'R$ ' + fmt(plRealizadoTotal)}
                 </Text>
               </View>
@@ -1469,17 +1479,19 @@ export default function RelatoriosScreen(props) {
                     <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>Vendas</Text>
                   </View>
                 </View>
-                <BarChartDual
-                  data={opsMonthKeys.map(function(mk) {
-                    return {
-                      label: formatMonthLabel(mk),
-                      v1: opsByMonth[mk].compras,
-                      v2: opsByMonth[mk].vendas,
-                    };
-                  })}
-                  color1={C.acoes}
-                  color2={C.green}
-                />
+                <Sensitive>
+                  <BarChartDual
+                    data={opsMonthKeys.map(function(mk) {
+                      return {
+                        label: formatMonthLabel(mk),
+                        v1: opsByMonth[mk].compras,
+                        v2: opsByMonth[mk].vendas,
+                      };
+                    })}
+                    color1={C.acoes}
+                    color2={C.green}
+                  />
+                </Sensitive>
               </Glass>
             </View>
           )}
@@ -1504,28 +1516,28 @@ export default function RelatoriosScreen(props) {
                       <Badge text={info.categoria.toUpperCase()} color={catColor} />
                     </View>
                   </View>
-                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                  <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>
                     {'Custos: R$ ' + fmt(info.custos)}
                   </Text>
                 </View>
                 <View style={[styles.itemRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.itemLabel, { color: C.acoes }]}>Compras</Text>
-                    <Text style={styles.itemDetail}>
+                    <Text style={[styles.itemDetail, ps]}>
                       {info.qtyCompra + ' un. × PM R$ ' + fmt(pmCompra)}
                     </Text>
                   </View>
-                  <Text style={[styles.itemVal, { color: C.acoes }]}>{'R$ ' + fmt(info.compras)}</Text>
+                  <Text style={[styles.itemVal, { color: C.acoes }, ps]}>{'R$ ' + fmt(info.compras)}</Text>
                 </View>
                 {info.qtyVenda > 0 && (
                   <View style={[styles.itemRow, { borderTopWidth: 1, borderTopColor: C.border }]}>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.itemLabel, { color: C.green }]}>Vendas</Text>
-                      <Text style={styles.itemDetail}>
+                      <Text style={[styles.itemDetail, ps]}>
                         {info.qtyVenda + ' un. × PM R$ ' + fmt(pmVenda)}
                       </Text>
                     </View>
-                    <Text style={[styles.itemVal, { color: C.green }]}>{'R$ ' + fmt(info.vendas)}</Text>
+                    <Text style={[styles.itemVal, { color: C.green }, ps]}>{'R$ ' + fmt(info.vendas)}</Text>
                   </View>
                 )}
                 {info.pl_realizado != null && (
@@ -1541,7 +1553,7 @@ export default function RelatoriosScreen(props) {
                         <Text style={[styles.itemDetail, { color: C.dim }]}>Vendas parciais</Text>
                       )}
                     </View>
-                    <Text style={[styles.itemVal, { color: info.pl_realizado >= 0 ? C.green : C.red, fontWeight: '700', fontSize: 14 }]}>
+                    <Text style={[styles.itemVal, { color: info.pl_realizado >= 0 ? C.green : C.red, fontWeight: '700', fontSize: 14 }, ps]}>
                       {info.pl_realizado >= 0 ? '+' : ''}{'R$ ' + fmt(info.pl_realizado)}
                     </Text>
                   </View>
@@ -1560,7 +1572,7 @@ export default function RelatoriosScreen(props) {
             <View style={styles.resumoRow}>
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={styles.resumoLabel}>IR DEVIDO</Text>
-                <Text style={[styles.resumoVal, { color: irTotalDevido > 0 ? C.red : C.green }]}>
+                <Text style={[styles.resumoVal, { color: irTotalDevido > 0 ? C.red : C.green }, ps]}>
                   {'R$ ' + fmt(irTotalDevido)}
                 </Text>
               </View>
@@ -1655,25 +1667,25 @@ export default function RelatoriosScreen(props) {
                 <View style={{ flexDirection: 'row', gap: 12 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>Ações</Text>
-                    <Text style={{ fontSize: 12, color: prejAnterior.acoes > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }}>
+                    <Text style={[{ fontSize: 12, color: prejAnterior.acoes > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }, ps]}>
                       {'R$ ' + fmt(prejAnterior.acoes || 0)}
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>FIIs</Text>
-                    <Text style={{ fontSize: 12, color: prejAnterior.fii > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }}>
+                    <Text style={[{ fontSize: 12, color: prejAnterior.fii > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }, ps]}>
                       {'R$ ' + fmt(prejAnterior.fii || 0)}
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>ETFs</Text>
-                    <Text style={{ fontSize: 12, color: prejAnterior.etf > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }}>
+                    <Text style={[{ fontSize: 12, color: prejAnterior.etf > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }, ps]}>
                       {'R$ ' + fmt(prejAnterior.etf || 0)}
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>Stocks</Text>
-                    <Text style={{ fontSize: 12, color: prejAnterior.stock_int > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }}>
+                    <Text style={[{ fontSize: 12, color: prejAnterior.stock_int > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }, ps]}>
                       {'R$ ' + fmt(prejAnterior.stock_int || 0)}
                     </Text>
                   </View>
@@ -1696,7 +1708,7 @@ export default function RelatoriosScreen(props) {
                 {lastIR.prejAcumAcoes > 0 && (
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>Ações</Text>
-                    <Text style={{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                    <Text style={[{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '700' }, ps]}>
                       {'R$ ' + fmt(lastIR.prejAcumAcoes)}
                     </Text>
                   </View>
@@ -1704,7 +1716,7 @@ export default function RelatoriosScreen(props) {
                 {lastIR.prejAcumFII > 0 && (
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>FIIs</Text>
-                    <Text style={{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                    <Text style={[{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '700' }, ps]}>
                       {'R$ ' + fmt(lastIR.prejAcumFII)}
                     </Text>
                   </View>
@@ -1712,7 +1724,7 @@ export default function RelatoriosScreen(props) {
                 {lastIR.prejAcumETF > 0 && (
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>ETFs</Text>
-                    <Text style={{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                    <Text style={[{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '700' }, ps]}>
                       {'R$ ' + fmt(lastIR.prejAcumETF)}
                     </Text>
                   </View>
@@ -1720,7 +1732,7 @@ export default function RelatoriosScreen(props) {
                 {lastIR.prejAcumStockInt > 0 && (
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>Stocks INT</Text>
-                    <Text style={{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                    <Text style={[{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '700' }, ps]}>
                       {'R$ ' + fmt(lastIR.prejAcumStockInt)}
                     </Text>
                   </View>
@@ -1757,7 +1769,7 @@ export default function RelatoriosScreen(props) {
                       </TouchableOpacity>
                     )}
                   </View>
-                  <Text style={[styles.tickerTotal, { color: irColor }]}>
+                  <Text style={[styles.tickerTotal, { color: irColor }, ps]}>
                     {hasImposto ? 'R$ ' + fmt(r.impostoTotal) : 'Isento'}
                   </Text>
                   <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={C.dim} />
@@ -1773,11 +1785,11 @@ export default function RelatoriosScreen(props) {
                           <Text style={[styles.irClassLabel, { color: C.acoes }]}>Ações</Text>
                           <View style={styles.irClassDetail}>
                             <TouchableOpacity activeOpacity={0.7} onPress={function() { handleToggleDrillVendas(r.month, 'acao'); }}>
-                              <Text style={[styles.irText, { textDecorationLine: 'underline' }]}>{'Vendas: R$ ' + fmt(r.vendasAcoes)}</Text>
+                              <Text style={[styles.irText, { textDecorationLine: 'underline' }, ps]}>{'Vendas: R$ ' + fmt(r.vendasAcoes)}</Text>
                             </TouchableOpacity>
-                            {r.ganhoAcoes > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Ganho: R$ ' + fmt(r.ganhoAcoes)}</Text>}
-                            {r.perdaAcoes > 0 && <Text style={[styles.irText, { color: C.red }]}>{'Perda: R$ ' + fmt(r.perdaAcoes)}</Text>}
-                            {r.impostoAcoes > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }]}>{'IR 15%: R$ ' + fmt(r.impostoAcoes)}</Text>}
+                            {r.ganhoAcoes > 0 && <Text style={[styles.irText, { color: C.green }, ps]}>{'Ganho: R$ ' + fmt(r.ganhoAcoes)}</Text>}
+                            {r.perdaAcoes > 0 && <Text style={[styles.irText, { color: C.red }, ps]}>{'Perda: R$ ' + fmt(r.perdaAcoes)}</Text>}
+                            {r.impostoAcoes > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }, ps]}>{'IR 15%: R$ ' + fmt(r.impostoAcoes)}</Text>}
                             {r.vendasAcoes <= 20000 && r.vendasAcoes > 0 && (
                               <Text style={[styles.irText, { color: C.dim, fontStyle: 'italic' }]}>{'Isento conforme regra de R$ 20k'}</Text>
                             )}
@@ -1793,8 +1805,8 @@ export default function RelatoriosScreen(props) {
                                   <View key={vi} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 50 }}>
                                     <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, fontWeight: '600', width: 54 }}>{v.ticker}</Text>
                                     <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, flex: 1 }}>{v.qty + ' cotas'}</Text>
-                                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }}>{'R$ ' + fmt(v.vendaTotal)}</Text>
-                                    <Text style={{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }}>
+                                    <Text style={[{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }, ps]}>{'R$ ' + fmt(v.vendaTotal)}</Text>
+                                    <Text style={[{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }, ps]}>
                                       {(v.ganho >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(v.ganho))}
                                     </Text>
                                   </View>
@@ -1813,11 +1825,11 @@ export default function RelatoriosScreen(props) {
                           <Text style={[styles.irClassLabel, { color: C.fiis }]}>FIIs</Text>
                           <View style={styles.irClassDetail}>
                             <TouchableOpacity activeOpacity={0.7} onPress={function() { handleToggleDrillVendas(r.month, 'fii'); }}>
-                              <Text style={[styles.irText, { textDecorationLine: 'underline' }]}>{'Vendas: R$ ' + fmt(r.vendasFII)}</Text>
+                              <Text style={[styles.irText, { textDecorationLine: 'underline' }, ps]}>{'Vendas: R$ ' + fmt(r.vendasFII)}</Text>
                             </TouchableOpacity>
-                            {r.ganhoFII > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Ganho: R$ ' + fmt(r.ganhoFII)}</Text>}
-                            {r.perdaFII > 0 && <Text style={[styles.irText, { color: C.red }]}>{'Perda: R$ ' + fmt(r.perdaFII)}</Text>}
-                            {r.impostoFII > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }]}>{'IR 20%: R$ ' + fmt(r.impostoFII)}</Text>}
+                            {r.ganhoFII > 0 && <Text style={[styles.irText, { color: C.green }, ps]}>{'Ganho: R$ ' + fmt(r.ganhoFII)}</Text>}
+                            {r.perdaFII > 0 && <Text style={[styles.irText, { color: C.red }, ps]}>{'Perda: R$ ' + fmt(r.perdaFII)}</Text>}
+                            {r.impostoFII > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }, ps]}>{'IR 20%: R$ ' + fmt(r.impostoFII)}</Text>}
                           </View>
                         </View>
                         {irDrillMonth === r.month && irDrillCat === 'fii' && (function() {
@@ -1830,8 +1842,8 @@ export default function RelatoriosScreen(props) {
                                   <View key={vi} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 50 }}>
                                     <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, fontWeight: '600', width: 54 }}>{v.ticker}</Text>
                                     <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, flex: 1 }}>{v.qty + ' cotas'}</Text>
-                                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }}>{'R$ ' + fmt(v.vendaTotal)}</Text>
-                                    <Text style={{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }}>
+                                    <Text style={[{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }, ps]}>{'R$ ' + fmt(v.vendaTotal)}</Text>
+                                    <Text style={[{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }, ps]}>
                                       {(v.ganho >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(v.ganho))}
                                     </Text>
                                   </View>
@@ -1850,11 +1862,11 @@ export default function RelatoriosScreen(props) {
                           <Text style={[styles.irClassLabel, { color: C.etfs }]}>ETFs</Text>
                           <View style={styles.irClassDetail}>
                             <TouchableOpacity activeOpacity={0.7} onPress={function() { handleToggleDrillVendas(r.month, 'etf'); }}>
-                              <Text style={[styles.irText, { textDecorationLine: 'underline' }]}>{'Vendas: R$ ' + fmt(r.vendasETF)}</Text>
+                              <Text style={[styles.irText, { textDecorationLine: 'underline' }, ps]}>{'Vendas: R$ ' + fmt(r.vendasETF)}</Text>
                             </TouchableOpacity>
-                            {r.ganhoETF > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Ganho: R$ ' + fmt(r.ganhoETF)}</Text>}
-                            {r.perdaETF > 0 && <Text style={[styles.irText, { color: C.red }]}>{'Perda: R$ ' + fmt(r.perdaETF)}</Text>}
-                            {r.impostoETF > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }]}>{'IR 15%: R$ ' + fmt(r.impostoETF)}</Text>}
+                            {r.ganhoETF > 0 && <Text style={[styles.irText, { color: C.green }, ps]}>{'Ganho: R$ ' + fmt(r.ganhoETF)}</Text>}
+                            {r.perdaETF > 0 && <Text style={[styles.irText, { color: C.red }, ps]}>{'Perda: R$ ' + fmt(r.perdaETF)}</Text>}
+                            {r.impostoETF > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }, ps]}>{'IR 15%: R$ ' + fmt(r.impostoETF)}</Text>}
                           </View>
                         </View>
                         {irDrillMonth === r.month && irDrillCat === 'etf' && (function() {
@@ -1867,8 +1879,8 @@ export default function RelatoriosScreen(props) {
                                   <View key={vi} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 50 }}>
                                     <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, fontWeight: '600', width: 54 }}>{v.ticker}</Text>
                                     <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, flex: 1 }}>{v.qty + ' cotas'}</Text>
-                                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }}>{'R$ ' + fmt(v.vendaTotal)}</Text>
-                                    <Text style={{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }}>
+                                    <Text style={[{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }, ps]}>{'R$ ' + fmt(v.vendaTotal)}</Text>
+                                    <Text style={[{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }, ps]}>
                                       {(v.ganho >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(v.ganho))}
                                     </Text>
                                   </View>
@@ -1887,11 +1899,11 @@ export default function RelatoriosScreen(props) {
                           <Text style={[styles.irClassLabel, { color: C.stock_int }]}>Stocks INT</Text>
                           <View style={styles.irClassDetail}>
                             <TouchableOpacity activeOpacity={0.7} onPress={function() { handleToggleDrillVendas(r.month, 'stock_int'); }}>
-                              <Text style={[styles.irText, { textDecorationLine: 'underline' }]}>{'Vendas: R$ ' + fmt(r.vendasStockInt)}</Text>
+                              <Text style={[styles.irText, { textDecorationLine: 'underline' }, ps]}>{'Vendas: R$ ' + fmt(r.vendasStockInt)}</Text>
                             </TouchableOpacity>
-                            {r.ganhoStockInt > 0 && <Text style={[styles.irText, { color: C.green }]}>{'Ganho: R$ ' + fmt(r.ganhoStockInt)}</Text>}
-                            {r.perdaStockInt > 0 && <Text style={[styles.irText, { color: C.red }]}>{'Perda: R$ ' + fmt(r.perdaStockInt)}</Text>}
-                            {r.impostoStockInt > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }]}>{'IR 15%: R$ ' + fmt(r.impostoStockInt)}</Text>}
+                            {r.ganhoStockInt > 0 && <Text style={[styles.irText, { color: C.green }, ps]}>{'Ganho: R$ ' + fmt(r.ganhoStockInt)}</Text>}
+                            {r.perdaStockInt > 0 && <Text style={[styles.irText, { color: C.red }, ps]}>{'Perda: R$ ' + fmt(r.perdaStockInt)}</Text>}
+                            {r.impostoStockInt > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }, ps]}>{'IR 15%: R$ ' + fmt(r.impostoStockInt)}</Text>}
                           </View>
                         </View>
                         {irDrillMonth === r.month && irDrillCat === 'stock_int' && (function() {
@@ -1904,8 +1916,8 @@ export default function RelatoriosScreen(props) {
                                   <View key={vi} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 50 }}>
                                     <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, fontWeight: '600', width: 54 }}>{v.ticker}</Text>
                                     <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, flex: 1 }}>{v.qty + ' cotas'}</Text>
-                                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }}>{'R$ ' + fmt(v.vendaTotal)}</Text>
-                                    <Text style={{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }}>
+                                    <Text style={[{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }, ps]}>{'R$ ' + fmt(v.vendaTotal)}</Text>
+                                    <Text style={[{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }, ps]}>
                                       {(v.ganho >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(v.ganho))}
                                     </Text>
                                   </View>
@@ -1952,30 +1964,30 @@ export default function RelatoriosScreen(props) {
                           </View>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                             <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body }}>Valor Principal</Text>
-                            <Text style={{ fontSize: 11, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>{'R$ ' + fmt(r.impostoTotal)}</Text>
+                            <Text style={[{ fontSize: 11, color: C.red, fontFamily: F.mono, fontWeight: '700' }, ps]}>{'R$ ' + fmt(r.impostoTotal)}</Text>
                           </View>
                           {r.impostoAcoes > 0 && (
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 10 }}>
                               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>Ações (15%)</Text>
-                              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>{'R$ ' + fmt(r.impostoAcoes)}</Text>
+                              <Text style={[{ fontSize: 10, color: C.sub, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(r.impostoAcoes)}</Text>
                             </View>
                           )}
                           {r.impostoFII > 0 && (
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 10 }}>
                               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>FIIs (20%)</Text>
-                              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>{'R$ ' + fmt(r.impostoFII)}</Text>
+                              <Text style={[{ fontSize: 10, color: C.sub, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(r.impostoFII)}</Text>
                             </View>
                           )}
                           {r.impostoETF > 0 && (
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 10 }}>
                               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>ETFs (15%)</Text>
-                              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>{'R$ ' + fmt(r.impostoETF)}</Text>
+                              <Text style={[{ fontSize: 10, color: C.sub, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(r.impostoETF)}</Text>
                             </View>
                           )}
                           {r.impostoStockInt > 0 && (
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingLeft: 10 }}>
                               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>Stocks INT (15%)</Text>
-                              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>{'R$ ' + fmt(r.impostoStockInt)}</Text>
+                              <Text style={[{ fontSize: 10, color: C.sub, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(r.impostoStockInt)}</Text>
                             </View>
                           )}
                         </View>

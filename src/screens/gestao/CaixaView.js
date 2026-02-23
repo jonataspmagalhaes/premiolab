@@ -18,6 +18,8 @@ import {
 import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/currencyService';
 import { Glass, Badge, Pill, SectionLabel, SwipeableRow, PressableCard, Fab } from '../../components';
 import { SkeletonCaixa, EmptyState } from '../../components/States';
+import { usePrivacyStyle } from '../../components/Sensitive';
+import Sensitive from '../../components/Sensitive';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -145,6 +147,7 @@ function BarChart6m(props) {
   var _w = useState(0); var w = _w[0]; var setW = _w[1];
   var chartH = 120;
   var barPad = 4;
+  var ps = usePrivacyStyle();
 
   if (w === 0 || data.length === 0) {
     return React.createElement(View, {
@@ -181,56 +184,58 @@ function BarChart6m(props) {
             {data[selected].label}
           </Text>
           <View style={{ flexDirection: 'row', gap: 12 }}>
-            <Text style={{ fontSize: 10, color: C.green, fontFamily: F.mono }}>
+            <Text style={[{ fontSize: 10, color: C.green, fontFamily: F.mono }, ps]}>
               +R$ {fmt(data[selected].entradas)}
             </Text>
-            <Text style={{ fontSize: 10, color: C.red, fontFamily: F.mono }}>
+            <Text style={[{ fontSize: 10, color: C.red, fontFamily: F.mono }, ps]}>
               -R$ {fmt(data[selected].saidas)}
             </Text>
           </View>
         </View>
       ) : null}
-      <View onTouchEnd={handleTouch}>
-        <Svg width={w} height={chartH + 30}>
-          {/* Grid lines */}
-          {[0.25, 0.5, 0.75].map(function(p, gi) {
-            return React.createElement(SvgLine, {
-              key: gi, x1: 0, y1: chartH * (1 - p), x2: w, y2: chartH * (1 - p),
-              stroke: 'rgba(255,255,255,0.04)', strokeWidth: 0.5,
-            });
-          })}
-          {data.map(function(d, i) {
-            var x = i * groupW + barPad;
-            var hE = maxVal > 0 ? (d.entradas / maxVal) * (chartH - 10) : 0;
-            var hS = maxVal > 0 ? (d.saidas / maxVal) * (chartH - 10) : 0;
-            var isSelected = selected === i;
-            var barOpacity = selected != null ? (isSelected ? 1.0 : 0.3) : 0.8;
-            return React.createElement(React.Fragment, { key: i },
-              React.createElement(Rect, {
-                x: x, y: chartH - hE, width: barW, height: Math.max(hE, 1),
-                rx: 3, fill: C.green, opacity: barOpacity,
-              }),
-              isSelected ? React.createElement(Rect, {
-                x: x - 1, y: chartH - hE - 1, width: barW + 2, height: Math.max(hE, 1) + 2,
-                rx: 4, fill: 'none', stroke: C.green, strokeWidth: 1, opacity: 0.6,
-              }) : null,
-              React.createElement(Rect, {
-                x: x + barW + barPad, y: chartH - hS, width: barW, height: Math.max(hS, 1),
-                rx: 3, fill: C.red, opacity: barOpacity,
-              }),
-              isSelected ? React.createElement(Rect, {
-                x: x + barW + barPad - 1, y: chartH - hS - 1, width: barW + 2, height: Math.max(hS, 1) + 2,
-                rx: 4, fill: 'none', stroke: C.red, strokeWidth: 1, opacity: 0.6,
-              }) : null,
-              React.createElement(SvgText, {
-                x: x + groupW / 2 - barPad, y: chartH + 16,
-                fontSize: 9, fill: isSelected ? C.text : C.dim, textAnchor: 'middle',
-                fontFamily: F.mono, fontWeight: isSelected ? '700' : '400',
-              }, d.label)
-            );
-          })}
-        </Svg>
-      </View>
+      <Sensitive>
+        <View onTouchEnd={handleTouch}>
+          <Svg width={w} height={chartH + 30}>
+            {/* Grid lines */}
+            {[0.25, 0.5, 0.75].map(function(p, gi) {
+              return React.createElement(SvgLine, {
+                key: gi, x1: 0, y1: chartH * (1 - p), x2: w, y2: chartH * (1 - p),
+                stroke: 'rgba(255,255,255,0.04)', strokeWidth: 0.5,
+              });
+            })}
+            {data.map(function(d, i) {
+              var x = i * groupW + barPad;
+              var hE = maxVal > 0 ? (d.entradas / maxVal) * (chartH - 10) : 0;
+              var hS = maxVal > 0 ? (d.saidas / maxVal) * (chartH - 10) : 0;
+              var isSelected = selected === i;
+              var barOpacity = selected != null ? (isSelected ? 1.0 : 0.3) : 0.8;
+              return React.createElement(React.Fragment, { key: i },
+                React.createElement(Rect, {
+                  x: x, y: chartH - hE, width: barW, height: Math.max(hE, 1),
+                  rx: 3, fill: C.green, opacity: barOpacity,
+                }),
+                isSelected ? React.createElement(Rect, {
+                  x: x - 1, y: chartH - hE - 1, width: barW + 2, height: Math.max(hE, 1) + 2,
+                  rx: 4, fill: 'none', stroke: C.green, strokeWidth: 1, opacity: 0.6,
+                }) : null,
+                React.createElement(Rect, {
+                  x: x + barW + barPad, y: chartH - hS, width: barW, height: Math.max(hS, 1),
+                  rx: 3, fill: C.red, opacity: barOpacity,
+                }),
+                isSelected ? React.createElement(Rect, {
+                  x: x + barW + barPad - 1, y: chartH - hS - 1, width: barW + 2, height: Math.max(hS, 1) + 2,
+                  rx: 4, fill: 'none', stroke: C.red, strokeWidth: 1, opacity: 0.6,
+                }) : null,
+                React.createElement(SvgText, {
+                  x: x + groupW / 2 - barPad, y: chartH + 16,
+                  fontSize: 9, fill: isSelected ? C.text : C.dim, textAnchor: 'middle',
+                  fontFamily: F.mono, fontWeight: isSelected ? '700' : '400',
+                }, d.label)
+              );
+            })}
+          </Svg>
+        </View>
+      </Sensitive>
       <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: C.green }} />
@@ -255,6 +260,7 @@ function CategoryBreakdown(props) {
   var expandedCat = props.expandedCat;
   var onToggleCat = props.onToggleCat;
   var navigation = props.navigation;
+  var ps = usePrivacyStyle();
 
   var keys = Object.keys(data);
   keys.sort(function(a, b) { return (data[b] || 0) - (data[a] || 0); });
@@ -292,7 +298,7 @@ function CategoryBreakdown(props) {
               <Text style={{ fontSize: 10, color: color, fontFamily: F.mono, fontWeight: '600', width: 36, textAlign: 'right' }}>
                 {pct.toFixed(0)}%
               </Text>
-              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, width: 65, textAlign: 'right' }}>
+              <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono, width: 65, textAlign: 'right' }, ps]}>
                 R$ {fmt(val)}
               </Text>
               <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={12} color={C.dim} style={{ marginLeft: 4 }} />
@@ -310,7 +316,7 @@ function CategoryBreakdown(props) {
                       <Text style={{ flex: 1, fontSize: 10, color: C.sub, fontFamily: F.body }} numberOfLines={1}>
                         {m.ticker || m.conta || ''}
                       </Text>
-                      <Text style={{ fontSize: 10, color: movColor, fontFamily: F.mono, fontWeight: '600' }}>
+                      <Text style={[{ fontSize: 10, color: movColor, fontFamily: F.mono, fontWeight: '600' }, ps]}>
                         {isEntrada ? '+' : '-'}R$ {fmt(m.valor)}
                       </Text>
                     </View>
@@ -347,6 +353,7 @@ function formatDate(dateStr) {
 export default function CaixaView(props) {
   var navigation = props.navigation;
   var user = useAuth().user;
+  var ps = usePrivacyStyle();
 
   var _saldos = useState([]); var saldos = _saldos[0]; var setSaldos = _saldos[1];
   var _movs = useState([]); var movs = _movs[0]; var setMovs = _movs[1];
@@ -788,7 +795,7 @@ export default function CaixaView(props) {
       {/* ══════ 1. HERO — Saldo Total + Chips + Período + Resumo ══════ */}
       <Glass glow={C.green} padding={16}>
         <Text style={styles.heroLabel}>SALDO TOTAL</Text>
-        <Text style={styles.heroValue}>R$ {fmt(totalSaldos)}</Text>
+        <Text style={[styles.heroValue, ps]}>R$ {fmt(totalSaldos)}</Text>
 
         {/* Chips de conta */}
         {saldos.length > 0 ? (
@@ -809,7 +816,7 @@ export default function CaixaView(props) {
                       <Badge text={contaMoeda} color={C.etfs} />
                     ) : null}
                   </View>
-                  <Text style={styles.chipVal}>{simbolo} {fmt(s.saldo || 0)}</Text>
+                  <Text style={[styles.chipVal, ps]}>{simbolo} {fmt(s.saldo || 0)}</Text>
                 </View>
               );
             })}
@@ -832,15 +839,15 @@ export default function CaixaView(props) {
         <View style={styles.heroSummary}>
           <View style={styles.heroSummaryItem}>
             <Text style={styles.heroSummaryLabel}>Entradas</Text>
-            <Text style={[styles.heroSummaryVal, { color: C.green }]}>+R$ {fmt(periodoEntradas)}</Text>
+            <Text style={[styles.heroSummaryVal, { color: C.green }, ps]}>+R$ {fmt(periodoEntradas)}</Text>
           </View>
           <View style={styles.heroSummaryItem}>
             <Text style={styles.heroSummaryLabel}>Saídas</Text>
-            <Text style={[styles.heroSummaryVal, { color: C.red }]}>-R$ {fmt(periodoSaidas)}</Text>
+            <Text style={[styles.heroSummaryVal, { color: C.red }, ps]}>-R$ {fmt(periodoSaidas)}</Text>
           </View>
           <View style={styles.heroSummaryItem}>
             <Text style={styles.heroSummaryLabel}>Saldo</Text>
-            <Text style={[styles.heroSummaryVal, { color: periodoSaldo >= 0 ? C.green : C.red }]}>
+            <Text style={[styles.heroSummaryVal, { color: periodoSaldo >= 0 ? C.green : C.red }, ps]}>
               {periodoSaldo >= 0 ? '+' : '-'}R$ {fmt(Math.abs(periodoSaldo))}
             </Text>
           </View>
@@ -851,7 +858,7 @@ export default function CaixaView(props) {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
             <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>vs período anterior</Text>
             <View style={[styles.compareBadge, { backgroundColor: (periodoSaldo >= prevSaldo ? C.green : C.red) + '14' }]}>
-              <Text style={{ fontSize: 9, fontWeight: '700', fontFamily: F.mono, color: periodoSaldo >= prevSaldo ? C.green : C.red }}>
+              <Text style={[{ fontSize: 9, fontWeight: '700', fontFamily: F.mono, color: periodoSaldo >= prevSaldo ? C.green : C.red }, ps]}>
                 {periodoSaldo >= prevSaldo ? '↑' : '↓'} R$ {fmt(Math.abs(periodoSaldo - prevSaldo))}
               </Text>
             </View>
@@ -922,9 +929,9 @@ export default function CaixaView(props) {
                   </View>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[styles.contaSaldo, { color: bc }]}>{simbolo} {fmt(s.saldo || 0)}</Text>
+                  <Text style={[styles.contaSaldo, { color: bc }, ps]}>{simbolo} {fmt(s.saldo || 0)}</Text>
                   {contaMoeda2 !== 'BRL' ? (
-                    <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                    <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>
                       {'≈'} R$ {fmt(saldoBRL)}
                     </Text>
                   ) : null}
@@ -950,7 +957,7 @@ export default function CaixaView(props) {
                               <Text style={styles.miniMovDesc} numberOfLines={1}>
                                 {m.ticker ? m.ticker + ' · ' : ''}{m.descricao || CAT_LABELS[m.categoria] || m.categoria}
                               </Text>
-                              <Text style={[styles.miniMovVal, { color: movColor }]}>
+                              <Text style={[styles.miniMovVal, { color: movColor }, ps]}>
                                 {isEntrada ? '+' : '-'}{simbolo} {fmt(m.valor)}
                               </Text>
                             </View>
@@ -1006,7 +1013,7 @@ export default function CaixaView(props) {
                       ) : (
                         <View style={{ gap: 8 }}>
                           {actMode === 'editar' ? (
-                            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>
+                            <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }, ps]}>
                               NOVO SALDO (atual: {simbolo} {fmt(s.saldo || 0)})
                             </Text>
                           ) : null}
@@ -1080,7 +1087,7 @@ export default function CaixaView(props) {
                                       <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>{dMoeda}</Text>
                                     </View>
                                     {valOrigem > 0 && cambioNum > 0 ? (
-                                      <Text style={{ fontSize: 11, color: C.green, fontFamily: F.mono }}>
+                                      <Text style={[{ fontSize: 11, color: C.green, fontFamily: F.mono }, ps]}>
                                         {getSymbol(contaMoeda2) + ' ' + fmt(valOrigem) + ' → ' + getSymbol(dMoeda) + ' ' + fmt(valConv)}
                                       </Text>
                                     ) : null}
@@ -1176,7 +1183,7 @@ export default function CaixaView(props) {
                               {isAjuste ? <Badge text="ajuste" color={C.yellow} /> : null}
                             </View>
                           </View>
-                          <Text style={[styles.movVal, { color: isEntrada ? C.green : C.red }]}>
+                          <Text style={[styles.movVal, { color: isEntrada ? C.green : C.red }, ps]}>
                             {isEntrada ? '+' : '-'}R$ {fmt(m.valor)}
                           </Text>
                         </View>

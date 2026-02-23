@@ -28,6 +28,8 @@ import { fetchPriceHistoryLong, fetchTickerProfile } from '../../services/priceS
 import { Glass, Badge, Pill, SectionLabel } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import InteractiveChart from '../../components/InteractiveChart';
+import { usePrivacyStyle } from '../../components/Sensitive';
+import Sensitive from '../../components/Sensitive';
 
 // ═══════════ CONSTANTS ═══════════
 
@@ -5556,6 +5558,7 @@ function RendaPassivaTotalChart(props) {
 export default function AnaliseScreen(props) {
   var navigation = props.navigation;
   var _auth = useAuth(); var user = _auth.user;
+  var ps = usePrivacyStyle();
 
   var scrollRef = useRef(null);
   useScrollToTop(scrollRef);
@@ -7313,13 +7316,13 @@ export default function AnaliseScreen(props) {
         <>
           {/* Performance sub-tabs */}
           <View style={styles.perfSubTabs}>
-            {PERF_SUBS.map(function(ps) {
-              var isActive = perfSub === ps.k;
-              var color = PERF_SUB_COLORS[ps.k];
+            {PERF_SUBS.map(function(psItem) {
+              var isActive = perfSub === psItem.k;
+              var color = PERF_SUB_COLORS[psItem.k];
               return (
-                <Pill key={ps.k} active={isActive} color={color}
-                  onPress={function() { setPerfSub(ps.k); setCatShowAllEnc(false); setCatPLBarSelected(-1); }}>
-                  {ps.l}
+                <Pill key={psItem.k} active={isActive} color={color}
+                  onPress={function() { setPerfSub(psItem.k); setCatShowAllEnc(false); setCatPLBarSelected(-1); }}>
+                  {psItem.l}
                 </Pill>
               );
             })}
@@ -7337,7 +7340,7 @@ export default function AnaliseScreen(props) {
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={styles.heroLabel}>RENTABILIDADE</Text>
-                    <Text style={[styles.heroPct, { color: rentPct >= 0 ? C.green : C.red }]}>
+                    <Text style={[styles.heroPct, { color: rentPct >= 0 ? C.green : C.red }, ps]}>
                       {rentPct >= 0 ? '+' : ''}{rentPct.toFixed(2)}%
                     </Text>
                     <Text style={[styles.heroPctSub, { color: C.sub }]}>
@@ -7354,17 +7357,17 @@ export default function AnaliseScreen(props) {
                     React.createElement(View, { key: 'inv-row', style: { flexDirection: 'row', justifyContent: 'space-between' } }, [
                       React.createElement(View, { key: 'inv-l' }, [
                         React.createElement(Text, { key: 'inv-lab', style: { fontSize: 9, color: C.sub, fontFamily: F.body, letterSpacing: 0.5 } }, 'INVESTIDO'),
-                        React.createElement(Text, { key: 'inv-val', style: { fontSize: 13, color: C.dim, fontFamily: F.mono, marginTop: 4 } }, 'R$ ' + fmt(investidoTotal)),
+                        React.createElement(Text, { key: 'inv-val', style: [{ fontSize: 13, color: C.dim, fontFamily: F.mono, marginTop: 4 }, ps] }, 'R$ ' + fmt(investidoTotal)),
                       ]),
                       React.createElement(View, { key: 'inv-m', style: { alignItems: 'center' } }, [
                         React.createElement(Text, { key: 'inv-lab2', style: { fontSize: 9, color: C.sub, fontFamily: F.body, letterSpacing: 0.5 } }, 'ATUAL'),
-                        React.createElement(Text, { key: 'inv-val2', style: { fontSize: 13, color: C.text, fontFamily: F.mono, marginTop: 4 } }, 'R$ ' + fmt(totalPatrimonio)),
+                        React.createElement(Text, { key: 'inv-val2', style: [{ fontSize: 13, color: C.text, fontFamily: F.mono, marginTop: 4 }, ps] }, 'R$ ' + fmt(totalPatrimonio)),
                       ]),
                       React.createElement(View, { key: 'inv-r', style: { alignItems: 'flex-end' } }, [
                         React.createElement(Text, { key: 'inv-lab3', style: { fontSize: 9, color: C.sub, fontFamily: F.body, letterSpacing: 0.5 } }, 'P&L'),
-                        React.createElement(Text, { key: 'inv-val3', style: { fontSize: 13, color: plAbs >= 0 ? C.green : C.red, fontFamily: F.mono, marginTop: 4 } },
+                        React.createElement(Text, { key: 'inv-val3', style: [{ fontSize: 13, color: plAbs >= 0 ? C.green : C.red, fontFamily: F.mono, marginTop: 4 }, ps] },
                           (plAbs >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(plAbs))),
-                        React.createElement(Text, { key: 'inv-pct', style: { fontSize: 9, color: plPct >= 0 ? C.green : C.red, fontFamily: F.mono, marginTop: 1, opacity: 0.7 } },
+                        React.createElement(Text, { key: 'inv-pct', style: [{ fontSize: 9, color: plPct >= 0 ? C.green : C.red, fontFamily: F.mono, marginTop: 1, opacity: 0.7 }, ps] },
                           (plPct >= 0 ? '+' : '') + plPct.toFixed(1) + '%'),
                       ]),
                     ]),
@@ -7884,7 +7887,7 @@ export default function AnaliseScreen(props) {
                         {'Total: R$ ' + fmt(allProvData.reduce(function(s, d) { return s + d.value; }, 0))}
                       </Text>
                     </View>
-                    <ProvVertBarChart data={allProvData} maxVal={allProvMax} color={C.fiis} height={190} />
+                    <Sensitive><ProvVertBarChart data={allProvData} maxVal={allProvMax} color={C.fiis} height={190} /></Sensitive>
                   </Glass>
                 </>
               )}
@@ -7976,20 +7979,20 @@ export default function AnaliseScreen(props) {
                       <Glass padding={12}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                           <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 }}>PROVENTOS TOTAL</Text>
-                          <Text style={{ fontSize: 16, fontWeight: '800', color: C.green, fontFamily: F.mono }}>
+                          <Text style={[{ fontSize: 16, fontWeight: '800', color: C.green, fontFamily: F.mono }, ps]}>
                             {'R$ ' + fmt(catDividendsTotal)}
                           </Text>
                         </View>
                         <View style={{ height: 1, backgroundColor: C.border, marginBottom: 6 }} />
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 }}>
                           <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body }}>Recebidos</Text>
-                          <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>
+                          <Text style={[{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }, ps]}>
                             {'R$ ' + fmt(catProvsRecebidos)}
                           </Text>
                         </View>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 }}>
                           <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body }}>A receber</Text>
-                          <Text style={{ fontSize: 12, fontWeight: '700', color: C.yellow, fontFamily: F.mono }}>
+                          <Text style={[{ fontSize: 12, fontWeight: '700', color: C.yellow, fontFamily: F.mono }, ps]}>
                             {'R$ ' + fmt(catProvsAReceber)}
                           </Text>
                         </View>
@@ -8014,7 +8017,7 @@ export default function AnaliseScreen(props) {
                         <Glass padding={10} style={{ flex: 1 }}>
                           <View style={styles.kpiCard}>
                             <Text style={styles.kpiLabel}>RENDA/MÊS</Text>
-                            <Text style={[styles.kpiValue, { color: C.green }]}>
+                            <Text style={[styles.kpiValue, { color: C.green }, ps]}>
                               R$ {fmt(catRendaMensal)}
                             </Text>
                             <Text style={styles.kpiSub}>Média 3m</Text>
@@ -8037,7 +8040,7 @@ export default function AnaliseScreen(props) {
                                 {'Total: R$ ' + fmt(catMonthlyDividends.reduce(function(s, d) { return s + d.value; }, 0))}
                               </Text>
                             </View>
-                            <ProvVertBarChart data={catMonthlyDividends} maxVal={catProvMax} color={PERF_SUB_COLORS[perfSub]} height={170} />
+                            <Sensitive><ProvVertBarChart data={catMonthlyDividends} maxVal={catProvMax} color={PERF_SUB_COLORS[perfSub]} height={170} /></Sensitive>
                           </Glass>
                         );
                       })()}
@@ -8140,18 +8143,20 @@ export default function AnaliseScreen(props) {
                             for (var tpi = 0; tpi < plBarData.length; tpi++) totalPl += plBarData[tpi].pl;
                             var isPos = totalPl >= 0;
                             return (
-                              <Text style={{ fontSize: 10, color: isPos ? C.green : C.red, fontFamily: F.mono, fontWeight: '600' }}>
+                              <Text style={[{ fontSize: 10, color: isPos ? C.green : C.red, fontFamily: F.mono, fontWeight: '600' }, ps]}>
                                 {'Total: ' + (isPos ? '+' : '') + 'R$ ' + fmt(totalPl)}
                               </Text>
                             );
                           })()}
                         </View>
-                        <PLBarChart
-                          data={catPLBarView === 'mensal' ? catPlMonthly : catPlAnnual}
-                          height={200}
-                          selected={catPLBarSelected}
-                          onSelect={function(idx) { setCatPLBarSelected(idx); }}
-                        />
+                        <Sensitive>
+                          <PLBarChart
+                            data={catPLBarView === 'mensal' ? catPlMonthly : catPlAnnual}
+                            height={200}
+                            selected={catPLBarSelected}
+                            onSelect={function(idx) { setCatPLBarSelected(idx); }}
+                          />
+                        </Sensitive>
                       </Glass>
                     </>
                   )}
@@ -8515,14 +8520,14 @@ export default function AnaliseScreen(props) {
                               onPress={function() { setOpcPremView('anual'); setOpcPremSelected(-1); }}>Anual</Pill>
                           </View>
                           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10, marginBottom: 8 }}>
-                            <Text style={{ fontFamily: F.mono, fontSize: 13, color: C.text }}>
+                            <Text style={[{ fontFamily: F.mono, fontSize: 13, color: C.text }, ps]}>
                               {'R$ ' + fmt(sumTotal)}
                               <Text style={{ fontSize: 10, color: C.sub }}>{isAnual ? ' total' : ' 12m'}</Text>
                             </Text>
-                            <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.acoes }}>
+                            <Text style={[{ fontFamily: F.mono, fontSize: 10, color: C.acoes }, ps]}>
                               {'C R$ ' + fmt(sumCall)}
                             </Text>
-                            <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.opcoes }}>
+                            <Text style={[{ fontFamily: F.mono, fontSize: 10, color: C.opcoes }, ps]}>
                               {'P R$ ' + fmt(sumPut)}
                             </Text>
                           </View>
@@ -8536,19 +8541,19 @@ export default function AnaliseScreen(props) {
                               <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
                                 <View style={{ alignItems: 'center' }}>
                                   <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>Total</Text>
-                                  <Text style={{ fontSize: 14, color: C.text, fontFamily: F.mono, fontWeight: '700' }}>
+                                  <Text style={[{ fontSize: 14, color: C.text, fontFamily: F.mono, fontWeight: '700' }, ps]}>
                                     {'R$ ' + fmt(selData.total || selData.value || 0)}
                                   </Text>
                                 </View>
                                 <View style={{ alignItems: 'center' }}>
                                   <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>CALL</Text>
-                                  <Text style={{ fontSize: 14, color: C.acoes, fontFamily: F.mono, fontWeight: '700' }}>
+                                  <Text style={[{ fontSize: 14, color: C.acoes, fontFamily: F.mono, fontWeight: '700' }, ps]}>
                                     {'R$ ' + fmt(selData.call || 0)}
                                   </Text>
                                 </View>
                                 <View style={{ alignItems: 'center' }}>
                                   <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>PUT</Text>
-                                  <Text style={{ fontSize: 14, color: C.opcoes, fontFamily: F.mono, fontWeight: '700' }}>
+                                  <Text style={[{ fontSize: 14, color: C.opcoes, fontFamily: F.mono, fontWeight: '700' }, ps]}>
                                     {'R$ ' + fmt(selData.put || 0)}
                                   </Text>
                                 </View>
@@ -8556,13 +8561,15 @@ export default function AnaliseScreen(props) {
                             </View>
                           ) : null}
 
-                          <PremiosBarChart
-                            data={chartData}
-                            showCall={false}
-                            showPut={false}
-                            selected={opcPremSelected}
-                            onSelect={setOpcPremSelected}
-                          />
+                          <Sensitive>
+                            <PremiosBarChart
+                              data={chartData}
+                              showCall={false}
+                              showPut={false}
+                              selected={opcPremSelected}
+                              onSelect={setOpcPremSelected}
+                            />
+                          </Sensitive>
                         </Glass>
                       </>
                     );
@@ -8590,14 +8597,14 @@ export default function AnaliseScreen(props) {
                               onPress={function() { setOpcRecView('anual'); setOpcRecSelected(-1); }}>Anual</Pill>
                           </View>
                           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10, marginBottom: 8 }}>
-                            <Text style={{ fontFamily: F.mono, fontSize: 13, color: C.red }}>
+                            <Text style={[{ fontFamily: F.mono, fontSize: 13, color: C.red }, ps]}>
                               {'R$ ' + fmt(sumTotal)}
                               <Text style={{ fontSize: 10, color: C.sub }}>{isAnual ? ' total' : ' 12m'}</Text>
                             </Text>
-                            <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.acoes }}>
+                            <Text style={[{ fontFamily: F.mono, fontSize: 10, color: C.acoes }, ps]}>
                               {'C R$ ' + fmt(sumCall)}
                             </Text>
-                            <Text style={{ fontFamily: F.mono, fontSize: 10, color: C.opcoes }}>
+                            <Text style={[{ fontFamily: F.mono, fontSize: 10, color: C.opcoes }, ps]}>
                               {'P R$ ' + fmt(sumPut)}
                             </Text>
                           </View>
@@ -8610,19 +8617,19 @@ export default function AnaliseScreen(props) {
                               <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
                                 <View style={{ alignItems: 'center' }}>
                                   <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>Total</Text>
-                                  <Text style={{ fontSize: 14, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                                  <Text style={[{ fontSize: 14, color: C.red, fontFamily: F.mono, fontWeight: '700' }, ps]}>
                                     {'R$ ' + fmt(selData.total || selData.value || 0)}
                                   </Text>
                                 </View>
                                 <View style={{ alignItems: 'center' }}>
                                   <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>CALL</Text>
-                                  <Text style={{ fontSize: 14, color: C.acoes, fontFamily: F.mono, fontWeight: '700' }}>
+                                  <Text style={[{ fontSize: 14, color: C.acoes, fontFamily: F.mono, fontWeight: '700' }, ps]}>
                                     {'R$ ' + fmt(selData.call || 0)}
                                   </Text>
                                 </View>
                                 <View style={{ alignItems: 'center' }}>
                                   <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>PUT</Text>
-                                  <Text style={{ fontSize: 14, color: C.opcoes, fontFamily: F.mono, fontWeight: '700' }}>
+                                  <Text style={[{ fontSize: 14, color: C.opcoes, fontFamily: F.mono, fontWeight: '700' }, ps]}>
                                     {'R$ ' + fmt(selData.put || 0)}
                                   </Text>
                                 </View>
@@ -8630,14 +8637,16 @@ export default function AnaliseScreen(props) {
                             </View>
                           ) : null}
 
-                          <PremiosBarChart
-                            data={chartData}
-                            showCall={false}
-                            showPut={false}
-                            selected={opcRecSelected}
-                            onSelect={setOpcRecSelected}
-                            barColor={C.red}
-                          />
+                          <Sensitive>
+                            <PremiosBarChart
+                              data={chartData}
+                              showCall={false}
+                              showPut={false}
+                              selected={opcRecSelected}
+                              onSelect={setOpcRecSelected}
+                              barColor={C.red}
+                            />
+                          </Sensitive>
                         </Glass>
                       </>
                     );
@@ -8671,14 +8680,14 @@ export default function AnaliseScreen(props) {
                               onPress={function() { setOpcPLBarView('anual'); setOpcPLBarSelected(-1); }}>Anual</Pill>
                           </View>
                           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10, marginBottom: 8 }}>
-                            <Text style={{ fontFamily: F.mono, fontSize: 13, color: sumTotal >= 0 ? C.green : C.red }}>
+                            <Text style={[{ fontFamily: F.mono, fontSize: 13, color: sumTotal >= 0 ? C.green : C.red }, ps]}>
                               {'R$ ' + fmt(sumTotal)}
                               <Text style={{ fontSize: 10, color: C.sub }}>{isAnual ? ' total' : ' 12m'}</Text>
                             </Text>
-                            <Text style={{ fontFamily: F.mono, fontSize: 10, color: sumCall >= 0 ? C.green : C.red }}>
+                            <Text style={[{ fontFamily: F.mono, fontSize: 10, color: sumCall >= 0 ? C.green : C.red }, ps]}>
                               {'C R$ ' + fmt(sumCall)}
                             </Text>
-                            <Text style={{ fontFamily: F.mono, fontSize: 10, color: sumPut >= 0 ? C.green : C.red }}>
+                            <Text style={[{ fontFamily: F.mono, fontSize: 10, color: sumPut >= 0 ? C.green : C.red }, ps]}>
                               {'P R$ ' + fmt(sumPut)}
                             </Text>
                           </View>
@@ -8691,19 +8700,19 @@ export default function AnaliseScreen(props) {
                               <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
                                 <View style={{ alignItems: 'center' }}>
                                   <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>Total</Text>
-                                  <Text style={{ fontSize: 14, color: (selData.value || 0) >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                                  <Text style={[{ fontSize: 14, color: (selData.value || 0) >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' }, ps]}>
                                     {'R$ ' + fmt(selData.value || 0)}
                                   </Text>
                                 </View>
                                 <View style={{ alignItems: 'center' }}>
                                   <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>CALL</Text>
-                                  <Text style={{ fontSize: 14, color: (selData.call || 0) >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                                  <Text style={[{ fontSize: 14, color: (selData.call || 0) >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' }, ps]}>
                                     {'R$ ' + fmt(selData.call || 0)}
                                   </Text>
                                 </View>
                                 <View style={{ alignItems: 'center' }}>
                                   <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body }}>PUT</Text>
-                                  <Text style={{ fontSize: 14, color: (selData.put || 0) >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                                  <Text style={[{ fontSize: 14, color: (selData.put || 0) >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' }, ps]}>
                                     {'R$ ' + fmt(selData.put || 0)}
                                   </Text>
                                 </View>
@@ -8711,14 +8720,16 @@ export default function AnaliseScreen(props) {
                             </View>
                           ) : null}
 
-                          <PremiosBarChart
-                            data={chartData}
-                            showCall={false}
-                            showPut={false}
-                            selected={opcPLBarSelected}
-                            onSelect={setOpcPLBarSelected}
-                            barColors={colors}
-                          />
+                          <Sensitive>
+                            <PremiosBarChart
+                              data={chartData}
+                              showCall={false}
+                              showPut={false}
+                              selected={opcPLBarSelected}
+                              onSelect={setOpcPLBarSelected}
+                              barColors={colors}
+                            />
+                          </Sensitive>
                         </Glass>
                       </>
                     );
@@ -9432,12 +9443,12 @@ export default function AnaliseScreen(props) {
           {/* Sub-tab pills */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
             <View style={styles.perfSubTabs}>
-              {PROV_SUBS.map(function(ps) {
-                var isActive = provSub === ps.k;
+              {PROV_SUBS.map(function(psItem) {
+                var isActive = provSub === psItem.k;
                 return (
-                  <Pill key={ps.k} active={isActive} color={C.accent}
-                    onPress={function() { setProvSub(ps.k); }}>
-                    {ps.l}
+                  <Pill key={psItem.k} active={isActive} color={C.accent}
+                    onPress={function() { setProvSub(psItem.k); }}>
+                    {psItem.l}
                   </Pill>
                 );
               })}
@@ -9459,7 +9470,7 @@ export default function AnaliseScreen(props) {
                     return (
                       <View key={i} style={{ alignItems: 'center', minWidth: 70 }}>
                         <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{d.l}</Text>
-                        <Text style={{ fontSize: 15, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }}>{d.v}</Text>
+                        <Text style={[{ fontSize: 15, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }, ps]}>{d.v}</Text>
                       </View>
                     );
                   })}
@@ -9493,7 +9504,7 @@ export default function AnaliseScreen(props) {
                               {(Math.abs(item.v) / rendaPassivaTotal * 100).toFixed(0) + '%'}
                             </Text>
                           </View>
-                          <Text style={{ fontSize: 11, fontWeight: '600', color: item.v >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                          <Text style={[{ fontSize: 11, fontWeight: '600', color: item.v >= 0 ? C.green : C.red, fontFamily: F.mono }, ps]}>
                             {(item.v < 0 ? '-' : '') + 'R$ ' + fmt(Math.abs(item.v))}
                           </Text>
                         </View>
@@ -9510,7 +9521,7 @@ export default function AnaliseScreen(props) {
                 <Glass padding={14}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 }}>META MENSAL (COMBINADO)</Text>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: rendaPassivaMediaMensal >= metaMensal ? C.green : C.yellow, fontFamily: F.mono }}>
+                    <Text style={[{ fontSize: 12, fontWeight: '700', color: rendaPassivaMediaMensal >= metaMensal ? C.green : C.yellow, fontFamily: F.mono }, ps]}>
                       {'R$ ' + fmt(rendaPassivaMediaMensal) + ' / R$ ' + fmt(metaMensal)}
                     </Text>
                   </View>
@@ -9648,7 +9659,7 @@ export default function AnaliseScreen(props) {
                     return (
                       <View key={i} style={{ alignItems: 'center', minWidth: 70 }}>
                         <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{d.l}</Text>
-                        <Text style={{ fontSize: 15, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }}>{d.v}</Text>
+                        <Text style={[{ fontSize: 15, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }, ps]}>{d.v}</Text>
                       </View>
                     );
                   })}
@@ -9915,7 +9926,7 @@ export default function AnaliseScreen(props) {
                         return (
                           <View key={i} style={{ alignItems: 'center', minWidth: 70 }}>
                             <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{d.l}</Text>
-                            <Text style={{ fontSize: 15, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }}>{d.v}</Text>
+                            <Text style={[{ fontSize: 15, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }, ps]}>{d.v}</Text>
                           </View>
                         );
                       })}
@@ -10134,7 +10145,7 @@ export default function AnaliseScreen(props) {
                         return (
                           <View key={i} style={{ alignItems: 'center', minWidth: 70 }}>
                             <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{d.l}</Text>
-                            <Text style={{ fontSize: 15, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }}>{d.v}</Text>
+                            <Text style={[{ fontSize: 15, fontWeight: '800', color: d.c, fontFamily: F.display, marginTop: 2 }, ps]}>{d.v}</Text>
                           </View>
                         );
                       })}
@@ -10330,13 +10341,13 @@ export default function AnaliseScreen(props) {
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
                         <Text style={styles.kpiLabel}>APLICADO</Text>
-                        <Text style={[styles.kpiValue, { color: C.rf }]}>{'R$ ' + fmt(rfRendaTotal)}</Text>
+                        <Text style={[styles.kpiValue, { color: C.rf }, ps]}>{'R$ ' + fmt(rfRendaTotal)}</Text>
                       </View>
                     </Glass>
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
                         <Text style={styles.kpiLabel}>RENDA/MÊS (EST.)</Text>
-                        <Text style={[styles.kpiValue, { color: C.green }]}>{'R$ ' + fmt(rfRendaMensalEst)}</Text>
+                        <Text style={[styles.kpiValue, { color: C.green }, ps]}>{'R$ ' + fmt(rfRendaMensalEst)}</Text>
                       </View>
                     </Glass>
                   </View>
@@ -10344,7 +10355,7 @@ export default function AnaliseScreen(props) {
                     <Glass padding={10} style={{ flex: 1 }}>
                       <View style={styles.kpiCard}>
                         <Text style={styles.kpiLabel}>RENDA/ANO (EST.)</Text>
-                        <Text style={[styles.kpiValue, { color: C.green }]}>{'R$ ' + fmt(rfRendaAnualEst)}</Text>
+                        <Text style={[styles.kpiValue, { color: C.green }, ps]}>{'R$ ' + fmt(rfRendaAnualEst)}</Text>
                       </View>
                     </Glass>
                     <Glass padding={10} style={{ flex: 1 }}>
@@ -10372,12 +10383,12 @@ export default function AnaliseScreen(props) {
                               <Text style={{ fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display }}>{rfLabel}</Text>
                               <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{rf.emissor || ''}</Text>
                             </View>
-                            <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono, marginTop: 2 }}>
+                            <Text style={[{ fontSize: 9, color: C.sub, fontFamily: F.mono, marginTop: 2 }, ps]}>
                               {rfTaxaVal.toFixed(1) + rfIdxLabel + ' · R$ ' + fmt(rfValApl)}
                             </Text>
                           </View>
                           <View style={{ alignItems: 'flex-end' }}>
-                            <Text style={{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }}>{'R$ ' + fmt(rfMensalEst) + '/mês'}</Text>
+                            <Text style={[{ fontSize: 12, fontWeight: '700', color: C.green, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(rfMensalEst) + '/mês'}</Text>
                           </View>
                         </View>
                       );

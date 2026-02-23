@@ -13,6 +13,8 @@ import { runDailyCalculation, shouldCalculateToday } from '../../services/indica
 import { supabase } from '../../config/supabase';
 import { Glass, Badge, Pill, SectionLabel, Fab } from '../../components';
 import { SkeletonOpcoes, EmptyState } from '../../components/States';
+import { usePrivacyStyle } from '../../components/Sensitive';
+import Sensitive from '../../components/Sensitive';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -222,6 +224,7 @@ function getMoneyness(tipo, direcao, strike, spot) {
 var CHART_H = 200;
 
 function PayoffChart(props) {
+  var ps = usePrivacyStyle();
   var tipo = (props.tipo || 'call').toLowerCase();
   var direcao = props.direcao || 'venda';
   var strike = props.strike || 0;
@@ -367,6 +370,7 @@ function PayoffChart(props) {
 
   return (
     <View style={styles.payoffContainer}>
+      <Sensitive>
       <View
         onTouchStart={handleTouch}
         onTouchMove={handleTouch}
@@ -446,23 +450,24 @@ function PayoffChart(props) {
             left: Math.min(touchInfo.x, chartWidth - 100),
             top: 4,
           }]}>
-            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>
+            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 10, color: C.sub, fontFamily: F.mono }, ps]}>
               {'Ativo R$ ' + fmt(touchInfo.price)}
             </Text>
-            <Text maxFontSizeMultiplier={1.5} style={{ fontSize: 11, fontWeight: '700', fontFamily: F.mono,
-              color: touchInfo.pl >= 0 ? C.green : C.red }}>
+            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 11, fontWeight: '700', fontFamily: F.mono,
+              color: touchInfo.pl >= 0 ? C.green : C.red }, ps]}>
               {'P&L ' + (touchInfo.pl >= 0 ? '+' : '') + 'R$ ' + fmt(touchInfo.pl)}
             </Text>
           </View>
         ) : null}
       </View>
+      </Sensitive>
 
       {/* Legend row */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-        <Text style={{ fontSize: 11, color: C.green, fontFamily: F.mono }}>
+        <Text style={[{ fontSize: 11, color: C.green, fontFamily: F.mono }, ps]}>
           {maxProfitLabel}
         </Text>
-        <Text style={{ fontSize: 11, color: C.red, fontFamily: F.mono }}>
+        <Text style={[{ fontSize: 11, color: C.red, fontFamily: F.mono }, ps]}>
           {maxLossLabel}
         </Text>
       </View>
@@ -474,6 +479,7 @@ function PayoffChart(props) {
 // OPTION CARD
 // ═══════════════════════════════════════
 var OpCard = React.memo(function OpCard(props) {
+  var ps = usePrivacyStyle();
   var op = props.op;
   var positions = props.positions || [];
   var saldos = props.saldos || [];
@@ -620,10 +626,10 @@ var OpCard = React.memo(function OpCard(props) {
       {/* Premio: unitario + total */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
         <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>PREMIO</Text>
-        <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>
+        <Text style={[{ fontSize: 10, color: C.sub, fontFamily: F.mono }, ps]}>
           {'R$ ' + fmt(op.premio || 0) + ' x ' + (op.quantidade || 0)}
         </Text>
-        <Text style={{ fontSize: 13, fontWeight: '800', color: C.green, fontFamily: F.display }}>
+        <Text style={[{ fontSize: 13, fontWeight: '800', color: C.green, fontFamily: F.display }, ps]}>
           {'= R$ ' + fmt(premTotal)}
         </Text>
       </View>
@@ -633,10 +639,10 @@ var OpCard = React.memo(function OpCard(props) {
         <Text style={styles.opCode}>{op.ticker_opcao}</Text>
       ) : null}
       {moneyness ? (
-        <Text style={{ fontSize: 11, color: moneyness.color, fontFamily: F.mono, marginBottom: 2 }}>{moneyness.text}</Text>
+        <Text style={[{ fontSize: 11, color: moneyness.color, fontFamily: F.mono, marginBottom: 2 }, ps]}>{moneyness.text}</Text>
       ) : null}
       {coberturaDetail ? (
-        <Text style={{ fontSize: 11, color: coberturaColor, fontFamily: F.mono, marginBottom: 4 }}>{coberturaDetail}</Text>
+        <Text style={[{ fontSize: 11, color: coberturaColor, fontFamily: F.mono, marginBottom: 4 }, ps]}>{coberturaDetail}</Text>
       ) : null}
 
       {/* Greeks row */}
@@ -650,7 +656,7 @@ var OpCard = React.memo(function OpCard(props) {
           return (
             <View key={i} style={{ alignItems: 'center', flex: 1 }}>
               <Text style={styles.greekLabel}>{g.l}</Text>
-              <Text style={styles.greekValue}>{g.v}</Text>
+              <Text style={[styles.greekValue, ps]}>{g.v}</Text>
             </View>
           );
         })}
@@ -680,13 +686,14 @@ var OpCard = React.memo(function OpCard(props) {
             { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, paddingVertical: 4, paddingHorizontal: 6, borderRadius: 6 },
             ivGlow && { backgroundColor: ivColor + '0A', borderWidth: 1, borderColor: ivColor + '18' },
           ]}>
-            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>
+            <Text style={[{ fontSize: 11, color: C.sub, fontFamily: F.mono }, ps]}>
               {'HV: ' + hv.toFixed(0) + '%'}
             </Text>
             <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>|</Text>
             <Text style={[
               { fontSize: 11, fontFamily: F.mono },
               ivGlow ? { color: ivColor, fontWeight: '700' } : { color: C.sub },
+              ps,
             ]}>
               {'IV: ' + iv.toFixed(0) + '%'}
             </Text>
@@ -798,17 +805,17 @@ var OpCard = React.memo(function OpCard(props) {
               <View style={{ marginTop: 8 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>RECOMPRA TOTAL</Text>
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.red, fontFamily: F.mono }}>
+                  <Text style={[{ fontSize: 13, fontWeight: '700', color: C.red, fontFamily: F.mono }, ps]}>
                     {'R$ ' + fmt(recompraTotal)}
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
                   <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>P&L DO ENCERRAMENTO</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={{ fontSize: 16, fontWeight: '800', color: closePL >= 0 ? C.green : C.red, fontFamily: F.display }}>
+                    <Text style={[{ fontSize: 16, fontWeight: '800', color: closePL >= 0 ? C.green : C.red, fontFamily: F.display }, ps]}>
                       {(closePL >= 0 ? '+' : '') + 'R$ ' + fmt(closePL)}
                     </Text>
-                    <Text style={{ fontSize: 12, fontWeight: '600', color: closePL >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                    <Text style={[{ fontSize: 12, fontWeight: '600', color: closePL >= 0 ? C.green : C.red, fontFamily: F.mono }, ps]}>
                       {'(' + (closePLPct >= 0 ? '+' : '') + closePLPct.toFixed(1) + '%)'}
                     </Text>
                   </View>
@@ -840,6 +847,7 @@ var OpCard = React.memo(function OpCard(props) {
 // SIMULADOR BLACK-SCHOLES
 // ═══════════════════════════════════════
 function SimuladorBS(props) {
+  var ps = usePrivacyStyle();
   var simSelicRate = props.selicRate || 13.25;
   var setInfoModal = props.setInfoModal;
   var s1 = useState('CALL'); var tipo = s1[0]; var setTipo = s1[1];
@@ -956,7 +964,7 @@ function SimuladorBS(props) {
             return (
               <View key={i} style={{ alignItems: 'center' }}>
                 <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{g.l}</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: g.c, fontFamily: F.display }}>{g.v}</Text>
+                <Text style={[{ fontSize: 18, fontWeight: '800', color: g.c, fontFamily: F.display }, ps]}>{g.v}</Text>
               </View>
             );
           })}
@@ -965,15 +973,15 @@ function SimuladorBS(props) {
         <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: 10, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 8 }}>
           <View style={{ alignItems: 'center' }}>
             <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>IV IMPLÍCITA</Text>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: C.opcoes, fontFamily: F.mono }}>{(sigma * 100).toFixed(1)}%</Text>
+            <Text style={[{ fontSize: 14, fontWeight: '700', color: C.opcoes, fontFamily: F.mono }, ps]}>{(sigma * 100).toFixed(1)}%</Text>
           </View>
           <View style={{ alignItems: 'center' }}>
             <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>PREÇO BS</Text>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }}>{'R$ ' + fmt(bsTheoPrice)}</Text>
+            <Text style={[{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(bsTheoPrice)}</Text>
           </View>
           <View style={{ alignItems: 'center' }}>
             <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>MERCADO</Text>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: bsTheoPrice > pVal ? C.green : C.red, fontFamily: F.mono }}>{'R$ ' + fmt(pVal)}</Text>
+            <Text style={[{ fontSize: 14, fontWeight: '700', color: bsTheoPrice > pVal ? C.green : C.red, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(pVal)}</Text>
           </View>
         </View>
       </Glass>
@@ -982,6 +990,7 @@ function SimuladorBS(props) {
       {sVal > 0 && kVal > 0 && pVal > 0 ? (
         <Glass padding={14}>
           <SectionLabel>PAYOFF NO VENCIMENTO</SectionLabel>
+          <Sensitive>
           <View style={{ marginTop: 8 }}>
             <PayoffChart
               tipo={tipoLower}
@@ -992,6 +1001,7 @@ function SimuladorBS(props) {
               spotPrice={sVal}
             />
           </View>
+          </Sensitive>
         </Glass>
       ) : null}
 
@@ -1008,7 +1018,7 @@ function SimuladorBS(props) {
             return (
               <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
                 <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body }}>{rr.l}</Text>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: C.text, fontFamily: F.mono }}>{rr.v}</Text>
+                <Text style={[{ fontSize: 14, fontWeight: '600', color: C.text, fontFamily: F.mono }, ps]}>{rr.v}</Text>
               </View>
             );
           })}
@@ -1032,7 +1042,7 @@ function SimuladorBS(props) {
                 <Text style={{ fontSize: 12, fontWeight: '600', color: C.text, fontFamily: F.display }}>
                   {'Ativo ' + sc.label}
                 </Text>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: scColor, fontFamily: F.mono }}>
+                <Text style={[{ fontSize: 13, fontWeight: '700', color: scColor, fontFamily: F.mono }, ps]}>
                   {isPos ? '+' : ''}R$ {fmt(Math.abs(result))}
                 </Text>
               </View>
@@ -1048,6 +1058,7 @@ function SimuladorBS(props) {
 // CADEIA SINTETICA (BS)
 // ═══════════════════════════════════════
 function CadeiaSintetica(props) {
+  var ps = usePrivacyStyle();
   var positions = props.positions || [];
   var indicatorsMap = props.indicators || {};
   var chainSelicRate = props.selicRate || 13.25;
@@ -1153,7 +1164,7 @@ function CadeiaSintetica(props) {
         <Glass padding={10}>
           <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
             <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>SPOT</Text>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: C.text, fontFamily: F.display }}>
+            <Text style={[{ fontSize: 18, fontWeight: '800', color: C.text, fontFamily: F.display }, ps]}>
               {'R$ ' + fmt(spot)}
             </Text>
             {currentHV != null ? (
@@ -1264,10 +1275,10 @@ function CadeiaSintetica(props) {
               {/* CALL side */}
               <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                 <View style={{ flex: 1, alignItems: 'center' }}>
-                  <Text style={[styles.chainDelta, callMon === 'ITM' && { color: C.green, fontWeight: '700' }]}>{callGreeks.delta.toFixed(2)}</Text>
+                  <Text style={[styles.chainDelta, callMon === 'ITM' && { color: C.green, fontWeight: '700' }, ps]}>{callGreeks.delta.toFixed(2)}</Text>
                 </View>
                 <View style={{ flex: 1.2, alignItems: 'center' }}>
-                  <Text style={[styles.chainPrice, callMon === 'ITM' && { color: C.green }]}>{'R$ ' + fmt(callPrice)}</Text>
+                  <Text style={[styles.chainPrice, callMon === 'ITM' && { color: C.green }, ps]}>{'R$ ' + fmt(callPrice)}</Text>
                 </View>
                 <View style={{ flex: 0.8, alignItems: 'center' }}>
                   <Badge text={callMon} color={monColor[callMon] || C.dim} />
@@ -1276,10 +1287,10 @@ function CadeiaSintetica(props) {
 
               {/* Strike center + distance */}
               <View style={styles.chainStrike}>
-                <Text style={{
+                <Text style={[{
                   fontSize: 13, fontWeight: '700', fontFamily: F.mono,
                   color: isAtm ? C.accent : C.text,
-                }}>
+                }, ps]}>
                   {fmt(sk)}
                 </Text>
                 <Text style={{ fontSize: 8, color: distColor, fontFamily: F.mono, marginTop: 1 }}>
@@ -1293,10 +1304,10 @@ function CadeiaSintetica(props) {
                   <Badge text={putMon} color={monColor[putMon] || C.dim} />
                 </View>
                 <View style={{ flex: 1.2, alignItems: 'center' }}>
-                  <Text style={[styles.chainPrice, putMon === 'ITM' && { color: C.red }]}>{'R$ ' + fmt(putPrice)}</Text>
+                  <Text style={[styles.chainPrice, putMon === 'ITM' && { color: C.red }, ps]}>{'R$ ' + fmt(putPrice)}</Text>
                 </View>
                 <View style={{ flex: 1, alignItems: 'center' }}>
-                  <Text style={[styles.chainDelta, putMon === 'ITM' && { color: C.red, fontWeight: '700' }]}>{putGreeks.delta.toFixed(2)}</Text>
+                  <Text style={[styles.chainDelta, putMon === 'ITM' && { color: C.red, fontWeight: '700' }, ps]}>{putGreeks.delta.toFixed(2)}</Text>
                 </View>
               </View>
             </View>
@@ -1320,6 +1331,7 @@ function CadeiaSintetica(props) {
 // MAIN OPCOES SCREEN
 // ═══════════════════════════════════════
 export default function OpcoesScreen() {
+  var ps = usePrivacyStyle();
   var navigation = useNavigation();
   var user = useAuth().user;
 
@@ -2010,7 +2022,7 @@ export default function OpcoesScreen() {
                         <Badge text={expOp.direcao === 'lancamento' || expOp.direcao === 'venda' ? 'VENDA' : 'COMPRA'} color={C.opcoes} />
                         <Badge text="VENCIDA" color={C.red} />
                       </View>
-                      <Text style={[styles.opPremio, { color: C.green }]}>+R$ {fmt(expPrem)}</Text>
+                      <Text style={[styles.opPremio, { color: C.green }, ps]}>+R$ {fmt(expPrem)}</Text>
                     </View>
                     {expOp.ticker_opcao ? (
                       <Text style={{ fontSize: 11, color: C.opcoes, fontFamily: F.mono, marginBottom: 4 }}>{expOp.ticker_opcao}</Text>
@@ -2019,7 +2031,7 @@ export default function OpcoesScreen() {
                       <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>
                         Venc: {new Date(expOp.vencimento).toLocaleDateString('pt-BR')}
                       </Text>
-                      <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>
+                      <Text style={[{ fontSize: 12, color: C.dim, fontFamily: F.mono }, ps]}>
                         Strike: R$ {fmt(expOp.strike)}
                       </Text>
                       <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>
@@ -2201,7 +2213,7 @@ export default function OpcoesScreen() {
                     return (
                       <View key={i} style={{ alignItems: 'center', flex: 1 }}>
                         <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
-                        <Text style={{ fontSize: 16, fontWeight: '800', color: m.c, fontFamily: F.display, marginTop: 2 }}>{m.v}</Text>
+                        <Text style={[{ fontSize: 16, fontWeight: '800', color: m.c, fontFamily: F.display, marginTop: 2 }, m.l === 'P&L TOTAL' ? ps : null]}>{m.v}</Text>
                       </View>
                     );
                   })}
@@ -2251,7 +2263,7 @@ export default function OpcoesScreen() {
                     >
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.display }}>
+                          <Text style={[{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.display }, ps]}>
                             {op.ativo_base + ' ' + tipoLabel + ' ' + fmt(op.strike || 0)}
                           </Text>
                         </View>
@@ -2267,7 +2279,7 @@ export default function OpcoesScreen() {
                         {isFechada ? (
                           <View style={{ marginTop: 4, gap: 2 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                              <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>
                                 {'Recompra: R$ ' + fmt(op.premio_fechamento || 0) + ' x ' + (op.quantidade || 0)}
                               </Text>
                               {op.data_fechamento ? (
@@ -2277,13 +2289,13 @@ export default function OpcoesScreen() {
                               ) : null}
                             </View>
                             <View style={{ flexDirection: 'row', gap: 12, marginTop: 2 }}>
-                              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>
+                              <Text style={[{ fontSize: 10, color: C.sub, fontFamily: F.mono }, ps]}>
                                 {'Recebido: R$ ' + fmt(premTotal)}
                               </Text>
-                              <Text style={{ fontSize: 10, color: C.red, fontFamily: F.mono }}>
+                              <Text style={[{ fontSize: 10, color: C.red, fontFamily: F.mono }, ps]}>
                                 {'Recompra: R$ ' + fmt((op.premio_fechamento || 0) * (op.quantidade || 0))}
                               </Text>
-                              <Text style={{ fontSize: 10, fontWeight: '700', color: histPL >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                              <Text style={[{ fontSize: 10, fontWeight: '700', color: histPL >= 0 ? C.green : C.red, fontFamily: F.mono }, ps]}>
                                 {'Resultado: ' + (histPL >= 0 ? '+' : '') + 'R$ ' + fmt(histPL)}
                               </Text>
                             </View>
@@ -2291,7 +2303,7 @@ export default function OpcoesScreen() {
                         ) : null}
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={{ fontSize: 14, fontWeight: '700', color: histDisplayColor, fontFamily: F.mono }}>
+                        <Text style={[{ fontSize: 14, fontWeight: '700', color: histDisplayColor, fontFamily: F.mono }, ps]}>
                           {histDisplayVal}
                         </Text>
                         {isFechada ? (

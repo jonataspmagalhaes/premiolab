@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, StatusBar, TouchableOpacity } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Toast from 'react-native-toast-message';
 import { useAuth } from '../contexts/AuthContext';
+import { usePrivacy } from '../contexts/PrivacyContext';
 import { C, F, SIZE } from '../theme';
 import toastConfig from '../components/ToastConfig';
 
@@ -119,8 +120,24 @@ function TabIcon(props) {
 }
 
 function MainTabs() {
+  var priv = usePrivacy();
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={['top']}>
+      <TouchableOpacity onPress={function() { priv.togglePrivacy(); }}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={priv.isPrivate ? 'Mostrar valores' : 'Ocultar valores'}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        style={{
+          position: 'absolute', top: 6, right: 16, zIndex: 10,
+          width: 36, height: 36, borderRadius: 18,
+          backgroundColor: priv.isPrivate ? C.yellow + '15' : 'rgba(255,255,255,0.05)',
+          borderWidth: 1, borderColor: priv.isPrivate ? C.yellow + '30' : 'rgba(255,255,255,0.08)',
+          justifyContent: 'center', alignItems: 'center',
+        }}>
+        <Ionicons name={priv.isPrivate ? 'eye-off-outline' : 'eye-outline'}
+          size={18} color={priv.isPrivate ? C.yellow : C.textTertiary} />
+      </TouchableOpacity>
       <Tab.Navigator
         screenOptions={{
           headerShown: false,

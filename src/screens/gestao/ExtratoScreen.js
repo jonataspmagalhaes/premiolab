@@ -11,6 +11,7 @@ import Toast from 'react-native-toast-message';
 import { getSaldos, getMovimentacoes, deleteMovimentacao, upsertSaldo, addMovimentacaoComSaldo } from '../../services/database';
 import { Glass, Pill, Badge, SectionLabel, SwipeableRow } from '../../components';
 import { LoadingScreen } from '../../components/States';
+import { usePrivacyStyle } from '../../components/Sensitive';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -55,6 +56,7 @@ export default function ExtratoScreen(props) {
   var _hasMore = useState(true); var hasMore = _hasMore[0]; var setHasMore = _hasMore[1];
   var _contaFilter = useState('todos'); var contaFilter = _contaFilter[0]; var setContaFilter = _contaFilter[1];
   var _periodo = useState('3m'); var periodo = _periodo[0]; var setPeriodo = _periodo[1];
+  var ps = usePrivacyStyle();
 
   function buildFilters(offset) {
     var filters = {};
@@ -258,17 +260,17 @@ export default function ExtratoScreen(props) {
           <View style={styles.resumoRow}>
             <View style={{ alignItems: 'center', flex: 1 }}>
               <Text style={styles.resumoLabel}>Entradas</Text>
-              <Text style={[styles.resumoVal, { color: C.green }]}>+R$ {fmt(totalEntradas)}</Text>
+              <Text style={[styles.resumoVal, { color: C.green }, ps]}>+R$ {fmt(totalEntradas)}</Text>
             </View>
             <View style={{ width: 1, height: 30, backgroundColor: C.border }} />
             <View style={{ alignItems: 'center', flex: 1 }}>
               <Text style={styles.resumoLabel}>Saídas</Text>
-              <Text style={[styles.resumoVal, { color: C.red }]}>-R$ {fmt(totalSaidas)}</Text>
+              <Text style={[styles.resumoVal, { color: C.red }, ps]}>-R$ {fmt(totalSaidas)}</Text>
             </View>
             <View style={{ width: 1, height: 30, backgroundColor: C.border }} />
             <View style={{ alignItems: 'center', flex: 1 }}>
               <Text style={styles.resumoLabel}>Saldo</Text>
-              <Text style={[styles.resumoVal, { color: (totalEntradas - totalSaidas) >= 0 ? C.green : C.red }]}>
+              <Text style={[styles.resumoVal, { color: (totalEntradas - totalSaidas) >= 0 ? C.green : C.red }, ps]}>
                 R$ {fmt(totalEntradas - totalSaidas)}
               </Text>
             </View>
@@ -321,9 +323,9 @@ export default function ExtratoScreen(props) {
         <View style={styles.monthHeader}>
           <Text style={styles.monthLabel}>{formatMonthLabel(mk)}</Text>
           <View style={{ flexDirection: 'row', gap: 10 }}>
-            <Text style={[styles.monthSub, { color: C.green }]}>+{fmt(group.entradas)}</Text>
-            <Text style={[styles.monthSub, { color: C.red }]}>-{fmt(group.saidas)}</Text>
-            <Text style={[styles.monthSub, { color: saldoMes >= 0 ? C.green : C.red, fontWeight: '700' }]}>
+            <Text style={[styles.monthSub, { color: C.green }, ps]}>+{fmt(group.entradas)}</Text>
+            <Text style={[styles.monthSub, { color: C.red }, ps]}>-{fmt(group.saidas)}</Text>
+            <Text style={[styles.monthSub, { color: saldoMes >= 0 ? C.green : C.red, fontWeight: '700' }, ps]}>
               = {fmt(saldoMes)}
             </Text>
           </View>
@@ -354,11 +356,11 @@ export default function ExtratoScreen(props) {
                     </View>
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={[styles.movVal, { color: movColor }]}>
+                    <Text style={[styles.movVal, { color: movColor }, ps]}>
                       {isEntrada ? '+' : '-'}R$ {fmt(mov.valor)}
                     </Text>
                     {mov.saldo_apos != null ? (
-                      <Text style={styles.movSaldoApos}>Saldo: R$ {fmt(mov.saldo_apos)}</Text>
+                      <Text style={[styles.movSaldoApos, ps]}>Saldo: R$ {fmt(mov.saldo_apos)}</Text>
                     ) : null}
                   </View>
                 </View>
