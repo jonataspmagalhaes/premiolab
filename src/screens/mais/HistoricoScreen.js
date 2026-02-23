@@ -11,6 +11,24 @@ import { LoadingScreen, EmptyState } from '../../components/States';
 
 var CAT_COLORS = { acao: C.acoes, fii: C.fiis, etf: C.etfs, opcao: C.opcoes };
 
+var PERIODOS = [
+  { k: '1m', l: '1M', days: 30 },
+  { k: '3m', l: '3M', days: 90 },
+  { k: '6m', l: '6M', days: 180 },
+  { k: '1a', l: '1A', days: 365 },
+  { k: 'tudo', l: 'Tudo', days: 0 },
+];
+
+function filterByPeriod(items, dateField, days) {
+  if (!days) return items;
+  var now = new Date();
+  var cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  var cutoffStr = cutoff.toISOString().substring(0, 10);
+  return items.filter(function(item) {
+    return (item[dateField] || '') >= cutoffStr;
+  });
+}
+
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -26,6 +44,8 @@ export default function HistoricoScreen(props) {
   var _opcoes = useState([]); var opcoes = _opcoes[0]; var setOpcoes = _opcoes[1];
   var _proventos = useState([]); var proventos = _proventos[0]; var setProventos = _proventos[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
+  var _subFilter = useState('todos'); var subFilter = _subFilter[0]; var setSubFilter = _subFilter[1];
+  var _periodo = useState('tudo'); var periodo = _periodo[0]; var setPeriodo = _periodo[1];
 
   var load = async function() {
     if (!user) return;
@@ -67,12 +87,13 @@ export default function HistoricoScreen(props) {
       color: op.tipo === 'compra' ? C.acoes : C.red,
       catColor: CAT_COLORS[op.categoria] || C.acoes,
       cat: 'operacao',
+      filterKey: op.tipo || 'compra',
     });
   });
 
   opcoes.forEach(function(op) {
     timeline.push({
-      date: op.created_at ? op.created_at.substring(0, 10) : '',
+      date: op.data_abertura || (op.created_at ? op.created_at.substring(0, 10) : ''),
       type: (op.tipo || 'CALL').toUpperCase(),
       ticker: op.ticker_opcao || op.ticker || '',
       detail: 'Strike R$ ' + fmt(op.strike) + ' · ' + (op.quantidade || 0) + ' lotes',
@@ -80,6 +101,7 @@ export default function HistoricoScreen(props) {
       color: C.opcoes,
       catColor: C.opcoes,
       cat: 'opcao',
+      filterKey: (op.tipo || 'call').toLowerCase(),
     });
   });
 
@@ -93,21 +115,76 @@ export default function HistoricoScreen(props) {
       color: C.fiis,
       catColor: C.fiis,
       cat: 'provento',
+      filterKey: (p.tipo_provento || 'dividendo').toLowerCase(),
     });
   });
 
   // Sort by date descending
   timeline.sort(function(a, b) { return b.date.localeCompare(a.date); });
 
-  // Apply filter
-  var filtered = timeline;
-  if (filter === 'operacoes') {
-    filtered = timeline.filter(function(t) { return t.cat === 'operacao'; });
+  // Apply period filter
+  var periodoObj = PERIODOS.filter(function(p) { return p.k === periodo; })[0];
+  var periodoDays = periodoObj ? periodoObj.days : 0;
+  var timelineFiltered = filterByPeriod(timeline, 'date', periodoDays);
+
+  // Apply filter + sub-filter
+  var filtered = timelineFiltered;
+  if (filter === 'todos') {
+    if (subFilter !== 'todos') {
+      filtered = timelineFiltered.filter(function(t) { return t.filterKey === subFilter; });
+    }
+  } else if (filter === 'operacoes') {
+    filtered = timelineFiltered.filter(function(t) { return t.cat === 'operacao'; });
+    if (subFilter !== 'todos') {
+      filtered = filtered.filter(function(t) { return t.filterKey === subFilter; });
+    }
   } else if (filter === 'opcoes') {
-    filtered = timeline.filter(function(t) { return t.cat === 'opcao'; });
+    filtered = timelineFiltered.filter(function(t) { return t.cat === 'opcao'; });
+    if (subFilter !== 'todos') {
+      filtered = filtered.filter(function(t) { return t.filterKey === subFilter; });
+    }
   } else if (filter === 'proventos') {
-    filtered = timeline.filter(function(t) { return t.cat === 'provento'; });
+    filtered = timelineFiltered.filter(function(t) { return t.cat === 'provento'; });
+    if (subFilter !== 'todos') {
+      filtered = filtered.filter(function(t) { return t.filterKey === subFilter; });
+    }
   }
+
+  // Sub-filter pills per main filter
+  var SUB_TODOS = [
+    { k: 'todos', l: 'Todos' },
+    { k: 'compra', l: 'Compras', c: C.acoes },
+    { k: 'venda', l: 'Vendas', c: C.red },
+    { k: 'call', l: 'CALL', c: C.green },
+    { k: 'put', l: 'PUT', c: C.red },
+    { k: 'dividendo', l: 'Dividendos', c: C.fiis },
+    { k: 'jcp', l: 'JCP', c: C.acoes },
+    { k: 'rendimento', l: 'Rendimento', c: C.rf },
+  ];
+  var SUB_OPERACOES = [
+    { k: 'todos', l: 'Todas' },
+    { k: 'compra', l: 'Compras', c: C.acoes },
+    { k: 'venda', l: 'Vendas', c: C.red },
+  ];
+  var SUB_OPCOES = [
+    { k: 'todos', l: 'Todas' },
+    { k: 'call', l: 'CALL', c: C.green },
+    { k: 'put', l: 'PUT', c: C.red },
+  ];
+  var SUB_PROVENTOS = [
+    { k: 'todos', l: 'Todos' },
+    { k: 'dividendo', l: 'Dividendos', c: C.fiis },
+    { k: 'jcp', l: 'JCP', c: C.acoes },
+    { k: 'rendimento', l: 'Rendimento', c: C.rf },
+    { k: 'juros_rf', l: 'Juros RF', c: C.etfs },
+    { k: 'amortizacao', l: 'Amortização', c: C.dim },
+  ];
+
+  var subFilterPills = [];
+  if (filter === 'todos') subFilterPills = SUB_TODOS;
+  else if (filter === 'operacoes') subFilterPills = SUB_OPERACOES;
+  else if (filter === 'opcoes') subFilterPills = SUB_OPCOES;
+  else if (filter === 'proventos') subFilterPills = SUB_PROVENTOS;
 
   // Group by month
   var grouped = {};
@@ -164,21 +241,45 @@ export default function HistoricoScreen(props) {
           </View>
         </Glass>
 
-        <View style={{ flexDirection: 'row', gap: 5 }}>
+        <View style={{ flexDirection: 'row', gap: 5, flexWrap: 'wrap' }}>
+          {PERIODOS.map(function(p) {
+            return (
+              <Pill key={p.k} active={periodo === p.k} color={C.accent}
+                onPress={function() { setPeriodo(p.k); setSubFilter('todos'); }}>
+                {p.l}
+              </Pill>
+            );
+          })}
+        </View>
+
+        <View style={{ flexDirection: 'row', gap: 5, flexWrap: 'wrap' }}>
           {[
-            { k: 'todos', l: 'Todos (' + timeline.length + ')' },
+            { k: 'todos', l: 'Todos (' + timelineFiltered.length + ')' },
             { k: 'operacoes', l: 'Operações' },
             { k: 'opcoes', l: 'Opções' },
             { k: 'proventos', l: 'Proventos' },
           ].map(function(f) {
             return (
               <Pill key={f.k} active={filter === f.k} color={C.accent}
-                onPress={function() { setFilter(f.k); }}>
+                onPress={function() { setFilter(f.k); setSubFilter('todos'); }}>
                 {f.l}
               </Pill>
             );
           })}
         </View>
+
+        {subFilterPills.length > 0 ? (
+          <View style={{ flexDirection: 'row', gap: 5, flexWrap: 'wrap' }}>
+            {subFilterPills.map(function(f) {
+              return (
+                <Pill key={f.k} active={subFilter === f.k} color={f.c || C.sub}
+                  onPress={function() { setSubFilter(f.k); }}>
+                  {f.l}
+                </Pill>
+              );
+            })}
+          </View>
+        ) : null}
 
         {filtered.length === 0 ? (
           <EmptyState

@@ -82,6 +82,23 @@ var PERIODOS = [
   { k: '1A', l: '1A', months: 12 },
 ];
 
+var MOVS_PERIODOS = [
+  { k: '7d', l: '7 dias', days: 7 },
+  { k: '15d', l: '15 dias', days: 15 },
+  { k: '30d', l: '30 dias', days: 30 },
+];
+
+var MOVS_TIPOS = [
+  { k: 'todos', l: 'Todos' },
+  { k: 'entradas', l: 'Entradas', c: C.green },
+  { k: 'saidas', l: 'Saídas', c: C.red },
+  { k: 'dividendo', l: 'Dividendos', c: C.opcoes },
+  { k: 'jcp', l: 'JCP', c: C.opcoes },
+  { k: 'opcoes', l: 'Opções', c: C.opcoes },
+  { k: 'ativos', l: 'Ativos', c: C.acoes },
+  { k: 'transferencia', l: 'Transf.', c: C.accent },
+];
+
 var CAIXA_FAB_ITEMS = [
   { label: 'Movimentação', icon: 'swap-vertical-outline', color: C.green, screen: 'AddMovimentacao' },
   { label: 'Nova Conta', icon: 'add-circle-outline', color: C.rf, screen: 'AddConta' },
@@ -370,6 +387,8 @@ export default function CaixaView(props) {
   var _periodo = useState('M'); var periodo = _periodo[0]; var setPeriodo = _periodo[1];
   var _selectedMonth = useState(null); var selectedMonth = _selectedMonth[0]; var setSelectedMonth = _selectedMonth[1];
   var _expandedCat = useState(null); var expandedCat = _expandedCat[0]; var setExpandedCat = _expandedCat[1];
+  var _movsPeriodo = useState('7d'); var movsPeriodo = _movsPeriodo[0]; var setMovsPeriodo = _movsPeriodo[1];
+  var _movsTipo = useState('todos'); var movsTipo = _movsTipo[0]; var setMovsTipo = _movsTipo[1];
 
   var load = async function() {
     if (!user) return;
@@ -395,7 +414,7 @@ export default function CaixaView(props) {
     try {
       results = await Promise.all([
         getSaldos(user.id),
-        getMovimentacoes(user.id, { limit: 15 }),
+        getMovimentacoes(user.id, { limit: 100 }),
       ].concat(histPromises));
     } catch (e) {
       console.warn('CaixaView load failed:', e);
@@ -784,8 +803,35 @@ export default function CaixaView(props) {
 
   var modeColor = actMode === 'depositar' ? C.green : actMode === 'transferir' ? C.accent : actMode === 'editar' ? C.acoes : C.yellow;
 
+  // Filtrar movimentações por período selecionado
+  var movsPeriodoObj = MOVS_PERIODOS.filter(function(p) { return p.k === movsPeriodo; })[0];
+  var movsDays = movsPeriodoObj ? movsPeriodoObj.days : 7;
+  var movsCutoff = new Date(new Date().getTime() - movsDays * 24 * 60 * 60 * 1000);
+  var movsCutoffStr = movsCutoff.toISOString().substring(0, 10);
+  var movsByDate = movs.filter(function(m) {
+    return (m.data || '').substring(0, 10) >= movsCutoffStr;
+  });
+
+  // Filtrar por tipo/categoria
+  var movsFiltered = movsByDate;
+  if (movsTipo === 'entradas') {
+    movsFiltered = movsByDate.filter(function(m) { return m.tipo === 'entrada'; });
+  } else if (movsTipo === 'saidas') {
+    movsFiltered = movsByDate.filter(function(m) { return m.tipo === 'saida'; });
+  } else if (movsTipo === 'dividendo') {
+    movsFiltered = movsByDate.filter(function(m) { return m.categoria === 'dividendo' || m.categoria === 'rendimento_fii'; });
+  } else if (movsTipo === 'jcp') {
+    movsFiltered = movsByDate.filter(function(m) { return m.categoria === 'jcp'; });
+  } else if (movsTipo === 'opcoes') {
+    movsFiltered = movsByDate.filter(function(m) { return m.categoria === 'premio_opcao' || m.categoria === 'recompra_opcao' || m.categoria === 'exercicio_opcao'; });
+  } else if (movsTipo === 'ativos') {
+    movsFiltered = movsByDate.filter(function(m) { return m.categoria === 'compra_ativo' || m.categoria === 'venda_ativo'; });
+  } else if (movsTipo === 'transferencia') {
+    movsFiltered = movsByDate.filter(function(m) { return m.categoria === 'transferencia'; });
+  }
+
   // Agrupar movimentações por data
-  var movsGrouped = groupMovsByDate(movs);
+  var movsGrouped = groupMovsByDate(movsFiltered);
 
   return (
   <View style={{ flex: 1 }}>
@@ -1234,10 +1280,36 @@ export default function CaixaView(props) {
         ) : null}
       </View>
 
-      {movs.length === 0 ? (
+      {movs.length > 0 ? (
+        <View style={{ gap: 6 }}>
+          <View style={{ flexDirection: 'row', gap: 5 }}>
+            {MOVS_PERIODOS.map(function(p) {
+              return (
+                <Pill key={p.k} active={movsPeriodo === p.k} color={C.accent}
+                  onPress={function() { setMovsPeriodo(p.k); setMovsTipo('todos'); }}>
+                  {p.l}
+                </Pill>
+              );
+            })}
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 5 }}>
+            {MOVS_TIPOS.map(function(t) {
+              return (
+                <Pill key={t.k} active={movsTipo === t.k} color={t.c || C.accent}
+                  onPress={function() { setMovsTipo(t.k); }}>
+                  {t.l + (movsTipo === t.k && t.k !== 'todos' ? ' (' + movsFiltered.length + ')' : (t.k === 'todos' ? ' (' + movsByDate.length + ')' : ''))}
+                </Pill>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
+
+      {movsFiltered.length === 0 ? (
         <Glass padding={16}>
           <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
-            Nenhuma movimentação registrada
+            {movs.length === 0 ? 'Nenhuma movimentação registrada' : (movsTipo !== 'todos' ? 'Nenhum resultado para este filtro nos últimos ' + movsDays + ' dias' : 'Nenhuma movimentação nos últimos ' + movsDays + ' dias')}
           </Text>
         </Glass>
       ) : (
@@ -1297,7 +1369,7 @@ export default function CaixaView(props) {
       )}
 
       {/* Reconciliar — discreto no final */}
-      {movs.length > 0 ? (
+      {movsFiltered.length > 0 ? (
         <TouchableOpacity onPress={handleReconciliar} activeOpacity={0.7} disabled={reconciling}
           style={{ alignSelf: 'center', paddingVertical: 8 }}>
           <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, textDecorationLine: 'underline' }}>

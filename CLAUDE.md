@@ -1277,6 +1277,31 @@ Simulador de opcoes suporta multiplas pernas para montar spreads, iron condors, 
 | `supabase/functions/analyze-option/index.ts` | Claude Haiku API, prompt multi-leg + didatico + sizing + regras B3/IR/cobertura/saida, max_tokens 8192 |
 | `src/services/geminiService.js` | Cache key com legs hash + objetivo + capital |
 
+## Filtros de Periodo e Tipo em Listas (Implementado)
+
+### HistoricoScreen — Filtro de periodo
+- Pills de periodo (1M, 3M, 6M, 1A, Tudo) acima dos filtros de categoria
+- Default: "Tudo" (comportamento original preservado)
+- `filterByPeriod(items, dateField, days)` filtra por `item.date >= cutoffStr`
+- Contagem "Todos (N)" reflete itens no periodo selecionado
+- Combina com filtros de categoria (Operacoes/Opcoes/Proventos) e sub-filtros
+- Trocar periodo reseta sub-filtro
+
+### CaixaView — Movimentacoes Recentes com filtros
+- **Filtro de periodo**: Pills 7 dias / 15 dias / 30 dias (default: 7 dias)
+- **Filtro de tipo**: Pills horizontais scrollaveis — Todos, Entradas, Saidas, Dividendos, JCP, Opcoes, Ativos, Transf.
+- Fetch limit aumentado de 15 para 100 para cobrir 30 dias de dados
+- Filtragem em duas etapas: `movsByDate` (periodo) → `movsFiltered` (tipo)
+- Contagem dinamica na Pill ativa
+- Mensagem de estado vazio adaptada (sem movimentacoes vs sem resultados no filtro)
+- Trocar periodo reseta filtro de tipo para "Todos"
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/mais/HistoricoScreen.js` | PERIODOS, filterByPeriod, periodo state, Pills UI, contagem dinamica |
+| `src/screens/gestao/CaixaView.js` | MOVS_PERIODOS, MOVS_TIPOS, movsPeriodo/movsTipo states, filtro 2 etapas, Pills UI, limit 100 |
+
 ## Bugs Conhecidos / Investigar
 
 - [ ] **IA truncando resposta na secao estrategias**: mesmo com max_tokens 8192 (maximo do Haiku), a resposta da Edge Function `analyze-option` corta no meio da secao [ESTRATÉGIAS]. Ja tentado: aumentar max_tokens (2048→4096→6000→8192), reduzir prompt (3→2 estrategias, max 800 chars/secao). Possíveis causas a investigar:
