@@ -220,7 +220,7 @@ function BarChartSingle(props) {
   var padL = 50;
   var padR = 10;
   var padT = 20;
-  var padB = 30;
+  var padB = 38;
 
   if (!data.length || !w) {
     return (
@@ -235,7 +235,7 @@ function BarChartSingle(props) {
 
   var chartW = w - padL - padR;
   var chartH = h - padT - padB;
-  var barW = Math.min(28, (chartW / data.length) * 0.6);
+  var barW = Math.min(26, (chartW / data.length) * 0.5);
   var gap = chartW / data.length;
 
   function handleTouch(e) {
@@ -297,8 +297,14 @@ function BarChartSingle(props) {
                     </SvgText>
                   </G>
                 ) : null}
-                <SvgText x={x + barW / 2} y={h - 6} fill={isSel ? C.text : C.dim} fontSize={8}
-                  fontFamily={F.mono} textAnchor="middle" fontWeight={isSel ? '700' : '400'}>{d.label}</SvgText>
+                <SvgText x={x + barW / 2} y={h - 18} fill={isSel ? C.text : C.dim} fontSize={8}
+                  fontFamily={F.mono} textAnchor="middle" fontWeight={isSel ? '700' : '400'}>
+                  {d.label ? d.label.split('/')[0] : ''}
+                </SvgText>
+                <SvgText x={x + barW / 2} y={h - 6} fill={isSel ? C.textSecondary : C.dim} fontSize={7}
+                  fontFamily={F.mono} textAnchor="middle" fontWeight="400">
+                  {d.label && d.label.indexOf('/') !== -1 ? d.label.split('/')[1] : ''}
+                </SvgText>
               </React.Fragment>
             );
           })}
@@ -318,7 +324,7 @@ function BarChartDual(props) {
   var padL = 50;
   var padR = 10;
   var padT = 34;
-  var padB = 30;
+  var padB = 38;
 
   if (!data.length || !w) {
     return (
@@ -337,7 +343,7 @@ function BarChartDual(props) {
   var chartW = w - padL - padR;
   var chartH = h - padT - padB;
   var pairW = chartW / data.length;
-  var barW = Math.min(12, pairW * 0.35);
+  var barW = Math.min(12, pairW * 0.3);
 
   function handleTouch(e) {
     if (chartW <= 0 || data.length === 0) return;
@@ -401,8 +407,14 @@ function BarChartDual(props) {
                     </SvgText>
                   </G>
                 ) : null}
-                <SvgText x={cx} y={h - 6} fill={isSel ? C.text : C.dim} fontSize={8}
-                  fontFamily={F.mono} textAnchor="middle" fontWeight={isSel ? '700' : '400'}>{d.label}</SvgText>
+                <SvgText x={cx} y={h - 18} fill={isSel ? C.text : C.dim} fontSize={8}
+                  fontFamily={F.mono} textAnchor="middle" fontWeight={isSel ? '700' : '400'}>
+                  {d.label ? d.label.split('/')[0] : ''}
+                </SvgText>
+                <SvgText x={cx} y={h - 6} fill={isSel ? C.textSecondary : C.dim} fontSize={7}
+                  fontFamily={F.mono} textAnchor="middle" fontWeight="400">
+                  {d.label && d.label.indexOf('/') !== -1 ? d.label.split('/')[1] : ''}
+                </SvgText>
               </React.Fragment>
             );
           })}
