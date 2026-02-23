@@ -814,7 +814,7 @@ export default function CarteiraScreen(props) {
           {[
             { l: 'ATIVOS', v: String(positions.length + rfAtivos.length), c: C.accent },
             { l: 'ENCERRADAS', v: String(encerradas.length), c: encerradas.length > 0 ? C.yellow : C.dim },
-            { l: 'CORRETORAS', v: String(saldos.length || 1), c: C.accent },
+            { l: 'CONTAS', v: String(saldos.length || 1), c: C.accent },
           ].map(function (m, i) {
             return (
               <View key={i} style={{ alignItems: 'center', flex: 1 }}>
