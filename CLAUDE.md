@@ -1255,6 +1255,14 @@ Simulador de opcoes suporta multiplas pernas para montar spreads, iron condors, 
 | `supabase/functions/analyze-option/index.ts` | Claude Haiku API, prompt multi-leg + didatico + sizing, max_tokens 8192 |
 | `src/services/geminiService.js` | Cache key com legs hash + objetivo + capital |
 
+## Bugs Conhecidos / Investigar
+
+- [ ] **IA truncando resposta na secao estrategias**: mesmo com max_tokens 8192 (maximo do Haiku), a resposta da Edge Function `analyze-option` corta no meio da secao [ESTRATÉGIAS]. Ja tentado: aumentar max_tokens (2048→4096→6000→8192), reduzir prompt (3→2 estrategias, max 800 chars/secao). Possíveis causas a investigar:
+  - Timeout da Edge Function Supabase (default 60s) — Haiku pode estar demorando mais que o timeout
+  - `stop_reason` pode ser `max_tokens` ou outro — adicionar log de `claudeJson.usage.output_tokens` e `claudeJson.stop_reason` na resposta para diagnosticar
+  - Testar reduzir ainda mais o prompt ou usar `temperature: 0` para respostas mais curtas
+  - Arquivo: `supabase/functions/analyze-option/index.ts`
+
 ## Proximas Melhorias Possiveis
 
 - [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
