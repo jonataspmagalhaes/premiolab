@@ -1,6 +1,8 @@
 import { supabase } from '../config/supabase';
 import { enrichPositionsWithPrices } from './priceService';
 import { fetchExchangeRates, convertToBRL } from './currencyService';
+var dateUtils = require('../utils/dateUtils');
+var parseLocalDate = dateUtils.parseLocalDate;
 
 // ═══════════ PROFILES ═══════════
 export async function getProfile(userId) {
@@ -354,11 +356,12 @@ export async function getUserCorretoras(userId) {
 }
 
 export async function incrementCorretora(userId, name) {
+  var normalized = (name || '').toUpperCase().trim();
   var existing = await supabase
     .from('user_corretoras')
     .select('count')
     .eq('user_id', userId)
-    .eq('name', name)
+    .eq('name', normalized)
     .single();
 
   if (existing.data) {
@@ -366,11 +369,11 @@ export async function incrementCorretora(userId, name) {
       .from('user_corretoras')
       .update({ count: existing.data.count + 1 })
       .eq('user_id', userId)
-      .eq('name', name);
+      .eq('name', normalized);
   } else {
     await supabase
       .from('user_corretoras')
-      .insert({ user_id: userId, name: name, count: 1 });
+      .insert({ user_id: userId, name: normalized, count: 1 });
   }
 }
 
@@ -956,6 +959,7 @@ export async function getDashboard(userId) {
     var dividendosMesAnterior = 0;
     var dividendosRecebidosMes = 0;
     var dividendosAReceberMes = 0;
+    var proventosMesDetalhe = [];
     var todayDateStr = now.toISOString().substring(0, 10);
     for (var di = 0; di < proventosData.length; di++) {
       var provDateStr = (proventosData[di].data_pagamento || '').substring(0, 10);
@@ -967,10 +971,29 @@ export async function getDashboard(userId) {
         } else {
           dividendosAReceberMes += provVal;
         }
+        proventosMesDetalhe.push({
+          ticker: (proventosData[di].ticker || '').toUpperCase().trim(),
+          tipo: proventosData[di].tipo_provento || proventosData[di].tipo || 'dividendo',
+          valor: provVal,
+          data: provDateStr,
+          recebido: provDateStr <= todayDateStr,
+        });
       } else if (provDateStr.substring(0, 7) === prefixMesAnterior) {
         dividendosMesAnterior += provVal;
       }
     }
+
+    // ── Dividendos últimos 12 meses (para DY) ──
+    var d12mAgo = new Date(anoAtual, mesAtual - 12, now.getDate());
+    var cutoff12m = d12mAgo.toISOString().substring(0, 10);
+    var dividendos12m = 0;
+    for (var dy12 = 0; dy12 < proventosData.length; dy12++) {
+      var dy12Date = (proventosData[dy12].data_pagamento || '').substring(0, 10);
+      if (dy12Date >= cutoff12m && dy12Date <= todayDateStr) {
+        dividendos12m += (proventosData[dy12].valor_por_cota || 0) * (proventosData[dy12].quantidade || 0);
+      }
+    }
+    var dyCarteira = patrimonioAcoes > 0 ? (dividendos12m / patrimonioAcoes) * 100 : 0;
 
     // ── Proventos pagos hoje ──
     var todayStr = now.toISOString().substring(0, 10);
@@ -1011,7 +1034,7 @@ export async function getDashboard(userId) {
     var todasOpcoes = opcoes.data || [];
     var opsAtivas = [];
     for (var oi = 0; oi < todasOpcoes.length; oi++) {
-      if (new Date(todasOpcoes[oi].vencimento) > now) {
+      if (parseLocalDate(todasOpcoes[oi].vencimento) > now) {
         opsAtivas.push(todasOpcoes[oi]);
       }
     }
@@ -1019,6 +1042,7 @@ export async function getDashboard(userId) {
     // Premios recebidos no mes (D+1 da data_abertura)
     var premiosMes = 0;
     var premiosMesAnterior = 0;
+    var premiosMesDetalhe = [];
     for (var opi = 0; opi < todasOpcoes.length; opi++) {
       var opItem = todasOpcoes[opi];
       var opDir = opItem.direcao || 'venda';
@@ -1028,11 +1052,18 @@ export async function getDashboard(userId) {
 
       // Data de recebimento = data_abertura + 1 dia (D+1)
       var dataRef = opItem.data_abertura || opItem.created_at || opItem.vencimento;
-      var dReceb = new Date(dataRef);
+      var dReceb = parseLocalDate(dataRef);
       dReceb.setDate(dReceb.getDate() + 1);
 
       if (dReceb.getMonth() === mesAtual && dReceb.getFullYear() === anoAtual) {
         premiosMes += opPremTotal;
+        premiosMesDetalhe.push({
+          ticker: (opItem.ativo_base || '').toUpperCase().trim(),
+          ticker_opcao: opItem.ticker_opcao || '',
+          tipo_opcao: (opItem.tipo || 'call').toUpperCase(),
+          valor: opPremTotal,
+          quantidade: opItem.quantidade || 0,
+        });
       } else if (dReceb.getMonth() === mesAnterior && dReceb.getFullYear() === anoMesAnterior) {
         premiosMesAnterior += opPremTotal;
       }
@@ -1041,6 +1072,7 @@ export async function getDashboard(userId) {
     // Recompra por mes (data de fechamento) + P&L mensal ultimos 3 meses
     var recompraMes = 0;
     var recompraMesAnterior = 0;
+    var recompraMesDetalhe = [];
     var plMensal3m = {};
     for (var rci = 0; rci < todasOpcoes.length; rci++) {
       var rcOp = todasOpcoes[rci];
@@ -1055,6 +1087,13 @@ export async function getDashboard(userId) {
       var rcY = dRc.getFullYear();
       if (rcM === mesAtual && rcY === anoAtual) {
         recompraMes += rcPremFech;
+        recompraMesDetalhe.push({
+          ticker: (rcOp.ativo_base || '').toUpperCase().trim(),
+          ticker_opcao: rcOp.ticker_opcao || '',
+          tipo_opcao: (rcOp.tipo || 'call').toUpperCase(),
+          valor: rcPremFech,
+          quantidade: rcOp.quantidade || 0,
+        });
       } else if (rcM === mesAnterior && rcY === anoMesAnterior) {
         recompraMesAnterior += rcPremFech;
       }
@@ -1147,7 +1186,7 @@ export async function getDashboard(userId) {
     var em15dias = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000);
     var em30dias = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     for (var ov = 0; ov < opsAtivas.length; ov++) {
-      var vencOp = new Date(opsAtivas[ov].vencimento);
+      var vencOp = parseLocalDate(opsAtivas[ov].vencimento);
       if (vencOp <= em7dias) {
         opsVenc7d.push(opsAtivas[ov]);
       } else if (vencOp <= em15dias) {
@@ -1162,7 +1201,7 @@ export async function getDashboard(userId) {
     var em90dias = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
     var rfProxVenc = [];
     for (var rv = 0; rv < rfData.length; rv++) {
-      var vencDate = new Date(rfData[rv].vencimento);
+      var vencDate = parseLocalDate(rfData[rv].vencimento);
       if (vencDate > now && vencDate <= em90dias) {
         rfProxVenc.push(rfData[rv]);
       }
@@ -1192,7 +1231,7 @@ export async function getDashboard(userId) {
 
     for (var ei = 0; ei < opsProxVenc.length; ei++) {
       var oEvt = opsProxVenc[ei];
-      var dEvt = new Date(oEvt.vencimento);
+      var dEvt = parseLocalDate(oEvt.vencimento);
       eventos.push({
         data: oEvt.vencimento,
         dia: dEvt.getDate().toString(),
@@ -1205,7 +1244,7 @@ export async function getDashboard(userId) {
 
     for (var erf = 0; erf < rfProxVenc.length; erf++) {
       var rEvt = rfProxVenc[erf];
-      var dRf = new Date(rEvt.vencimento);
+      var dRf = parseLocalDate(rEvt.vencimento);
       eventos.push({
         data: rEvt.vencimento,
         dia: dRf.getDate().toString(),
@@ -1374,6 +1413,12 @@ export async function getDashboard(userId) {
       plMesAnterior: plMesAnterior,
       plMedia3m: plMedia3m,
       rendaMediaAnual: rendaMediaAnual,
+      recompraMes: recompraMes,
+      proventosMesDetalhe: proventosMesDetalhe,
+      premiosMesDetalhe: premiosMesDetalhe,
+      recompraMesDetalhe: recompraMesDetalhe,
+      dividendos12m: dividendos12m,
+      dyCarteira: dyCarteira,
     };
   } catch (err) {
     console.error('Dashboard error:', err);
@@ -1395,6 +1440,12 @@ export async function getDashboard(userId) {
       plMesAnterior: 0,
       plMedia3m: 0,
       rendaMediaAnual: 0,
+      recompraMes: 0,
+      proventosMesDetalhe: [],
+      premiosMesDetalhe: [],
+      recompraMesDetalhe: [],
+      dividendos12m: 0,
+      dyCarteira: 0,
     };
   }
 }

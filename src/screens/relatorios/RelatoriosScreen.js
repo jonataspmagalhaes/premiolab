@@ -9,7 +9,7 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { animateLayout } from '../../utils/a11y';
 import { getProventos, getOpcoes, getOperacoes, getPositions, getMovimentacoes, getIRPagamentos, upsertIRPagamento, getProfile, updateProfile } from '../../services/database';
-import { Glass, Badge, Pill, SectionLabel, InfoTip } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, InfoTip, PeriodFilter } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import Sensitive from '../../components/Sensitive';
@@ -24,13 +24,6 @@ var SUBS = [
   { k: 'ir', l: 'IR' },
 ];
 
-var PERIODS = [
-  { k: '3M', days: 90 },
-  { k: '6M', days: 180 },
-  { k: '1A', days: 365 },
-  { k: '2A', days: 730 },
-  { k: 'Tudo', days: 0 },
-];
 
 var TIPO_COLORS = {
   dividendo: C.fiis,
@@ -71,13 +64,11 @@ function formatDate(d) {
   return parts[2] + '/' + parts[1] + '/' + parts[0];
 }
 
-function filterByPeriod(items, dateField, periodDays) {
-  if (!periodDays) return items;
-  var cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - periodDays);
-  var cutoffStr = cutoff.toISOString().substring(0, 10);
+function filterByRange(items, dateField, range) {
+  if (!range) return items;
   return items.filter(function(item) {
-    return (item[dateField] || '') >= cutoffStr;
+    var d = (item[dateField] || '').substring(0, 10);
+    return d >= range.start && d <= range.end;
   });
 }
 
@@ -507,7 +498,7 @@ export default function RelatoriosScreen(props) {
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
   var _sub = useState('caixa'); var sub = _sub[0]; var setSub = _sub[1];
-  var _period = useState('1A'); var period = _period[0]; var setPeriod = _period[1];
+  var _dateRange = useState(null); var dateRange = _dateRange[0]; var setDateRange = _dateRange[1];
 
   var _proventos = useState([]); var proventos = _proventos[0]; var setProventos = _proventos[1];
   var _opcoes = useState([]); var opcoes = _opcoes[0]; var setOpcoes = _opcoes[1];
@@ -568,13 +559,10 @@ export default function RelatoriosScreen(props) {
   };
 
   // Filtered data
-  var periodDays = 0;
-  PERIODS.forEach(function(p) { if (p.k === period) periodDays = p.days; });
-
-  var filteredProventos = filterByPeriod(proventos, 'data_pagamento', periodDays);
-  var filteredOpcoes = periodDays ? filterByPeriod(opcoes, 'data_abertura', periodDays) : opcoes;
-  var filteredOperacoes = filterByPeriod(operacoes, 'data', periodDays);
-  var filteredMovs = filterByPeriod(movimentacoes, 'data', periodDays);
+  var filteredProventos = filterByRange(proventos, 'data_pagamento', dateRange);
+  var filteredOpcoes = filterByRange(opcoes, 'data_abertura', dateRange);
+  var filteredOperacoes = filterByRange(operacoes, 'data', dateRange);
+  var filteredMovs = filterByRange(movimentacoes, 'data', dateRange);
 
   // ═══════════ CAIXA DATA ═══════════
 
@@ -820,12 +808,11 @@ export default function RelatoriosScreen(props) {
 
   var irMonthResults = computeIR(operacoes);
   var irTaxByMonth = computeTaxByMonth(irMonthResults, prejAnterior);
-  // Filter by period
-  var irFiltered = periodDays ? irTaxByMonth.filter(function(r) {
-    var cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - periodDays);
-    var cutoffStr = cutoff.toISOString().substring(0, 7);
-    return r.month >= cutoffStr;
+  // Filter by date range (month level)
+  var irFiltered = dateRange ? irTaxByMonth.filter(function(r) {
+    var monthStart = r.month + '-01';
+    var monthEnd = r.month + '-31';
+    return monthEnd >= dateRange.start && monthStart <= dateRange.end;
   }) : irTaxByMonth;
 
   var irTotalDevido = 0;
@@ -931,19 +918,7 @@ export default function RelatoriosScreen(props) {
       </ScrollView>
 
       {/* Period filter */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 6 }}>
-        {PERIODS.map(function(p) {
-          var active = period === p.k;
-          return (
-            <TouchableOpacity key={p.k}
-              onPress={function() { setPeriod(p.k); }}
-              style={[styles.periodPill, active ? styles.periodPillActive : styles.periodPillInactive]}>
-              <Text style={[styles.periodText, active && { color: C.accent }]}>{p.k}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+      <PeriodFilter onRangeChange={function(r) { setDateRange(r); }} />
 
       {/* ═══════════ CAIXA TAB ═══════════ */}
       {sub === 'caixa' && (
@@ -2029,10 +2004,6 @@ var styles = StyleSheet.create({
   back: { fontSize: 28, color: C.accent, fontWeight: '300' },
   title: { fontSize: 18, fontWeight: '800', color: C.text, fontFamily: F.display },
 
-  periodPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1 },
-  periodPillActive: { backgroundColor: C.accent + '20', borderColor: C.accent + '50' },
-  periodPillInactive: { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.06)' },
-  periodText: { fontSize: 11, color: C.dim, fontFamily: F.mono, fontWeight: '600' },
 
   resumoRow: { flexDirection: 'row', alignItems: 'center' },
   resumoDivider: { width: 1, height: 30, backgroundColor: C.border },

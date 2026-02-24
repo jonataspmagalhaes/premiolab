@@ -5,6 +5,9 @@ import {
   Alert, TextInput, Modal,
 } from 'react-native';
 import { animateLayout } from '../../utils/a11y';
+var dateUtils = require('../../utils/dateUtils');
+var parseLocalDate = dateUtils.parseLocalDate;
+var formatDateBR = dateUtils.formatDateBR;
 import Svg, {
   Circle as SvgCircle, Path, Defs, LinearGradient as SvgGrad,
   Stop, Line as SvgLine,
@@ -410,7 +413,7 @@ function RFCard(props) {
   var tipoLabel = TIPO_LABELS[rf.tipo] || rf.tipo;
   var idxColor = IDX_COLORS[(rf.indexador || '').toLowerCase()] || C.accent;
   var now = new Date();
-  var daysLeft = Math.ceil((new Date(rf.vencimento) - now) / (1000 * 60 * 60 * 24));
+  var daysLeft = Math.ceil((parseLocalDate(rf.vencimento) - now) / (1000 * 60 * 60 * 24));
   var dayColor = daysLeft < 30 ? C.red : daysLeft < 90 ? C.yellow : daysLeft < 365 ? C.etfs : C.rf;
 
   return (
@@ -441,7 +444,7 @@ function RFCard(props) {
               {[
                 { l: 'Valor aplicado', v: 'R$ ' + fmt(valor), fin: true },
                 { l: 'Taxa', v: formatTaxa(rf.taxa, rf.indexador), fin: true },
-                { l: 'Vencimento', v: new Date(rf.vencimento).toLocaleDateString('pt-BR') },
+                { l: 'Vencimento', v: formatDateBR(rf.vencimento) },
                 { l: 'Corretora', v: rf.corretora || '–' },
               ].map(function (d, j) {
                 return (
@@ -562,7 +565,7 @@ export default function CarteiraScreen(props) {
 
   // ── DERIVED DATA ──
   var now = new Date();
-  var rfAtivos = rfItems.filter(function (r) { return new Date(r.vencimento) > now; });
+  var rfAtivos = rfItems.filter(function (r) { return parseLocalDate(r.vencimento) > now; });
 
   // Filter
   var filteredPositions;

@@ -4,6 +4,9 @@ import {
   TouchableOpacity, Alert, Modal,
 } from 'react-native';
 import { animateLayout } from '../../utils/a11y';
+var dateUtils = require('../../utils/dateUtils');
+var parseLocalDate = dateUtils.parseLocalDate;
+var formatDateBR = dateUtils.formatDateBR;
 
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
@@ -100,8 +103,8 @@ export default function RendaFixaScreen(props) {
   };
 
   var now = new Date();
-  var ativos = items.filter(function(i) { return new Date(i.vencimento) > now; });
-  var vencidos = items.filter(function(i) { return new Date(i.vencimento) <= now; });
+  var ativos = items.filter(function(i) { return parseLocalDate(i.vencimento) > now; });
+  var vencidos = items.filter(function(i) { return parseLocalDate(i.vencimento) <= now; });
 
   var totalAplicado = ativos.reduce(function(s, i) { return s + (parseFloat(i.valor_aplicado) || 0); }, 0);
 
@@ -158,7 +161,7 @@ export default function RendaFixaScreen(props) {
             <SectionLabel>ATIVOS</SectionLabel>
             <Glass padding={0}>
               {ativos.map(function(rf, i) {
-                var daysLeft = Math.ceil((new Date(rf.vencimento) - now) / (1000 * 60 * 60 * 24));
+                var daysLeft = Math.ceil((parseLocalDate(rf.vencimento) - now) / (1000 * 60 * 60 * 24));
                 var valor = parseFloat(rf.valor_aplicado) || 0;
                 var tipoLabel = TIPO_LABELS[rf.tipo] || rf.tipo;
                 var idxLabel = IDX_LABELS[rf.indexador] || rf.indexador || 'PRE';
@@ -177,7 +180,7 @@ export default function RendaFixaScreen(props) {
                       <Text style={styles.rfTaxa}>{formatTaxa(rf.taxa, rf.indexador)}</Text>
                       {rf.emissor ? <Text style={styles.rfEmissor}>{rf.emissor}</Text> : null}
                       <Text style={styles.rfDetail}>
-                        {rf.corretora || ''} | Venc {new Date(rf.vencimento).toLocaleDateString('pt-BR')} | {daysLeft}d
+                        {rf.corretora || ''} | Venc {formatDateBR(rf.vencimento)} | {daysLeft}d
                       </Text>
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 5 }}>

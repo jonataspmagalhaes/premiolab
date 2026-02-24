@@ -16,7 +16,7 @@ import {
   recalcularSaldos,
 } from '../../services/database';
 import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/currencyService';
-import { Glass, Badge, Pill, SectionLabel, SwipeableRow, PressableCard, Fab } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, SwipeableRow, PressableCard, Fab, PeriodFilter } from '../../components';
 import { SkeletonCaixa, EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import Sensitive from '../../components/Sensitive';
@@ -82,11 +82,6 @@ var PERIODOS = [
   { k: '1A', l: '1A', months: 12 },
 ];
 
-var MOVS_PERIODOS = [
-  { k: '7d', l: '7 dias', days: 7 },
-  { k: '15d', l: '15 dias', days: 15 },
-  { k: '30d', l: '30 dias', days: 30 },
-];
 
 var MOVS_TIPOS = [
   { k: 'todos', l: 'Todos' },
@@ -387,7 +382,7 @@ export default function CaixaView(props) {
   var _periodo = useState('M'); var periodo = _periodo[0]; var setPeriodo = _periodo[1];
   var _selectedMonth = useState(null); var selectedMonth = _selectedMonth[0]; var setSelectedMonth = _selectedMonth[1];
   var _expandedCat = useState(null); var expandedCat = _expandedCat[0]; var setExpandedCat = _expandedCat[1];
-  var _movsPeriodo = useState('7d'); var movsPeriodo = _movsPeriodo[0]; var setMovsPeriodo = _movsPeriodo[1];
+  var _movsDateRange = useState(null); var movsDateRange = _movsDateRange[0]; var setMovsDateRange = _movsDateRange[1];
   var _movsTipo = useState('todos'); var movsTipo = _movsTipo[0]; var setMovsTipo = _movsTipo[1];
 
   var load = async function() {
@@ -611,21 +606,34 @@ export default function CaixaView(props) {
     }
 
     resetAction();
-    Promise.all([
-      addMovimentacaoComSaldo(user.id, {
-        conta: sName, tipo: 'saida', categoria: 'transferencia',
-        valor: num, descricao: descOrigem,
-        conta_destino: destName,
-        data: new Date().toISOString().substring(0, 10),
-        moeda: sMoeda2,
-      }),
+    addMovimentacaoComSaldo(user.id, {
+      conta: sName, tipo: 'saida', categoria: 'transferencia',
+      valor: num, descricao: descOrigem,
+      conta_destino: destName,
+      data: new Date().toISOString().substring(0, 10),
+      moeda: sMoeda2,
+    }).then(function(res1) {
+      if (res1 && res1.error) {
+        Alert.alert('Erro', 'Falha ao debitar da conta de origem.');
+        return;
+      }
       addMovimentacaoComSaldo(user.id, {
         conta: destName, tipo: 'entrada', categoria: 'transferencia',
         valor: valorDest, descricao: descDest,
         data: new Date().toISOString().substring(0, 10),
         moeda: dMoeda,
-      }),
-    ]).then(function() { load(); });
+      }).then(function(res2) {
+        if (res2 && res2.error) {
+          Alert.alert('Atenção', 'O débito foi feito na origem, mas houve falha ao creditar no destino. Verifique os saldos.');
+        }
+        load();
+      }).catch(function() {
+        Alert.alert('Atenção', 'O débito foi feito na origem, mas houve falha ao creditar no destino. Verifique os saldos.');
+        load();
+      });
+    }).catch(function() {
+      Alert.alert('Erro', 'Falha ao debitar da conta de origem.');
+    });
   }
 
   function handleEditar(s) {
@@ -804,13 +812,13 @@ export default function CaixaView(props) {
   var modeColor = actMode === 'depositar' ? C.green : actMode === 'transferir' ? C.accent : actMode === 'editar' ? C.acoes : C.yellow;
 
   // Filtrar movimentações por período selecionado
-  var movsPeriodoObj = MOVS_PERIODOS.filter(function(p) { return p.k === movsPeriodo; })[0];
-  var movsDays = movsPeriodoObj ? movsPeriodoObj.days : 7;
-  var movsCutoff = new Date(new Date().getTime() - movsDays * 24 * 60 * 60 * 1000);
-  var movsCutoffStr = movsCutoff.toISOString().substring(0, 10);
-  var movsByDate = movs.filter(function(m) {
-    return (m.data || '').substring(0, 10) >= movsCutoffStr;
-  });
+  var movsByDate = movs;
+  if (movsDateRange) {
+    movsByDate = movs.filter(function(m) {
+      var d = (m.data || '').substring(0, 10);
+      return d >= movsDateRange.start && d <= movsDateRange.end;
+    });
+  }
 
   // Filtrar por tipo/categoria
   var movsFiltered = movsByDate;
@@ -1282,16 +1290,6 @@ export default function CaixaView(props) {
 
       {movs.length > 0 ? (
         <View style={{ gap: 6 }}>
-          <View style={{ flexDirection: 'row', gap: 5 }}>
-            {MOVS_PERIODOS.map(function(p) {
-              return (
-                <Pill key={p.k} active={movsPeriodo === p.k} color={C.accent}
-                  onPress={function() { setMovsPeriodo(p.k); setMovsTipo('todos'); }}>
-                  {p.l}
-                </Pill>
-              );
-            })}
-          </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ gap: 5 }}>
             {MOVS_TIPOS.map(function(t) {
@@ -1303,13 +1301,14 @@ export default function CaixaView(props) {
               );
             })}
           </ScrollView>
+          <PeriodFilter onRangeChange={function(r) { setMovsDateRange(r); setMovsTipo('todos'); }} />
         </View>
       ) : null}
 
       {movsFiltered.length === 0 ? (
         <Glass padding={16}>
           <Text style={{ fontSize: 13, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
-            {movs.length === 0 ? 'Nenhuma movimentação registrada' : (movsTipo !== 'todos' ? 'Nenhum resultado para este filtro nos últimos ' + movsDays + ' dias' : 'Nenhuma movimentação nos últimos ' + movsDays + ' dias')}
+            {movs.length === 0 ? 'Nenhuma movimentação registrada' : (movsTipo !== 'todos' ? 'Nenhum resultado para este filtro no período' : 'Nenhuma movimentação no período')}
           </Text>
         </Glass>
       ) : (

@@ -21,7 +21,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.premiotrader.app",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "backgroundColor": "#070a11",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false

@@ -7,7 +7,7 @@ import {
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { addRendaFixa, incrementCorretora } from '../../services/database';
-import { Glass, Pill, Badge, CorretoraSelector, DEFAULTS_RF } from '../../components';
+import { Glass, Pill, Badge, CorretoraSelector } from '../../components';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -389,7 +389,7 @@ export default function AddRendaFixaScreen(props) {
         </View>
 
         {/* ========== CORRETORA ========== */}
-        <CorretoraSelector value={corretora} onSelect={function(name) { setCorretora(name); }} userId={user.id} defaults={DEFAULTS_RF} color={C.acoes} label="CORRETORA *" />
+        <CorretoraSelector value={corretora} onSelect={function(name) { setCorretora(name); }} userId={user.id} color={C.acoes} label="CORRETORA *" />
 
         {/* ========== SUBMIT ========== */}
         <TouchableOpacity

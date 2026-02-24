@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../config/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { upsertSaldo, addMovimentacao, buildMovDescricao } from '../services/database';
 
 var AuthContext = createContext({});
 
@@ -61,19 +62,30 @@ export function AuthProvider(props) {
         updated_at: new Date().toISOString(),
       });
 
-      // Save selected corretoras
-      if (data.corretoras && data.corretoras.length) {
-        var rows = [];
-        for (var i = 0; i < data.corretoras.length; i++) {
-          rows.push({
-            user_id: user.id,
-            name: data.corretoras[i],
-            count: 0,
+      // Save accounts to saldos_corretora
+      if (data.contas && data.contas.length) {
+        for (var i = 0; i < data.contas.length; i++) {
+          var conta = data.contas[i];
+          var nomeNorm = (conta.nome || '').toUpperCase().trim();
+          await upsertSaldo(user.id, {
+            corretora: nomeNorm,
+            saldo: conta.saldo || 0,
+            moeda: conta.moeda || 'BRL',
+            tipo: conta.tipo || 'corretora',
           });
+          // Log initial deposit if saldo > 0
+          if (conta.saldo && conta.saldo > 0) {
+            await addMovimentacao(user.id, {
+              conta: nomeNorm,
+              tipo: 'entrada',
+              categoria: 'deposito',
+              valor: conta.saldo,
+              descricao: buildMovDescricao('deposito', null, 'Saldo inicial'),
+              saldo_apos: conta.saldo,
+              data: new Date().toISOString().substring(0, 10),
+            });
+          }
         }
-        await supabase.from('user_corretoras').upsert(rows, {
-          onConflict: 'user_id,name',
-        });
       }
 
       await AsyncStorage.setItem('@onboarded_' + user.id, 'true');

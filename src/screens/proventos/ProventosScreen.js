@@ -10,7 +10,7 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getProventos, deleteProvento, addProvento, getProfile } from '../../services/database';
 import { runDividendSync } from '../../services/dividendService';
-import { Glass, Badge, Pill, SectionLabel, SwipeableRow } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, SwipeableRow, PeriodFilter } from '../../components';
 import { SkeletonProventos, EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import * as Haptics from 'expo-haptics';
@@ -79,6 +79,7 @@ export default function ProventosScreen(props) {
   var _lastSync = useState(null); var lastSync = _lastSync[0]; var setLastSync = _lastSync[1];
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
+  var _dateRange = useState(null); var dateRange = _dateRange[0]; var setDateRange = _dateRange[1];
   var ps = usePrivacyStyle();
 
   var load = async function() {
@@ -196,6 +197,14 @@ export default function ProventosScreen(props) {
 
   var baseItems = tab === 'pendente' ? pendentes : historico;
 
+  // Filter by date range (only for historico)
+  if (tab === 'historico' && dateRange) {
+    baseItems = baseItems.filter(function(i) {
+      var d = (i.data_pagamento || '').substring(0, 10);
+      return d >= dateRange.start && d <= dateRange.end;
+    });
+  }
+
   // Filter by tipo
   var filtered = filter === 'todos'
     ? baseItems
@@ -296,7 +305,7 @@ export default function ProventosScreen(props) {
         <View style={styles.tabRow}>
           <TouchableOpacity
             style={[styles.tabBtn, isPendente && styles.tabBtnActive]}
-            onPress={function() { setTab('pendente'); }}
+            onPress={function() { setTab('pendente'); setDateRange(null); }}
           >
             <Text style={[styles.tabText, isPendente && styles.tabTextActive]}>
               {'A receber (' + pendentes.length + ')'}
@@ -311,6 +320,10 @@ export default function ProventosScreen(props) {
             </Text>
           </TouchableOpacity>
         </View>
+
+        {!isPendente ? (
+          <PeriodFilter onRangeChange={function(r) { setDateRange(r); }} color={C.fiis} />
+        ) : null}
 
         <Glass glow={isPendente ? C.yellow : C.fiis} padding={16}>
           <Text style={styles.totalLabel}>{isPendente ? 'TOTAL A RECEBER' : 'TOTAL RECEBIDO'}</Text>
@@ -432,8 +445,8 @@ export default function ProventosScreen(props) {
         data={monthOrder}
         keyExtractor={monthKeyExtractor}
         renderItem={renderMonthGroup}
-        ListHeaderComponent={renderHeader}
-        ListFooterComponent={renderFooter}
+        ListHeaderComponent={renderHeader()}
+        ListFooterComponent={renderFooter()}
         initialNumToRender={8}
         maxToRenderPerBatch={10}
         windowSize={5}

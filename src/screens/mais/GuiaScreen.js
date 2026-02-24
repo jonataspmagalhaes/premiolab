@@ -132,7 +132,7 @@ var GUIAS = {
         items: [
           'Ações com boa liquidez em opções',
           'Empresas que você gostaria de ter em carteira',
-          'IV (volatilidade implícita) acima de 25%',
+          'VI (volatilidade implícita) acima de 25%',
           'Preço acessível (para manter lotes de 100)',
           'Sem eventos corporativos próximos',
         ],

@@ -4,6 +4,9 @@ import {
   ActivityIndicator, Alert, RefreshControl, TextInput,
 } from 'react-native';
 import { animateLayout } from '../../utils/a11y';
+var dateUtils = require('../../utils/dateUtils');
+var parseLocalDate = dateUtils.parseLocalDate;
+var formatDateBR = dateUtils.formatDateBR;
 
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -469,7 +472,7 @@ export default function AssetDetailScreen(props) {
       var ivOp = opcoesAtivas[ivi];
       var ivK = ivOp.strike || 0;
       var ivP = ivOp.premio || 0;
-      var ivDays = Math.max(1, Math.ceil((new Date(ivOp.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
+      var ivDays = Math.max(1, Math.ceil((parseLocalDate(ivOp.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
       var ivT = ivDays / 365;
       var ivR = 0.1325;
       var ivTipo = (ivOp.tipo || 'call').toLowerCase();
@@ -500,7 +503,7 @@ export default function AssetDetailScreen(props) {
   var proxVencColor = C.text;
   var nowMs = new Date().getTime();
   for (var pvi = 0; pvi < opcoesAtivas.length; pvi++) {
-    var pvDays = Math.max(0, Math.ceil((new Date(opcoesAtivas[pvi].vencimento).getTime() - nowMs) / (1000 * 60 * 60 * 24)));
+    var pvDays = Math.max(0, Math.ceil((parseLocalDate(opcoesAtivas[pvi].vencimento).getTime() - nowMs) / (1000 * 60 * 60 * 24)));
     if (proxVenc === null || pvDays < proxVenc) {
       proxVenc = pvDays;
     }
@@ -595,7 +598,7 @@ export default function AssetDetailScreen(props) {
         <View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Badge text={p.tipo || 'DIV'} color={C.fiis} />
-            <Text style={styles.txnDate}>{new Date(p.data_pagamento).toLocaleDateString('pt-BR')}</Text>
+            <Text style={styles.txnDate}>{formatDateBR(p.data_pagamento)}</Text>
           </View>
         </View>
         <Text style={[styles.txnTotal, { color: C.green }, ps]}>{'+'  + currPrefix + fmt(valProv)}</Text>
@@ -617,7 +620,7 @@ export default function AssetDetailScreen(props) {
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Badge text={(p.tipo || 'DIV').toUpperCase()} color={C.fiis} />
-              <Text style={styles.txnDate}>{new Date(p.data_pagamento).toLocaleDateString('pt-BR')}</Text>
+              <Text style={styles.txnDate}>{formatDateBR(p.data_pagamento)}</Text>
             </View>
             <Text style={[styles.txnDetail, ps]}>
               {qtyCorretora + ' x ' + currPrefix + fmt(p.valor_por_cota || 0)}
@@ -754,7 +757,7 @@ export default function AssetDetailScreen(props) {
                 { l: 'Prêmios Rec.', v: opcoesForTicker.length > 0 ? currPrefix + fmt(premiosRecebidos) : '\u2013', c: premiosRecebidos >= 0 ? C.green : C.red },
                 { l: 'P&L Opções', v: opcoesForTicker.length > 0 ? (plOpcoes >= 0 ? '+' : '') + currPrefix + fmt(plOpcoes) : '\u2013', c: plOpcoes >= 0 ? C.green : C.red },
                 { l: 'HV 20d', v: hv20 != null ? hv20.toFixed(1) + '%' : '\u2013', c: C.opcoes },
-                { l: 'IV Média', v: ivMedia != null ? ivMedia.toFixed(1) + '%' : '\u2013', c: ivColor },
+                { l: 'VI Média', v: ivMedia != null ? ivMedia.toFixed(1) + '%' : '\u2013', c: ivColor },
                 { l: 'Yield Opções', v: yieldOpcoes > 0 ? yieldOpcoes.toFixed(2) + '%' : '\u2013', c: yieldOpcoes > 0 ? C.green : C.text },
                 { l: 'Próx. Venc.', v: proxVenc != null ? proxVenc + 'd' : '\u2013', c: proxVencColor },
               ].map(function(d, idx) {

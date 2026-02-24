@@ -9,7 +9,7 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import Toast from 'react-native-toast-message';
 import { getSaldos, getMovimentacoes, deleteMovimentacao, upsertSaldo, addMovimentacaoComSaldo } from '../../services/database';
-import { Glass, Pill, Badge, SectionLabel, SwipeableRow } from '../../components';
+import { Glass, Pill, Badge, SectionLabel, SwipeableRow, PeriodFilter } from '../../components';
 import { LoadingScreen } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import * as Haptics from 'expo-haptics';
@@ -30,13 +30,6 @@ var CAT_LABELS = {
 
 var MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
-var PERIODOS = [
-  { k: '1m', l: '1M', days: 30 },
-  { k: '3m', l: '3M', days: 90 },
-  { k: '6m', l: '6M', days: 180 },
-  { k: '1a', l: '1A', days: 365 },
-  { k: 'tudo', l: 'Tudo', days: 0 },
-];
 
 // Auto-generated movs (from integrations) should not be deletable
 var AUTO_CATEGORIAS = ['compra_ativo', 'venda_ativo', 'premio_opcao', 'recompra_opcao',
@@ -55,16 +48,14 @@ export default function ExtratoScreen(props) {
   var _loadingMore = useState(false); var loadingMore = _loadingMore[0]; var setLoadingMore = _loadingMore[1];
   var _hasMore = useState(true); var hasMore = _hasMore[0]; var setHasMore = _hasMore[1];
   var _contaFilter = useState('todos'); var contaFilter = _contaFilter[0]; var setContaFilter = _contaFilter[1];
-  var _periodo = useState('3m'); var periodo = _periodo[0]; var setPeriodo = _periodo[1];
+  var _dateRange = useState(null); var dateRange = _dateRange[0]; var setDateRange = _dateRange[1];
   var ps = usePrivacyStyle();
 
   function buildFilters(offset) {
     var filters = {};
-    var pDef = PERIODOS.find(function(p) { return p.k === periodo; });
-    if (pDef && pDef.days > 0) {
-      var dInicio = new Date();
-      dInicio.setDate(dInicio.getDate() - pDef.days);
-      filters.dataInicio = dInicio.toISOString().substring(0, 10);
+    if (dateRange) {
+      filters.dataInicio = dateRange.start;
+      filters.dataFim = dateRange.end;
     }
     filters.limit = PAGE_SIZE;
     filters.offset = offset || 0;
@@ -96,7 +87,7 @@ export default function ExtratoScreen(props) {
     setLoadingMore(false);
   };
 
-  useFocusEffect(useCallback(function() { load(); }, [user, periodo]));
+  useFocusEffect(useCallback(function() { load(); }, [user, dateRange]));
 
   var onRefresh = async function() {
     setRefreshing(true);
@@ -277,17 +268,7 @@ export default function ExtratoScreen(props) {
           </View>
         </Glass>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 6, paddingBottom: 2 }}>
-          {PERIODOS.map(function(p) {
-            return (
-              <Pill key={p.k} active={periodo === p.k} color={C.accent}
-                onPress={function() { setPeriodo(p.k); }}>
-                {p.l}
-              </Pill>
-            );
-          })}
-        </ScrollView>
+        <PeriodFilter onRangeChange={function(r) { setDateRange(r); }} />
 
         {contaNames.length > 2 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false}
@@ -382,7 +363,7 @@ export default function ExtratoScreen(props) {
       data={monthKeys}
       keyExtractor={monthKeyExtractor}
       renderItem={renderMonthGroup}
-      ListHeaderComponent={renderHeader}
+      ListHeaderComponent={renderHeader()}
       ListFooterComponent={
         <View style={{ paddingVertical: 16, height: SIZE.tabBarHeight + 40 }}>
           {loadingMore ? <ActivityIndicator color={C.accent} size="small" /> : null}

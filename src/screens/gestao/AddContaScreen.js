@@ -6,7 +6,7 @@ import {
 import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { upsertSaldo, addMovimentacao, buildMovDescricao, getUserCorretoras } from '../../services/database';
+import { upsertSaldo, addMovimentacao, buildMovDescricao, getSaldos } from '../../services/database';
 import { Glass, Pill, getInstitutionMeta } from '../../components';
 import { MOEDAS, getSymbol } from '../../services/currencyService';
 import * as Haptics from 'expo-haptics';
@@ -42,17 +42,18 @@ export default function AddContaScreen(props) {
   // Fetch user corretoras and merge into suggestions
   useEffect(function() {
     if (!user) return;
-    getUserCorretoras(user.id).then(function(result) {
+    getSaldos(user.id).then(function(result) {
       var list = result.data || [];
       if (list.length === 0) return;
       var merged = [];
       var seen = {};
-      // User corretoras first (most used)
+      // User accounts first
       for (var i = 0; i < list.length; i++) {
-        var key = list[i].name.toUpperCase();
-        if (!seen[key]) {
+        var accName = list[i].corretora || list[i].name || '';
+        var key = accName.toUpperCase();
+        if (!seen[key] && accName) {
           seen[key] = true;
-          merged.push(list[i].name);
+          merged.push(accName);
         }
       }
       // Then defaults not already included

@@ -271,12 +271,12 @@ export default function InteractiveChart(props) {
                   <React.Fragment key={'yl' + i}>
                     <Line
                       x1={padLeft} y1={yl.y} x2={containerWidth - padRight} y2={yl.y}
-                      stroke="rgba(255,255,255,0.05)" strokeWidth="1"
+                      stroke="rgba(255,255,255,0.06)" strokeWidth="1"
                     />
                     <SvgText
                       x={padLeft - 4} y={yl.y + 3}
-                      fill="rgba(255,255,255,0.25)"
-                      fontSize="8"
+                      fill="rgba(255,255,255,0.45)"
+                      fontSize="9"
                       fontFamily={fontFamily}
                       textAnchor="end"
                     >{yl.label}</SvgText>
@@ -347,32 +347,27 @@ export default function InteractiveChart(props) {
               </View>
             ) : null}
 
-            {/* Hint text when not touching */}
-            {!ap && label ? (
+            {/* Hint text when not touching — centered in chart */}
+            {!ap ? (
               <View style={styles.hintWrap}>
                 <Text style={[styles.hintText, { fontFamily: fontFamily }]}>
-                  {label}
+                  arraste para ver valores
                 </Text>
               </View>
             ) : null}
           </View>
 
-          {/* X-axis date labels */}
+          {/* X-axis date labels — always visible */}
           <View style={styles.dateAxis}>
             {xLabels.map(function (xl, i) {
               return (
                 <Text key={'xl' + i} style={[styles.dateLabel, {
                   fontFamily: fontFamily,
                   position: 'absolute',
-                  left: xl.x - 16,
+                  left: xl.x - 20,
                 }]}>{xl.label}</Text>
               );
             })}
-            {!ap ? (
-              <Text style={[styles.dateLabelHint, { fontFamily: fontFamily, textAlign: 'center', flex: 1 }]}>
-                arraste para ver valores
-              </Text>
-            ) : null}
           </View>
         </View>
       ) : null}
@@ -458,12 +453,16 @@ var styles = StyleSheet.create({
   },
   hintWrap: {
     position: 'absolute',
-    bottom: 6,
-    right: 8,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   hintText: {
-    fontSize: 9,
-    color: 'rgba(255,255,255,0.15)',
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.2)',
     letterSpacing: 0.5,
   },
   dateAxis: {
@@ -475,12 +474,7 @@ var styles = StyleSheet.create({
   },
   dateLabel: {
     fontSize: 9,
-    color: 'rgba(255,255,255,0.2)',
-    letterSpacing: 0.5,
-  },
-  dateLabelHint: {
-    fontSize: 8,
-    color: 'rgba(255,255,255,0.12)',
+    color: 'rgba(255,255,255,0.4)',
     letterSpacing: 0.5,
   },
 });

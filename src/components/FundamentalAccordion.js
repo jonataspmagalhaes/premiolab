@@ -8,6 +8,8 @@ import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F } from '../theme';
 import { animateLayout } from '../utils/a11y';
+var dateUtils = require('../utils/dateUtils');
+var parseLocalDate = dateUtils.parseLocalDate;
 import InfoTip from './InfoTip';
 import FundamentalChart from './FundamentalChart';
 
@@ -279,7 +281,7 @@ export default function FundamentalAccordion(props) {
       var ivOp = opcoesAtivas[ivi];
       var ivK = ivOp.strike || 0;
       var ivP = ivOp.premio || 0;
-      var ivDays = Math.max(1, Math.ceil((new Date(ivOp.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
+      var ivDays = Math.max(1, Math.ceil((parseLocalDate(ivOp.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
       var ivT = ivDays / 365;
       var ivTipo = (ivOp.tipo || 'call').toLowerCase();
       if (ivK > 0 && ivP > 0) {
@@ -304,7 +306,7 @@ export default function FundamentalAccordion(props) {
   var proxVenc = null; var proxVencColor = C.text;
   var nowMs = Date.now();
   for (var pvi = 0; pvi < opcoesAtivas.length; pvi++) {
-    var pvDays = Math.max(0, Math.ceil((new Date(opcoesAtivas[pvi].vencimento).getTime() - nowMs) / (1000 * 60 * 60 * 24)));
+    var pvDays = Math.max(0, Math.ceil((parseLocalDate(opcoesAtivas[pvi].vencimento).getTime() - nowMs) / (1000 * 60 * 60 * 24)));
     if (proxVenc === null || pvDays < proxVenc) proxVenc = pvDays;
   }
   if (proxVenc != null) {
@@ -406,7 +408,7 @@ export default function FundamentalAccordion(props) {
             renderMetric('Prêmios Rec.', opcoes.length > 0 ? currPrefix + fmt(premiosRecebidos) : '\u2013', 'premios', premiosRecebidos >= 0 ? C.green : C.red),
             renderMetric('P&L Opções', opcoes.length > 0 ? (plOpcoes >= 0 ? '+' : '') + currPrefix + fmt(plOpcoes) : '\u2013', 'plOpcoes', plOpcoes >= 0 ? C.green : C.red),
             renderMetric('HV 20d', hv20 != null ? hv20.toFixed(1) + '%' : '\u2013', 'hv20', C.opcoes),
-            renderMetric('IV Média', ivMedia != null ? ivMedia.toFixed(1) + '%' : '\u2013', 'ivMedia', ivColor),
+            renderMetric('VI Média', ivMedia != null ? ivMedia.toFixed(1) + '%' : '\u2013', 'ivMedia', ivColor),
             renderMetric('Yield Opções', yieldOpcoes > 0 ? yieldOpcoes.toFixed(2) + '%' : '\u2013', 'yieldOpc', yieldOpcoes > 0 ? C.green : C.text),
             renderMetric('Próx. Venc.', proxVenc != null ? proxVenc + 'd' : '\u2013', 'proxVenc', proxVencColor),
           ]) : null}

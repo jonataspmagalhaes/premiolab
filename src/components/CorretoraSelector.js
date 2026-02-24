@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Keyboard } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, F, SIZE } from '../theme';
 import { Pill } from './Primitives';
-import { getUserCorretoras } from '../services/database';
+import { getSaldos } from '../services/database';
 import { getSymbol } from '../services/currencyService';
 
-// Lista abrangente de instituições com metadados
+// Lista abrangente de instituições com metadados (usada pelo AddContaScreen/OnboardingScreen)
 var ALL_INSTITUTIONS = [
   // Corretoras BR
   { name: 'Clear', moeda: 'BRL', tipo: 'corretora' },
@@ -73,12 +76,8 @@ var ALL_INSTITUTIONS = [
   { name: 'Al Rayan Bank', moeda: 'QAR', tipo: 'banco' },
 ];
 
-var DEFAULTS_BR = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial'];
-var DEFAULTS_INT = ['Avenue', 'Nomad', 'Interactive Brokers', 'Stake', 'Inter', 'XP Investimentos', 'BTG Pactual'];
-var DEFAULTS_RF = ['Clear', 'XP Investimentos', 'Rico', 'Inter', 'Nubank', 'BTG Pactual', 'Genial', 'Itaú', 'Bradesco', 'Banco do Brasil'];
-
 function normalizeCorretora(name) {
-  return (name || '').trim().replace(/\s+/g, ' ');
+  return (name || '').toUpperCase().trim().replace(/\s+/g, ' ');
 }
 
 function getInstitutionMeta(name) {
@@ -89,192 +88,98 @@ function getInstitutionMeta(name) {
   return null;
 }
 
-function inArray(arr, val) {
-  var up = val.toUpperCase();
-  for (var i = 0; i < arr.length; i++) {
-    if (arr[i].toUpperCase() === up) return true;
-  }
-  return false;
-}
-
-export { ALL_INSTITUTIONS, DEFAULTS_RF, getInstitutionMeta };
+export { ALL_INSTITUTIONS, getInstitutionMeta };
 
 export default function CorretoraSelector(props) {
   var value = props.value || '';
   var onSelect = props.onSelect;
   var userId = props.userId;
-  var mercado = props.mercado || 'BR';
   var color = props.color || C.acoes;
   var label = props.label || 'CORRETORA';
   var showLabel = props.showLabel !== false;
-  var defaultsProp = props.defaults;
 
+  var navigation = useNavigation();
   var _userList = useState([]); var userList = _userList[0]; var setUserList = _userList[1];
-  var _showInput = useState(false); var showInput = _showInput[0]; var setShowInput = _showInput[1];
-  var _searchText = useState(''); var searchText = _searchText[0]; var setSearchText = _searchText[1];
-  var _extras = useState([]); var extras = _extras[0]; var setExtras = _extras[1];
-  var _inputRef = useRef(null);
 
-  // Fetch user corretoras on mount
-  useEffect(function() {
+  // Fetch user accounts from saldos_corretora (refresh on focus)
+  useFocusEffect(useCallback(function() {
     if (!userId) return;
-    getUserCorretoras(userId).then(function(result) {
+    getSaldos(userId).then(function(result) {
       var list = result.data || [];
-      var names = [];
-      for (var i = 0; i < list.length; i++) {
-        if (list[i].name) names.push(list[i].name);
-      }
-      setUserList(names);
+      setUserList(list);
     }).catch(function() {});
-  }, [userId]);
+  }, [userId]));
 
-  // Build pill list: user corretoras first, then defaults (dedup)
-  var defaultList = defaultsProp || (mercado === 'INT' ? DEFAULTS_INT : DEFAULTS_BR);
+  // Build pill list from user accounts (dedup by UPPERCASE name)
   var pillNames = [];
   var seen = {};
+  // Track which names have multiple currencies
+  var moedaCountByName = {};
 
-  // User corretoras first
   for (var u = 0; u < userList.length; u++) {
-    var uKey = userList[u].toUpperCase();
-    if (!seen[uKey]) {
-      seen[uKey] = true;
-      pillNames.push(userList[u]);
+    var uName = userList[u].corretora || userList[u].name || '';
+    var uKey = uName.toUpperCase();
+    var uMoeda = userList[u].moeda || 'BRL';
+    if (!moedaCountByName[uKey]) moedaCountByName[uKey] = {};
+    moedaCountByName[uKey][uMoeda] = true;
+  }
+
+  for (var i = 0; i < userList.length; i++) {
+    var sName = userList[i].corretora || userList[i].name || '';
+    var sKey = sName.toUpperCase();
+    var sMoeda = userList[i].moeda || 'BRL';
+    var moedaKeys = Object.keys(moedaCountByName[sKey] || {});
+    var hasMultiMoeda = moedaKeys.length > 1;
+
+    if (hasMultiMoeda) {
+      // Show separate pill per currency
+      var pillKey = sKey + '_' + sMoeda;
+      if (!seen[pillKey]) {
+        seen[pillKey] = true;
+        pillNames.push({
+          name: sName,
+          moeda: sMoeda,
+          showMoeda: true,
+          tipo: userList[i].tipo,
+        });
+      }
+    } else {
+      if (!seen[sKey]) {
+        seen[sKey] = true;
+        pillNames.push({
+          name: sName,
+          moeda: sMoeda,
+          showMoeda: false,
+          tipo: userList[i].tipo,
+        });
+      }
     }
   }
-  // Defaults
-  for (var d = 0; d < defaultList.length; d++) {
-    var dKey = defaultList[d].toUpperCase();
-    if (!seen[dKey]) {
-      seen[dKey] = true;
-      pillNames.push(defaultList[d]);
-    }
-  }
-  // Extras from this session
-  for (var x = 0; x < extras.length; x++) {
-    var xKey = extras[x].toUpperCase();
-    if (!seen[xKey]) {
-      seen[xKey] = true;
-      pillNames.push(extras[x]);
-    }
-  }
+
   // If current value not in list, prepend it
-  if (value && !seen[value.toUpperCase()]) {
-    pillNames.unshift(value);
-  }
-
-  // Build search suggestions when typing
-  var suggestions = [];
-  if (showInput && searchText.length >= 1) {
-    var q = searchText.toUpperCase();
-    var addedNames = {};
-    // User corretoras matching query (badge MINHA)
-    for (var um = 0; um < userList.length; um++) {
-      if (userList[um].toUpperCase().indexOf(q) !== -1) {
-        if (!addedNames[userList[um].toUpperCase()]) {
-          addedNames[userList[um].toUpperCase()] = true;
-          var umMeta = getInstitutionMeta(userList[um]);
-          suggestions.push({
-            name: userList[um],
-            moeda: umMeta ? umMeta.moeda : 'BRL',
-            tipo: umMeta ? umMeta.tipo : 'corretora',
-            isMinha: true,
-          });
-        }
-      }
-      if (suggestions.length >= 6) break;
+  if (value) {
+    var valKey = value.toUpperCase();
+    var found = false;
+    for (var f = 0; f < pillNames.length; f++) {
+      if (pillNames[f].name.toUpperCase() === valKey) { found = true; break; }
     }
-    // ALL_INSTITUTIONS matching query
-    if (suggestions.length < 6) {
-      for (var ai = 0; ai < ALL_INSTITUTIONS.length; ai++) {
-        if (ALL_INSTITUTIONS[ai].name.toUpperCase().indexOf(q) !== -1) {
-          if (!addedNames[ALL_INSTITUTIONS[ai].name.toUpperCase()]) {
-            addedNames[ALL_INSTITUTIONS[ai].name.toUpperCase()] = true;
-            suggestions.push({
-              name: ALL_INSTITUTIONS[ai].name,
-              moeda: ALL_INSTITUTIONS[ai].moeda,
-              tipo: ALL_INSTITUTIONS[ai].tipo,
-              isMinha: false,
-            });
-          }
-        }
-        if (suggestions.length >= 6) break;
-      }
+    if (!found) {
+      pillNames.unshift({ name: value, moeda: 'BRL', showMoeda: false, tipo: null });
     }
   }
 
-  // Check if typed text exactly matches a suggestion
-  var exactMatch = false;
-  if (searchText.length >= 2) {
-    var stUp = searchText.toUpperCase();
-    for (var em = 0; em < suggestions.length; em++) {
-      if (suggestions[em].name.toUpperCase() === stUp) { exactMatch = true; break; }
-    }
-  }
-
-  function handlePillPress(name) {
-    if (value === name) {
-      // Toggle off
+  function handlePillPress(pill) {
+    if (value === pill.name) {
       onSelect('', null);
     } else {
-      var meta = getInstitutionMeta(name);
-      onSelect(name, meta);
-    }
-    setShowInput(false);
-    setSearchText('');
-  }
-
-  function handleOutraPress() {
-    if (showInput) {
-      setShowInput(false);
-      setSearchText('');
-    } else {
-      setShowInput(true);
-      setSearchText('');
-      setTimeout(function() {
-        if (_inputRef.current) _inputRef.current.focus();
-      }, 100);
+      var meta = { moeda: pill.moeda, tipo: pill.tipo };
+      onSelect(pill.name, meta);
     }
   }
 
-  function handleSelectSuggestion(item) {
-    var normalized = normalizeCorretora(item.name);
-    var meta = { moeda: item.moeda, tipo: item.tipo };
-    onSelect(normalized, meta);
-    // Add to extras if not already in pills
-    if (!inArray(pillNames, normalized)) {
-      setExtras(function(prev) {
-        var next = [];
-        for (var i = 0; i < prev.length; i++) next.push(prev[i]);
-        next.push(normalized);
-        return next;
-      });
-    }
-    setShowInput(false);
-    setSearchText('');
-    Keyboard.dismiss();
+  function handleAddConta() {
+    navigation.navigate('AddConta');
   }
-
-  function handleConfirmCustom() {
-    var normalized = normalizeCorretora(searchText);
-    if (normalized.length < 2) return;
-    // Check if matches existing institution
-    var meta = getInstitutionMeta(normalized);
-    onSelect(normalized, meta);
-    // Add to extras
-    if (!inArray(pillNames, normalized)) {
-      setExtras(function(prev) {
-        var next = [];
-        for (var i = 0; i < prev.length; i++) next.push(prev[i]);
-        next.push(normalized);
-        return next;
-      });
-    }
-    setShowInput(false);
-    setSearchText('');
-    Keyboard.dismiss();
-  }
-
-  var showDropdown = showInput && (suggestions.length > 0 || (searchText.length >= 2 && !exactMatch));
 
   return (
     <View style={styles.container}>
@@ -282,72 +187,29 @@ export default function CorretoraSelector(props) {
         <Text style={styles.label}>{label}</Text>
       ) : null}
       <View style={styles.pillRow}>
-        {pillNames.map(function(name) {
+        {pillNames.map(function(pill, idx) {
+          var pillLabel = pill.name;
+          if (pill.showMoeda) {
+            pillLabel = pill.name + ' (' + pill.moeda + ')';
+          }
           return (
-            <Pill key={name} active={value === name} color={color}
-              onPress={function() { handlePillPress(name); }}>
-              {name}
+            <Pill key={pill.name + '_' + pill.moeda + '_' + idx} active={value === pill.name} color={color}
+              onPress={function() { handlePillPress(pill); }}>
+              {pillLabel}
             </Pill>
           );
         })}
-        <Pill key="__outra" active={showInput} color={C.accent}
-          onPress={handleOutraPress}>
-          + Outra
-        </Pill>
+        <TouchableOpacity
+          onPress={handleAddConta}
+          style={styles.addContaBtn}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Adicionar Conta"
+        >
+          <Ionicons name="add-circle-outline" size={16} color={C.accent} />
+          <Text style={styles.addContaBtnText}>Adicionar Conta</Text>
+        </TouchableOpacity>
       </View>
-      {showInput ? (
-        <View style={styles.inputWrapper}>
-          <TextInput
-            ref={_inputRef}
-            value={searchText}
-            onChangeText={setSearchText}
-            placeholder="Buscar corretora ou banco..."
-            placeholderTextColor={C.dim}
-            returnKeyType="done"
-            onSubmitEditing={function() {
-              if (searchText.length >= 2) handleConfirmCustom();
-            }}
-            style={styles.input}
-            accessibilityLabel="Buscar corretora ou banco"
-          />
-          {showDropdown ? (
-            <View style={styles.dropdown}>
-              {suggestions.map(function(item, idx) {
-                var sym = getSymbol(item.moeda) || item.moeda;
-                return (
-                  <TouchableOpacity key={item.name + '-' + idx} style={styles.dropItem}
-                    onPress={function() { handleSelectSuggestion(item); }}
-                    accessibilityRole="button" accessibilityLabel={item.name}>
-                    <View style={styles.dropItemRow}>
-                      <Text style={styles.dropItemName}>{item.name}</Text>
-                      <View style={styles.dropItemBadges}>
-                        {item.isMinha ? (
-                          <View style={styles.minhaBadge}>
-                            <Text style={styles.minhaBadgeText}>MINHA</Text>
-                          </View>
-                        ) : null}
-                        <View style={styles.moedaBadge}>
-                          <Text style={styles.moedaBadgeText}>{sym}</Text>
-                        </View>
-                      </View>
-                    </View>
-                    <Text style={styles.dropItemTipo} numberOfLines={1}>
-                      {item.tipo === 'banco' ? 'Banco' : 'Corretora'}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-              {searchText.length >= 2 && !exactMatch ? (
-                <TouchableOpacity style={styles.dropItem}
-                  onPress={handleConfirmCustom}
-                  accessibilityRole="button" accessibilityLabel={'Usar ' + searchText}>
-                  <Text style={styles.dropItemCustom}>{'Usar "' + normalizeCorretora(searchText) + '"'}</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          ) : null}
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -367,95 +229,23 @@ var styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-  },
-  inputWrapper: {
-    position: 'relative',
-    zIndex: 10,
-    marginTop: 4,
-  },
-  input: {
-    backgroundColor: C.cardSolid,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: C.text,
-    fontFamily: F.body,
-  },
-  dropdown: {
-    position: 'absolute',
-    top: '100%',
-    left: 0,
-    right: 0,
-    backgroundColor: C.cardSolid,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: SIZE.radius,
-    marginTop: 2,
-    zIndex: 20,
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  dropItem: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
-  },
-  dropItemRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  dropItemName: {
-    fontFamily: F.body,
-    fontSize: 14,
-    color: C.text,
-    flex: 1,
-  },
-  dropItemBadges: {
+  addContaBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: C.accent + '40',
+    borderStyle: 'dashed',
+    borderRadius: 18,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
   },
-  dropItemTipo: {
-    fontSize: 11,
-    color: C.sub,
-    fontFamily: F.body,
-    marginTop: 1,
-  },
-  dropItemCustom: {
-    fontFamily: F.body,
-    fontSize: 13,
+  addContaBtnText: {
+    fontSize: 12,
     color: C.accent,
-  },
-  minhaBadge: {
-    backgroundColor: C.accent + '20',
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  minhaBadgeText: {
-    fontSize: 9,
-    fontFamily: F.mono,
-    color: C.accent,
-    fontWeight: '700',
-  },
-  moedaBadge: {
-    backgroundColor: C.border,
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  moedaBadgeText: {
-    fontSize: 9,
-    fontFamily: F.mono,
-    color: C.sub,
+    fontFamily: F.body,
     fontWeight: '600',
   },
 });

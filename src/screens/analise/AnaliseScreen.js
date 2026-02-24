@@ -5,6 +5,9 @@ import {
   Platform, Modal, Dimensions, KeyboardAvoidingView,
 } from 'react-native';
 import { animateLayout } from '../../utils/a11y';
+var dateUtils = require('../../utils/dateUtils');
+var parseLocalDate = dateUtils.parseLocalDate;
+var formatDateBR = dateUtils.formatDateBR;
 import Svg, {
   Circle, Rect as SvgRect, G,
   Text as SvgText, Line as SvgLine, Path,
@@ -5907,7 +5910,7 @@ export default function AnaliseScreen(props) {
     var frVal = frProv.valor_total || 0;
     fiiRendTotal += frVal;
     var frDateStr = (frProv.data_pagamento || '').substring(0, 10);
-    var frDate = new Date(frProv.data_pagamento);
+    var frDate = parseLocalDate(frProv.data_pagamento);
     if (frDate >= fiiOneYrAgo) fiiRend12m += frVal;
     if (frDateStr <= fiiTodayStr) { fiiRendRecebido += frVal; } else { fiiRendAReceber += frVal; }
     var frMKey = frDate.getFullYear() + '-' + String(frDate.getMonth() + 1).padStart(2, '0');
@@ -6025,7 +6028,7 @@ export default function AnaliseScreen(props) {
       } else {
         catProvsAReceber += provVal;
       }
-      var provDate = new Date(prov.data_pagamento);
+      var provDate = parseLocalDate(prov.data_pagamento);
       if (provDate >= oneYrAgo) catDividends12m += provVal;
       var pmKey = provDate.getFullYear() + '-' + String(provDate.getMonth() + 1).padStart(2, '0');
       if (!catProvByMonth[pmKey]) catProvByMonth[pmKey] = 0;
@@ -6232,7 +6235,7 @@ export default function AnaliseScreen(props) {
       var rendLiquido = rendBruto - irDevido;
       var rentBrutaPct = rfValor > 0 ? (rendBruto / rfValor * 100) : 0;
       var rentLiqPct = rfValor > 0 ? (rendLiquido / rfValor * 100) : 0;
-      var diasVenc = Math.ceil((new Date(rfItem.vencimento) - hojeRF) / (1000 * 60 * 60 * 24));
+      var diasVenc = Math.ceil((parseLocalDate(rfItem.vencimento) - hojeRF) / (1000 * 60 * 60 * 24));
       var cdiEquiv = isIsento ? rfCDIEquivalente(parseFloat(rfItem.taxa) || 0, rfIRAliquota(Math.max(diasVenc, diasCorr))) : 0;
 
       rfEnriched.push({
@@ -6320,8 +6323,8 @@ export default function AnaliseScreen(props) {
       // Taxa mensal equivalente (normalizada por DTE)
       if (isVenda && op.strike > 0) {
         var taxaPremio = premioTotal / ((op.strike || 1) * (op.quantidade || 1)) * 100;
-        var vencOp = new Date(op.vencimento);
-        var criadoOp = new Date(op.created_at || op.vencimento);
+        var vencOp = parseLocalDate(op.vencimento);
+        var criadoOp = parseLocalDate(op.created_at || op.vencimento);
         var dteOp = Math.max(Math.ceil((vencOp - criadoOp) / (1000 * 60 * 60 * 24)), 1);
         var taxaMensal = (Math.pow(1 + taxaPremio / 100, 30 / dteOp) - 1) * 100;
         opcTaxaMensalSum += taxaMensal;
@@ -6332,7 +6335,7 @@ export default function AnaliseScreen(props) {
       if (isVenda) {
         var dataRef = op.data_abertura || op.created_at || op.vencimento || '';
         if (dataRef) {
-          var dReceb = new Date(dataRef);
+          var dReceb = parseLocalDate(dataRef);
           dReceb.setDate(dReceb.getDate() + 1);
           var opMonth = dReceb.getFullYear() + '-' + String(dReceb.getMonth() + 1).padStart(2, '0');
           if (!opcPremByMonth[opMonth]) opcPremByMonth[opMonth] = { total: 0, call: 0, put: 0, recompra: 0, recompra_call: 0, recompra_put: 0, exercida_call: 0, exercida_put: 0 };
@@ -6349,7 +6352,7 @@ export default function AnaliseScreen(props) {
           opcByBase[base2][tipo + '_premio'] += premioTotal;
           opcByBase[base2][tipo + '_pl'] += premioTotal;
         }
-        var vencDate = new Date(op.vencimento);
+        var vencDate = parseLocalDate(op.vencimento);
         var daysToExp = Math.ceil((vencDate - nowOpc) / (1000 * 60 * 60 * 24));
         if (daysToExp <= 30 && daysToExp >= 0) {
           opcProxVenc.push({ op: op, daysLeft: daysToExp });
@@ -9018,7 +9021,7 @@ export default function AnaliseScreen(props) {
                           </View>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
                             <Text style={styles.posDetail}>
-                              Venc: {(function() { var d = new Date(rf.vencimento); return d.toLocaleDateString('pt-BR'); })()}
+                              Venc: {formatDateBR(rf.vencimento)}
                             </Text>
                             <Text style={[styles.posDetail, { color: C.green }]}>
                               Liq: {re.rendLiquido >= 0 ? '+' : ''}R$ {fmt(Math.abs(re.rendLiquido))} ({re.rentLiqPct.toFixed(1)}%)

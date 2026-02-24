@@ -8,9 +8,10 @@ import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getDashboard } from '../../services/database';
-import { Glass, InfoTip } from '../../components';
+import { Glass, Badge, InfoTip } from '../../components';
 import { EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
+import Sensitive from '../../components/Sensitive';
 
 var P = {
   acao: { color: PRODUCT_COLORS.acao || C.acoes },
@@ -21,12 +22,75 @@ var P = {
   rf: { color: C.rf },
 };
 
+var TIPO_LABELS = {
+  dividendo: 'DIV',
+  jcp: 'JCP',
+  rendimento: 'REND',
+  rendimento_fii: 'REND',
+  juros_rf: 'JUROS',
+  amortizacao: 'AMORT',
+  bonificacao: 'BONIF',
+};
+
 function fmt(v) {
   if (v == null || isNaN(v)) return 'R$ 0,00';
   var n = Number(v);
   var sign = n < 0 ? '-' : '';
   var abs = Math.abs(n);
   return sign + 'R$ ' + abs.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtShort(v) {
+  if (v == null || isNaN(v)) return '0,00';
+  var n = Number(v);
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Aggregate proventos by ticker
+function aggregateProventos(detalhe) {
+  var byTicker = {};
+  for (var i = 0; i < detalhe.length; i++) {
+    var item = detalhe[i];
+    var tk = item.ticker || '?';
+    if (!byTicker[tk]) {
+      byTicker[tk] = { ticker: tk, valor: 0, tipo: item.tipo, count: 0, recebido: 0, aReceber: 0 };
+    }
+    byTicker[tk].valor += item.valor;
+    byTicker[tk].count += 1;
+    if (item.recebido) {
+      byTicker[tk].recebido += item.valor;
+    } else {
+      byTicker[tk].aReceber += item.valor;
+    }
+  }
+  var result = [];
+  var keys = Object.keys(byTicker);
+  for (var k = 0; k < keys.length; k++) {
+    result.push(byTicker[keys[k]]);
+  }
+  result.sort(function(a, b) { return b.valor - a.valor; });
+  return result;
+}
+
+// Aggregate options by ativo_base
+function aggregateOpcoes(detalhe) {
+  var byTicker = {};
+  for (var i = 0; i < detalhe.length; i++) {
+    var item = detalhe[i];
+    var tk = item.ticker || '?';
+    if (!byTicker[tk]) {
+      byTicker[tk] = { ticker: tk, valor: 0, opcoes: [] };
+    }
+    byTicker[tk].valor += item.valor;
+    byTicker[tk].opcoes.push(item);
+  }
+  var result = [];
+  var keys = Object.keys(byTicker);
+  for (var k = 0; k < keys.length; k++) {
+    result.push(byTicker[keys[k]]);
+  }
+  result.sort(function(a, b) { return b.valor - a.valor; });
+  return result;
 }
 
 export default function RendaResumoView(props) {
@@ -90,6 +154,21 @@ export default function RendaResumoView(props) {
   var meta = data.meta || 6000;
   var rendaMediaAnual = data.rendaMediaAnual || 0;
   var rentabilidadeMes = data.rentabilidadeMes || 0;
+  var premiosMes = data.premiosMes || 0;
+  var recompraMes = data.recompraMes || 0;
+  var dyCarteira = data.dyCarteira || 0;
+
+  // Detail data
+  var proventosMesDetalhe = data.proventosMesDetalhe || [];
+  var premiosMesDetalhe = data.premiosMesDetalhe || [];
+  var recompraMesDetalhe = data.recompraMesDetalhe || [];
+
+  // Aggregations
+  var provAgrupados = aggregateProventos(proventosMesDetalhe);
+  var premAgrupados = aggregateOpcoes(premiosMesDetalhe);
+  var recAgrupados = aggregateOpcoes(recompraMesDetalhe);
+
+  var hasDetalhe = provAgrupados.length > 0 || premAgrupados.length > 0 || recAgrupados.length > 0 || rfRendaMensal > 0;
 
   var metaPct = meta > 0 ? Math.min((rendaTotalMes / meta) * 100, 150) : 0;
 
@@ -110,7 +189,7 @@ export default function RendaResumoView(props) {
       {/* RENDA DO MÊS */}
       <Glass glow="rgba(108,92,231,0.10)" padding={SIZE.padding}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}>
-          <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '600' }}>RENDA DO MÊS</Text>
+          <Text style={st.sectionTitle}>RENDA DO MÊS</Text>
           <InfoTip
             title="Renda do Mês"
             text="P&L de opções (prêmios - recompras) + dividendos/JCP + juros RF no mês. Opções mostra o P&L líquido, podendo ser negativo em meses com recompra."
@@ -252,52 +331,191 @@ export default function RendaResumoView(props) {
         ) : null}
       </Glass>
 
-      {/* DIVIDENDOS DO MÊS */}
-      {(dividendosRecebidosMes > 0 || dividendosAReceberMes > 0) ? (
+      {/* DETALHAMENTO DO MÊS */}
+      {hasDetalhe ? (
         <Glass padding={SIZE.padding}>
-          <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.5, fontWeight: '600', marginBottom: 12 }}>
-            DIVIDENDOS DO MÊS
-          </Text>
-          <View style={{ flexDirection: 'row', gap: 14 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginBottom: 4 }}>RECEBIDOS</Text>
-              <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 18, fontWeight: '800', color: '#22c55e', fontFamily: F.mono }, ps]}>
-                {fmt(dividendosRecebidosMes)}
-              </Text>
+          <Text style={[st.sectionTitle, { marginBottom: 14 }]}>DETALHAMENTO DO MÊS</Text>
+
+          {/* PROVENTOS por ticker */}
+          {provAgrupados.length > 0 ? (
+            <View style={{ marginBottom: premAgrupados.length > 0 || recAgrupados.length > 0 || rfRendaMensal > 0 ? 16 : 0 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <Text style={st.subTitle}>PROVENTOS</Text>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <Text style={[{ fontSize: 12, color: '#22c55e', fontFamily: F.mono, fontWeight: '600' }, ps]}>
+                    {'Receb. ' + fmt(dividendosRecebidosMes)}
+                  </Text>
+                  {dividendosAReceberMes > 0 ? (
+                    <Text style={[{ fontSize: 12, color: C.yellow, fontFamily: F.mono, fontWeight: '600' }, ps]}>
+                      {'A receber ' + fmt(dividendosAReceberMes)}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+              {provAgrupados.map(function(item, idx) {
+                var tipoLabel = TIPO_LABELS[item.tipo] || (item.tipo || 'DIV').toUpperCase();
+                var tipoColor = item.tipo === 'rendimento' || item.tipo === 'rendimento_fii' ? P.fii.color
+                  : item.tipo === 'jcp' ? P.acao.color
+                  : item.tipo === 'dividendo' ? P.acao.color
+                  : C.accent;
+                return (
+                  <View key={item.ticker + '_' + idx} style={[st.detalheRow, idx > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.04)' }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                      <Text style={st.detalheTicker}>{item.ticker}</Text>
+                      <Badge text={tipoLabel} color={tipoColor} />
+                      {item.count > 1 ? (
+                        <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>{'x' + item.count}</Text>
+                      ) : null}
+                      {item.aReceber > 0 ? (
+                        <View style={{ backgroundColor: C.yellow + '18', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 }}>
+                          <Text style={{ fontSize: 9, color: C.yellow, fontFamily: F.mono, fontWeight: '700' }}>PENDENTE</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Sensitive>
+                      <Text maxFontSizeMultiplier={1.5} style={[st.detalheVal, { color: '#22c55e' }]}>
+                        {'+R$ ' + fmtShort(item.valor)}
+                      </Text>
+                    </Sensitive>
+                  </View>
+                );
+              })}
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginBottom: 4 }}>A RECEBER</Text>
-              <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 18, fontWeight: '800', color: C.yellow, fontFamily: F.mono }, ps]}>
-                {fmt(dividendosAReceberMes)}
-              </Text>
+          ) : null}
+
+          {/* OPÇÕES - PRÊMIOS por ticker */}
+          {premAgrupados.length > 0 ? (
+            <View style={{ marginBottom: recAgrupados.length > 0 || rfRendaMensal > 0 ? 16 : 0 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <Text style={st.subTitle}>OPÇÕES — PRÊMIOS</Text>
+                <Sensitive>
+                  <Text style={[{ fontSize: 12, color: '#22c55e', fontFamily: F.mono, fontWeight: '600' }]}>
+                    {'Total ' + fmt(premiosMes)}
+                  </Text>
+                </Sensitive>
+              </View>
+              {premAgrupados.map(function(group, gIdx) {
+                return (
+                  <View key={'prem_' + group.ticker + '_' + gIdx}>
+                    {group.opcoes.map(function(item, idx) {
+                      var globalIdx = gIdx * 100 + idx;
+                      return (
+                        <View key={'po_' + globalIdx} style={[st.detalheRow, (gIdx > 0 || idx > 0) && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.04)' }]}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                            <Text style={st.detalheTicker}>{item.ticker}</Text>
+                            <Badge text={item.tipo_opcao} color={P.opcao.color} />
+                            {item.ticker_opcao ? (
+                              <Text style={{ fontSize: 11, color: P.opcao.color, fontFamily: F.mono }}>{item.ticker_opcao}</Text>
+                            ) : null}
+                            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>{item.quantidade + ' opts'}</Text>
+                          </View>
+                          <Sensitive>
+                            <Text maxFontSizeMultiplier={1.5} style={[st.detalheVal, { color: '#22c55e' }]}>
+                              {'+R$ ' + fmtShort(item.valor)}
+                            </Text>
+                          </Sensitive>
+                        </View>
+                      );
+                    })}
+                  </View>
+                );
+              })}
             </View>
-          </View>
+          ) : null}
+
+          {/* OPÇÕES - RECOMPRAS por ticker */}
+          {recAgrupados.length > 0 ? (
+            <View style={{ marginBottom: rfRendaMensal > 0 ? 16 : 0 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <Text style={st.subTitle}>OPÇÕES — RECOMPRAS</Text>
+                <Sensitive>
+                  <Text style={[{ fontSize: 12, color: '#ef4444', fontFamily: F.mono, fontWeight: '600' }]}>
+                    {'Total -R$ ' + fmtShort(recompraMes)}
+                  </Text>
+                </Sensitive>
+              </View>
+              {recAgrupados.map(function(group, gIdx) {
+                return (
+                  <View key={'rec_' + group.ticker + '_' + gIdx}>
+                    {group.opcoes.map(function(item, idx) {
+                      var globalIdx = gIdx * 100 + idx;
+                      return (
+                        <View key={'ro_' + globalIdx} style={[st.detalheRow, (gIdx > 0 || idx > 0) && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.04)' }]}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                            <Text style={st.detalheTicker}>{item.ticker}</Text>
+                            <Badge text={item.tipo_opcao} color={'#ef4444'} />
+                            {item.ticker_opcao ? (
+                              <Text style={{ fontSize: 11, color: '#ef4444', fontFamily: F.mono }}>{item.ticker_opcao}</Text>
+                            ) : null}
+                            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>{item.quantidade + ' opts'}</Text>
+                          </View>
+                          <Sensitive>
+                            <Text maxFontSizeMultiplier={1.5} style={[st.detalheVal, { color: '#ef4444' }]}>
+                              {'-R$ ' + fmtShort(item.valor)}
+                            </Text>
+                          </Sensitive>
+                        </View>
+                      );
+                    })}
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+
+          {/* RENDA FIXA */}
+          {rfRendaMensal > 0 ? (
+            <View>
+              <Text style={[st.subTitle, { marginBottom: 10 }]}>RENDA FIXA</Text>
+              <View style={st.detalheRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={st.detalheTicker}>Juros estimados</Text>
+                  <Badge text="RF" color={C.rf} />
+                </View>
+                <Sensitive>
+                  <Text maxFontSizeMultiplier={1.5} style={[st.detalheVal, { color: '#22c55e' }]}>
+                    {'+R$ ' + fmtShort(rfRendaMensal)}
+                  </Text>
+                </Sensitive>
+              </View>
+            </View>
+          ) : null}
         </Glass>
       ) : null}
 
       {/* KPIs */}
       <Glass padding={SIZE.padding}>
-        <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.5, fontWeight: '600', marginBottom: 12 }}>
+        <Text style={[st.sectionTitle, { marginBottom: 12 }]}>
           RESUMO
         </Text>
         <View style={{ flexDirection: 'row', gap: 14 }}>
           <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginBottom: 4 }}>P&L MÉDIA 3M</Text>
+            <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginBottom: 4 }}>P&L OPÇÕES 3M</Text>
             <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 16, fontWeight: '800', color: plMedia3m >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
               {fmt(plMedia3m)}
             </Text>
+            <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono, marginTop: 2 }}>média/mês</Text>
           </View>
           <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginBottom: 4 }}>RENT. MÊS</Text>
-            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 16, fontWeight: '800', color: rentabilidadeMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
-              {(rentabilidadeMes >= 0 ? '+' : '') + rentabilidadeMes.toFixed(2) + '%'}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 4 }}>
+              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>DY CARTEIRA</Text>
+              <InfoTip
+                title="Dividend Yield"
+                text="DY = (Proventos recebidos nos últimos 12 meses / Valor de mercado da carteira de ações, FIIs e ETFs) × 100. Inclui dividendos, JCP e rendimentos. Quanto maior, mais a carteira gera renda passiva em relação ao capital investido."
+                size={12}
+              />
+            </View>
+            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 16, fontWeight: '800', color: dyCarteira > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
+              {dyCarteira.toFixed(2) + '%'}
             </Text>
+            <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono, marginTop: 2 }}>últimos 12m</Text>
           </View>
           <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginBottom: 4 }}>MÉDIA ANUAL</Text>
-            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 16, fontWeight: '800', color: rendaMediaAnual > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
+            <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginBottom: 4 }}>MÉDIA MENSAL</Text>
+            <Text maxFontSizeMultiplier={1.5} numberOfLines={1} adjustsFontSizeToFit style={[{ fontSize: 16, fontWeight: '800', color: rendaMediaAnual > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
               {fmt(rendaMediaAnual)}
             </Text>
+            <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono, marginTop: 2 }}>{'em ' + new Date().getFullYear()}</Text>
           </View>
         </View>
       </Glass>
@@ -310,9 +528,14 @@ export default function RendaResumoView(props) {
 var st = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   content: { padding: SIZE.padding, gap: SIZE.gap },
+  sectionTitle: { fontSize: 12, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '600' },
+  subTitle: { fontSize: 11, color: 'rgba(255,255,255,0.30)', fontFamily: F.mono, letterSpacing: 1, fontWeight: '600' },
   bRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   bLabel: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   dot: { width: 8, height: 8, borderRadius: 4 },
   bText: { fontSize: 12, color: C.sub, fontFamily: F.body },
   bVal: { fontSize: 13, fontWeight: '700', fontFamily: F.mono },
+  detalheRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },
+  detalheTicker: { fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.display },
+  detalheVal: { fontSize: 13, fontWeight: '700', fontFamily: F.mono },
 });

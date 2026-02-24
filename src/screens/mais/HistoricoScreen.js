@@ -6,28 +6,11 @@ import {
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOperacoes, getOpcoes, getProventos } from '../../services/database';
-import { Glass, Badge, Pill, SectionLabel } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, PeriodFilter } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
 var CAT_COLORS = { acao: C.acoes, fii: C.fiis, etf: C.etfs, opcao: C.opcoes };
 
-var PERIODOS = [
-  { k: '1m', l: '1M', days: 30 },
-  { k: '3m', l: '3M', days: 90 },
-  { k: '6m', l: '6M', days: 180 },
-  { k: '1a', l: '1A', days: 365 },
-  { k: 'tudo', l: 'Tudo', days: 0 },
-];
-
-function filterByPeriod(items, dateField, days) {
-  if (!days) return items;
-  var now = new Date();
-  var cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-  var cutoffStr = cutoff.toISOString().substring(0, 10);
-  return items.filter(function(item) {
-    return (item[dateField] || '') >= cutoffStr;
-  });
-}
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -45,7 +28,7 @@ export default function HistoricoScreen(props) {
   var _proventos = useState([]); var proventos = _proventos[0]; var setProventos = _proventos[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
   var _subFilter = useState('todos'); var subFilter = _subFilter[0]; var setSubFilter = _subFilter[1];
-  var _periodo = useState('tudo'); var periodo = _periodo[0]; var setPeriodo = _periodo[1];
+  var _dateRange = useState(null); var dateRange = _dateRange[0]; var setDateRange = _dateRange[1];
 
   var load = async function() {
     if (!user) return;
@@ -122,10 +105,14 @@ export default function HistoricoScreen(props) {
   // Sort by date descending
   timeline.sort(function(a, b) { return b.date.localeCompare(a.date); });
 
-  // Apply period filter
-  var periodoObj = PERIODOS.filter(function(p) { return p.k === periodo; })[0];
-  var periodoDays = periodoObj ? periodoObj.days : 0;
-  var timelineFiltered = filterByPeriod(timeline, 'date', periodoDays);
+  // Apply date range filter
+  var timelineFiltered = timeline;
+  if (dateRange) {
+    timelineFiltered = timeline.filter(function(t) {
+      var d = (t.date || '').substring(0, 10);
+      return d >= dateRange.start && d <= dateRange.end;
+    });
+  }
 
   // Apply filter + sub-filter
   var filtered = timelineFiltered;
@@ -241,16 +228,7 @@ export default function HistoricoScreen(props) {
           </View>
         </Glass>
 
-        <View style={{ flexDirection: 'row', gap: 5, flexWrap: 'wrap' }}>
-          {PERIODOS.map(function(p) {
-            return (
-              <Pill key={p.k} active={periodo === p.k} color={C.accent}
-                onPress={function() { setPeriodo(p.k); setSubFilter('todos'); }}>
-                {p.l}
-              </Pill>
-            );
-          })}
-        </View>
+        <PeriodFilter onRangeChange={function(r) { setDateRange(r); setSubFilter('todos'); }} />
 
         <View style={{ flexDirection: 'row', gap: 5, flexWrap: 'wrap' }}>
           {[
@@ -342,7 +320,7 @@ export default function HistoricoScreen(props) {
       data={sortedMonthKeys}
       keyExtractor={monthKeyExtractor}
       renderItem={renderMonthGroup}
-      ListHeaderComponent={renderHeader}
+      ListHeaderComponent={renderHeader()}
       ListFooterComponent={<View style={{ height: 40 }} />}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh}

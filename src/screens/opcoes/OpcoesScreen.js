@@ -21,10 +21,15 @@ import * as Haptics from 'expo-haptics';
 import Toast from 'react-native-toast-message';
 var geminiService = require('../../services/geminiService');
 var analyzeOption = geminiService.analyzeOption;
+var dateUtils = require('../../utils/dateUtils');
+var parseLocalDate = dateUtils.parseLocalDate;
+var formatDateBR = dateUtils.formatDateBR;
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+
+
 
 function maskDate(text) {
   var clean = text.replace(/\D/g, '');
@@ -264,7 +269,7 @@ function calcGreeks(op, spot, selicRate) {
   var s = spot || op.strike || 0;
   var k = op.strike || 0;
   var p = op.premio || 0;
-  var daysLeft = Math.max(1, Math.ceil((new Date(op.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
+  var daysLeft = Math.max(1, Math.ceil((parseLocalDate(op.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
   var t = daysLeft / 365;
   var r = (selicRate || 13.25) / 100;
   var tipo = (op.tipo || 'call').toLowerCase();
@@ -633,7 +638,7 @@ var OpCard = React.memo(function OpCard(props) {
   var tipoLabel = (op.tipo || 'call').toUpperCase();
   var isVenda = op.direcao === 'lancamento' || op.direcao === 'venda';
   var premTotal = (op.premio || 0) * (op.quantidade || 0);
-  var daysLeft = Math.max(0, Math.ceil((new Date(op.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
+  var daysLeft = Math.max(0, Math.ceil((parseLocalDate(op.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
 
   // Cobertura: CALL = acoes na mesma corretora, PUT = saldo na mesma corretora
   var cobertura = '';
@@ -1130,6 +1135,9 @@ function CalculadoraOpcoes(props) {
   var indicatorsMap = props.indicators || {};
   var chainSelicRate = props.selicRate || 13.25;
 
+  // Custom ticker entries (persisted across re-renders)
+  var _customEntries = useState({}); var customEntries = _customEntries[0]; var setCustomEntries = _customEntries[1];
+
   // Unique tickers with spot prices
   var tickers = [];
   var tickerSpots = {};
@@ -1139,6 +1147,13 @@ function CalculadoraOpcoes(props) {
       tickers.push(pt.ticker);
       tickerSpots[pt.ticker] = pt.preco_atual || pt.pm || 0;
     }
+  }
+  // Merge custom entries (persisted in state)
+  var ceKeys = Object.keys(customEntries);
+  for (var ce = 0; ce < ceKeys.length; ce++) {
+    var ceKey = ceKeys[ce];
+    if (tickers.indexOf(ceKey) === -1) tickers.push(ceKey);
+    tickerSpots[ceKey] = customEntries[ceKey];
   }
 
   var defaultTicker = tickers.length > 0 ? tickers[0] : null;
@@ -1179,8 +1194,13 @@ function CalculadoraOpcoes(props) {
     if (!tk) return;
     var sp = parseFloat(customSpot);
     if (!sp || sp <= 0) return;
-    tickerSpots[tk] = sp;
-    if (tickers.indexOf(tk) === -1) tickers.push(tk);
+    var next = {};
+    var prevKeys = Object.keys(customEntries);
+    for (var ci = 0; ci < prevKeys.length; ci++) {
+      next[prevKeys[ci]] = customEntries[prevKeys[ci]];
+    }
+    next[tk] = sp;
+    setCustomEntries(next);
     setChainTicker(tk);
     setShowCustom(false);
     setSpotOverride('');
@@ -1717,8 +1737,11 @@ function CalculadoraOpcoes(props) {
       } else if (cs.customSpot) {
         setCustomTicker(tk);
         setCustomSpot(cs.customSpot);
-        tickerSpots[tk] = parseFloat(cs.customSpot) || 0;
-        if (tickers.indexOf(tk) === -1) tickers.push(tk);
+        var nextCe = {};
+        var ceK = Object.keys(customEntries);
+        for (var ck = 0; ck < ceK.length; ck++) { nextCe[ceK[ck]] = customEntries[ceK[ck]]; }
+        nextCe[tk] = parseFloat(cs.customSpot) || 0;
+        setCustomEntries(nextCe);
         setChainTicker(tk);
       } else {
         setChainTicker(tk);
@@ -2678,7 +2701,7 @@ export default function OpcoesScreen() {
     var nonExpiredOpcoes = [];
     for (var ei = 0; ei < allOpcoes.length; ei++) {
       var o = allOpcoes[ei];
-      var vencDate = new Date(o.vencimento);
+      var vencDate = parseLocalDate(o.vencimento);
       vencDate.setDate(vencDate.getDate() + 1);
       if (o.status === 'ativa' && vencDate <= today) {
         expiredList.push(o);
@@ -3202,7 +3225,7 @@ export default function OpcoesScreen() {
 
   // Vencimentos proximos (sorted)
   var vencimentos = ativas.slice().sort(function(a, b) {
-    return new Date(a.vencimento) - new Date(b.vencimento);
+    return parseLocalDate(a.vencimento) - parseLocalDate(b.vencimento);
   });
 
   // Stats para header da aba Ativas
@@ -3221,7 +3244,7 @@ export default function OpcoesScreen() {
     var sMon = getMoneyness(sop.tipo, sop.direcao, sop.strike, sSpot);
     if (sMon && sMon.label === 'ATM') totalATM++;
     if (sMon && sMon.label === 'ITM') totalITM++;
-    var sDays = Math.ceil((new Date(sop.vencimento).getTime() - nowMs) / (1000 * 60 * 60 * 24));
+    var sDays = Math.ceil((parseLocalDate(sop.vencimento).getTime() - nowMs) / (1000 * 60 * 60 * 24));
     if (sDays >= 0 && sDays <= 7) totalVenc7d++;
   }
 
@@ -3292,7 +3315,7 @@ export default function OpcoesScreen() {
                     ) : null}
                     <View style={{ flexDirection: 'row', gap: 12, marginBottom: 8 }}>
                       <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>
-                        Venc: {new Date(expOp.vencimento).toLocaleDateString('pt-BR')}
+                        Venc: {formatDateBR(expOp.vencimento)}
                       </Text>
                       <Text style={[{ fontSize: 12, color: C.dim, fontFamily: F.mono }, ps]}>
                         Strike: R$ {fmt(expOp.strike)}
@@ -3386,7 +3409,7 @@ export default function OpcoesScreen() {
                 <View>
                   <SectionLabel>PRÓXIMOS VENCIMENTOS</SectionLabel>
                   {vencimentos.map(function(v, i) {
-                    var daysLeft = Math.max(0, Math.ceil((new Date(v.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
+                    var daysLeft = Math.max(0, Math.ceil((parseLocalDate(v.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
                     var tipoLabel = (v.tipo || 'call').toUpperCase();
                     var dayColor = daysLeft <= 7 ? C.red : daysLeft <= 21 ? C.etfs : C.opcoes;
 
@@ -3404,7 +3427,7 @@ export default function OpcoesScreen() {
                           </View>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                             <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>
-                              {new Date(v.vencimento).toLocaleDateString('pt-BR')}
+                              {formatDateBR(v.vencimento)}
                             </Text>
                             <Badge text={daysLeft + 'd'} color={dayColor} />
                           </View>
@@ -3534,7 +3557,7 @@ export default function OpcoesScreen() {
                         </View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
                           <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>
-                            {new Date(op.vencimento).toLocaleDateString('pt-BR')}
+                            {formatDateBR(op.vencimento)}
                           </Text>
                           <Badge text={statusLabel} color={stColor} />
                           {op.corretora ? (
