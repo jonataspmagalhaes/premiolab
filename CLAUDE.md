@@ -1310,6 +1310,85 @@ Simulador de opcoes suporta multiplas pernas para montar spreads, iron condors, 
   - Testar reduzir ainda mais o prompt ou usar `temperature: 0` para respostas mais curtas
   - Arquivo: `supabase/functions/analyze-option/index.ts`
 
+## Grade Real de Opcoes — Dados de Mercado B3 (A Implementar)
+
+Substituir a cadeia sintetica BS por dados reais de opcoes da B3 via API de mercado, com precos teoricos BS lado a lado para comparacao.
+
+### Arquitetura
+
+1. **Edge Function `oplab-options`**: proxy seguro (API key como Supabase secret, nunca exposta ao client)
+   - Endpoint principal: `GET /v3/market/instruments/series/{ticker}?bs=true&irate={selic}`
+   - Retorna: spot + series (por vencimento) + strikes com CALL/PUT (bid, ask, close, volume, delta, gamma, theta, vega, IV, moneyness)
+   - Auth: header `Access-Token: {key}`
+   - Rate limits: 50 req/s, 100 req/min
+   - Client chama via `supabase.functions.invoke('oplab-options', { body: { ticker, selic } })`
+   - Ver `memory/oplab.md` para credenciais e comando de deploy
+
+2. **Service `src/services/oplabService.js`**: client-side com cache 5min
+   - `fetchOptionsChain(ticker, selic)` — chama Edge Function, normaliza resposta
+   - Estrutura normalizada: `{ spot, iv_current, ewma_current, beta_ibov, series: [{ due_date, days_to_maturity, label, strikes: [{ strike, call: {symbol, bid, ask, close, volume, delta, gamma, theta, vega, iv, moneyness}, put: {...} }] }] }`
+
+3. **Nova Grade Profissional** (substituir CadeiaSintetica atual):
+   - **Dropdown de vencimento**: Pills com meses disponiveis (ate 3 meses). Primeiro = mais proximo (default)
+   - **Strike no centro**: coluna central com valor do strike
+   - **CALL a esquerda**: Bid, Ask, Teorico (BS), Delta, Volume
+   - **PUT a direita**: Bid, Ask, Teorico (BS), Delta, Volume
+   - **Spot line**: linha horizontal amarela que marca o preco atual, rola com a grade
+   - **Zona ITM/OTM**: fundo sutil — ITM mais denso, OTM mais claro
+   - **Preco Teorico**: coluna "Teor" com valor BS calculado localmente (mesmo calculo atual), cor mais dim que bid/ask
+   - **Scroll vertical**: ScrollView com spot line centralizado inicialmente
+   - **Toque em row**: mesma interacao atual (setStrikeInput ou addLeg em modo multi-perna)
+   - **Indicadores no header**: IV real, HV 20d (indicatorService), Beta
+
+4. **Auto-completar indicadores na Calculadora**: ao selecionar strike na grade real:
+   - IV: preenche com IV real da opcao em vez de HV
+   - Premio: preenche com mid-price real (bid+ask)/2
+   - DTE: preenche com days_to_maturity do vencimento selecionado
+   - Ticker opcao: mostra ticker real (ex: PETRH325)
+   - Delta/Gamma/Theta/Vega: exibe gregas reais
+   - Volume: exibe no card de resumo
+
+5. **Fallback**: se API falhar, mostra grade sintetica BS atual com badge "Dados teoricos (BS)"
+
+### Layout da Grade
+
+```
+CALL                    │         │                   PUT
+Bid   Ask  Teor  D  Vol │ STRIKE  │ Bid   Ask  Teor  D   Vol
+─────────────────────────│─────────│────────────────────────────
+0.02  0.05 0.03 .04 120 │  37.00  │ 2.10 2.25 2.18 -.96  80   OTM PUT
+0.15  0.22 0.18 .12 450 │  36.00  │ 1.05 1.18 1.12 -.88 230
+0.48  0.58 0.52 .28 890 │  35.00  │ 0.52 0.62 0.55 -.72 670   ← SPOT
+1.12  1.25 1.18 .55 1200│  34.00  │ 0.18 0.28 0.22 -.45 340
+2.05  2.18 2.10 .78 560 │  33.00  │ 0.05 0.10 0.07 -.22 150   OTM CALL
+● Real    ○ Teorico (BS)          Toque para simular
+```
+
+### Endpoints API uteis (ver docs completos em memoria)
+
+| Endpoint | Descricao |
+|----------|-----------|
+| `GET /v3/market/instruments/series/{ticker}?bs=true&irate=X` | Cadeia completa com gregas (PRINCIPAL) |
+| `GET /v3/market/options/{ticker}` | Lista todas opcoes do ativo (sem gregas) |
+| `GET /v3/market/options/details/{symbol}` | Quote individual de uma opcao |
+| `GET /v3/market/options/bs?symbol=X&irate=Y&...` | Calculadora BS individual |
+| `GET /v3/market/stocks/{ticker}` | Dados do ativo com iv_current, ewma, beta |
+
+### Arquivos a criar/modificar
+
+| Arquivo | Acao |
+|---------|------|
+| `supabase/functions/oplab-options/index.ts` | **Criar** — Edge Function proxy |
+| `src/services/oplabService.js` | **Criar** — client service com cache 5min |
+| `src/screens/opcoes/OpcoesScreen.js` | **Modificar** — nova grade, dropdown vencimento, auto-fill indicadores |
+| `src/services/geminiService.js` | **Modificar** — prompt IA com dados reais (strikes, OI, volume) |
+
+### Deploy
+```
+npx supabase secrets set OPLAB_API_KEY="<ver memoria>" --project-ref zephynezarjsxzselozi
+npx supabase functions deploy oplab-options --no-verify-jwt --project-ref zephynezarjsxzselozi
+```
+
 ## Proximas Melhorias Possiveis
 
 - [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
