@@ -644,25 +644,19 @@ export default function CaixaView(props) {
     resetAction();
     setExpanded(null);
 
-    upsertSaldo(user.id, {
-      corretora: sName,
-      saldo: num,
+    if (diff === 0) { return; }
+
+    addMovimentacaoComSaldo(user.id, {
+      conta: sName,
+      tipo: diff > 0 ? 'entrada' : 'saida',
+      categoria: 'ajuste_manual',
+      valor: Math.abs(diff),
+      descricao: 'Ajuste manual de saldo (' + getSymbol(s.moeda || 'BRL') + ' ' + fmt(saldoAntigo) + ' → ' + getSymbol(s.moeda || 'BRL') + ' ' + fmt(num) + ')',
+      data: new Date().toISOString().substring(0, 10),
       moeda: s.moeda || 'BRL',
     }).then(function(res) {
-      if (res.error) {
+      if (res && res.error) {
         Alert.alert('Erro', 'Falha ao atualizar saldo.');
-        return;
-      }
-      if (diff !== 0) {
-        addMovimentacaoComSaldo(user.id, {
-          conta: sName,
-          tipo: diff > 0 ? 'entrada' : 'saida',
-          categoria: 'ajuste_manual',
-          valor: Math.abs(diff),
-          descricao: 'Ajuste manual de saldo (' + getSymbol(s.moeda || 'BRL') + ' ' + fmt(saldoAntigo) + ' → ' + getSymbol(s.moeda || 'BRL') + ' ' + fmt(num) + ')',
-          saldo_apos: num,
-          data: new Date().toISOString().substring(0, 10),
-        });
       }
       load();
     });
