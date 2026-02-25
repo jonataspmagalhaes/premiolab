@@ -21,6 +21,14 @@ import * as Haptics from 'expo-haptics';
 import Toast from 'react-native-toast-message';
 var geminiService = require('../../services/geminiService');
 var analyzeOption = geminiService.analyzeOption;
+import AsyncStorage from '@react-native-async-storage/async-storage';
+var oplabModule = require('../../services/oplabService');
+var fetchOptionsChain = oplabModule.fetchOptionsChain;
+var clearOplabCache = oplabModule.clearOplabCache;
+var getCachedChain = oplabModule.getCachedChain;
+var getCachedOptionData = oplabModule.getCachedOptionData;
+var marketStatusModule = require('../../services/marketStatusService');
+var getB3Status = marketStatusModule.getB3Status;
 var dateUtils = require('../../utils/dateUtils');
 var parseLocalDate = dateUtils.parseLocalDate;
 var formatDateBR = dateUtils.formatDateBR;
@@ -622,6 +630,8 @@ var OpCard = React.memo(function OpCard(props) {
   var indicatorsMap = props.indicators || {};
   var cardSelicRate = props.selicRate || 13.25;
   var setInfoModal = props.setInfoModal;
+  var cachedOption = props.cachedOption || null;
+  var cachedChain = props.cachedChain || null;
   var onEdit = props.onEdit;
   var onDelete = props.onDelete;
   var onClose = props.onClose;
@@ -720,6 +730,16 @@ var OpCard = React.memo(function OpCard(props) {
   if (matchPos) spotPrice = matchPos.preco_atual || matchPos.pm || 0;
   var greeks = calcGreeks(op, spotPrice, cardSelicRate);
 
+  // Override com dados reais do cache OpLab (via props do pai)
+  // OpLab retorna iv ja em percentual (ex: 33.24 = 33.24%)
+  if (cachedOption && cachedOption.iv != null) {
+    greeks.iv = cachedOption.iv;
+    if (cachedOption.delta != null) greeks.delta = cachedOption.delta;
+    if (cachedOption.gamma != null) greeks.gamma = cachedOption.gamma;
+    if (cachedOption.theta != null) greeks.theta = cachedOption.theta;
+    if (cachedOption.vega != null) greeks.vega = cachedOption.vega;
+  }
+
   // Moneyness
   var moneyness = getMoneyness(op.tipo, op.direcao, op.strike, spotPrice);
 
@@ -801,7 +821,8 @@ var OpCard = React.memo(function OpCard(props) {
       {/* HV vs IV line */}
       {(function() {
         var ind = indicatorsMap[op.ativo_base];
-        var hv = ind && ind.hv_20 != null ? ind.hv_20 : null;
+        var hv = cachedChain && cachedChain.ewma_current != null ? cachedChain.ewma_current
+          : (ind && ind.hv_20 != null ? ind.hv_20 : null);
         if (hv == null) return null;
         var iv = greeks.iv;
         var ratio = iv > 0 && hv > 0 ? iv / hv : null;
@@ -823,7 +844,7 @@ var OpCard = React.memo(function OpCard(props) {
             ivGlow && { backgroundColor: ivColor + '0A', borderWidth: 1, borderColor: ivColor + '18' },
           ]}>
             <Text style={[{ fontSize: 11, color: C.sub, fontFamily: F.mono }, ps]}>
-              {'HV: ' + hv.toFixed(0) + '%'}
+              {'VH: ' + hv.toFixed(0) + '%'}
             </Text>
             <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>|</Text>
             <Text style={[
@@ -834,7 +855,7 @@ var OpCard = React.memo(function OpCard(props) {
               {'VI: ' + iv.toFixed(0) + '%'}
             </Text>
             {ivLabel ? <Badge text={ivLabel} color={ivColor} /> : null}
-            <TouchableOpacity onPress={function() { setInfoModal({ title: 'HV / VI', text: 'HV = volatilidade histórica 20d. VI = volatilidade implícita. VI > 130% HV = prêmio caro (venda favorecida). VI < 70% HV = prêmio barato (compra favorecida).' }); }}>
+            <TouchableOpacity onPress={function() { setInfoModal({ title: 'VH / VI', text: 'VH = volatilidade histórica 20d. VI = volatilidade implícita. VI > 130% VH = prêmio caro (venda favorecida). VI < 70% VH = prêmio barato (compra favorecida).' }); }}>
               <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
             </TouchableOpacity>
           </View>
@@ -1021,7 +1042,7 @@ var TUTORIAL_STEPS = [
   {
     title: 'Indicadores Técnicos',
     icon: 'pulse-outline',
-    text: 'HV 20d (Volatilidade Histórica):\nOscilação real do ativo nos últimos 20 dias. Compare com VI: se VI > HV, prêmios estão caros (bom para vender).\n\nRSI 14:\n• > 70: sobrecomprado (possível queda)\n• < 30: sobrevendido (possível alta)\n• 30-70: neutro\n\nBeta:\n• > 1.2: mais volátil que o mercado\n• < 0.8: mais defensivo\n• = 1: acompanha o mercado\n\nMax Drawdown:\nMaior queda do pico ao vale. Indica risco histórico máximo.\n\nSMA/EMA: médias móveis — suporte e resistência dinâmicos.\nATR: amplitude média diária — útil para definir stops.\nBB Width: largura das Bandas de Bollinger — baixa = baixa volatilidade (breakout próximo).',
+    text: 'VH 20d (Volatilidade Histórica):\nOscilação real do ativo nos últimos 20 dias. Compare com VI: se VI > VH, prêmios estão caros (bom para vender).\n\nRSI 14:\n• > 70: sobrecomprado (possível queda)\n• < 30: sobrevendido (possível alta)\n• 30-70: neutro\n\nBeta:\n• > 1.2: mais volátil que o mercado\n• < 0.8: mais defensivo\n• = 1: acompanha o mercado\n\nMax Drawdown:\nMaior queda do pico ao vale. Indica risco histórico máximo.\n\nSMA/EMA: médias móveis — suporte e resistência dinâmicos.\nATR: amplitude média diária — útil para definir stops.\nBB Width: largura das Bandas de Bollinger — baixa = baixa volatilidade (breakout próximo).',
   },
   {
     title: 'Estratégias Práticas',
@@ -1138,17 +1159,118 @@ function CalculadoraOpcoes(props) {
   // Custom ticker entries (persisted across re-renders)
   var _customEntries = useState({}); var customEntries = _customEntries[0]; var setCustomEntries = _customEntries[1];
 
-  // Unique tickers with spot prices
-  var tickers = [];
+  // Watchlist — lista de análise do usuário (persisted via AsyncStorage)
+  var WATCHLIST_KEY = '@premiolab_opcoes_watchlist';
+  var _watchlist = useState([]); var watchlist = _watchlist[0]; var setWatchlist = _watchlist[1];
+  var _showWatchlistInput = useState(false); var showWatchlistInput = _showWatchlistInput[0]; var setShowWatchlistInput = _showWatchlistInput[1];
+  var _watchlistTicker = useState(''); var watchlistTicker = _watchlistTicker[0]; var setWatchlistTicker = _watchlistTicker[1];
+
+  // Favoritos — tickers favoritos do usuário (persisted via AsyncStorage)
+  var FAVORITES_KEY = '@premiolab_opcoes_favorites';
+  var _favorites = useState([]); var favorites = _favorites[0]; var setFavorites = _favorites[1];
+
+  // Load watchlist + favorites on mount
+  useEffect(function() {
+    AsyncStorage.getItem(WATCHLIST_KEY).then(function(val) {
+      if (val) {
+        try { setWatchlist(JSON.parse(val)); } catch(e) {}
+      }
+    });
+    AsyncStorage.getItem(FAVORITES_KEY).then(function(val) {
+      if (val) {
+        try { setFavorites(JSON.parse(val)); } catch(e) {}
+      }
+    });
+  }, []);
+
+  function saveWatchlist(list) {
+    setWatchlist(list);
+    AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(list));
+  }
+
+  function saveFavorites(list) {
+    setFavorites(list);
+    AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(list));
+  }
+
+  function addToWatchlist(tk) {
+    var upper = tk.toUpperCase().trim();
+    if (!upper || upper.length < 4) return;
+    if (watchlist.indexOf(upper) !== -1) return;
+    var next = watchlist.slice();
+    next.push(upper);
+    next.sort();
+    saveWatchlist(next);
+  }
+
+  function removeFromWatchlist(tk) {
+    var next = [];
+    for (var wi = 0; wi < watchlist.length; wi++) {
+      if (watchlist[wi] !== tk) next.push(watchlist[wi]);
+    }
+    saveWatchlist(next);
+  }
+
+  function toggleFavorite(tk) {
+    var upper = tk.toUpperCase().trim();
+    if (!upper) return;
+    var idx = favorites.indexOf(upper);
+    var next;
+    if (idx !== -1) {
+      // Remove
+      next = [];
+      for (var fi = 0; fi < favorites.length; fi++) {
+        if (favorites[fi] !== upper) next.push(favorites[fi]);
+      }
+    } else {
+      // Add
+      next = favorites.slice();
+      next.push(upper);
+      next.sort();
+    }
+    saveFavorites(next);
+  }
+
+  function isFavorite(tk) {
+    return favorites.indexOf(tk) !== -1;
+  }
+
+  // Unique tickers — only BR ações/FIIs (com opções na B3), sorted alphabetically
+  var portfolioTickers = [];
   var tickerSpots = {};
   for (var ti = 0; ti < positions.length; ti++) {
     var pt = positions[ti];
-    if (tickers.indexOf(pt.ticker) === -1) {
-      tickers.push(pt.ticker);
+    var cat = pt.categoria || '';
+    var merc = pt.mercado || 'BR';
+    if (merc !== 'BR') continue;
+    if (cat === 'etf' || cat === 'rf') continue;
+    if (portfolioTickers.indexOf(pt.ticker) === -1) {
+      portfolioTickers.push(pt.ticker);
       tickerSpots[pt.ticker] = pt.preco_atual || pt.pm || 0;
     }
   }
-  // Merge custom entries (persisted in state)
+  portfolioTickers.sort();
+
+  // Watchlist-only: tickers added by user that are NOT in portfolio
+  var watchlistOnly = [];
+  for (var ws = 0; ws < watchlist.length; ws++) {
+    if (portfolioTickers.indexOf(watchlist[ws]) === -1) {
+      watchlistOnly.push(watchlist[ws]);
+    }
+  }
+  watchlistOnly.sort();
+
+  // Combined tickers for default selection
+  var allTickers = [];
+  for (var pt2 = 0; pt2 < portfolioTickers.length; pt2++) {
+    if (allTickers.indexOf(portfolioTickers[pt2]) === -1) allTickers.push(portfolioTickers[pt2]);
+  }
+  for (var wo2 = 0; wo2 < watchlistOnly.length; wo2++) {
+    if (allTickers.indexOf(watchlistOnly[wo2]) === -1) allTickers.push(watchlistOnly[wo2]);
+  }
+  var tickers = allTickers;
+
+  // Merge custom entries (from "+ Outro")
   var ceKeys = Object.keys(customEntries);
   for (var ce = 0; ce < ceKeys.length; ce++) {
     var ceKey = ceKeys[ce];
@@ -1189,34 +1311,62 @@ function CalculadoraOpcoes(props) {
     setSpotOverride('');
   };
 
-  var handleCustomApply = function() {
-    var tk = customTicker.toUpperCase().trim();
-    if (!tk) return;
-    var sp = parseFloat(customSpot);
-    if (!sp || sp <= 0) return;
-    var next = {};
-    var prevKeys = Object.keys(customEntries);
-    for (var ci = 0; ci < prevKeys.length; ci++) {
-      next[prevKeys[ci]] = customEntries[prevKeys[ci]];
-    }
-    next[tk] = sp;
-    setCustomEntries(next);
-    setChainTicker(tk);
-    setShowCustom(false);
-    setSpotOverride('');
-  };
-
-  var handleFetchCustomSpot = function() {
+  var handleCustomSearch = function() {
     var tk = customTicker.toUpperCase().trim();
     if (!tk || tk.length < 2) return;
     setFetchingSpot(true);
     fetchPrices([tk]).then(function(priceMap) {
       var p = priceMap && priceMap[tk];
       if (p && p.price) {
-        setCustomSpot(String(p.price.toFixed(2)));
+        var next = {};
+        var prevKeys = Object.keys(customEntries);
+        for (var ci = 0; ci < prevKeys.length; ci++) {
+          next[prevKeys[ci]] = customEntries[prevKeys[ci]];
+        }
+        next[tk] = p.price;
+        setCustomEntries(next);
+        setChainTicker(tk);
+        setShowCustom(false);
+        setSpotOverride('');
+        setCustomTicker('');
+      } else {
+        Alert.alert('Ticker não encontrado', 'Não foi possível buscar o preço de ' + tk + '. Verifique se o ticker está correto.');
       }
       setFetchingSpot(false);
-    }).catch(function() { setFetchingSpot(false); });
+    }).catch(function() {
+      Alert.alert('Erro', 'Falha ao buscar preço. Tente novamente.');
+      setFetchingSpot(false);
+    });
+  };
+
+  var handleCustomAddToList = function() {
+    var tk = customTicker.toUpperCase().trim();
+    if (!tk || tk.length < 4) return;
+    setFetchingSpot(true);
+    fetchPrices([tk]).then(function(priceMap) {
+      var p = priceMap && priceMap[tk];
+      if (p && p.price) {
+        addToWatchlist(tk);
+        var next = {};
+        var prevKeys = Object.keys(customEntries);
+        for (var ci = 0; ci < prevKeys.length; ci++) {
+          next[prevKeys[ci]] = customEntries[prevKeys[ci]];
+        }
+        next[tk] = p.price;
+        setCustomEntries(next);
+        setChainTicker(tk);
+        setShowCustom(false);
+        setSpotOverride('');
+        setCustomTicker('');
+        Toast.show({ type: 'success', text1: tk + ' adicionado à lista de análise' });
+      } else {
+        Alert.alert('Ticker não encontrado', 'Não foi possível buscar o preço de ' + tk + '. Verifique se o ticker está correto.');
+      }
+      setFetchingSpot(false);
+    }).catch(function() {
+      Alert.alert('Erro', 'Falha ao buscar preço. Tente novamente.');
+      setFetchingSpot(false);
+    });
   };
 
   // Current ticker HV for badge
@@ -1241,6 +1391,86 @@ function CalculadoraOpcoes(props) {
   var _aiModalOpen = useState(false); var aiModalOpen = _aiModalOpen[0]; var setAiModalOpen = _aiModalOpen[1];
   var _aiObj = useState('renda'); var aiObjetivo = _aiObj[0]; var setAiObjetivo = _aiObj[1];
   var _aiCapital = useState(''); var aiCapital = _aiCapital[0]; var setAiCapital = _aiCapital[1];
+
+  // Real options chain states
+  var _chainData = useState(null); var chainData = _chainData[0]; var setChainData = _chainData[1];
+  var _chainLoading = useState(false); var chainLoading = _chainLoading[0]; var setChainLoading = _chainLoading[1];
+  var _chainError = useState(null); var chainError = _chainError[0]; var setChainError = _chainError[1];
+  var _selectedSeries = useState(0); var selectedSeries = _selectedSeries[0]; var setSelectedSeries = _selectedSeries[1];
+  var _chainLastUpdate = useState(null); var chainLastUpdate = _chainLastUpdate[0]; var setChainLastUpdate = _chainLastUpdate[1];
+  var _gradeFull = useState(false); var gradeFullscreen = _gradeFull[0]; var setGradeFullscreen = _gradeFull[1];
+
+  // Auto-fill chainIV from HV 20d when ticker changes (fallback if no OpLab IV)
+  useEffect(function() {
+    if (!chainTicker) return;
+    if (chainIV !== '') return; // user already typed something
+    var hv = indicatorsMap && indicatorsMap[chainTicker] && indicatorsMap[chainTicker].hv_20;
+    if (hv && hv > 0) {
+      setChainIV(hv.toFixed(0));
+    }
+  }, [chainTicker, indicatorsMap]);
+
+  // Fetch real chain — called on ticker change + auto-refresh
+  function doFetchChain(isRefresh) {
+    if (!chainTicker) { setChainData(null); return; }
+    if (!isRefresh) {
+      setChainLoading(true);
+      setChainError(null);
+      setSelectedSeries(0);
+    }
+    if (isRefresh) { clearOplabCache(); }
+    fetchOptionsChain(chainTicker, chainSelicRate).then(function(result) {
+      if (result && result.error) {
+        if (!isRefresh) { setChainError(result.error); setChainData(null); }
+      } else if (result && result.series && result.series.length > 0) {
+        setChainData(result);
+        if (result.iv_current) {
+          setChainIV(result.iv_current.toFixed(0));
+        }
+        setChainLastUpdate(new Date());
+        setChainError(null);
+      } else {
+        if (!isRefresh) { setChainData(null); }
+      }
+      setChainLoading(false);
+    });
+  }
+
+  // Fetch on ticker change
+  useEffect(function() {
+    doFetchChain(false);
+  }, [chainTicker]);
+
+  // B3 market status — check every 60s
+  var _b3Status = useState(function() { return getB3Status(); }); var b3Status = _b3Status[0]; var setB3Status = _b3Status[1];
+  useEffect(function() {
+    var interval = setInterval(function() {
+      setB3Status(getB3Status());
+    }, 60000);
+    return function() { clearInterval(interval); };
+  }, []);
+
+  // Auto-refresh every 2 minutes — only when market is open
+  useEffect(function() {
+    if (!chainTicker) return;
+    var interval = setInterval(function() {
+      var status = getB3Status();
+      setB3Status(status);
+      if (status.isOpen) {
+        doFetchChain(true);
+      }
+    }, 120000); // 2 min
+    return function() { clearInterval(interval); };
+  }, [chainTicker, chainSelicRate]);
+
+  // Auto-update DTE when selecting a different vencimento
+  useEffect(function() {
+    if (!chainData || !chainData.series || !chainData.series[selectedSeries]) return;
+    var dtm = chainData.series[selectedSeries].days_to_maturity;
+    if (dtm > 0) {
+      setChainDTE(String(dtm));
+    }
+  }, [selectedSeries, chainData]);
 
   // Saved analyses states
   var authUser = useAuth().user;
@@ -1599,10 +1829,17 @@ function CalculadoraOpcoes(props) {
       scenarioResults.push({ label: lbl, result: scn ? scn.plVenda * 100 : 0 });
     }
 
-    // Build strikes from mini-table
+    // Build strikes from real chain or mini-table
     var availStrikes = [];
-    for (var avi = 0; avi < miniTableData.length; avi++) {
-      availStrikes.push(miniTableData[avi].sk);
+    if (chainData && chainData.series && chainData.series.length > 0) {
+      var aiSerie = chainData.series[selectedSeries] || chainData.series[0];
+      for (var avi = 0; avi < (aiSerie.strikes || []).length; avi++) {
+        availStrikes.push(aiSerie.strikes[avi].strike);
+      }
+    } else {
+      for (var avi2 = 0; avi2 < miniTableData.length; avi2++) {
+        availStrikes.push(miniTableData[avi2].sk);
+      }
     }
 
     var data = {
@@ -1884,49 +2121,810 @@ function CalculadoraOpcoes(props) {
     );
   }
 
+  // ── renderGradeContent: reusable between inline and fullscreen modal ──
+  function renderGradeContent(isFullscreen) {
+    return (
+      <View>
+        {/* Info row: spot + IV + HV + beta */}
+        {spot > 0 ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+            <Text style={[{ fontSize: 11, fontFamily: F.mono, color: C.text }, ps]}>
+              {'Spot R$ ' + fmt(spot)}
+            </Text>
+            {(function() {
+              var seriesIV = null;
+              if (chainData && chainData.series && chainData.series.length > 0) {
+                var sel = chainData.series[selectedSeries] || chainData.series[0];
+                var cSpot = chainData.spot || spot;
+                var ivVals = [];
+                var sorted = [];
+                for (var si = 0; si < (sel.strikes || []).length; si++) {
+                  sorted.push({ idx: si, dist: Math.abs((sel.strikes[si].strike || 0) - cSpot) });
+                }
+                sorted.sort(function(a, b) { return a.dist - b.dist; });
+                var maxN = Math.min(3, sorted.length);
+                for (var ni = 0; ni < maxN; ni++) {
+                  var stk = sel.strikes[sorted[ni].idx];
+                  if (stk.call && stk.call.iv != null && stk.call.iv > 0) ivVals.push(stk.call.iv);
+                  if (stk.put && stk.put.iv != null && stk.put.iv > 0) ivVals.push(stk.put.iv);
+                }
+                if (ivVals.length > 0) {
+                  var ivTotal = 0;
+                  for (var vi = 0; vi < ivVals.length; vi++) ivTotal += ivVals[vi];
+                  seriesIV = ivTotal / ivVals.length;
+                }
+              }
+              if (seriesIV != null) {
+                return (
+                  <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.rf }}>
+                    {'VI ' + seriesIV.toFixed(0) + '%'}
+                  </Text>
+                );
+              }
+              if (chainData && chainData.iv_current) {
+                return (
+                  <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.rf }}>
+                    {'VI ' + chainData.iv_current.toFixed(0) + '%'}
+                  </Text>
+                );
+              }
+              if (chainIV) {
+                return (
+                  <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.rf }}>
+                    {'VI ' + chainIV + '%'}
+                  </Text>
+                );
+              }
+              return null;
+            })()}
+            {(function() {
+              var hvDisplay = chainData && chainData.ewma_current != null ? chainData.ewma_current : currentHV;
+              if (!hvDisplay || hvDisplay <= 0) return null;
+              return (
+                <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.sub }}>
+                  {'VH ' + hvDisplay.toFixed(0) + '%'}
+                </Text>
+              );
+            })()}
+            {chainData && chainData.beta_ibov ? (
+              <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.sub }}>
+                {'Beta ' + chainData.beta_ibov.toFixed(2)}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* Vencimento pills — only when real data available */}
+        {chainData && chainData.series && chainData.series.length > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}
+            contentContainerStyle={{ gap: 4 }}>
+            {chainData.series.map(function(serie, si) {
+              var isActive = selectedSeries === si;
+              return (
+                <TouchableOpacity key={si} activeOpacity={0.7}
+                  onPress={function() { setSelectedSeries(si); }}
+                  style={{ paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
+                    backgroundColor: isActive ? C.accent + '25' : C.card,
+                    borderWidth: 1, borderColor: isActive ? C.accent : C.border }}>
+                  <Text style={{ fontSize: 11, fontWeight: isActive ? '700' : '400',
+                    color: isActive ? C.accent : C.sub, fontFamily: F.mono }}>
+                    {serie.label + ' (' + serie.days_to_maturity + 'd)'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        ) : (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}
+            contentContainerStyle={{ gap: 4 }}>
+            {['auto', '0.25', '0.50', '0.75', '1.00', '2.00', '5.00'].map(function(sv) {
+              var isAct = tableStep === sv;
+              var lbl = sv === 'auto' ? 'Auto (' + getB3StrikeStep(spot, chainTicker).toFixed(2) + ')' : 'R$ ' + sv;
+              return (
+                <TouchableOpacity key={sv} activeOpacity={0.7}
+                  onPress={function() { setTableStep(sv); }}
+                  style={{ paddingVertical: 4, paddingHorizontal: 8, borderRadius: 5,
+                    backgroundColor: isAct ? C.accent + '25' : C.card,
+                    borderWidth: 1, borderColor: isAct ? C.accent : C.border }}>
+                  <Text style={{ fontSize: 11, fontWeight: isAct ? '700' : '400',
+                    color: isAct ? C.accent : C.sub, fontFamily: F.mono }}>{lbl}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
+
+        {chainError ? (
+          <Text style={{ fontSize: 10, color: C.yellow, fontFamily: F.body, marginBottom: 6 }}>
+            {chainError + ' — exibindo preços teóricos (BS)'}
+          </Text>
+        ) : null}
+
+        {/* ── REAL DATA GRID (from API) ── */}
+        {chainData && chainData.series && chainData.series.length > 0 ? (function() {
+          var activeSerie = chainData.series[selectedSeries] || chainData.series[0];
+          var allStrikes = activeSerie.strikes || [];
+          var seriesDTE = activeSerie.days_to_maturity || dteVal;
+          var seriesTYears = seriesDTE / 365;
+          var chainSpot = chainData.spot || spot;
+
+          // In fullscreen mode show ALL strikes; inline limits to 5+ATM+5
+          var strikes;
+          if (isFullscreen) {
+            strikes = allStrikes;
+          } else {
+            var atmIdx = 0;
+            var minDist = Infinity;
+            for (var fi = 0; fi < allStrikes.length; fi++) {
+              var dist = Math.abs(allStrikes[fi].strike - chainSpot);
+              if (dist < minDist) { minDist = dist; atmIdx = fi; }
+            }
+            var startIdx = Math.max(0, atmIdx - 5);
+            var endIdx = Math.min(allStrikes.length, atmIdx + 6);
+            strikes = allStrikes.slice(startIdx, endIdx);
+          }
+
+          return (
+            <View>
+              {/* Expiry date line */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 6, paddingVertical: 4, backgroundColor: C.accent + '08', borderRadius: 6 }}>
+                <Ionicons name="calendar-outline" size={12} color={C.accent} />
+                <Text style={{ fontSize: 11, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>
+                  {'Vencimento: ' + activeSerie.due_date.split('-').reverse().join('/') + ' (' + seriesDTE + ' dias)'}
+                </Text>
+              </View>
+              {/* Side labels — CALL | STRIKE | PUT */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 3, paddingHorizontal: 1, marginBottom: 2 }}>
+                <View style={{ width: 148, alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 10, height: 3, borderRadius: 2, backgroundColor: C.green }} />
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: C.green, fontFamily: F.display, letterSpacing: 1 }}>CALL</Text>
+                    <View style={{ width: 10, height: 3, borderRadius: 2, backgroundColor: C.green }} />
+                  </View>
+                </View>
+                <View style={{ flex: 1 }} />
+                <View style={{ width: 148, alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 10, height: 3, borderRadius: 2, backgroundColor: C.red }} />
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: C.red, fontFamily: F.display, letterSpacing: 1 }}>PUT</Text>
+                    <View style={{ width: 10, height: 3, borderRadius: 2, backgroundColor: C.red }} />
+                  </View>
+                </View>
+              </View>
+              {/* Column headers */}
+              <View style={{ flexDirection: 'row', paddingVertical: 3, paddingHorizontal: 1, borderBottomWidth: 1, borderBottomColor: C.border }}>
+                {/* CALL side */}
+                <Text style={{ width: 40, fontSize: 9, color: C.green + 'BB', fontFamily: F.mono, textAlign: 'center' }}>Bid</Text>
+                <Text style={{ width: 40, fontSize: 9, color: C.green + 'BB', fontFamily: F.mono, textAlign: 'center' }}>Ask</Text>
+                <Text style={{ width: 38, fontSize: 9, color: C.green + '80', fontFamily: F.mono, textAlign: 'center' }}>Teór</Text>
+                <Text style={{ width: 30, fontSize: 9, color: C.green + '80', fontFamily: F.mono, textAlign: 'center' }}>Δ</Text>
+                {/* STRIKE center */}
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>STRIKE</Text>
+                </View>
+                {/* PUT side */}
+                <Text style={{ width: 30, fontSize: 9, color: C.red + '80', fontFamily: F.mono, textAlign: 'center' }}>Δ</Text>
+                <Text style={{ width: 38, fontSize: 9, color: C.red + '80', fontFamily: F.mono, textAlign: 'center' }}>Teór</Text>
+                <Text style={{ width: 40, fontSize: 9, color: C.red + 'BB', fontFamily: F.mono, textAlign: 'center' }}>Bid</Text>
+                <Text style={{ width: 40, fontSize: 9, color: C.red + 'BB', fontFamily: F.mono, textAlign: 'center' }}>Ask</Text>
+              </View>
+
+              {/* Rows */}
+              {strikes.map(function(stRow, ri) {
+                var sk = stRow.strike;
+                var callOpt = stRow.call;
+                var putOpt = stRow.put;
+                var isAtm = Math.abs(sk - chainSpot) / chainSpot < 0.015;
+                var callItm = sk < chainSpot;
+                var putItm = sk > chainSpot;
+
+                var mLabel = isAtm ? 'ATM' : (callItm ? 'ITM' : 'OTM');
+                var mColor = isAtm ? C.yellow : (callItm ? C.green : C.sub);
+
+                var bsCallPrice = (callOpt && callOpt.bs_price != null && callOpt.bs_price > 0) ? callOpt.bs_price : 0;
+                var bsPutPrice = (putOpt && putOpt.bs_price != null && putOpt.bs_price > 0) ? putOpt.bs_price : 0;
+                if (bsCallPrice <= 0 || bsPutPrice <= 0) {
+                  var bsIVLocal = ivVal > 0 ? applyIVSkew(ivVal, sk, chainSpot, skewStrength) : 0.35;
+                  if (bsCallPrice <= 0 && seriesTYears > 0) bsCallPrice = priceFn(chainSpot, sk, seriesTYears, r, bsIVLocal, 'call');
+                  if (bsPutPrice <= 0 && seriesTYears > 0) bsPutPrice = priceFn(chainSpot, sk, seriesTYears, r, bsIVLocal, 'put');
+                }
+
+                function priceColor(realBid, realAsk, bsVal, baseColor) {
+                  if (!realBid && !realAsk) return baseColor;
+                  if (bsVal <= 0) return baseColor;
+                  var mid = (realBid > 0 && realAsk > 0) ? (realBid + realAsk) / 2 : (realBid || realAsk || 0);
+                  if (mid <= 0) return baseColor;
+                  var ratio = mid / bsVal;
+                  if (ratio > 1.10) return C.yellow;
+                  if (ratio < 0.90) return C.rf;
+                  return baseColor;
+                }
+
+                var callBidColor = priceColor(callOpt && callOpt.bid, callOpt && callOpt.ask, bsCallPrice, C.text);
+                var callAskColor = priceColor(callOpt && callOpt.bid, callOpt && callOpt.ask, bsCallPrice, C.text);
+                var putBidColor = priceColor(putOpt && putOpt.bid, putOpt && putOpt.ask, bsPutPrice, C.text);
+                var putAskColor = priceColor(putOpt && putOpt.bid, putOpt && putOpt.ask, bsPutPrice, C.text);
+
+                var rowBg = isAtm ? C.yellow + '12'
+                  : callItm ? C.green + '08'
+                  : putItm ? C.red + '08'
+                  : (ri % 2 === 0) ? 'rgba(255,255,255,0.02)' : 'transparent';
+
+                var leftBorderColor = callItm ? C.green + '40' : 'transparent';
+                var rightBorderColor = putItm ? C.red + '40' : 'transparent';
+
+                var showSpotLine = false;
+                if (ri > 0) {
+                  var prevStrike = strikes[ri - 1].strike;
+                  if (prevStrike < chainSpot && sk >= chainSpot) showSpotLine = true;
+                }
+
+                return (
+                  <View key={ri}>
+                    {showSpotLine ? (
+                      <View style={{ height: 2, backgroundColor: C.yellow + '80', marginVertical: 1, borderRadius: 1 }} />
+                    ) : null}
+                    <TouchableOpacity activeOpacity={0.6}
+                      onPress={function() {
+                        setStrikeInput(sk.toFixed(2));
+                        if (callOpt) {
+                          setMktCallBid(callOpt.bid > 0 ? callOpt.bid.toFixed(2) : '');
+                          setMktCallAsk(callOpt.ask > 0 ? callOpt.ask.toFixed(2) : '');
+                        }
+                        if (putOpt) {
+                          setMktPutBid(putOpt.bid > 0 ? putOpt.bid.toFixed(2) : '');
+                          setMktPutAsk(putOpt.ask > 0 ? putOpt.ask.toFixed(2) : '');
+                        }
+                        if (seriesDTE > 0) {
+                          setChainDTE(String(seriesDTE));
+                        }
+                        var realIV = (callOpt && callOpt.iv) || (putOpt && putOpt.iv);
+                        if (realIV && realIV > 0) {
+                          setChainIV(realIV.toFixed(0));
+                        }
+                        if (isFullscreen) setGradeFullscreen(false);
+                      }}
+                      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: 1, borderRadius: 3, backgroundColor: rowBg, borderLeftWidth: 3, borderRightWidth: 3, borderLeftColor: leftBorderColor, borderRightColor: rightBorderColor }}>
+                      {/* CALL side */}
+                      <Text style={[{ width: 40, fontSize: 11, fontFamily: F.mono, textAlign: 'center', color: callOpt && callOpt.bid > 0 ? callBidColor : C.dim, fontWeight: callItm ? '600' : '400' }, ps]}>
+                        {callOpt ? callOpt.bid.toFixed(2) : '-'}
+                      </Text>
+                      <Text style={[{ width: 40, fontSize: 11, fontFamily: F.mono, textAlign: 'center', color: callOpt && callOpt.ask > 0 ? callAskColor : C.dim, fontWeight: callItm ? '600' : '400' }, ps]}>
+                        {callOpt ? callOpt.ask.toFixed(2) : '-'}
+                      </Text>
+                      <Text style={[{ width: 38, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: C.sub }, ps]}>
+                        {bsCallPrice > 0.005 ? bsCallPrice.toFixed(2) : '-'}
+                      </Text>
+                      <Text style={[{ width: 30, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: C.dim }, ps]}>
+                        {callOpt && callOpt.delta != null ? callOpt.delta.toFixed(2) : '-'}
+                      </Text>
+                      {/* STRIKE center */}
+                      <View style={{ minWidth: 70, alignItems: 'center', paddingHorizontal: 1 }}>
+                        <Text numberOfLines={1} style={[{ fontSize: 11, fontFamily: F.mono, fontWeight: isAtm ? '800' : '600', color: isAtm ? C.yellow : C.text }, ps]}>
+                          {sk.toFixed(2)}
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 }}>
+                          <Text style={{ fontSize: 9, fontWeight: '700', color: (callOpt && callOpt.maturity_type && callOpt.maturity_type.toUpperCase() === 'EUROPEAN') ? C.rf : C.etfs, fontFamily: F.mono }}>
+                            {callOpt ? ((callOpt.maturity_type && callOpt.maturity_type.toUpperCase() === 'EUROPEAN') ? 'E' : 'A') : ''}
+                          </Text>
+                          <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: mColor + '30' }}>
+                            <Text style={{ fontSize: 9, fontWeight: '800', color: mColor, fontFamily: F.mono, letterSpacing: 0.5 }}>
+                              {mLabel}
+                            </Text>
+                          </View>
+                          <Text style={{ fontSize: 9, fontWeight: '700', color: (putOpt && putOpt.maturity_type && putOpt.maturity_type.toUpperCase() === 'EUROPEAN') ? C.rf : C.etfs, fontFamily: F.mono }}>
+                            {putOpt ? ((putOpt.maturity_type && putOpt.maturity_type.toUpperCase() === 'EUROPEAN') ? 'E' : 'A') : ''}
+                          </Text>
+                        </View>
+                      </View>
+                      {/* PUT side */}
+                      <Text style={[{ width: 30, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: C.dim }, ps]}>
+                        {putOpt && putOpt.delta != null ? putOpt.delta.toFixed(2) : '-'}
+                      </Text>
+                      <Text style={[{ width: 38, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: C.sub }, ps]}>
+                        {bsPutPrice > 0.005 ? bsPutPrice.toFixed(2) : '-'}
+                      </Text>
+                      <Text style={[{ width: 40, fontSize: 11, fontFamily: F.mono, textAlign: 'center', color: putOpt && putOpt.bid > 0 ? putBidColor : C.dim, fontWeight: putItm ? '600' : '400' }, ps]}>
+                        {putOpt ? putOpt.bid.toFixed(2) : '-'}
+                      </Text>
+                      <Text style={[{ width: 40, fontSize: 11, fontFamily: F.mono, textAlign: 'center', color: putOpt && putOpt.ask > 0 ? putAskColor : C.dim, fontWeight: putItm ? '600' : '400' }, ps]}>
+                        {putOpt ? putOpt.ask.toFixed(2) : '-'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+
+              {/* Legend */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: C.yellow + '20' }}>
+                    <Text style={{ fontSize: 8, fontWeight: '700', color: C.yellow, fontFamily: F.mono }}>ATM</Text>
+                  </View>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>No dinheiro</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: C.green + '20' }}>
+                    <Text style={{ fontSize: 8, fontWeight: '700', color: C.green, fontFamily: F.mono }}>ITM</Text>
+                  </View>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Dentro</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: C.sub + '20' }}>
+                    <Text style={{ fontSize: 8, fontWeight: '700', color: C.sub, fontFamily: F.mono }}>OTM</Text>
+                  </View>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Fora</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <Text style={{ fontSize: 8, fontWeight: '700', color: C.etfs, fontFamily: F.mono }}>A</Text>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Americana</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <Text style={{ fontSize: 8, fontWeight: '700', color: C.rf, fontFamily: F.mono }}>E</Text>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Europeia</Text>
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.yellow }} />
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Caro</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.rf }} />
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Barato</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.text }} />
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Justo</Text>
+                </View>
+              </View>
+              {!isFullscreen ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8, paddingVertical: 8, backgroundColor: C.accent + '10', borderRadius: 8, borderWidth: 1, borderColor: C.accent + '20' }}>
+                  <Ionicons name="hand-left-outline" size={14} color={C.accent} />
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: C.accent, fontFamily: F.body }}>
+                    Selecione um strike para análise
+                  </Text>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8, paddingVertical: 8, backgroundColor: C.accent + '10', borderRadius: 8, borderWidth: 1, borderColor: C.accent + '20' }}>
+                  <Ionicons name="hand-left-outline" size={14} color={C.accent} />
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: C.accent, fontFamily: F.body }}>
+                    Toque em um strike para preencher o simulador
+                  </Text>
+                </View>
+              )}
+            </View>
+          );
+        })() : (
+          <View>
+            {/* ── FALLBACK: Synthetic BS Grid ── */}
+            {/* Side labels */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 3, paddingHorizontal: 1, marginBottom: 2 }}>
+              <View style={{ width: 108, alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 10, height: 3, borderRadius: 2, backgroundColor: C.green }} />
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: C.green, fontFamily: F.display, letterSpacing: 1 }}>CALL</Text>
+                  <View style={{ width: 10, height: 3, borderRadius: 2, backgroundColor: C.green }} />
+                </View>
+              </View>
+              <View style={{ flex: 1 }} />
+              <View style={{ width: 108, alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 10, height: 3, borderRadius: 2, backgroundColor: C.red }} />
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: C.red, fontFamily: F.display, letterSpacing: 1 }}>PUT</Text>
+                  <View style={{ width: 10, height: 3, borderRadius: 2, backgroundColor: C.red }} />
+                </View>
+              </View>
+            </View>
+            {/* Column headers */}
+            <View style={{ flexDirection: 'row', paddingVertical: 3, paddingHorizontal: 1, borderBottomWidth: 1, borderBottomColor: C.border }}>
+              <Text style={{ width: 42, fontSize: 9, color: C.green + 'BB', fontFamily: F.mono, textAlign: 'center' }}>Preço</Text>
+              <Text style={{ width: 30, fontSize: 9, color: C.green + '80', fontFamily: F.mono, textAlign: 'center' }}>Δ</Text>
+              <Text style={{ width: 36, fontSize: 9, color: C.green + '80', fontFamily: F.mono, textAlign: 'center' }}>Θ</Text>
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>STRIKE</Text>
+              </View>
+              <Text style={{ width: 36, fontSize: 9, color: C.red + '80', fontFamily: F.mono, textAlign: 'center' }}>Θ</Text>
+              <Text style={{ width: 30, fontSize: 9, color: C.red + '80', fontFamily: F.mono, textAlign: 'center' }}>Δ</Text>
+              <Text style={{ width: 42, fontSize: 9, color: C.red + 'BB', fontFamily: F.mono, textAlign: 'center' }}>Preço</Text>
+            </View>
+            {/* Rows */}
+            {miniTableData.map(function(row, mi) {
+              var callIsOtm = spot <= row.sk;
+              var putIsOtm = spot >= row.sk;
+              var isAtmBS = row.isAtm;
+              var callItmBS = row.sk < spot;
+              var putItmBS = row.sk > spot;
+
+              var mLabelBS = isAtmBS ? 'ATM' : (callItmBS ? 'ITM' : 'OTM');
+              var mColorBS = isAtmBS ? C.yellow : (callItmBS ? C.green : C.sub);
+
+              var rowBgBS = row.isUser ? C.accent + '15'
+                : isAtmBS ? C.yellow + '12'
+                : callItmBS ? C.green + '08'
+                : putItmBS ? C.red + '08'
+                : (mi % 2 === 0) ? 'rgba(255,255,255,0.02)' : 'transparent';
+
+              var leftBdBS = callItmBS ? C.green + '40' : 'transparent';
+              var rightBdBS = putItmBS ? C.red + '40' : 'transparent';
+
+              var showSpotBS = false;
+              if (mi > 0) {
+                var prevSk = miniTableData[mi - 1].sk;
+                if (prevSk < spot && row.sk >= spot) showSpotBS = true;
+              }
+
+              return (
+                <View key={mi}>
+                  {showSpotBS ? (
+                    <View style={{ height: 2, backgroundColor: C.yellow + '80', marginVertical: 1, borderRadius: 1 }} />
+                  ) : null}
+                  <TouchableOpacity activeOpacity={0.6}
+                    onPress={function() {
+                      setStrikeInput(row.sk.toFixed(2));
+                      if (isFullscreen) setGradeFullscreen(false);
+                    }}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, paddingHorizontal: 1, borderRadius: 3, backgroundColor: rowBgBS, borderLeftWidth: 3, borderRightWidth: 3, borderLeftColor: leftBdBS, borderRightColor: rightBdBS }}>
+                    {/* CALL price */}
+                    <Text style={[{ width: 42, fontSize: 11, fontFamily: F.mono, textAlign: 'center', color: callIsOtm ? C.sub : C.green, fontWeight: callIsOtm ? '400' : '600' }, ps]}>
+                      {fmt(row.callP)}
+                    </Text>
+                    <Text style={[{ width: 30, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: C.dim }, ps]}>
+                      {row.callDelta.toFixed(2)}
+                    </Text>
+                    <Text style={[{ width: 36, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: row.callTheta > 0 ? C.green + '80' : C.red + '80' }, ps]}>
+                      {row.callTheta.toFixed(4)}
+                    </Text>
+                    {/* STRIKE center + moneyness */}
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 2, alignItems: 'center' }}>
+                        {row.isUser ? <Ionicons name="chevron-forward" size={7} color={C.accent} /> : null}
+                        <Text style={[{ fontSize: 11, fontFamily: F.mono, fontWeight: row.isUser ? '800' : isAtmBS ? '700' : '600', color: row.isUser ? C.accent : isAtmBS ? C.yellow : C.text }, ps]}>
+                          {row.sk.toFixed(2)}
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 7, fontWeight: '700', color: mColorBS, fontFamily: F.mono, letterSpacing: 0.5 }}>
+                        {mLabelBS}
+                      </Text>
+                    </View>
+                    {/* PUT side */}
+                    <Text style={[{ width: 36, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: row.putTheta > 0 ? C.green + '80' : C.red + '80' }, ps]}>
+                      {row.putTheta.toFixed(4)}
+                    </Text>
+                    <Text style={[{ width: 30, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: C.dim }, ps]}>
+                      {row.putDelta.toFixed(2)}
+                    </Text>
+                    <Text style={[{ width: 42, fontSize: 11, fontFamily: F.mono, textAlign: 'center', color: putIsOtm ? C.sub : C.red, fontWeight: putIsOtm ? '400' : '600' }, ps]}>
+                      {fmt(row.putP)}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+            {/* Legend */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: C.yellow + '20' }}>
+                  <Text style={{ fontSize: 8, fontWeight: '700', color: C.yellow, fontFamily: F.mono }}>ATM</Text>
+                </View>
+                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>No dinheiro</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: C.green + '20' }}>
+                  <Text style={{ fontSize: 8, fontWeight: '700', color: C.green, fontFamily: F.mono }}>ITM</Text>
+                </View>
+                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Dentro</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: C.sub + '20' }}>
+                  <Text style={{ fontSize: 8, fontWeight: '700', color: C.sub, fontFamily: F.mono }}>OTM</Text>
+                </View>
+                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Fora</Text>
+              </View>
+            </View>
+            {!isFullscreen ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8, paddingVertical: 8, backgroundColor: C.accent + '10', borderRadius: 8, borderWidth: 1, borderColor: C.accent + '20' }}>
+                <Ionicons name="hand-left-outline" size={14} color={C.accent} />
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.accent, fontFamily: F.body }}>
+                  Selecione um strike para análise
+                </Text>
+              </View>
+            ) : (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8, paddingVertical: 8, backgroundColor: C.accent + '10', borderRadius: 8, borderWidth: 1, borderColor: C.accent + '20' }}>
+                <Ionicons name="hand-left-outline" size={14} color={C.accent} />
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.accent, fontFamily: F.body }}>
+                  Toque em um strike para preencher o simulador
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Strike count indicator in fullscreen */}
+        {isFullscreen && chainData && chainData.series && chainData.series.length > 0 ? (function() {
+          var activeSerie = chainData.series[selectedSeries] || chainData.series[0];
+          var total = (activeSerie.strikes || []).length;
+          return (
+            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, textAlign: 'center', marginTop: 6 }}>
+              {total + ' strikes disponíveis'}
+            </Text>
+          );
+        })() : null}
+      </View>
+    );
+  }
+
   return (
     <View style={{ gap: SIZE.gap }}>
-      {/* Ticker selector + saved analyses button */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 }}>ATIVO</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}
-          contentContainerStyle={{ gap: 5, paddingRight: 8 }}>
-          {tickers.map(function(tk) {
-            var isActive = chainTicker === tk && !showCustom;
-            return (
-              <TouchableOpacity key={tk} activeOpacity={0.7}
-                onPress={function() { handleTickerChange(tk); }}
-                style={{ paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
-                  backgroundColor: isActive ? C.acoes + '25' : C.card,
-                  borderWidth: 1, borderColor: isActive ? C.acoes : C.border }}>
-                <Text style={{ fontSize: 12, fontWeight: isActive ? '700' : '500',
-                  color: isActive ? C.acoes : C.sub, fontFamily: F.mono }}>{tk}</Text>
-              </TouchableOpacity>
-            );
-          })}
+      {/* Ticker selector + watchlist + saved analyses */}
+      <View>
+        {/* ★ FAVORITOS row */}
+        {favorites.length > 0 ? (
+          <View style={{ marginBottom: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+              <Ionicons name="star" size={10} color={C.etfs} />
+              <Text style={{ fontSize: 10, color: C.etfs, fontFamily: F.mono, fontWeight: '600' }}>FAVORITOS</Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 5, paddingRight: 8 }}>
+              {favorites.slice().sort().map(function(tk) {
+                var isActive = chainTicker === tk && !showCustom;
+                var isInWatchlist = watchlist.indexOf(tk) !== -1;
+                var isInPortfolio = portfolioTickers.indexOf(tk) !== -1;
+                return (
+                  <TouchableOpacity key={tk} activeOpacity={0.7}
+                    onPress={function() { handleTickerChange(tk); }}
+                    onLongPress={function() {
+                      var opts = [
+                        { text: 'Remover dos favoritos', onPress: function() { toggleFavorite(tk); } },
+                      ];
+                      if (isInWatchlist) {
+                        opts.push({ text: 'Remover da lista', style: 'destructive', onPress: function() {
+                          toggleFavorite(tk);
+                          removeFromWatchlist(tk);
+                          if (chainTicker === tk && portfolioTickers.indexOf(tk) === -1) {
+                            setChainTicker(tickers.length > 1 ? tickers[0] : null);
+                          }
+                        }});
+                      }
+                      opts.push({ text: 'Cancelar', style: 'cancel' });
+                      Alert.alert(tk, null, opts);
+                    }}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
+                      backgroundColor: isActive ? C.etfs + '25' : C.card,
+                      borderWidth: 1, borderColor: isActive ? C.etfs : C.etfs + '30' }}>
+                    <Ionicons name="star" size={10} color={C.etfs} />
+                    <Text style={{ fontSize: 12, fontWeight: isActive ? '700' : '500',
+                      color: isActive ? C.etfs : C.sub, fontFamily: F.mono }}>{tk}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {/* MEUS ATIVOS row — portfolio tickers */}
+        {portfolioTickers.length > 0 ? (
+          <View style={{ marginBottom: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+              <Ionicons name="briefcase-outline" size={10} color={C.acoes} />
+              <Text style={{ fontSize: 10, color: C.acoes, fontFamily: F.mono, fontWeight: '600' }}>MEUS ATIVOS</Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 5, paddingRight: 8 }}>
+              {portfolioTickers.map(function(tk) {
+                var isActive = chainTicker === tk && !showCustom;
+                var isFav = isFavorite(tk);
+                return (
+                  <TouchableOpacity key={tk} activeOpacity={0.7}
+                    onPress={function() { handleTickerChange(tk); }}
+                    onLongPress={function() {
+                      Alert.alert(tk, null, [
+                        { text: isFav ? 'Remover dos favoritos' : 'Adicionar aos favoritos', onPress: function() { toggleFavorite(tk); } },
+                        { text: 'Cancelar', style: 'cancel' },
+                      ]);
+                    }}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
+                      backgroundColor: isActive ? C.acoes + '25' : C.card,
+                      borderWidth: 1, borderColor: isActive ? C.acoes : C.border }}>
+                    {isFav ? <Ionicons name="star" size={9} color={C.etfs} /> : null}
+                    <Text style={{ fontSize: 12, fontWeight: isActive ? '700' : '500',
+                      color: isActive ? C.acoes : C.sub, fontFamily: F.mono }}>{tk}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {/* EM ANÁLISE row — user-added tickers not in portfolio */}
+        {watchlistOnly.length > 0 ? (
+          <View style={{ marginBottom: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+              <Ionicons name="eye-outline" size={10} color={C.opcoes} />
+              <Text style={{ fontSize: 10, color: C.opcoes, fontFamily: F.mono, fontWeight: '600' }}>EM ANÁLISE</Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 5, paddingRight: 8 }}>
+              {watchlistOnly.map(function(tk) {
+                var isActive = chainTicker === tk && !showCustom;
+                var isFav = isFavorite(tk);
+                return (
+                  <View key={tk} style={{ flexDirection: 'row', alignItems: 'center', gap: 0 }}>
+                    <TouchableOpacity activeOpacity={0.7}
+                      onPress={function() { handleTickerChange(tk); }}
+                      onLongPress={function() {
+                        Alert.alert(tk, null, [
+                          { text: isFav ? 'Remover dos favoritos' : 'Adicionar aos favoritos', onPress: function() { toggleFavorite(tk); } },
+                          { text: 'Remover da lista', style: 'destructive', onPress: function() {
+                            removeFromWatchlist(tk);
+                            if (isFav) toggleFavorite(tk);
+                            if (chainTicker === tk) { setChainTicker(tickers.length > 1 ? tickers[0] : null); }
+                          }},
+                          { text: 'Cancelar', style: 'cancel' },
+                        ]);
+                      }}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingVertical: 5, paddingLeft: 10, paddingRight: 4, borderRadius: 6, borderTopRightRadius: 0, borderBottomRightRadius: 0,
+                        backgroundColor: isActive ? C.opcoes + '25' : C.card,
+                        borderWidth: 1, borderRightWidth: 0, borderColor: isActive ? C.opcoes : C.border }}>
+                      {isFav ? <Ionicons name="star" size={9} color={C.etfs} /> : null}
+                      <Text style={{ fontSize: 12, fontWeight: isActive ? '700' : '500',
+                        color: isActive ? C.opcoes : C.sub, fontFamily: F.mono }}>{tk}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity activeOpacity={0.6}
+                      onPress={function() {
+                        removeFromWatchlist(tk);
+                        if (isFav) toggleFavorite(tk);
+                        if (chainTicker === tk) { setChainTicker(tickers.length > 1 ? tickers[0] : null); }
+                      }}
+                      style={{ paddingVertical: 5, paddingHorizontal: 6, borderRadius: 6, borderTopLeftRadius: 0, borderBottomLeftRadius: 0,
+                        backgroundColor: isActive ? C.opcoes + '25' : C.card,
+                        borderWidth: 1, borderLeftWidth: 0, borderColor: isActive ? C.opcoes : C.border }}>
+                      <Ionicons name="close" size={12} color={C.red + '90'} />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {/* Actions row: + Adicionar | + Outro | Saved */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <TouchableOpacity activeOpacity={0.7}
-            onPress={function() { setShowCustom(true); setChainTicker(null); }}
-            style={{ paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
+            onPress={function() { setShowWatchlistInput(!showWatchlistInput); setShowCustom(false); }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
+              backgroundColor: showWatchlistInput ? C.opcoes + '25' : C.card,
+              borderWidth: 1, borderColor: showWatchlistInput ? C.opcoes : C.border }}>
+            <Ionicons name={showWatchlistInput ? 'close' : 'add'} size={14} color={showWatchlistInput ? C.opcoes : C.sub} />
+            <Text style={{ fontSize: 11, fontWeight: showWatchlistInput ? '700' : '500',
+              color: showWatchlistInput ? C.opcoes : C.sub, fontFamily: F.mono }}>
+              {showWatchlistInput ? 'Fechar' : 'Adicionar'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity activeOpacity={0.7}
+            onPress={function() { setShowCustom(true); setShowWatchlistInput(false); setChainTicker(null); }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
               backgroundColor: showCustom ? C.opcoes + '25' : C.card,
               borderWidth: 1, borderColor: showCustom ? C.opcoes : C.border }}>
-            <Text style={{ fontSize: 12, fontWeight: showCustom ? '700' : '500',
-              color: showCustom ? C.opcoes : C.sub, fontFamily: F.mono }}>+ Outro</Text>
+            <Ionicons name="search-outline" size={12} color={showCustom ? C.opcoes : C.sub} />
+            <Text style={{ fontSize: 11, fontWeight: showCustom ? '700' : '500',
+              color: showCustom ? C.opcoes : C.sub, fontFamily: F.mono }}>Outro</Text>
           </TouchableOpacity>
-        </ScrollView>
-        {/* Saved analyses toggle */}
-        <TouchableOpacity activeOpacity={0.7}
-          onPress={function() { setShowSavedDD(!showSavedDD); }}
-          accessibilityRole="button" accessibilityLabel="Análises salvas"
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingVertical: 5, paddingHorizontal: 8, borderRadius: 6,
-            backgroundColor: showSavedDD ? C.accent + '25' : C.card,
-            borderWidth: 1, borderColor: showSavedDD ? C.accent : C.border }}>
-          <Ionicons name={showSavedDD ? 'bookmark' : 'bookmark-outline'} size={14} color={showSavedDD ? C.accent : C.sub} />
-          {savedList.length > 0 ? (
-            <View style={{ backgroundColor: C.accent, borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff', fontFamily: F.mono }}>{savedList.length}</Text>
+          <View style={{ flex: 1 }} />
+          {/* Saved analyses toggle */}
+          <TouchableOpacity activeOpacity={0.7}
+            onPress={function() { setShowSavedDD(!showSavedDD); }}
+            accessibilityRole="button" accessibilityLabel="Análises salvas"
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingVertical: 5, paddingHorizontal: 8, borderRadius: 6,
+              backgroundColor: showSavedDD ? C.accent + '25' : C.card,
+              borderWidth: 1, borderColor: showSavedDD ? C.accent : C.border }}>
+            <Ionicons name={showSavedDD ? 'bookmark' : 'bookmark-outline'} size={14} color={showSavedDD ? C.accent : C.sub} />
+            {savedList.length > 0 ? (
+              <View style={{ backgroundColor: C.accent, borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff', fontFamily: F.mono }}>{savedList.length}</Text>
+              </View>
+            ) : null}
+          </TouchableOpacity>
+        </View>
+
+        {/* Watchlist + Favorites panel */}
+        {showWatchlistInput ? (
+          <View style={{ marginTop: 6, padding: 10, borderRadius: 8, backgroundColor: C.card, borderWidth: 1, borderColor: C.opcoes + '30' }}>
+            {/* Add ticker input */}
+            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body, marginBottom: 6 }}>
+              Adicionar ticker à lista de análise:
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+              <TextInput
+                value={watchlistTicker}
+                onChangeText={function(t) { setWatchlistTicker(t.toUpperCase()); }}
+                placeholder="Ex: VALE3"
+                placeholderTextColor={C.dim}
+                autoCapitalize="characters"
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={function() {
+                  if (watchlistTicker.trim().length >= 4) {
+                    addToWatchlist(watchlistTicker);
+                    setWatchlistTicker('');
+                  }
+                }}
+                style={{ flex: 1, height: 38, backgroundColor: C.bg, borderRadius: 6, borderWidth: 1, borderColor: C.border, paddingHorizontal: 10, color: C.text, fontFamily: F.mono, fontSize: 13 }}
+              />
+              <TouchableOpacity activeOpacity={0.7}
+                onPress={function() {
+                  if (watchlistTicker.trim().length >= 4) {
+                    addToWatchlist(watchlistTicker);
+                    setWatchlistTicker('');
+                  }
+                }}
+                style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 6, backgroundColor: C.opcoes + '20', borderWidth: 1, borderColor: C.opcoes + '40' }}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.opcoes, fontFamily: F.body }}>Adicionar</Text>
+              </TouchableOpacity>
             </View>
-          ) : null}
-        </TouchableOpacity>
+
+            {/* Favorites section */}
+            {favorites.length > 0 ? (
+              <View style={{ marginTop: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                  <Ionicons name="star" size={11} color={C.etfs} />
+                  <Text style={{ fontSize: 10, color: C.etfs, fontFamily: F.mono, fontWeight: '600' }}>FAVORITOS ({favorites.length})</Text>
+                </View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {favorites.slice().sort().map(function(fv) {
+                    return (
+                      <View key={fv} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 5, backgroundColor: C.etfs + '10', borderWidth: 1, borderColor: C.etfs + '25' }}>
+                        <Ionicons name="star" size={10} color={C.etfs} />
+                        <Text style={{ fontSize: 11, color: C.etfs, fontFamily: F.mono, fontWeight: '600' }}>{fv}</Text>
+                        <TouchableOpacity activeOpacity={0.6}
+                          onPress={function() { toggleFavorite(fv); }}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <Ionicons name="close-circle" size={14} color={C.red + '80'} />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            {/* Watchlist section */}
+            {watchlist.length > 0 ? (
+              <View style={{ marginTop: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                  <Ionicons name="eye-outline" size={11} color={C.opcoes} />
+                  <Text style={{ fontSize: 10, color: C.opcoes, fontFamily: F.mono, fontWeight: '600' }}>LISTA DE ANÁLISE ({watchlist.length})</Text>
+                </View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {watchlist.slice().sort().map(function(wt) {
+                    var wtFav = isFavorite(wt);
+                    return (
+                      <View key={wt} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 5, backgroundColor: C.opcoes + '10', borderWidth: 1, borderColor: C.opcoes + '25' }}>
+                        <TouchableOpacity activeOpacity={0.6}
+                          onPress={function() { toggleFavorite(wt); }}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                          <Ionicons name={wtFav ? 'star' : 'star-outline'} size={12} color={wtFav ? C.etfs : C.dim} />
+                        </TouchableOpacity>
+                        <Text style={{ fontSize: 11, color: C.opcoes, fontFamily: F.mono, fontWeight: '600' }}>{wt}</Text>
+                        <TouchableOpacity activeOpacity={0.6}
+                          onPress={function() { removeFromWatchlist(wt); }}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <Ionicons name="close-circle" size={14} color={C.red + '80'} />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            {/* Hint */}
+            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, marginTop: 8, textAlign: 'center' }}>
+              Segure um ticker na lista acima para favoritar ou remover
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       {/* Saved analyses dropdown */}
@@ -1987,63 +2985,35 @@ function CalculadoraOpcoes(props) {
       {/* Custom ticker input */}
       {showCustom ? (
         <Glass padding={14}>
-          <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 1, marginBottom: 8 }}>TICKER PERSONALIZADO</Text>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 1, marginBottom: 8 }}>BUSCAR ATIVO</Text>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
             <View style={{ flex: 1 }}>
               <View style={styles.simFieldInput}>
-                <TextInput value={customTicker} onChangeText={setCustomTicker} placeholder="Ex: VALE3"
-                  autoCapitalize="characters" style={styles.simFieldText} placeholderTextColor={C.dim} />
-              </View>
-            </View>
-            <View style={{ flex: 1 }}>
-              <View style={styles.simFieldInput}>
-                <TextInput value={customSpot} onChangeText={setCustomSpot} placeholder="Spot R$"
-                  keyboardType="numeric" style={styles.simFieldText} placeholderTextColor={C.dim} />
-                <Text style={styles.simFieldSuffix}>R$</Text>
+                <TextInput value={customTicker} onChangeText={function(t) { setCustomTicker(t.toUpperCase()); }}
+                  placeholder="Ex: VALE3"
+                  autoCapitalize="characters" autoFocus returnKeyType="search"
+                  onSubmitEditing={handleCustomSearch}
+                  style={styles.simFieldText} placeholderTextColor={C.dim} />
               </View>
             </View>
           </View>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-            <TouchableOpacity activeOpacity={0.7} onPress={handleFetchCustomSpot}
-              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: C.acoes + '15', borderWidth: 1, borderColor: C.acoes + '30', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
+            <TouchableOpacity activeOpacity={0.7} onPress={handleCustomSearch}
+              disabled={fetchingSpot || customTicker.trim().length < 2}
+              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: C.acoes + '15', borderWidth: 1, borderColor: C.acoes + '30', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6, opacity: fetchingSpot || customTicker.trim().length < 2 ? 0.5 : 1 }}>
               {fetchingSpot ? (
                 <ActivityIndicator size="small" color={C.acoes} />
               ) : (
-                <Text style={{ fontSize: 12, fontWeight: '600', color: C.acoes, fontFamily: F.body }}>Buscar Preço</Text>
+                <Ionicons name="search-outline" size={14} color={C.acoes} />
               )}
+              <Text style={{ fontSize: 12, fontWeight: '600', color: C.acoes, fontFamily: F.body }}>Buscar</Text>
             </TouchableOpacity>
-            <TouchableOpacity activeOpacity={0.7} onPress={handleCustomApply}
-              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: C.opcoes + '15', borderWidth: 1, borderColor: C.opcoes + '30', alignItems: 'center' }}>
-              <Text style={{ fontSize: 12, fontWeight: '600', color: C.opcoes, fontFamily: F.body }}>Aplicar</Text>
+            <TouchableOpacity activeOpacity={0.7} onPress={handleCustomAddToList}
+              disabled={fetchingSpot || customTicker.trim().length < 4}
+              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: C.opcoes + '15', borderWidth: 1, borderColor: C.opcoes + '30', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6, opacity: fetchingSpot || customTicker.trim().length < 4 ? 0.5 : 1 }}>
+              <Ionicons name="add-circle-outline" size={14} color={C.opcoes} />
+              <Text style={{ fontSize: 12, fontWeight: '600', color: C.opcoes, fontFamily: F.body }}>Adicionar à lista</Text>
             </TouchableOpacity>
-          </View>
-        </Glass>
-      ) : null}
-
-      {/* Spot editável + HV badge */}
-      {apiSpot > 0 || spotOverride !== '' ? (
-        <Glass padding={10}>
-          <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
-            <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>SPOT</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderRadius: 8, borderWidth: 1, borderColor: spotOverride !== '' ? C.accent + '60' : C.border, paddingHorizontal: 8, height: 34 }}>
-              <Text style={{ fontSize: 14, color: C.dim, fontFamily: F.mono, marginRight: 2 }}>R$</Text>
-              <TextInput
-                value={spotOverride !== '' ? spotOverride : fmt(apiSpot)}
-                onChangeText={function(t) { setSpotOverride(t.replace(/[^0-9.,]/g, '')); }}
-                onFocus={function() { if (spotOverride === '') setSpotOverride(fmt(apiSpot)); }}
-                keyboardType="decimal-pad"
-                style={{ fontSize: 18, fontWeight: '800', color: C.text, fontFamily: F.display, padding: 0, minWidth: 70, textAlign: 'center' }}
-                maxFontSizeMultiplier={1.5}
-              />
-            </View>
-            {spotOverride !== '' ? (
-              <TouchableOpacity onPress={function() { setSpotOverride(''); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Ionicons name="refresh-outline" size={16} color={C.accent} />
-              </TouchableOpacity>
-            ) : null}
-            {currentHV != null ? (
-              <Badge text={'HV 20d: ' + currentHV.toFixed(0) + '%'} color={C.opcoes} />
-            ) : null}
           </View>
         </Glass>
       ) : null}
@@ -2051,166 +3021,98 @@ function CalculadoraOpcoes(props) {
       {spot <= 0 && !showCustom ? (
         <Glass padding={24}>
           <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
-            Selecione um ativo ou toque em "+ Outro" para digitar um ticker.
+            Selecione um ativo ou toque em "Outro" para buscar um ticker.
           </Text>
         </Glass>
       ) : null}
 
-      {/* ═══ STRIKE ═══ */}
-      <Glass padding={14}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Ionicons name="calculator" size={16} color={C.accent} />
-          <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '700', letterSpacing: 0.8 }}>STRIKE</Text>
-          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderRadius: 8, borderWidth: 1.5, borderColor: C.accent + '50', paddingHorizontal: 10, height: 40 }}>
-            <Text style={{ fontSize: 13, color: C.dim, fontFamily: F.mono, marginRight: 4 }}>R$</Text>
-            <TextInput
-              value={strikeInput}
-              onChangeText={setStrikeInput}
-              keyboardType="decimal-pad"
-              placeholder="ex: 32.68"
-              placeholderTextColor={C.dim}
-              style={{ flex: 1, fontSize: 15, color: C.text, fontFamily: F.mono, padding: 0 }}
-            />
-          </View>
-          {hasResult ? (
-            <View style={{ alignItems: 'center' }}>
-              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>DIST</Text>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: Math.abs(fDist) <= 2 ? C.yellow : C.sub, fontFamily: F.mono }}>
-                {(fDist >= 0 ? '+' : '') + fDist.toFixed(1) + '%'}
-              </Text>
+      {/* ═══ GRADE DE OPÇÕES ═══ */}
+          <Glass padding={12}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <Ionicons name="grid-outline" size={13} color={C.accent} />
+              <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>GRADE DE OPÇÕES</Text>
+              <InfoTip title="Grade de Opções" text={"A grade mostra as opções disponíveis para o ativo selecionado, organizadas por strike (preço de exercício).\n\n• CALL (esquerda, verde): opções de compra. Quem vende CALL aposta que o ativo NÃO sobe acima do strike.\n\n• PUT (direita, vermelha): opções de venda. Quem vende PUT aposta que o ativo NÃO cai abaixo do strike.\n\n• Bid/Ask: preços reais de mercado (compra/venda).\n• Teór: preço justo calculado pelo modelo Black-Scholes.\n• Δ (Delta): sensibilidade ao preço do ativo. Delta 0.50 = a opção se move R$0.50 para cada R$1 do ativo.\n\n• ITM (In The Money): opção com valor intrínseco.\n• ATM (At The Money): strike próximo ao preço atual.\n• OTM (Out of The Money): opção sem valor intrínseco.\n\n• Preços em amarelo = opção cara vs teórico (+10%).\n• Preços em ciano = opção barata vs teórico (-10%).\n\nToque em qualquer strike para preencher o simulador abaixo."} size={12} />
+              {chainData ? (
+                <View style={{ backgroundColor: C.green + '20', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                  <Text style={{ fontSize: 8, fontWeight: '700', color: C.green, fontFamily: F.mono }}>REAL</Text>
+                </View>
+              ) : (
+                <View style={{ backgroundColor: C.yellow + '20', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                  <Text style={{ fontSize: 8, fontWeight: '700', color: C.yellow, fontFamily: F.mono }}>BS</Text>
+                </View>
+              )}
+              {chainLoading ? <ActivityIndicator size="small" color={C.accent} /> : null}
+              <View style={{ flex: 1 }} />
+              <TouchableOpacity activeOpacity={0.6} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                onPress={function() { setGradeFullscreen(true); }}
+                accessibilityRole="button" accessibilityLabel="Expandir grade em tela cheia">
+                <Ionicons name="expand-outline" size={16} color={C.accent} />
+              </TouchableOpacity>
+              {chainLastUpdate ? (
+                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>
+                  {chainLastUpdate.getHours().toString().padStart(2, '0') + ':' + chainLastUpdate.getMinutes().toString().padStart(2, '0') + ':' + chainLastUpdate.getSeconds().toString().padStart(2, '0')}
+                </Text>
+              ) : null}
             </View>
-          ) : null}
-        </View>
-        {!hasResult ? (
-          <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.body, textAlign: 'center', marginTop: 10 }}>
-            Digite o strike para calcular preço justo, gregas e comparar com o mercado
-          </Text>
-        ) : null}
+            {chainData ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: b3Status.isOpen ? C.green : C.red }} />
+                <Text style={{ fontSize: 9, color: b3Status.isOpen ? C.green : C.dim, fontFamily: F.mono }}>
+                  {b3Status.reason + (b3Status.isOpen ? ' \u00B7 Atualização a cada 2 min' : '')}
+                </Text>
+              </View>
+            ) : null}
 
-        {/* Skew */}
-        <View style={{ flexDirection: 'row', gap: 6, marginTop: 10, alignItems: 'center' }}>
-          <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono, letterSpacing: 0.6 }}>SKEW</Text>
-          <Pill active={skewSel === 'auto'} color={C.accent} onPress={function() { setSkewSel('auto'); }}>
-            {'Auto' + (skewSel === 'auto' && skewAutoLabel ? ' (' + skewAutoLabel + ')' : '')}
-          </Pill>
-          <Pill active={skewSel === '0'} color={C.dim} onPress={function() { setSkewSel('0'); }}>Flat</Pill>
-          <Pill active={skewSel === '1'} color={C.opcoes} onPress={function() { setSkewSel('1'); }}>Leve</Pill>
-          <Pill active={skewSel === '2'} color={C.yellow} onPress={function() { setSkewSel('2'); }}>Forte</Pill>
-          <InfoTip text={"Auto: detecta o skew a partir dos preços de mercado (bid/ask) que você informar. Se put VI > call VI → skew. Sem dados de mercado, usa Leve.\n\nFlat: VI igual para todos os strikes.\nLeve: OTM levemente mais caras (padrão B3).\nForte: cenários de estresse."} />
-        </View>
+            {renderGradeContent(false)}
+          </Glass>
 
-      </Glass>
+      {/* ═══ GRADE FULLSCREEN MODAL ═══ */}
+      <Modal visible={gradeFullscreen} animationType="slide" transparent={false}
+        onRequestClose={function() { setGradeFullscreen(false); }}>
+        <View style={{ flex: 1, backgroundColor: C.bg }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SIZE.padding, paddingTop: 54, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Ionicons name="grid-outline" size={18} color={C.accent} />
+              <Text style={{ fontSize: 16, fontWeight: '800', color: C.text, fontFamily: F.display }}>Grade de Opções</Text>
+              {chainData ? (
+                <View style={{ backgroundColor: C.green + '20', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                  <Text style={{ fontSize: 9, fontWeight: '700', color: C.green, fontFamily: F.mono }}>REAL</Text>
+                </View>
+              ) : (
+                <View style={{ backgroundColor: C.yellow + '20', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                  <Text style={{ fontSize: 9, fontWeight: '700', color: C.yellow, fontFamily: F.mono }}>BS</Text>
+                </View>
+              )}
+            </View>
+            <TouchableOpacity activeOpacity={0.6} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              onPress={function() { setGradeFullscreen(false); }}
+              accessibilityRole="button" accessibilityLabel="Fechar grade">
+              <Ionicons name="close" size={24} color={C.text} />
+            </TouchableOpacity>
+          </View>
+          {/* Body */}
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: SIZE.padding, paddingBottom: 40 }}>
+            {renderGradeContent(true)}
+          </ScrollView>
+        </View>
+      </Modal>
 
-      {/* ═══ INDICADORES ═══ */}
-      <Glass padding={14}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-          <Ionicons name="analytics-outline" size={13} color={C.opcoes} />
-          <Text style={{ fontSize: 12, color: C.opcoes, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>INDICADORES</Text>
-          <InfoTip text={"Preencha com dados da sua plataforma (ProfitChart, Tryd, etc.) para calcular o preço justo e ativar o Motor de Decisão com alertas automáticos."} size={12} />
-        </View>
-        {/* Linha 1: VI, DTE, Vol. Histórica */}
-        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              <Text style={styles.simFieldLabel}>VI (%)</Text>
-              <InfoTip title="Volatilidade Implícita (VI)" text={"É a volatilidade que o mercado está \"embutindo\" no preço da opção. Quanto maior a VI, mais caro o prêmio.\n\nOnde encontrar: no ProfitChart, Tryd ou na sua corretora, busque por \"VI\" ou \"IV\" no book da opção.\n\nPara que serve aqui: é o principal input do modelo Black-Scholes para calcular o preço justo da opção. Também é comparada com a Vol. Histórica para saber se o prêmio está caro ou barato."} size={11} />
-            </View>
-            <View style={styles.simFieldInput}>
-              <TextInput value={chainIV} onChangeText={setChainIV} keyboardType="decimal-pad"
-                placeholder="ex: 35" placeholderTextColor={C.dim}
-                style={styles.simFieldText} />
-              <Text style={styles.simFieldSuffix}>%</Text>
-            </View>
-          </View>
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              <Text style={styles.simFieldLabel}>DTE (dias)</Text>
-              <InfoTip title="DTE (Days to Expiration)" text={"Dias até o vencimento da opção. Quanto menos dias, mais rápido a opção perde valor (efeito Theta).\n\nOnde encontrar: conte os dias corridos entre hoje e a data de vencimento da opção (incluindo o dia do vencimento).\n\nPara que serve aqui: é usado no cálculo Black-Scholes. Opções com DTE curto têm Theta acelerado, o que beneficia vendedores."} size={11} />
-            </View>
-            <View style={styles.simFieldInput}>
-              <TextInput value={chainDTE} onChangeText={setChainDTE} keyboardType="numeric"
-                placeholder="ex: 21" placeholderTextColor={C.dim}
-                style={styles.simFieldText} />
-              <Text style={styles.simFieldSuffix}>dias</Text>
-            </View>
-          </View>
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              <Text style={styles.simFieldLabel}>Vol. Histórica</Text>
-              <InfoTip title="Volatilidade Histórica (VH)" text={"Mede o quanto o preço do ativo oscilou no passado (geralmente últimos 20 ou 30 pregões), expressa em % anualizada.\n\nOnde encontrar: no ProfitChart, Tryd ou qualquer plataforma de análise técnica, busque por \"HV\" ou \"Vol. Histórica\" no painel do ativo base.\n\nPara que serve aqui: comparar com a VI (Volatilidade Implícita) para saber se o prêmio da opção está caro ou barato."} size={11} />
-            </View>
-            <View style={styles.simFieldInput}>
-              <TextInput value={hvInput} onChangeText={setHvInput} keyboardType="decimal-pad"
-                placeholder="ex: 28" placeholderTextColor={C.dim}
-                style={styles.simFieldText} />
-              <Text style={styles.simFieldSuffix}>%</Text>
-            </View>
-          </View>
-        </View>
-        {/* Linha 2: VWAP, Contratos em Aberto, Taxa */}
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              <Text style={styles.simFieldLabel}>VWAP</Text>
-              <InfoTip title="VWAP (Volume Weighted Average Price)" text={"Preço Médio Ponderado por Volume do dia. É o preço \"justo\" intradiário — quanto em média os participantes pagaram naquele dia, considerando o volume de cada negócio.\n\nOnde encontrar: no ProfitChart, Tryd ou Home Broker, ative o indicador VWAP no gráfico intradiário do ativo base.\n\nPara que serve aqui: se o Spot está acima do VWAP, há pressão compradora (tendência de alta). Se está abaixo, há pressão vendedora (tendência de baixa)."} size={11} />
-            </View>
-            <View style={styles.simFieldInput}>
-              <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono, marginRight: 2 }}>R$</Text>
-              <TextInput value={vwapInput} onChangeText={setVwapInput} keyboardType="decimal-pad"
-                placeholder="ex: 32.50" placeholderTextColor={C.dim}
-                style={styles.simFieldText} />
-            </View>
-          </View>
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              <Text style={styles.simFieldLabel}>Contr. Aberto</Text>
-              <InfoTip title="Contratos em Aberto (Open Interest)" text={"Quantidade total de contratos de opções que ainda não foram encerrados (exercidos, expirados ou recomprados). Quanto maior, mais líquida é a opção.\n\nOnde encontrar: no book de ofertas da opção na sua corretora ou plataforma (ProfitChart, Tryd), geralmente aparece como \"OI\" ou \"Open Interest\".\n\nPara que serve aqui: opções com poucos contratos em aberto têm spread alto entre compra e venda — você pode ter dificuldade para entrar ou sair da operação a um preço justo.\n\nVocê pode digitar valores abreviados: 27,96m = 27.960.000 | 500k = 500.000"} size={11} />
-            </View>
-            <View style={styles.simFieldInput}>
-              <TextInput value={oiInput} onChangeText={setOiInput} keyboardType="default"
-                placeholder="ex: 27,96m" placeholderTextColor={C.dim}
-                autoCapitalize="none"
-                style={styles.simFieldText} />
-            </View>
-          </View>
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              <Text style={styles.simFieldLabel}>Taxa</Text>
-              <InfoTip title="Taxa Selic (livre de risco)" text={"Taxa básica de juros da economia brasileira, usada como taxa livre de risco no modelo Black-Scholes.\n\nEste valor é carregado automaticamente do seu perfil (configurado em Mais > Selic). Não precisa preencher manualmente.\n\nPara que serve aqui: quanto maior a taxa, maior o prêmio teórico das Calls e menor o das Puts."} size={11} />
-            </View>
-            <View style={[styles.simFieldInput, { backgroundColor: 'rgba(255,255,255,0.01)' }]}>
-              <Text style={[styles.simFieldText, { color: C.dim }]}>{chainSelicRate.toFixed(2)}</Text>
-              <Text style={styles.simFieldSuffix}>%</Text>
-            </View>
-          </View>
-        </View>
-        {chainIV === '' && chainDTE === '' && hvInput === '' && vwapInput === '' && oiInput === '' ? (
-          <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, textAlign: 'center', marginTop: 6 }}>
-            Preencha os indicadores da sua plataforma para calcular e gerar alertas
-          </Text>
-        ) : null}
-      </Glass>
-
-      {/* ═══ RESULTS (only when strike is valid) ═══ */}
+      {/* ═══ PREÇOS DO MERCADO (after grid, when strike selected) ═══ */}
       {hasResult ? (
         <View style={{ gap: SIZE.gap }}>
 
-          {/* Context line */}
-          <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12 }}>
-            <Text style={{ fontSize: 12, color: C.opcoes, fontFamily: F.mono }}>
-              {'VI: ' + (fIV * 100).toFixed(1) + '%' + (skewStrength > 0 ? ' (c/ skew)' : '')}
-            </Text>
-            <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono }}>
-              {'Black-Scholes | DTE ' + dteVal + 'd'}
-            </Text>
-          </View>
-
-          {/* Market prices input */}
           <Glass padding={12}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <Ionicons name="pricetags-outline" size={13} color={C.etfs} />
-              <Text style={{ fontSize: 12, color: C.etfs, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>PREÇOS DO MERCADO (opcional)</Text>
-              <InfoTip text="Copie o bid e ask da sua corretora para comparar com o preço justo calculado pelo Black-Scholes. Isso revela se a opção está cara ou barata no mercado." size={12} />
+              <Text style={{ fontSize: 12, color: C.etfs, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>PREÇOS DO MERCADO</Text>
+              <InfoTip text="Preenchido automaticamente ao tocar na grade. Edite manualmente se necessário." size={12} />
+            </View>
+            {/* Context line */}
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 10, marginBottom: 8 }}>
+              <Text style={{ fontSize: 11, color: C.opcoes, fontFamily: F.mono }}>
+                {'Strike R$ ' + fmt(fk) + ' | VI ' + (fIV * 100).toFixed(0) + '%' + (skewStrength > 0 ? ' (skew)' : '') + ' | DTE ' + dteVal + 'd'}
+              </Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 6, alignItems: 'flex-end', marginBottom: 6 }}>
               <View style={{ width: 42, justifyContent: 'flex-end', paddingBottom: 8 }}>
@@ -2228,7 +3130,7 @@ function CalculadoraOpcoes(props) {
             </View>
             {!hasCallMkt && !hasPutMkt ? (
               <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, textAlign: 'center', marginTop: 4 }}>
-                Copie o bid/ask da sua corretora para ver se está caro ou barato
+                Toque na grade acima para preencher ou edite manualmente
               </Text>
             ) : null}
           </Glass>
@@ -2244,20 +3146,24 @@ function CalculadoraOpcoes(props) {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <Ionicons name="document-text-outline" size={14} color={C.accent} />
               <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>RESUMO</Text>
+              <InfoTip text={"Resumo dos valores-chave da simulação para o strike selecionado.\n\nBreakeven = preço em que a operação de venda de opção empata (sem lucro nem prejuízo).\n\nTheta/dia = quanto de prêmio a opção perde por dia pelo decaimento temporal (beneficia o vendedor).\n\nPreço Teórico BS = preço justo calculado pelo modelo Black-Scholes usando IV e outros parâmetros."} size={12} />
             </View>
             <View style={{ gap: 4 }}>
               {[
-                { l: 'CALL - Breakeven (venda)', v: 'R$ ' + fmt(fk + fCallMid), c: C.green },
-                { l: 'PUT - Breakeven (venda)', v: 'R$ ' + fmt(fk - fPutMid), c: C.red },
-                { l: 'Theta/dia CALL (100 opções)', v: 'R$ ' + fmt(fCallG.theta * 100), c: fCallG.theta > 0 ? C.green : C.red },
-                { l: 'Theta/dia PUT (100 opções)', v: 'R$ ' + fmt(fPutG.theta * 100), c: fPutG.theta > 0 ? C.green : C.red },
-                hasCallMkt ? { l: 'Prêmio mercado CALL (100)', v: 'R$ ' + fmt(mcMid * 100), c: C.text } : null,
-                hasPutMkt ? { l: 'Prêmio mercado PUT (100)', v: 'R$ ' + fmt(mpMid * 100), c: C.text } : null,
+                { l: 'CALL - Breakeven (venda)', v: 'R$ ' + fmt(fk + fCallMid), c: C.green, tip: 'Se você vendeu uma CALL neste strike, o ativo pode subir até este preço sem prejuízo. Acima deste valor, a opção gera perda.' },
+                { l: 'PUT - Breakeven (venda)', v: 'R$ ' + fmt(fk - fPutMid), c: C.red, tip: 'Se você vendeu uma PUT neste strike, o ativo pode cair até este preço sem prejuízo. Abaixo deste valor, a opção gera perda.' },
+                { l: 'Theta/dia CALL (100 opções)', v: 'R$ ' + fmt(fCallG.theta * 100), c: fCallG.theta > 0 ? C.green : C.red, tip: 'Quanto o prêmio da CALL perde de valor por dia. Para o vendedor, theta positivo é bom: o tempo trabalha a seu favor.' },
+                { l: 'Theta/dia PUT (100 opções)', v: 'R$ ' + fmt(fPutG.theta * 100), c: fPutG.theta > 0 ? C.green : C.red, tip: 'Quanto o prêmio da PUT perde de valor por dia. Para o vendedor, theta positivo é bom: o tempo trabalha a seu favor.' },
+                hasCallMkt ? { l: 'Prêmio mercado CALL (100)', v: 'R$ ' + fmt(mcMid * 100), c: C.text, tip: 'Valor total que você receberia vendendo 100 opções de CALL ao preço médio de mercado (média entre bid e ask).' } : null,
+                hasPutMkt ? { l: 'Prêmio mercado PUT (100)', v: 'R$ ' + fmt(mpMid * 100), c: C.text, tip: 'Valor total que você receberia vendendo 100 opções de PUT ao preço médio de mercado (média entre bid e ask).' } : null,
               ].map(function(rr, i) {
                 if (!rr) return null;
                 return (
-                  <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
-                    <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>{rr.l}</Text>
+                  <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 3 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
+                      <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>{rr.l}</Text>
+                      <InfoTip text={rr.tip} size={11} />
+                    </View>
                     <Text style={[{ fontSize: 13, fontWeight: '600', color: rr.c, fontFamily: F.mono }, ps]}>{rr.v}</Text>
                   </View>
                 );
@@ -2265,13 +3171,13 @@ function CalculadoraOpcoes(props) {
             </View>
           </Glass>
 
-          {/* ═══ MOTOR DE DECISÃO — alertas de contexto ═══ */}
+          {/* Motor de decisão */}
           {contextAlerts.length > 0 ? (
             <Glass padding={12} glow={C.opcoes}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
                 <Ionicons name="bulb-outline" size={14} color={C.opcoes} />
                 <Text style={{ fontSize: 12, color: C.opcoes, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>MOTOR DE DECISÃO</Text>
-                <InfoTip text={"Alertas gerados cruzando a VI que você digitou com os indicadores de contexto (Vol. Histórica, VWAP, Contratos em Aberto). Quanto mais campos preencher, mais completa a análise."} size={12} />
+                <InfoTip text={"Alertas gerados cruzando a VI com os indicadores de contexto."} size={12} />
               </View>
               <View style={{ gap: 8 }}>
                 {contextAlerts.map(function(al, idx) {
@@ -2292,7 +3198,7 @@ function CalculadoraOpcoes(props) {
             </Glass>
           ) : null}
 
-          {/* ═══ SALVAR ANÁLISE ═══ */}
+          {/* Salvar análise */}
           <TouchableOpacity activeOpacity={0.7} disabled={savingAnalysis}
             onPress={function() { handleSaveAnalysis(!!aiAnalysis); }}
             accessibilityRole="button" accessibilityLabel="Salvar análise atual"
@@ -2317,83 +3223,6 @@ function CalculadoraOpcoes(props) {
             ) : null}
           </TouchableOpacity>
 
-          {/* ═══ TABELA DE STRIKES ═══ */}
-          <Glass padding={12}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <Ionicons name="grid-outline" size={13} color={C.accent} />
-              <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>TABELA DE STRIKES</Text>
-            </View>
-            {/* Step filter */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}
-              contentContainerStyle={{ gap: 4 }}>
-              {['auto', '0.25', '0.50', '0.75', '1.00', '2.00', '5.00'].map(function(sv) {
-                var isAct = tableStep === sv;
-                var lbl = sv === 'auto' ? 'Auto (' + getB3StrikeStep(spot, chainTicker).toFixed(2) + ')' : 'R$ ' + sv;
-                return (
-                  <TouchableOpacity key={sv} activeOpacity={0.7}
-                    onPress={function() { setTableStep(sv); }}
-                    style={{ paddingVertical: 4, paddingHorizontal: 8, borderRadius: 5,
-                      backgroundColor: isAct ? C.accent + '25' : C.card,
-                      borderWidth: 1, borderColor: isAct ? C.accent : C.border }}>
-                    <Text style={{ fontSize: 11, fontWeight: isAct ? '700' : '400',
-                      color: isAct ? C.accent : C.sub, fontFamily: F.mono }}>{lbl}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-            {/* Header */}
-            <View style={{ flexDirection: 'row', paddingVertical: 3, paddingHorizontal: 2, borderBottomWidth: 1, borderBottomColor: C.border }}>
-              <Text style={{ flex: 1.2, fontSize: 9, color: C.dim, fontFamily: F.mono, textAlign: 'center' }}>STRIKE</Text>
-              <Text style={{ flex: 0.9, fontSize: 9, color: C.green + 'AA', fontFamily: F.mono, textAlign: 'center' }}>CALL</Text>
-              <Text style={{ flex: 0.6, fontSize: 9, color: C.green + 'AA', fontFamily: F.mono, textAlign: 'center' }}>Delta</Text>
-              <Text style={{ flex: 0.6, fontSize: 9, color: C.green + 'AA', fontFamily: F.mono, textAlign: 'center' }}>Theta</Text>
-              <Text style={{ flex: 0.9, fontSize: 9, color: C.red + 'AA', fontFamily: F.mono, textAlign: 'center' }}>PUT</Text>
-              <Text style={{ flex: 0.6, fontSize: 9, color: C.red + 'AA', fontFamily: F.mono, textAlign: 'center' }}>Delta</Text>
-              <Text style={{ flex: 0.6, fontSize: 9, color: C.red + 'AA', fontFamily: F.mono, textAlign: 'center' }}>Theta</Text>
-            </View>
-            {/* Rows */}
-            {miniTableData.map(function(row, mi) {
-              var rowBgMini = row.isUser ? { backgroundColor: C.accent + '15' }
-                : row.isAtm ? { backgroundColor: C.yellow + '08' }
-                : (mi % 2 === 0) ? { backgroundColor: 'rgba(255,255,255,0.01)' } : null;
-              var callIsOtm = spot <= row.sk;
-              var putIsOtm = spot >= row.sk;
-              return (
-                <TouchableOpacity key={mi} activeOpacity={0.6}
-                  onPress={function() { setStrikeInput(row.sk.toFixed(2)); }}
-                  style={[{ flexDirection: 'row', paddingVertical: 5, paddingHorizontal: 2, borderRadius: 4 }, rowBgMini]}>
-                  <View style={{ flex: 1.2, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 2 }}>
-                    {row.isUser ? <Ionicons name="chevron-forward" size={7} color={C.accent} /> : null}
-                    <Text style={[{ fontSize: 11, fontFamily: F.mono, fontWeight: row.isUser ? '800' : '500', color: row.isUser ? C.accent : row.isAtm ? C.yellow : C.text }, ps]}>
-                      {row.sk.toFixed(2)}
-                    </Text>
-                  </View>
-                  <Text style={[{ flex: 0.9, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: callIsOtm ? C.sub : C.green, fontWeight: callIsOtm ? '400' : '600' }, ps]}>
-                    {fmt(row.callP)}
-                  </Text>
-                  <Text style={[{ flex: 0.6, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: C.dim }, ps]}>
-                    {row.callDelta.toFixed(2)}
-                  </Text>
-                  <Text style={[{ flex: 0.6, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: row.callTheta > 0 ? C.green + '80' : C.red + '80' }, ps]}>
-                    {row.callTheta.toFixed(4)}
-                  </Text>
-                  <Text style={[{ flex: 0.9, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: putIsOtm ? C.sub : C.red, fontWeight: putIsOtm ? '400' : '600' }, ps]}>
-                    {fmt(row.putP)}
-                  </Text>
-                  <Text style={[{ flex: 0.6, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: C.dim }, ps]}>
-                    {row.putDelta.toFixed(2)}
-                  </Text>
-                  <Text style={[{ flex: 0.6, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: row.putTheta > 0 ? C.green + '80' : C.red + '80' }, ps]}>
-                    {row.putTheta.toFixed(4)}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, textAlign: 'center', marginTop: 3 }}>
-              Toque em um strike para analisar
-            </Text>
-          </Glass>
-
           {/* ═══ CENÁRIOS WHAT-IF ═══ */}
           <Glass glow={C.etfs} padding={12}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
@@ -2404,7 +3233,6 @@ function CalculadoraOpcoes(props) {
             <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, marginBottom: 8 }}>
               {'Strike R$ ' + fmt(fk) + ' | Spot R$ ' + fmt(spot) + ' | DTE ' + dteVal + ' → ' + Math.max(1, dteVal - 5) + 'd'}
             </Text>
-            {/* Header */}
             <View style={{ flexDirection: 'row', paddingBottom: 4, borderBottomWidth: 1, borderBottomColor: C.border, marginBottom: 4 }}>
               <Text style={{ width: 42, fontSize: 9, color: C.dim, fontFamily: F.mono }}>Ativo</Text>
               <Text style={{ width: 48, fontSize: 9, color: C.dim, fontFamily: F.mono, textAlign: 'center' }}>Spot</Text>
@@ -2413,7 +3241,6 @@ function CalculadoraOpcoes(props) {
               <Text style={{ flex: 1, fontSize: 9, color: C.red + 'BB', fontFamily: F.mono, textAlign: 'center' }}>Put R$</Text>
               <Text style={{ flex: 1, fontSize: 9, color: C.red + 'BB', fontFamily: F.mono, textAlign: 'center' }}>P&L Vd</Text>
             </View>
-            {/* Rows */}
             {[{ l: '+10%', m: 0.10 }, { l: '+5%', m: 0.05 }, { l: '-5%', m: -0.05 }, { l: '-10%', m: -0.10 }].map(function(sc, i) {
               var csc = calcScenario(sc.m, 'call');
               var psc = calcScenario(sc.m, 'put');
@@ -2442,13 +3269,16 @@ function CalculadoraOpcoes(props) {
               );
             })}
             <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, marginTop: 6 }}>
-              P&L Vd = resultado por opção se você vendeu. Positivo = lucro (opção desvalorizou). Negativo = prejuízo (opção valorizou).
+              P&L Vd = resultado por opção se você vendeu.
             </Text>
           </Glass>
 
           {/* ═══ ANÁLISE IA ═══ */}
           <Glass padding={14}>
-            <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono, letterSpacing: 0.8, fontWeight: '600', marginBottom: 8 }}>OBJETIVO DA ANÁLISE IA</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <Ionicons name="sparkles-outline" size={14} color={C.accent} />
+              <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>ANÁLISE IA</Text>
+            </View>
             <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
               {[
                 { key: 'renda', label: 'Renda', icon: 'cash-outline' },
@@ -3395,8 +4225,11 @@ export default function OpcoesScreen() {
 
               {/* Option cards */}
               {ativas.map(function(op, i) {
+                var cachedOp = getCachedOptionData(op.ativo_base, op.strike, op.tipo, op.vencimento);
+                var cachedCh = getCachedChain(op.ativo_base);
                 return (
                   <OpCard key={op.id || i} op={op} positions={positions} saldos={saldos} indicators={indicators} selicRate={selicRate} setInfoModal={setInfoModal}
+                    cachedOption={cachedOp} cachedChain={cachedCh}
                     onEdit={function() { navigation.navigate('EditOpcao', { opcao: op }); }}
                     onDelete={function() { handleDelete(op.id); }}
                     onClose={handleClose}

@@ -432,9 +432,11 @@ export default function HomeScreen({ navigation }) {
 
   // Renda comparação vs mês anterior
   var rendaCompare = '';
+  var rendaAnteriorLabel = '';
   if (rendaTotalMesAnterior > 0) {
     var rendaChangePct = ((rendaTotalMes - rendaTotalMesAnterior) / Math.abs(rendaTotalMesAnterior)) * 100;
     rendaCompare = (rendaChangePct > 0 ? '+' : '') + rendaChangePct.toFixed(0) + '% vs ant.';
+    rendaAnteriorLabel = 'Ant: R$ ' + fmt(rendaTotalMesAnterior);
   }
   var rendaBetter = rendaTotalMes >= rendaTotalMesAnterior;
 
@@ -636,10 +638,16 @@ export default function HomeScreen({ navigation }) {
                 borderWidth: 1,
                 borderColor: (rendaBetter ? '#22c55e' : '#ef4444') + '30',
                 borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
+                alignItems: 'flex-end',
               }}>
                 <Text style={[{ fontSize: 11, fontWeight: '700', color: rendaBetter ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
                   {rendaCompare}
                 </Text>
+                {rendaAnteriorLabel ? (
+                  <Text style={[{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginTop: 1 }, ps]}>
+                    {rendaAnteriorLabel}
+                  </Text>
+                ) : null}
               </View>
             ) : null}
           </View>

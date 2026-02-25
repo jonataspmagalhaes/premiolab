@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, ActivityIndicator,
-  Alert, TextInput, Modal,
+  Alert, TextInput, Modal, Dimensions,
 } from 'react-native';
 import { animateLayout } from '../../utils/a11y';
 var dateUtils = require('../../utils/dateUtils');
@@ -10,7 +10,7 @@ var parseLocalDate = dateUtils.parseLocalDate;
 var formatDateBR = dateUtils.formatDateBR;
 import Svg, {
   Circle as SvgCircle, Path, Defs, LinearGradient as SvgGrad,
-  Stop, Line as SvgLine,
+  Stop, Line as SvgLine, Rect as SvgRect, G, Text as SvgText,
 } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -57,6 +57,149 @@ function formatTaxa(taxa, indexador) {
   return t.toFixed(1) + '%';
 }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ══════════════════════════════════════════════
+// SECTION: SQUARIFIED TREEMAP
+// ══════════════════════════════════════════════
+
+function squarify(items, x, y, w, h) {
+  if (items.length === 0) return [];
+  if (items.length === 1) {
+    return [{ x: x, y: y, w: w, h: h, item: items[0] }];
+  }
+
+  var total = items.reduce(function (s, it) { return s + it.normWeight; }, 0);
+  if (total <= 0) return [];
+
+  var sorted = items.slice().sort(function (a, b) { return b.normWeight - a.normWeight; });
+
+  var isHoriz = w >= h;
+  var mainSize = isHoriz ? w : h;
+  var crossSize = isHoriz ? h : w;
+
+  var bestRatio = Infinity;
+  var bestSplit = 1;
+
+  for (var i = 1; i <= sorted.length; i++) {
+    var rowSum = 0;
+    for (var j = 0; j < i; j++) rowSum += sorted[j].normWeight;
+    var rowFrac = rowSum / total;
+    var rowPixels = rowFrac * mainSize;
+    if (rowPixels <= 0) continue;
+
+    var worstRatio = 0;
+    for (var k = 0; k < i; k++) {
+      var itemFrac = sorted[k].normWeight / rowSum;
+      var itemCross = itemFrac * crossSize;
+      var ratio = Math.max(rowPixels / itemCross, itemCross / rowPixels);
+      if (ratio > worstRatio) worstRatio = ratio;
+    }
+    if (worstRatio <= bestRatio) {
+      bestRatio = worstRatio;
+      bestSplit = i;
+    } else {
+      break;
+    }
+  }
+
+  var rowItems = sorted.slice(0, bestSplit);
+  var restItems = sorted.slice(bestSplit);
+
+  var rowSum2 = 0;
+  for (var ri = 0; ri < rowItems.length; ri++) rowSum2 += rowItems[ri].normWeight;
+  var rowFrac2 = rowSum2 / total;
+  var rowPixels2 = rowFrac2 * mainSize;
+
+  var rects = [];
+  var crossOffset = 0;
+  for (var qi = 0; qi < rowItems.length; qi++) {
+    var itemFrac2 = rowItems[qi].normWeight / rowSum2;
+    var itemCross2 = itemFrac2 * crossSize;
+    if (isHoriz) {
+      rects.push({ x: x, y: y + crossOffset, w: rowPixels2, h: itemCross2, item: rowItems[qi] });
+    } else {
+      rects.push({ x: x + crossOffset, y: y, w: itemCross2, h: rowPixels2, item: rowItems[qi] });
+    }
+    crossOffset += itemCross2;
+  }
+
+  if (restItems.length > 0) {
+    var restRects;
+    if (isHoriz) {
+      restRects = squarify(restItems, x + rowPixels2, y, w - rowPixels2, h);
+    } else {
+      restRects = squarify(restItems, x, y + rowPixels2, w, h - rowPixels2);
+    }
+    for (var rri = 0; rri < restRects.length; rri++) rects.push(restRects[rri]);
+  }
+
+  return rects;
+}
+
+function TreemapChart(props) {
+  var items = props.items || [];
+  var _w = useState(0);
+  var width = _w[0]; var setWidth = _w[1];
+  var height = props.height || 140;
+  var onPressTile = props.onPressTile;
+
+  if (items.length === 0 || width === 0) {
+    return <View onLayout={function (e) { setWidth(e.nativeEvent.layout.width); }} style={{ height: height }} />;
+  }
+
+  var total = items.reduce(function (s, it) { return s + Math.abs(it.weight); }, 0);
+  if (total === 0) return <View style={{ height: height }} />;
+
+  var normalized = items.map(function (it) {
+    var copy = {};
+    Object.keys(it).forEach(function (k) { copy[k] = it[k]; });
+    copy.normWeight = Math.abs(it.weight) / total;
+    return copy;
+  });
+
+  var rects = squarify(normalized, 0, 0, width, height);
+
+  return (
+    <View onLayout={function (e) { setWidth(e.nativeEvent.layout.width); }}>
+      <Svg width={width} height={height}>
+        {rects.map(function (r, i) {
+          var changeDay = r.item.change_day || 0;
+          var intensity = clamp(Math.abs(changeDay) / 5, 0.2, 0.7);
+          var fill = changeDay >= 0 ? C.green : C.red;
+          var showLabel = r.w > 40 && r.h > 30;
+          var showPct = r.w > 30 && r.h > 20;
+          return (
+            <G key={i}>
+              <SvgRect x={r.x + 1} y={r.y + 1} width={Math.max(r.w - 2, 1)} height={Math.max(r.h - 2, 1)}
+                rx={4} fill={fill} opacity={intensity} />
+              {showLabel ? (
+                <G>
+                  <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 - 6} fill="#fff" fontSize="10"
+                    fontWeight="700" textAnchor="middle" opacity="0.95">
+                    {r.item.ticker}
+                  </SvgText>
+                  <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 + 8} fill={changeDay >= 0 ? '#4ade80' : '#fb7185'}
+                    fontSize="9" fontWeight="600" textAnchor="middle">
+                    {changeDay >= 0 ? '+' : ''}{changeDay.toFixed(1)}%
+                  </SvgText>
+                </G>
+              ) : showPct ? (
+                <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 + 3} fill="#fff" fontSize="8"
+                  fontWeight="600" textAnchor="middle" opacity="0.8">
+                  {r.item.ticker}
+                </SvgText>
+              ) : null}
+              {onPressTile ? (
+                <SvgRect x={r.x} y={r.y} width={r.w} height={r.h}
+                  fill="transparent" onPress={function () { onPressTile(r.item); }} />
+              ) : null}
+            </G>
+          );
+        })}
+      </Svg>
+    </View>
+  );
+}
 
 // ══════════════════════════════════════════════
 // SECTION: DONUT CHART — alocação por classe
@@ -387,8 +530,8 @@ var PositionCard = React.memo(function PositionCard(props) {
             </View>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
               <TouchableOpacity style={[styles.actionBtn, { borderColor: C.accent + '30', backgroundColor: C.accent + '08' }]}
-                onPress={onTransacoes} accessibilityRole="button" accessibilityLabel="Transações">
-                <Text style={[styles.actionBtnText, { color: C.accent }]}>Transações</Text>
+                onPress={onTransacoes} accessibilityRole="button" accessibilityLabel="Mais">
+                <Text style={[styles.actionBtnText, { color: C.accent }]}>Mais</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -503,6 +646,8 @@ export default function CarteiraScreen(props) {
   var _showEnc = useState(false); var showEnc = _showEnc[0]; var setShowEnc = _showEnc[1];
   var _showAllEnc = useState(false); var showAllEnc = _showAllEnc[0]; var setShowAllEnc = _showAllEnc[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
+  var _selTile = useState(null); var selectedTile = _selTile[0]; var setSelectedTile = _selTile[1];
+  var _treemapModal = useState(false); var treemapModalVisible = _treemapModal[0]; var setTreemapModal = _treemapModal[1];
   var _fund = useState({}); var fundamentals = _fund[0]; var setFundamentals = _fund[1];
   var _fundL = useState({}); var fundLoading = _fundL[0]; var setFundLoading = _fundL[1];
   var _opc = useState([]); var opcoes = _opc[0]; var setOpcoes = _opc[1];
@@ -632,6 +777,21 @@ export default function CarteiraScreen(props) {
     var pnlPct = custo > 0 ? ((val - custo) / custo) * 100 : 0;
     return { ticker: p.ticker, weight: val, pnlPct: pnlPct, color: PRODUCT_COLORS[p.categoria] || C.accent,
       categoria: p.categoria, pnl: val - custo };
+  });
+
+  // Treemap items (with change_day for heatmap coloring)
+  var treemapItems = positions.map(function (p) {
+    var val = p.quantidade * (p.preco_atual || p.pm);
+    var custo = p.quantidade * p.pm;
+    var pnlPct = custo > 0 ? ((val - custo) / custo) * 100 : 0;
+    return {
+      ticker: p.ticker, weight: val, pnlPct: pnlPct,
+      color: PRODUCT_COLORS[p.categoria] || C.accent,
+      categoria: p.categoria, pnl: val - custo,
+      change_day: p.change_day || 0,
+      quantidade: p.quantidade, pm: p.pm,
+      preco_atual: p.preco_atual || p.pm,
+    };
   });
 
   // Peso por ativo (% do total)
@@ -839,6 +999,63 @@ export default function CarteiraScreen(props) {
         ) : null}
       </Glass>
 
+      {/* ══════ MAPA DE CALOR ══════ */}
+      {treemapItems.length > 0 ? (
+        <Glass padding={14}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>MAPA DE CALOR</Text>
+              <InfoTip title="Mapa de Calor" text={"Visualização da carteira onde o tamanho de cada bloco representa o peso (valor) do ativo no portfólio.\n\nVerde = ativo subiu hoje. Vermelho = caiu hoje.\nQuanto mais intensa a cor, maior a variação.\n\nToque em um bloco para ver detalhes."} size={12} />
+            </View>
+            <TouchableOpacity onPress={function () { setTreemapModal(true); setSelectedTile(null); }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityRole="button" accessibilityLabel="Expandir mapa de calor">
+              <Ionicons name="expand-outline" size={16} color={C.accent} />
+            </TouchableOpacity>
+          </View>
+          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginBottom: 8 }}>
+            Tamanho = peso · Verde = alta hoje · Vermelho = queda
+          </Text>
+          <TreemapChart items={treemapItems} height={130} onPressTile={function (tile) { setSelectedTile(tile); }} />
+          {selectedTile && !treemapModalVisible ? (
+            <View style={{ marginTop: 8, padding: 8, borderRadius: 8, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: selectedTile.color }} />
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.display }}>{selectedTile.ticker}</Text>
+                  <Text style={{ fontSize: 11, color: selectedTile.change_day >= 0 ? C.green : C.red, fontWeight: '600', fontFamily: F.mono }}>
+                    {selectedTile.change_day >= 0 ? '+' : ''}{selectedTile.change_day.toFixed(2)}% dia
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={function () { setSelectedTile(null); }}>
+                  <Text style={{ fontSize: 14, color: C.dim, fontFamily: F.mono }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 16, marginTop: 4 }}>
+                <View>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>QTD</Text>
+                  <Text style={{ fontSize: 11, color: C.text, fontFamily: F.mono }}>{selectedTile.quantidade}</Text>
+                </View>
+                <View>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>PM</Text>
+                  <Text style={{ fontSize: 11, color: C.text, fontFamily: F.mono }}>R$ {fmt(selectedTile.pm)}</Text>
+                </View>
+                <View>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>ATUAL</Text>
+                  <Text style={{ fontSize: 11, color: C.text, fontFamily: F.mono }}>R$ {fmt(selectedTile.preco_atual)}</Text>
+                </View>
+                <View>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>DIA</Text>
+                  <Text style={{ fontSize: 11, color: selectedTile.change_day >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                    {selectedTile.change_day >= 0 ? '+' : ''}{selectedTile.change_day.toFixed(2)}%
+                  </Text>
+                </View>
+              </View>
+            </View>
+          ) : null}
+        </Glass>
+      ) : null}
+
       {/* ══════ 6. FILTER PILLS ══════ */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
         <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>POSIÇÕES</Text>
@@ -1002,6 +1219,78 @@ export default function CarteiraScreen(props) {
             </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
+      </Modal>
+
+      {/* ══════ MAPA DE CALOR FULLSCREEN ══════ */}
+      <Modal visible={treemapModalVisible} animationType="fade" transparent={true}
+        onRequestClose={function() { setTreemapModal(false); setSelectedTile(null); }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' }}>
+          <View style={{ paddingTop: 50, paddingHorizontal: 18, paddingBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.display, letterSpacing: 0.6 }}>
+              MAPA DE CALOR — EXPOSIÇÃO
+            </Text>
+            <TouchableOpacity onPress={function () { setTreemapModal(false); setSelectedTile(null); }}
+              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }}
+              accessibilityRole="button" accessibilityLabel="Fechar mapa de calor">
+              <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono }}>Fechar</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 18, marginBottom: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: C.green, opacity: 0.5 }} />
+              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>Alta hoje</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: C.red, opacity: 0.5 }} />
+              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>Queda hoje</Text>
+            </View>
+          </View>
+          <View style={{ flex: 1, paddingHorizontal: 12 }}>
+            <TreemapChart items={treemapItems} height={Dimensions.get('window').height - 260} onPressTile={function (tile) { setSelectedTile(tile); }} />
+          </View>
+          {selectedTile ? (
+            <View style={{ margin: 12, padding: 12, borderRadius: 10, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: selectedTile.color }} />
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, fontFamily: F.display }}>{selectedTile.ticker}</Text>
+                  <Text style={{ fontSize: 11, color: selectedTile.change_day >= 0 ? C.green : C.red, fontWeight: '600', fontFamily: F.mono }}>
+                    {selectedTile.change_day >= 0 ? '+' : ''}{selectedTile.change_day.toFixed(2)}% dia
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={function () { setSelectedTile(null); }}>
+                  <Text style={{ fontSize: 16, color: C.dim, fontFamily: F.mono }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 20, marginTop: 8 }}>
+                <View>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 }}>QUANTIDADE</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, fontFamily: F.mono, marginTop: 2 }}>
+                    {selectedTile.quantidade.toLocaleString('pt-BR')}
+                  </Text>
+                </View>
+                <View>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 }}>PM</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, fontFamily: F.mono, marginTop: 2 }}>
+                    R$ {fmt(selectedTile.pm)}
+                  </Text>
+                </View>
+                <View>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 }}>PREÇO ATUAL</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, fontFamily: F.mono, marginTop: 2 }}>
+                    R$ {fmt(selectedTile.preco_atual)}
+                  </Text>
+                </View>
+                <View>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 }}>P&L</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: selectedTile.pnl >= 0 ? C.green : C.red, fontFamily: F.mono, marginTop: 2 }}>
+                    {selectedTile.pnl >= 0 ? '+' : '-'}R$ {fmt(Math.abs(selectedTile.pnl))}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          ) : null}
+        </View>
       </Modal>
     </ScrollView>
     <Fab navigation={navigation} />
