@@ -213,7 +213,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 
 ### Carteira (CarteiraScreen)
 - Donut chart de alocacao por classe
-- Treemap de exposicao visual
+- Treemap de exposicao visual (heatmap com variacao diaria, cores verde/vermelho por intensidade) + modal fullscreen com detalhes expandidos (ticker, variacao, qty, PM, preco atual, P&L)
 - Benchmark vs CDI
 - Rebalanceamento com metas editaveis
 - Cards expandiveis com Comprar/Vender/Lancar opcao/Transacoes + indicadores fundamentalistas accordion (lazy load)
@@ -241,6 +241,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Cadeia Sintetica BS**: grade de opcoes com 11 strikes, precos CALL/PUT via Black-Scholes, delta, ITM/ATM/OTM
   - IV inicializado com **HV 20d real** do indicatorService (fallback 35% se sem dados)
   - Badge "HV 20d: XX%" ao lado do spot, IV atualiza ao trocar ticker
+  - **Fullscreen**: botao expand-outline no header abre Modal tela cheia com TODOS os strikes da serie (inline mostra 5+ATM+5=11). Toque em strike no fullscreen preenche simulador e fecha modal automaticamente
 - **HV/IV nos cards**: linha "HV: XX% | IV: YY%" + badge "IV ALTA" (>130% HV) / "IV BAIXA" (<70% HV)
 - **Badge direcao VENDA/COMPRA**: badge dedicado no header do card entre CALL/PUT e cobertura. VENDA em amarelo (`C.etfs`), COMPRA em ciano (`C.rf`), sempre visivel independente da cobertura
 - **Corretora visivel**: label da corretora no card de opcao ativa (abaixo do header)
@@ -251,7 +252,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 ### Home (HomeScreen)
 - **Patrimonio Hero**: card principal com valor total, rentabilidade mes (%), breakdown RV/RF, InteractiveChart com pontos semanais, allocation bar + legenda
 - **KPI Bar**: 3 chips horizontais logo apos o hero (Rent. Mes %, Posicoes count, Opcoes count + venc 7d)
-- **Renda do Mes** (simplificado): total grande com badge comparativo vs mes anterior (% em verde/vermelho), 5 breakdown rows compactos (dot + label + valor), meta progress bar + % + faltam R$
+- **Renda do Mes** (simplificado): total grande com badge comparativo vs mes anterior (% em verde/vermelho + valor do mes anterior "Ant: R$ X"), 5 breakdown rows compactos (dot + label + valor), meta progress bar + % + faltam R$
 - **Snapshots de patrimonio**: salva valor real (cotacao brapi) ao abrir o app via `upsertPatrimonioSnapshot`
 - Alertas inteligentes (criticos separados de info, colapsa info se >2)
 - Timeline de eventos (vencimentos opcoes, vencimentos RF, max 3 itens)
@@ -1350,6 +1351,23 @@ Substituir a cadeia sintetica BS por dados reais de opcoes da B3 via API de merc
 
 5. **Fallback**: se API falhar, mostra grade sintetica BS atual com badge "Dados teoricos (BS)"
 
+6. **Esquema de cores Real vs Teorico**: cor do Bid/Ask indica se opcao esta cara ou barata vs BS
+   - Mid real > Teorico +10%: `C.yellow` (laranja) — opcao cara, premio inflado
+   - Mid real < Teorico -10%: `C.rf` (ciano) — opcao barata, possivel oportunidade
+   - Diferenca < 10%: `C.text` (branco) — preco justo, alinhado com BS
+   - Coluna Teorico sempre em `C.dim` (cinza) para nao competir visualmente
+
+7. **Alertas de Preco de Opcoes** (A Implementar):
+   - Long press ou botao sino no strike da grade → configura alerta
+   - Tipos de alerta:
+     - **Preco alvo**: avisar quando bid/ask atingir valor definido
+     - **Divergencia Real vs Teorico**: avisar quando preco real divergir >X% do BS
+     - **IV**: avisar quando IV do ativo ultrapassar threshold
+     - **Volume/OI**: avisar quando volume de um strike superar X
+   - Tabela `alertas_opcoes` no Supabase: user_id, ticker_opcao, tipo_alerta (preco/divergencia/iv/volume), valor_alvo, direcao (acima/abaixo), ativo (bool), criado_em
+   - Checagem ao abrir app (como alertas atuais da Home) + possibilidade futura de Edge Function cron + push notification
+   - Card de alertas ativos na Home (integrado aos alertas existentes)
+
 ### Layout da Grade
 
 ```
@@ -1388,6 +1406,42 @@ Bid   Ask  Teor  D  Vol │ STRIKE  │ Bid   Ask  Teor  D   Vol
 npx supabase secrets set OPLAB_API_KEY="<ver memoria>" --project-ref zephynezarjsxzselozi
 npx supabase functions deploy oplab-options --no-verify-jwt --project-ref zephynezarjsxzselozi
 ```
+
+## Grade Fullscreen + Treemap Carteira + Renda Mes Anterior (Implementado)
+
+Tres melhorias visuais: grade de opcoes em tela cheia, treemap heatmap na carteira, e valor do mes anterior na renda da Home.
+
+### Grade de Opcoes Fullscreen (OpcoesScreen)
+- Botao `expand-outline` no header da grade (ao lado do timestamp)
+- `renderGradeContent(isFullscreen)`: funcao extraida que renderiza info row, vencimento pills, grade real/sintetica
+- **Inline** (`isFullscreen=false`): mostra 5+ATM+5 = 11 strikes (comportamento original)
+- **Fullscreen** (`isFullscreen=true`): Modal `animationType="slide"` com TODOS os strikes da serie
+- Header do modal: titulo + badge REAL/BS + botao fechar (Ionicons "close")
+- Toque em strike no fullscreen preenche simulador e fecha modal automaticamente
+- Contagem "X strikes disponiveis" no rodape do fullscreen
+
+### Treemap Heatmap na Carteira (CarteiraScreen)
+- Copiado `squarify` (algoritmo squarified treemap) e `TreemapChart` (SVG renderer) do AnaliseScreen
+- Posicionado entre PATRIMONIO hero e POSICOES filter pills
+- Dados: `change_day` (variacao diaria), cores verde/vermelho por intensidade
+- Botao `expand-outline` abre Modal fullscreen (`animationType="fade"`, fundo `rgba(0,0,0,0.95)`)
+- Modal fullscreen: legenda (Alta/Queda), TreemapChart em tela cheia, tooltip detalhado (ticker, variacao, qty, PM, preco atual, P&L)
+- Tooltip inline so aparece quando modal NAO esta aberto
+
+### Renda do Mes Anterior (HomeScreen)
+- Badge comparativo agora exibe 2 linhas: % de variacao (verde/vermelho) + valor do mes anterior ("Ant: R$ X")
+- Variavel `rendaAnteriorLabel` calculada quando `rendaTotalMesAnterior > 0`
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/opcoes/OpcoesScreen.js` | State `gradeFullscreen`, `renderGradeContent(isFullscreen)`, Modal fullscreen, botao expandir |
+| `src/screens/carteira/CarteiraScreen.js` | Import SVG (Rect, G, Text), `squarify`, `TreemapChart`, states `selectedTile`/`treemapModalVisible`, treemap inline + Modal fullscreen |
+| `src/screens/home/HomeScreen.js` | `rendaAnteriorLabel`, badge 2 linhas (% + valor anterior) |
+
+### Build
+- Versao: 4.1.0 (build 5)
+- TestFlight: publicado via `eas build --platform ios` + `eas submit --platform ios`
 
 ## Proximas Melhorias Possiveis
 
