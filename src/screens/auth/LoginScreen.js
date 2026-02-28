@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Keyboard,
+  KeyboardAvoidingView, Platform, Alert, ActivityIndicator, Keyboard, Image,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -58,12 +58,10 @@ export default function LoginScreen() {
       <View style={styles.content}>
         {/* Logo */}
         <View style={styles.logoWrap}>
-          <LinearGradient
-            colors={[C.accent, C.opcoes]}
-            style={styles.logoGradient}
-          >
-            <Text style={styles.logoText}>◈</Text>
-          </LinearGradient>
+          <Image
+            source={require('../../../assets/logo.png')}
+            style={styles.logoImage}
+          />
           <Text style={styles.appName}>PremioLab</Text>
           <Text style={styles.tagline}>Seu laboratório de investimentos</Text>
         </View>
@@ -153,17 +151,11 @@ var styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 40,
   },
-  logoGradient: {
+  logoImage: {
     width: 72,
     height: 72,
     borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
     marginBottom: 16,
-  },
-  logoText: {
-    fontSize: 32,
-    color: 'white',
   },
   appName: {
     fontSize: 28,

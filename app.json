@@ -3,12 +3,12 @@
     "name": "PremioLab",
     "slug": "premiolab",
     "version": "4.1.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "scheme": "premiolab",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#070a11"
     },
@@ -21,10 +21,15 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.premiotrader.app",
-      "buildNumber": "5",
+      "buildNumber": "9",
       "backgroundColor": "#070a11",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.premiotrader.app.data"
+        ]
       }
     },
     "android": {
@@ -37,7 +42,8 @@
     "plugins": [
       "expo-font",
       "expo-secure-store",
-      "expo-asset"
+      "expo-asset",
+      "expo-screen-orientation"
     ],
     "extra": {
       "eas": {

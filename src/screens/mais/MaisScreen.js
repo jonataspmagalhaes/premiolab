@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Share, Switch } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Share, Switch, Image } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -14,6 +14,7 @@ var SECTIONS = [
       { icon: '🏛', label: 'Contas', value: 'Corretoras e Bancos', color: C.acoes, route: 'ConfigCorretoras' },
       { icon: '🔔', label: 'Alertas', value: 'Ativados', color: C.green, route: 'ConfigAlertas' },
       { icon: '🎯', label: 'Meta Mensal', value: 'Configurar', color: C.yellow, route: 'ConfigMeta' },
+      { icon: '⚡', label: 'Gastos Rápidos', value: 'Atalhos de despesas', color: C.etfs, route: 'ConfigGastosRapidos' },
     ],
   },
   {
@@ -27,6 +28,7 @@ var SECTIONS = [
     items: [
       { icon: '📋', label: 'Histórico Completo', value: '', color: C.acoes, route: 'Historico' },
       { icon: '🏦', label: 'Renda Fixa', value: 'Gerenciar', color: C.rf, route: 'RendaFixa' },
+      { icon: '📥', label: 'Importar Operações', value: 'CSV / B3', color: C.fiis, route: 'ImportOperacoes' },
       { icon: '📤', label: 'Exportar CSV', value: '', color: C.sub, action: 'export_csv' },
     ],
   },
@@ -136,11 +138,10 @@ export default function MaisScreen(props) {
       {/* Profile card */}
       <Glass glow={C.accent} padding={14}>
         <View style={styles.profileRow}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {user && user.email ? user.email[0].toUpperCase() : 'U'}
-            </Text>
-          </View>
+          <Image
+            source={require('../../../assets/logo.png')}
+            style={styles.avatar}
+          />
           <View style={{ flex: 1 }}>
             <Text style={styles.profileName}>Investidor</Text>
             <Text style={styles.profileEmail}>{user ? (user.email || '') : ''}</Text>
@@ -217,9 +218,7 @@ var styles = StyleSheet.create({
   profileRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatar: {
     width: 42, height: 42, borderRadius: 12,
-    backgroundColor: C.accent, justifyContent: 'center', alignItems: 'center',
   },
-  avatarText: { fontSize: 16, fontWeight: '800', color: 'white', fontFamily: F.display },
   profileName: { fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.display },
   profileEmail: { fontSize: 10, color: C.sub, fontFamily: F.body },
 

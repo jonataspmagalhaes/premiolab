@@ -1,17 +1,18 @@
 import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, Dimensions, Modal,
+  TouchableOpacity, Dimensions, Modal, Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getDashboard, getIndicators, getProfile, upsertPatrimonioSnapshot } from '../../services/database';
+import { getDashboard, getIndicators, getProfile, upsertPatrimonioSnapshot, processRecorrentes, getCartoes, getFatura } from '../../services/database';
+import { getSymbol } from '../../services/currencyService';
 import { clearPriceCache } from '../../services/priceService';
 import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { runDividendSync, shouldSyncDividends } from '../../services/dividendService';
-import { Badge, Logo, Wordmark, InfoTip, Fab } from '../../components';
+import { Badge, InfoTip, Fab } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import InteractiveChart from '../../components/InteractiveChart';
 import { usePrivacyStyle } from '../../components/Sensitive';
@@ -168,6 +169,7 @@ export default function HomeScreen({ navigation }) {
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
   var _alertsExpanded = useState(false); var alertsExpanded = _alertsExpanded[0]; var setAlertsExpanded = _alertsExpanded[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
+  var _faturaAlerts = useState([]); var faturaAlerts = _faturaAlerts[0]; var setFaturaAlerts = _faturaAlerts[1];
   var ps = usePrivacyStyle();
 
   var load = async function () {
@@ -214,6 +216,84 @@ export default function HomeScreen({ navigation }) {
       }
     }).catch(function(e) {
       console.warn('Home indicator check failed:', e);
+    });
+
+    // Fire-and-forget: process recurring transactions due today
+    processRecorrentes(user.id).catch(function(e) {
+      console.warn('Home processRecorrentes failed:', e);
+    });
+
+    // Fire-and-forget: load fatura alerts from credit cards
+    getCartoes(user.id).then(function(cartoesRes) {
+      if (!cartoesRes.data || cartoesRes.data.length === 0) {
+        setFaturaAlerts([]);
+        return;
+      }
+      var cards = cartoesRes.data;
+      var now = new Date();
+      var curMes = now.getMonth() + 1;
+      var curAno = now.getFullYear();
+      var fatAlerts = [];
+      var promises = [];
+
+      for (var ci = 0; ci < cards.length; ci++) {
+        (function(card) {
+          var p = getFatura(user.id, card.id, curMes, curAno).then(function(fRes) {
+            var fData = fRes && fRes.data ? fRes.data : null;
+            if (!fData || fRes.error || !fData.total || fData.total <= 0) return;
+            if (fData.pago) return;
+
+            var sym = getSymbol(card.moeda || 'BRL');
+            var label = (card.bandeira || '').toUpperCase() + ' ••••' + (card.ultimos_digitos || '');
+            var valorStr = sym + ' ' + fData.total.toFixed(2).replace('.', ',');
+
+            var dueDate = new Date(fData.dueDate + 'T12:00:00');
+            var todayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+            var dueMs = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate()).getTime();
+            var diffDays = Math.round((dueMs - todayMs) / 86400000);
+
+            var dueDateStr = String(dueDate.getDate()).padStart(2, '0') + '/' + String(dueDate.getMonth() + 1).padStart(2, '0');
+
+            var cycleEndDate = new Date(fData.cycleEnd + 'T12:00:00');
+            var isClosed = now > cycleEndDate;
+
+            if (diffDays < 0) {
+              fatAlerts.push({
+                type: 'critico',
+                title: 'Fatura vencida - ' + label,
+                desc: valorStr + ' venceu em ' + dueDateStr,
+                badge: 'VENCIDA',
+                _faturaNav: { cartaoId: card.id, cartao: card },
+              });
+            } else if (diffDays <= 5 && isClosed) {
+              fatAlerts.push({
+                type: 'critico',
+                title: 'Fatura vence em ' + diffDays + ' dia' + (diffDays !== 1 ? 's' : ''),
+                desc: label + ': ' + valorStr,
+                badge: 'URGENTE',
+                _faturaNav: { cartaoId: card.id, cartao: card },
+              });
+            } else if (isClosed) {
+              fatAlerts.push({
+                type: 'info',
+                title: 'Fatura fechou - ' + label,
+                desc: valorStr + '. Vence ' + dueDateStr,
+                badge: 'FATURA',
+                _faturaNav: { cartaoId: card.id, cartao: card },
+              });
+            }
+          }).catch(function(e) {
+            console.warn('Fatura alert fetch failed for card ' + card.id + ':', e);
+          });
+          promises.push(p);
+        })(cards[ci]);
+      }
+
+      Promise.all(promises).then(function() {
+        setFaturaAlerts(fatAlerts);
+      });
+    }).catch(function(e) {
+      console.warn('Home fatura alerts failed:', e);
     });
   };
 
@@ -426,6 +506,18 @@ export default function HomeScreen({ navigation }) {
   } else if (rendaTotalMes > 0 && metaPct >= 50) {
     alerts.push({ type: 'info', title: 'Meta a ' + metaPct.toFixed(0) + '%', desc: 'Faltam ' + fmt(meta - rendaTotalMes) + ' para bater a meta.', badge: 'INFO' });
   }
+  // Merge fatura alerts
+  for (var fai = 0; fai < faturaAlerts.length; fai++) {
+    alerts.push(faturaAlerts[fai]);
+  }
+
+  // Sort: critical/warning first, then rest
+  alerts.sort(function(a, b) {
+    var aCrit = (a.type === 'critico' || a.type === 'warning') ? 1 : 0;
+    var bCrit = (b.type === 'critico' || b.type === 'warning') ? 1 : 0;
+    return bCrit - aCrit;
+  });
+
   if (alerts.length === 0) {
     alerts.push({ type: 'ok', title: 'Tudo em ordem', desc: 'Nenhum alerta no momento.', badge: 'OK' });
   }
@@ -452,10 +544,11 @@ export default function HomeScreen({ navigation }) {
       >
         {/* HEADER */}
         <View style={st.header}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Logo size={52} />
-            <Wordmark fontSize={32} />
-          </View>
+          <Image
+            source={require('../../../assets/logo-header.png')}
+            style={{ height: 66, width: 66 * (400 / 95) }}
+            resizeMode="contain"
+          />
           <View style={st.syncBadge}>
             <Text style={{ fontSize: 10, color: '#22c55e', fontWeight: '600', fontFamily: F.mono }}>
               ● SYNC {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
@@ -792,7 +885,7 @@ export default function HomeScreen({ navigation }) {
           var infoAlerts = [];
           for (var ai = 0; ai < alerts.length; ai++) {
             var al = alerts[ai];
-            if (al.type === 'critico' || al.type === 'warning' || al.detailType) {
+            if (al.type === 'critico' || al.type === 'warning' || al.detailType || al._faturaNav) {
               criticalAlerts.push(al);
             } else {
               infoAlerts.push(al);
@@ -809,6 +902,13 @@ export default function HomeScreen({ navigation }) {
                   alertOnPress = function() {
                     setInfoModal({ title: 'Proventos Pagos Hoje', detailType: 'proventos', detail: phDetailData });
                   };
+                }
+                if (a._faturaNav) {
+                  alertOnPress = (function(nav) {
+                    return function() {
+                      navigation.navigate('Fatura', { cartaoId: nav.cartaoId, cartao: nav.cartao });
+                    };
+                  })(a._faturaNav);
                 }
                 return <AlertRow key={i} type={a.type} title={a.title} desc={a.desc} badge={a.badge} onPress={alertOnPress} ps={ps} />;
               })}
@@ -933,7 +1033,7 @@ var st = StyleSheet.create({
   scroll: { padding: PAD, paddingBottom: 0 },
   header: {
     flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', paddingVertical: 10, marginBottom: 10,
+    alignItems: 'center', marginTop: -10, paddingBottom: 10, marginBottom: 10,
   },
   syncBadge: {
     backgroundColor: 'rgba(34,197,94,0.08)',
