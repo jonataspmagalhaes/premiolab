@@ -25,11 +25,6 @@
       "backgroundColor": "#070a11",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      },
-      "entitlements": {
-        "com.apple.security.application-groups": [
-          "group.com.premiotrader.app.data"
-        ]
       }
     },
     "android": {
