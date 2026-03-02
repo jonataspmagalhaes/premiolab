@@ -1962,11 +1962,11 @@ Cards de opcoes ativas agora exibem preco atual de mercado (via OpLab API) e P&L
 - Sem dados OpLab: "Preço indisponível" em dim
 
 ### Alerta de P&L por opcao
-- Coluna `opcoes.alerta_pl` (NUMERIC, NULL = sem alerta). Valor em R$ total
+- Coluna `opcoes.alerta_pl` (NUMERIC, NULL = sem alerta). Valor em % (ex: 50 = lucro 50%, -20 = prejuizo 20%)
 - `updateOpcaoAlertaPL(opcaoId, valor)` em database.js
 - Icone sino (`notifications-outline`/`notifications`) ao lado do P&L
 - Toque abre editor inline com campo R$ + Salvar/Remover
-- `useEffect` em `chainsReady` checa alertas: toast + haptic quando P&L atinge alvo
+- `useEffect` em `chainsReady` checa alertas: toast + haptic quando P&L % atinge alvo
 - Badge "ALERTA P&L" amarelo no card quando atingido
 - `alertsFired` state previne disparo repetido na mesma sessao
 

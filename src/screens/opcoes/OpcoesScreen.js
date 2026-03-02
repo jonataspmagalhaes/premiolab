@@ -852,8 +852,8 @@ var OpCard = React.memo(function OpCard(props) {
         var plSign = plTotal >= 0 ? '+' : '';
         var hasAlerta = op.alerta_pl != null;
         var alertaAtingido = hasAlerta && (
-          (op.alerta_pl >= 0 && plTotal >= op.alerta_pl) ||
-          (op.alerta_pl < 0 && plTotal <= op.alerta_pl)
+          (op.alerta_pl >= 0 && plPct >= op.alerta_pl) ||
+          (op.alerta_pl < 0 && plPct <= op.alerta_pl)
         );
 
         return (
@@ -891,18 +891,18 @@ var OpCard = React.memo(function OpCard(props) {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>
                 <Badge text="ALERTA P&L" color={C.yellow} />
                 <Text style={{ fontSize: 10, color: C.yellow, fontFamily: F.mono }}>
-                  {'Alvo R$ ' + fmt(Math.abs(op.alerta_pl)) + ' atingido'}
+                  {'Alvo ' + (op.alerta_pl >= 0 ? '+' : '') + op.alerta_pl.toFixed(0) + '% atingido (' + plSign + plPct.toFixed(1) + '%)'}
                 </Text>
               </View>
             ) : null}
             {showAlertaEditor ? (
               <View style={{ marginTop: 6, padding: 10, borderRadius: 8, backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border }}>
-                <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4 }}>ALERTA P&L (R$ total)</Text>
+                <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4 }}>ALERTA P&L (%)</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <TextInput
                     value={alertaInput}
                     onChangeText={setAlertaInput}
-                    placeholder="Ex: 50 ou -30"
+                    placeholder="Ex: 50 ou -20"
                     placeholderTextColor={C.dim}
                     keyboardType="numeric"
                     style={{
@@ -925,7 +925,7 @@ var OpCard = React.memo(function OpCard(props) {
                   </TouchableOpacity>
                 </View>
                 <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginTop: 4 }}>
-                  {'P&L atual: ' + plSign + 'R$ ' + fmt(Math.abs(plTotal)) + '. Positivo = alerta de lucro, negativo = prejuízo.'}
+                  {'P&L atual: ' + plSign + plPct.toFixed(1) + '%. Positivo = avisar no lucro, negativo = avisar no prejuízo.'}
                 </Text>
               </View>
             ) : null}
@@ -4550,15 +4550,15 @@ export default function OpcoesScreen() {
       if (mid == null) continue;
       var isV = aOp.direcao === 'lancamento' || aOp.direcao === 'venda';
       var plU = isV ? ((aOp.premio || 0) - mid) : (mid - (aOp.premio || 0));
-      var plT = plU * (aOp.quantidade || 0);
-      var triggered = (aOp.alerta_pl >= 0 && plT >= aOp.alerta_pl) || (aOp.alerta_pl < 0 && plT <= aOp.alerta_pl);
+      var plPctAlert = (aOp.premio || 0) > 0 ? (plU / (aOp.premio || 0)) * 100 : 0;
+      var triggered = (aOp.alerta_pl >= 0 && plPctAlert >= aOp.alerta_pl) || (aOp.alerta_pl < 0 && plPctAlert <= aOp.alerta_pl);
       if (triggered) {
         newFired[aOp.id] = true;
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         Toast.show({
           type: 'info',
           text1: 'Alerta P&L: ' + aOp.ativo_base + ' ' + (aOp.tipo || '').toUpperCase(),
-          text2: 'P&L R$ ' + fmt(Math.abs(plT)) + (plT >= 0 ? ' (lucro)' : ' (prejuízo)') + ' atingiu alvo R$ ' + aOp.alerta_pl,
+          text2: 'P&L ' + (plPctAlert >= 0 ? '+' : '') + plPctAlert.toFixed(1) + '% atingiu alvo ' + (aOp.alerta_pl >= 0 ? '+' : '') + aOp.alerta_pl + '%',
           visibilityTime: 6000,
         });
       }
@@ -4595,7 +4595,7 @@ export default function OpcoesScreen() {
     }
     setOpcoes(updated);
     if (valor != null) {
-      Toast.show({ type: 'success', text1: 'Alerta definido', text2: 'P&L alvo: R$ ' + valor });
+      Toast.show({ type: 'success', text1: 'Alerta definido', text2: 'P&L alvo: ' + (valor >= 0 ? '+' : '') + valor + '%' });
     } else {
       Toast.show({ type: 'success', text1: 'Alerta removido' });
     }
