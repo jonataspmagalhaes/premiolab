@@ -12,6 +12,9 @@ var dateUtils = require('../utils/dateUtils');
 var parseLocalDate = dateUtils.parseLocalDate;
 import InfoTip from './InfoTip';
 import FundamentalChart from './FundamentalChart';
+var oplabCache = require('../services/oplabService');
+var getCachedChain = oplabCache.getCachedChain;
+var getCachedOptionData = oplabCache.getCachedOptionData;
 
 // ── Black-Scholes helpers (para IV média) ──
 function normCDF(x) {
@@ -104,8 +107,8 @@ var TIPS = {
   cobertura: 'Se as CALLs vendidas estão cobertas pelas ações em carteira.',
   premios: 'Total de prêmios recebidos em opções deste ativo.',
   plOpcoes: 'Resultado líquido das opções encerradas.',
-  hv20: 'Volatilidade histórica 20 dias — mede oscilação real do ativo.',
-  ivMedia: 'Volatilidade implícita média das opções ativas via Black-Scholes.',
+  hv20: 'VH — Volatilidade histórica 20 dias. Mede oscilação real do ativo.',
+  ivMedia: 'VI Média — Volatilidade implícita média das opções ativas.',
   yieldOpc: 'Prêmios recebidos / custo da posição em ações.',
   proxVenc: 'Dias até o vencimento da opção ativa mais próxima.',
 };
@@ -177,6 +180,7 @@ export default function FundamentalAccordion(props) {
   var ticker = props.ticker || '';
   var mercado = props.mercado || 'BR';
   var color = props.color || C.accent;
+  var hideOpcoes = props.hideOpcoes || false;
 
   var _exp = useState({});
   var expanded = _exp[0];
@@ -271,24 +275,37 @@ export default function FundamentalAccordion(props) {
     }
   }
 
-  var hv20 = indicator && indicator.hv_20 != null ? indicator.hv_20 : null;
+  // VH: preferir ewma_current do cache OpLab, fallback para indicator.hv_20
+  var cachedChain = getCachedChain(tickerUpper);
+  var hv20 = cachedChain && cachedChain.ewma_current != null ? cachedChain.ewma_current
+    : (indicator && indicator.hv_20 != null ? indicator.hv_20 : null);
 
-  // IV média
+  // IV média: preferir IV real do cache OpLab por opcao, fallback para BS local
   var ivMedia = null;
   if (opcoesAtivas.length > 0 && precoAtual && precoAtual > 0) {
     var ivSum = 0; var ivWeight = 0;
     for (var ivi = 0; ivi < opcoesAtivas.length; ivi++) {
       var ivOp = opcoesAtivas[ivi];
       var ivK = ivOp.strike || 0;
-      var ivP = ivOp.premio || 0;
-      var ivDays = Math.max(1, Math.ceil((parseLocalDate(ivOp.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
-      var ivT = ivDays / 365;
+      var ivW = ivOp.quantidade || 1;
       var ivTipo = (ivOp.tipo || 'call').toLowerCase();
-      if (ivK > 0 && ivP > 0) {
-        var computedIV = bsIV(precoAtual, ivK, ivT, 0.1325, ivP, ivTipo) * 100;
-        var ivW = ivOp.quantidade || 1;
-        ivSum += computedIV * ivW;
+
+      // Tentar cache OpLab primeiro
+      // OpLab retorna iv ja em percentual (ex: 33.24 = 33.24%)
+      var cachedOpt = getCachedOptionData(tickerUpper, ivK, ivTipo, ivOp.vencimento);
+      if (cachedOpt && cachedOpt.iv != null) {
+        ivSum += cachedOpt.iv * ivW;
         ivWeight += ivW;
+      } else {
+        // Fallback: BS local
+        var ivP = ivOp.premio || 0;
+        var ivDays = Math.max(1, Math.ceil((parseLocalDate(ivOp.vencimento) - new Date()) / (1000 * 60 * 60 * 24)));
+        var ivT = ivDays / 365;
+        if (ivK > 0 && ivP > 0) {
+          var computedIV = bsIV(precoAtual, ivK, ivT, 0.1325, ivP, ivTipo) * 100;
+          ivSum += computedIV * ivW;
+          ivWeight += ivW;
+        }
       }
     }
     if (ivWeight > 0) ivMedia = ivSum / ivWeight;
@@ -399,7 +416,7 @@ export default function FundamentalAccordion(props) {
   return (
     <View style={{ marginTop: 8 }}>
       {/* ── OPÇÕES ── */}
-      {showOpcoes ? (
+      {showOpcoes && !hideOpcoes ? (
         <View>
           {renderSectionHeader('opcoes', 'OPÇÕES', C.opcoes)}
           {expanded['opcoes'] ? renderGrid([
@@ -407,7 +424,7 @@ export default function FundamentalAccordion(props) {
             renderMetric('Cobertura', coberturaLabel, 'cobertura', coberturaColor),
             renderMetric('Prêmios Rec.', opcoes.length > 0 ? currPrefix + fmt(premiosRecebidos) : '\u2013', 'premios', premiosRecebidos >= 0 ? C.green : C.red),
             renderMetric('P&L Opções', opcoes.length > 0 ? (plOpcoes >= 0 ? '+' : '') + currPrefix + fmt(plOpcoes) : '\u2013', 'plOpcoes', plOpcoes >= 0 ? C.green : C.red),
-            renderMetric('HV 20d', hv20 != null ? hv20.toFixed(1) + '%' : '\u2013', 'hv20', C.opcoes),
+            renderMetric('VH', hv20 != null ? hv20.toFixed(1) + '%' : '\u2013', 'hv20', C.opcoes),
             renderMetric('VI Média', ivMedia != null ? ivMedia.toFixed(1) + '%' : '\u2013', 'ivMedia', ivColor),
             renderMetric('Yield Opções', yieldOpcoes > 0 ? yieldOpcoes.toFixed(2) + '%' : '\u2013', 'yieldOpc', yieldOpcoes > 0 ? C.green : C.text),
             renderMetric('Próx. Venc.', proxVenc != null ? proxVenc + 'd' : '\u2013', 'proxVenc', proxVencColor),

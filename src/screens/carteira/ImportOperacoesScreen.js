@@ -66,11 +66,11 @@ var TYPE_BADGE_LABELS = {
   'skip': 'N/A',
 };
 
-var B3_HELP = 'Como exportar da B3:\n\n1. Acesse investidor.b3.com.br\n2. Vá em Extratos > Negociação\n3. Filtre o período desejado\n4. Clique em "Extrair" (Excel)\n5. Abra o arquivo no Excel/Google Sheets\n6. Selecione tudo (Ctrl+A), copie (Ctrl+C)\n7. Cole aqui no campo abaixo';
+var B3_HELP = 'Como exportar da B3:\n\n1. Acesse investidor.b3.com.br\n2. Vá em Extratos > Negociação\n3. Filtre o período desejado\n4. Clique em "Extrair" (Excel)\n5. Carregue o arquivo .xlsx diretamente ou abra, copie e cole aqui\n\nSuporta arquivos Excel (.xlsx) nativamente.';
 
 var GENERIC_TEMPLATE = 'Data;Tipo;Ticker;Categoria;Quantidade;Preço;Corretagem;Emolumentos;Impostos;Corretora\n02/01/2024;compra;PETR4;acao;100;36,75;0;0;0;Clear\n03/01/2024;venda;VALE3;acao;50;68,50;4,90;0,50;0;XP';
 
-var CEI_HELP = 'Como exportar do CEI:\n\n1. Acesse cei.b3.com.br\n2. Vá em Extratos e Informativos > Negociação\n3. Filtre o período desejado\n4. Clique em "Exportar" (.csv)\n5. Carregue o arquivo aqui ou abra, copie e cole\n\nAceita arquivos com nomes como "negociacao-xxx.xlsx - Negociação.csv".\n\nSuporta: ações, FIIs, ETFs, opções, exercícios.\nFuturos e termos são exibidos mas não importados.';
+var CEI_HELP = 'Como exportar do CEI:\n\n1. Acesse cei.b3.com.br\n2. Vá em Extratos e Informativos > Negociação\n3. Filtre o período desejado\n4. Clique em "Exportar"\n5. Carregue o arquivo aqui (.csv ou .xlsx) ou abra, copie e cole\n\nSuporta arquivos CSV e Excel (.xlsx) nativamente.\n\nSuporta: ações, FIIs, ETFs, opções, exercícios.\nFuturos e termos são exibidos mas não importados.';
 
 var NOTA_HELP = 'Como importar nota de corretagem:\n\n1. Abra o PDF da nota no celular ou computador\n2. Selecione todo o texto (Ctrl+A ou "Selecionar tudo")\n3. Copie (Ctrl+C)\n4. Cole no campo abaixo\n\nSuporta notas das principais corretoras brasileiras.\nExtrai: operações, opções, custos (taxas, emolumentos, ISS).\n\nOs custos são rateados proporcionalmente entre as operações.';
 
@@ -455,7 +455,7 @@ export default function ImportOperacoesScreen(props) {
             accessibilityRole="button" accessibilityLabel="Selecionar arquivo">
             <Ionicons name="document-attach-outline" size={22} color={C.accent} />
             <Text style={styles.fileBtnText}>
-              {fileName ? fileName : 'Selecionar arquivo (.csv)'}
+              {fileName ? fileName : 'Selecionar arquivo (.csv / .xlsx)'}
             </Text>
           </TouchableOpacity>
         ) : null}

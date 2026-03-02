@@ -4,9 +4,12 @@
  * Detecta novos dividendos para tickers na carteira e insere como proventos
  */
 
-import { getPositions, getProventos, addProvento, getOperacoes, updateProfile, getSaldos, addMovimentacao } from './database';
+import { getPositions, getProventos, addProvento, getOperacoes, updateProfile, getSaldos, addMovimentacao, getMovimentacoes } from './database';
 import { fetchYahooDividends } from './yahooService';
 import { fetchExchangeRates } from './currencyService';
+
+// Guard contra sync concorrente (module-level)
+var _syncRunning = false;
 
 var BRAPI_URL = 'https://brapi.dev/api/quote/';
 var BRAPI_TOKEN = 'tEU8wyBixv8hCi7J3NCjsi';
@@ -206,9 +209,22 @@ function dedupKey(ticker, dataPagamento, valorPorCota) {
   return t + '|' + d + '|' + v;
 }
 
+// Chave loose (ticker+date only) para catch duplicados com rate diferente
+// (ex: INT com câmbio diferente, BR com arredondamento diferente entre fontes)
+function dedupKeyLoose(ticker, dataPagamento) {
+  var t = (ticker || '').toUpperCase().trim();
+  var d = (dataPagamento || '').substring(0, 10);
+  return t + '|' + d;
+}
+
 // ══════════ RUN DIVIDEND SYNC ══════════
 
 export async function runDividendSync(userId) {
+  // Guard contra sync concorrente
+  if (_syncRunning) {
+    return { inserted: 0, checked: 0, details: [], message: 'Sync já em andamento' };
+  }
+  _syncRunning = true;
   try {
     // 1. Buscar posicoes com qty > 0
     var posResult = await getPositions(userId);
@@ -245,18 +261,77 @@ export async function runDividendSync(userId) {
     // 1b. Buscar saldos para saber conta destino das movimentacoes
     var saldosResult = await getSaldos(userId);
     var saldosData = saldosResult.data || [];
-    var saldosConta = saldosData.length > 0 ? (saldosData[0].corretora || saldosData[0].name || null) : null;
 
-    // 2. Buscar proventos existentes para dedup
-    var provResult = await getProventos(userId, { limit: 1000 });
+    // Build lookup: nome da conta (UPPERCASE) → { name, moeda }
+    // Uppercase para match com por_corretora (que tambem é uppercase)
+    var saldosByName = {};
+    for (var si = 0; si < saldosData.length; si++) {
+      var sn = (saldosData[si].corretora || saldosData[si].name || '').trim().toUpperCase();
+      var snOriginal = (saldosData[si].corretora || saldosData[si].name || '').trim();
+      var sm = (saldosData[si].moeda || 'BRL').toUpperCase();
+      if (sn) {
+        if (!saldosByName[sn]) saldosByName[sn] = [];
+        saldosByName[sn].push({ name: snOriginal, moeda: sm });
+      }
+    }
+
+    // Helper: encontrar conta certa para creditar dividendo
+    // Prioridade: corretora da posicao (por_corretora) que EXISTE em saldos, senao null
+    // NUNCA retorna conta que nao existe — previne criacao de movimentacao orfã
+    function findContaForPosition(pos, preferMoeda) {
+      if (!preferMoeda) preferMoeda = 'BRL';
+      if (saldosData.length === 0) return null;
+
+      // 1. Tentar corretora da posicao (por_corretora) — match com conta existente (uppercase)
+      var porCorretora = pos && pos.por_corretora;
+      if (porCorretora) {
+        var corKeys = Object.keys(porCorretora);
+        for (var ck = 0; ck < corKeys.length; ck++) {
+          var corName = corKeys[ck].toUpperCase().trim();
+          var matches = saldosByName[corName];
+          if (matches) {
+            // Preferir conta na moeda certa
+            for (var cm = 0; cm < matches.length; cm++) {
+              if (matches[cm].moeda === preferMoeda) return matches[cm].name;
+            }
+            // Aceitar conta em outra moeda dessa corretora
+            return matches[0].name;
+          }
+        }
+      }
+
+      // 2. SEM FALLBACK para conta aleatoria
+      // Se nao achou conta da corretora da posicao, retorna null
+      // Movimentacao nao sera criada — melhor nao creditar do que creditar errado
+      return null;
+    }
+
+    // 2. Buscar proventos existentes para dedup (sem limit para não perder antigos)
+    var provResult = await getProventos(userId, {});
     var existingProventos = provResult.data || [];
 
-    // Construir set de chaves existentes
+    // Construir set de chaves existentes (exata + loose)
     var existingKeys = {};
+    var existingKeysLoose = {};
     for (var e = 0; e < existingProventos.length; e++) {
       var ep = existingProventos[e];
       var key = dedupKey(ep.ticker, ep.data_pagamento, ep.valor_por_cota);
       existingKeys[key] = true;
+      var keyL = dedupKeyLoose(ep.ticker, ep.data_pagamento);
+      if (!existingKeysLoose[keyL]) existingKeysLoose[keyL] = 0;
+      existingKeysLoose[keyL]++;
+    }
+
+    // 2b. Buscar movimentacoes de dividendos existentes para dedup de movimentacoes
+    var movDivResult = await getMovimentacoes(userId, { limit: 5000 });
+    var existingMovs = movDivResult.data || [];
+    var existingMovKeys = {};
+    for (var em = 0; em < existingMovs.length; em++) {
+      var emv = existingMovs[em];
+      if (emv.categoria === 'dividendo' || emv.categoria === 'jcp' || emv.categoria === 'rendimento_fii') {
+        var movKey = dedupKeyLoose(emv.ticker, emv.data);
+        existingMovKeys[movKey] = true;
+      }
     }
 
     // 3. Buscar TODAS operacoes para calcular posicao historica na data-com
@@ -361,28 +436,33 @@ export async function runDividendSync(userId) {
         var rate = div.rate;
         if (!rate || rate <= 0) continue;
 
-        // Data-com: so importar se data-com ja passou (usuario confirmou direito)
+        // Data-com: se ja passou, usar posicao historica; se futura, usar posicao atual
         var dataCom = div.lastDatePrior ? div.lastDatePrior.substring(0, 10) : null;
         var qtyForDiv = qty; // fallback: posicao atual se nao tem data-com
         if (dataCom) {
-          // Pular dividendos com data-com futura — usuario pode vender antes
-          if (dataCom > todayStr) {
-            tickerDetail.skippedDate++;
-            continue;
-          }
-          qtyForDiv = positionAtDate(ticker, dataCom);
-          if (qtyForDiv <= 0) {
-            tickerDetail.skippedBuyDate++;
-            if (tickerDetail.buyDateExamples.length < 2) {
-              tickerDetail.buyDateExamples.push('pag ' + paymentDateStr + ' ex ' + dataCom + ' qty=0');
+          if (dataCom <= todayStr) {
+            // Data-com ja passou — usar posicao historica na data-com
+            qtyForDiv = positionAtDate(ticker, dataCom);
+            if (qtyForDiv <= 0) {
+              tickerDetail.skippedBuyDate++;
+              if (tickerDetail.buyDateExamples.length < 2) {
+                tickerDetail.buyDateExamples.push('pag ' + paymentDateStr + ' ex ' + dataCom + ' qty=0');
+              }
+              continue;
             }
-            continue;
           }
+          // Data-com futura: usa qty atual (posicao pode mudar, mas importa como "a receber")
         }
 
-        // Dedup check
+        // Dedup check: exata (ticker+date+rate)
         var dkey = dedupKey(ticker, paymentDateStr, rate);
         if (existingKeys[dkey]) {
+          tickerDetail.skippedDedup++;
+          continue;
+        }
+        // Dedup check: loose (ticker+date) — previne duplicados com rate ligeiramente diferente
+        var dkeyL = dedupKeyLoose(ticker, paymentDateStr);
+        if (existingKeysLoose[dkeyL] && existingKeysLoose[dkeyL] > 0) {
           tickerDetail.skippedDedup++;
           continue;
         }
@@ -403,12 +483,19 @@ export async function runDividendSync(userId) {
 
         if (!addResult.error) {
           existingKeys[dkey] = true;
+          if (!existingKeysLoose[dkeyL]) existingKeysLoose[dkeyL] = 0;
+          existingKeysLoose[dkeyL]++;
           inserted++;
           tickerDetail.inserted++;
-          // Log movimentacao (fire-and-forget)
-          if (saldosConta && rate * qtyForDiv > 0) {
+          // Log movimentacao (fire-and-forget) — creditar na conta da corretora da posicao
+          // Só creditar se data de pagamento já passou (dinheiro efetivamente recebido)
+          // Dedup: verificar se movimentacao ja existe para mesmo ticker+data
+          var movKeyBR = dedupKeyLoose(ticker, paymentDateStr);
+          var contaBR = findContaForPosition(pos, 'BRL');
+          if (contaBR && rate * qtyForDiv > 0 && !existingMovKeys[movKeyBR] && paymentDateStr <= todayStr) {
+            existingMovKeys[movKeyBR] = true;
             addMovimentacao(userId, {
-              conta: saldosConta,
+              conta: contaBR,
               tipo: 'entrada',
               categoria: tipoProv === 'jcp' ? 'jcp' : tipoProv === 'rendimento' ? 'rendimento_fii' : 'dividendo',
               valor: rate * qtyForDiv,
@@ -474,7 +561,13 @@ export async function runDividendSync(userId) {
         // Converter USD→BRL
         var rateBRL = Math.round(rateInt * usdRate * 10000) / 10000;
 
-        // Dedup check
+        // Dedup check: para INT, usar LOOSE (ticker+date) porque rate BRL varia com câmbio
+        var dkeyIntL = dedupKeyLoose(tickerInt, paymentDateStrInt);
+        if (existingKeysLoose[dkeyIntL] && existingKeysLoose[dkeyIntL] > 0) {
+          tickerDetailInt.skippedDedup++;
+          continue;
+        }
+        // Também verificar chave exata (caso já inserido neste mesmo sync)
         var dkeyInt = dedupKey(tickerInt, paymentDateStrInt, rateBRL);
         if (existingKeys[dkeyInt]) { tickerDetailInt.skippedDedup++; continue; }
 
@@ -490,11 +583,19 @@ export async function runDividendSync(userId) {
 
         if (!addResultInt.error) {
           existingKeys[dkeyInt] = true;
+          if (!existingKeysLoose[dkeyIntL]) existingKeysLoose[dkeyIntL] = 0;
+          existingKeysLoose[dkeyIntL]++;
           inserted++;
           tickerDetailInt.inserted++;
-          if (saldosConta && rateBRL * qtyForDivInt > 0) {
+          // Creditar na conta da corretora da posicao INT (preferir conta BRL pois valor ja convertido)
+          // Só creditar se data de pagamento já passou (dinheiro efetivamente recebido)
+          // Dedup: verificar se movimentacao ja existe para mesmo ticker+data
+          var movKeyINT = dedupKeyLoose(tickerInt, paymentDateStrInt);
+          var contaINT = findContaForPosition(posInt, 'BRL');
+          if (contaINT && rateBRL * qtyForDivInt > 0 && !existingMovKeys[movKeyINT] && paymentDateStrInt <= todayStr) {
+            existingMovKeys[movKeyINT] = true;
             addMovimentacao(userId, {
-              conta: saldosConta,
+              conta: contaINT,
               tipo: 'entrada',
               categoria: 'dividendo',
               valor: rateBRL * qtyForDivInt,
@@ -510,6 +611,60 @@ export async function runDividendSync(userId) {
         }
       }
       details.push(tickerDetailInt);
+    }
+
+    // 5c. Segundo passo: creditar proventos já pagos que não têm movimentação
+    // (proventos inseridos quando paymentDate era futuro, agora já passou)
+    var allProventos = existingProventos;
+    // Incluir proventos recém-inseridos neste sync (re-buscar para ter IDs corretos)
+    if (inserted > 0) {
+      var freshProv = await getProventos(userId, {});
+      allProventos = freshProv.data || [];
+    }
+
+    // Build posição lookup por ticker para findContaForPosition
+    var positionsByTicker = {};
+    for (var pt = 0; pt < positions.length; pt++) {
+      positionsByTicker[positions[pt].ticker.toUpperCase().trim()] = positions[pt];
+    }
+
+    var movsCreated = 0;
+    for (var pp = 0; pp < allProventos.length; pp++) {
+      var prov = allProventos[pp];
+      var provTicker = (prov.ticker || '').toUpperCase().trim();
+      var provDate = (prov.data_pagamento || '').substring(0, 10);
+      if (!provDate || !provTicker) continue;
+      // Só proventos com data de pagamento já passada
+      if (provDate > todayStr) continue;
+      // Verificar se já tem movimentação para este ticker+data
+      var provMovKey = dedupKeyLoose(provTicker, provDate);
+      if (existingMovKeys[provMovKey]) continue;
+      // Encontrar posição e conta
+      var provPos = positionsByTicker[provTicker];
+      if (!provPos) continue;
+      var provMoeda = (provPos.mercado === 'INT') ? 'BRL' : 'BRL';
+      var provConta = findContaForPosition(provPos, provMoeda);
+      if (!provConta) continue;
+      var provValor = (prov.valor_por_cota || 0) * (prov.quantidade || 0);
+      if (provValor <= 0) continue;
+      // Mapear categoria
+      var provTipo = prov.tipo || 'dividendo';
+      var provCat = provTipo === 'jcp' ? 'jcp' : provTipo === 'rendimento' ? 'rendimento_fii' : 'dividendo';
+      existingMovKeys[provMovKey] = true;
+      movsCreated++;
+      addMovimentacao(userId, {
+        conta: provConta,
+        tipo: 'entrada',
+        categoria: provCat,
+        valor: provValor,
+        descricao: (provCat === 'jcp' ? 'JCP' : provCat === 'rendimento_fii' ? 'Rendimento' : 'Dividendo') + ' ' + provTicker,
+        ticker: provTicker,
+        referencia_tipo: 'provento',
+        data: provDate,
+      }).catch(function(e) { console.warn('dividendSync retroactive mov failed:', e); });
+    }
+    if (movsCreated > 0) {
+      console.log('dividendSync: ' + movsCreated + ' movimentações retroativas criadas');
     }
 
     // 6. Atualizar data do ultimo sync
@@ -561,5 +716,7 @@ export async function runDividendSync(userId) {
   } catch (err) {
     console.error('runDividendSync error:', err);
     return { inserted: 0, checked: 0, details: [], error: err.message || 'Erro no sync' };
+  } finally {
+    _syncRunning = false;
   }
 }

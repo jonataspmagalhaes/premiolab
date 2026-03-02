@@ -9,11 +9,13 @@ import Svg, { Rect, Line as SvgLine, Text as SvgText } from 'react-native-svg';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
+import Toast from 'react-native-toast-message';
 import {
   getSaldos, upsertSaldo, deleteSaldo,
   getMovimentacoes, addMovimentacaoComSaldo, deleteMovimentacao,
   getMovimentacoesSummary, buildMovDescricao, reconciliarVendasAntigas,
   recalcularSaldos,
+  getCartoes, getFatura, deleteCartao, hardDeleteCartao,
 } from '../../services/database';
 import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/currencyService';
 import { Glass, Badge, Pill, SectionLabel, SwipeableRow, PressableCard, Fab, PeriodFilter } from '../../components';
@@ -21,59 +23,19 @@ import { SkeletonCaixa, EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import Sensitive from '../../components/Sensitive';
 import * as Haptics from 'expo-haptics';
+var finCats = require('../../constants/financeCategories');
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// ══════════════════════════════════════════════
-// Ícones Ionicons por categoria
-// ══════════════════════════════════════════════
-var CAT_IONICONS = {
-  deposito: 'arrow-down-circle-outline',
-  retirada: 'arrow-up-circle-outline',
-  transferencia: 'swap-horizontal-outline',
-  compra_ativo: 'cart-outline',
-  venda_ativo: 'trending-up-outline',
-  premio_opcao: 'flash-outline',
-  recompra_opcao: 'flash-outline',
-  exercicio_opcao: 'flash-outline',
-  dividendo: 'cash-outline',
-  jcp: 'cash-outline',
-  rendimento_fii: 'home-outline',
-  rendimento_rf: 'document-text-outline',
-  ajuste_manual: 'build-outline',
-  salario: 'wallet-outline',
-  despesa_fixa: 'receipt-outline',
-  despesa_variavel: 'receipt-outline',
-  outro: 'ellipse-outline',
-};
-
-var CAT_COLORS = {
-  deposito: C.green, retirada: C.red, transferencia: C.accent,
-  compra_ativo: C.acoes, venda_ativo: C.acoes,
-  premio_opcao: C.opcoes, recompra_opcao: C.opcoes,
-  exercicio_opcao: C.opcoes, dividendo: C.opcoes,
-  jcp: C.opcoes, rendimento_fii: C.opcoes, rendimento_rf: C.rf,
-  ajuste_manual: C.dim, salario: C.green,
-  despesa_fixa: C.yellow, despesa_variavel: C.yellow, outro: C.dim,
-};
-
-var CAT_LABELS = {
-  deposito: 'Depósito', retirada: 'Retirada', transferencia: 'Transferência',
-  compra_ativo: 'Compra ativo', venda_ativo: 'Venda ativo',
-  premio_opcao: 'Prêmio opção', recompra_opcao: 'Recompra opção',
-  exercicio_opcao: 'Exercício', dividendo: 'Dividendo',
-  jcp: 'JCP', rendimento_fii: 'Rendimento FII', rendimento_rf: 'Rendimento RF',
-  ajuste_manual: 'Ajuste', salario: 'Salário',
-  despesa_fixa: 'Despesa fixa', despesa_variavel: 'Despesa variável', outro: 'Outro',
-};
+var CAT_IONICONS = finCats.CAT_IONICONS;
+var CAT_COLORS = finCats.CAT_COLORS;
+var CAT_LABELS = finCats.CAT_LABELS;
+var AUTO_CATEGORIAS = finCats.AUTO_CATEGORIAS;
 
 var MESES_NOMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 var MESES_FULL = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-
-var AUTO_CATEGORIAS = ['compra_ativo', 'venda_ativo', 'premio_opcao', 'recompra_opcao',
-  'exercicio_opcao', 'dividendo', 'jcp', 'rendimento_fii', 'rendimento_rf'];
 
 var PERIODOS = [
   { k: 'M', l: '1M', months: 1 },
@@ -92,11 +54,13 @@ var MOVS_TIPOS = [
   { k: 'opcoes', l: 'Opções', c: C.opcoes },
   { k: 'ativos', l: 'Ativos', c: C.acoes },
   { k: 'transferencia', l: 'Transf.', c: C.accent },
+  { k: 'cartao', l: 'Cartão', c: C.accent },
 ];
 
 var CAIXA_FAB_ITEMS = [
   { label: 'Movimentação', icon: 'swap-vertical-outline', color: C.green, screen: 'AddMovimentacao' },
   { label: 'Nova Conta', icon: 'add-circle-outline', color: C.rf, screen: 'AddConta' },
+  { label: 'Novo Cartão', icon: 'card-outline', color: C.accent, screen: 'AddCartao' },
   { label: 'Extrato', icon: 'receipt-outline', color: C.yellow, screen: 'Extrato' },
 ];
 
@@ -329,7 +293,7 @@ function CategoryBreakdown(props) {
                         {m.ticker || m.conta || ''}
                       </Text>
                       <Text style={[{ fontSize: 10, color: movColor, fontFamily: F.mono, fontWeight: '600' }, ps]}>
-                        {isEntrada ? '+' : '-'}R$ {fmt(m.valor)}
+                        {isEntrada ? '+' : '-'}{getSymbol(getMovMoeda(m))} {fmt(m.valor)}
                       </Text>
                     </View>
                   );
@@ -384,6 +348,9 @@ export default function CaixaView(props) {
   var _expandedCat = useState(null); var expandedCat = _expandedCat[0]; var setExpandedCat = _expandedCat[1];
   var _movsDateRange = useState(null); var movsDateRange = _movsDateRange[0]; var setMovsDateRange = _movsDateRange[1];
   var _movsTipo = useState('todos'); var movsTipo = _movsTipo[0]; var setMovsTipo = _movsTipo[1];
+  var _cartoes = useState([]); var cartoes = _cartoes[0]; var setCartoes = _cartoes[1];
+  var _expandedCartao = useState(null); var expandedCartao = _expandedCartao[0]; var setExpandedCartao = _expandedCartao[1];
+  var _faturasTotais = useState({}); var faturasTotais = _faturasTotais[0]; var setFaturasTotais = _faturasTotais[1];
 
   var load = async function() {
     if (!user) return;
@@ -452,6 +419,32 @@ export default function CaixaView(props) {
       try { newRates = await fetchExchangeRates(moedasEstrangeiras); } catch (e) { /* fallback */ }
     }
     setRates(newRates);
+
+    // Fetch cartões de crédito
+    getCartoes(user.id).then(function(res) {
+      if (res.data) {
+        setCartoes(res.data);
+        var now2 = new Date();
+        var curMes = now2.getMonth() + 1;
+        var curAno = now2.getFullYear();
+        var totais = {};
+        var promises = [];
+        for (var ci = 0; ci < res.data.length; ci++) {
+          (function(card) {
+            var p = getFatura(user.id, card.id, curMes, curAno).then(function(fRes) {
+              if (fRes && !fRes.error) {
+                totais[card.id] = (fRes.data && fRes.data.total) || 0;
+              }
+            });
+            promises.push(p);
+          })(res.data[ci]);
+        }
+        Promise.all(promises).then(function() {
+          setFaturasTotais(totais);
+        });
+      }
+    });
+
     setLoading(false);
   };
 
@@ -736,7 +729,7 @@ export default function CaixaView(props) {
       Alert.alert('Não permitido', 'Movimentações automáticas não podem ser excluídas.');
       return;
     }
-    var movMoeda = mov.moeda || 'BRL';
+    var movMoeda = getMovMoeda(mov);
     var desc = mov.descricao || CAT_LABELS[mov.categoria] || mov.categoria;
     Alert.alert(
       'Excluir movimentação?',
@@ -753,10 +746,10 @@ export default function CaixaView(props) {
                 load();
                 return;
               }
-              var conta = mov.conta || '';
+              var conta = (mov.conta || '').toUpperCase().trim();
               var saldoAtual = null;
               for (var ssi = 0; ssi < saldos.length; ssi++) {
-                var ssName = saldos[ssi].corretora || saldos[ssi].name || '';
+                var ssName = (saldos[ssi].corretora || saldos[ssi].name || '').toUpperCase().trim();
                 if (ssName === conta) {
                   saldoAtual = saldos[ssi];
                   break;
@@ -784,6 +777,54 @@ export default function CaixaView(props) {
     );
   }
 
+  function handleDesativarCartao(cartao) {
+    var bandeira = cartao.bandeira ? cartao.bandeira.toUpperCase() : '';
+    var msg = 'Desativar ' + bandeira + ' ••••' + cartao.ultimos_digitos + '?';
+    var sub = 'O cartão ficará inativo mas o histórico será mantido.';
+    if (faturasTotais[cartao.id] && faturasTotais[cartao.id] > 0) {
+      sub = sub + ' Atenção: há fatura aberta de ' + getSymbol(cartao.moeda || 'BRL') + ' ' + faturasTotais[cartao.id].toFixed(2).replace('.', ',') + '.';
+    }
+    Alert.alert(msg, sub, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Desativar', style: 'destructive', onPress: function() {
+        deleteCartao(cartao.id).then(function(res) {
+          if (res.error) { Alert.alert('Erro', 'Não foi possível desativar.'); return; }
+          Toast.show({ type: 'success', text1: 'Cartão desativado' });
+          setExpandedCartao(null);
+          load();
+        });
+      }}
+    ]);
+  }
+
+  function handleApagarCartao(cartao) {
+    var bandeira = cartao.bandeira ? cartao.bandeira.toUpperCase() : '';
+    Alert.alert(
+      'Apagar cartão permanentemente?',
+      'Todos os lançamentos serão desvinculados. Esta ação não pode ser desfeita.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'APAGAR', style: 'destructive', onPress: function() {
+          Alert.alert(
+            'Tem certeza?',
+            'Confirme para apagar ' + bandeira + ' ••••' + cartao.ultimos_digitos + ' PERMANENTEMENTE.',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'APAGAR permanentemente', style: 'destructive', onPress: function() {
+                hardDeleteCartao(user.id, cartao.id).then(function(res) {
+                  if (res.error) { Alert.alert('Erro', 'Não foi possível apagar.'); return; }
+                  Toast.show({ type: 'success', text1: 'Cartão apagado' });
+                  setExpandedCartao(null);
+                  load();
+                });
+              }}
+            ]
+          );
+        }}
+      ]
+    );
+  }
+
   function handleToggleCat(k) {
     animateLayout();
     setExpandedCat(expandedCat === k ? null : k);
@@ -792,6 +833,18 @@ export default function CaixaView(props) {
   function handleSelectMonth(idx) {
     animateLayout();
     setSelectedMonth(idx);
+  }
+
+  // ── Mapa conta→moeda para exibir símbolo correto nas movimentações ──
+  var contaMoedaMap = {};
+  for (var cmi = 0; cmi < saldos.length; cmi++) {
+    var cmName = (saldos[cmi].corretora || saldos[cmi].name || '').toUpperCase().trim();
+    if (cmName) contaMoedaMap[cmName] = saldos[cmi].moeda || 'BRL';
+  }
+
+  function getMovMoeda(mov) {
+    var conta = (mov.conta || '').toUpperCase().trim();
+    return contaMoedaMap[conta] || 'BRL';
   }
 
   // ── Render ──
@@ -830,6 +883,8 @@ export default function CaixaView(props) {
     movsFiltered = movsByDate.filter(function(m) { return m.categoria === 'compra_ativo' || m.categoria === 'venda_ativo'; });
   } else if (movsTipo === 'transferencia') {
     movsFiltered = movsByDate.filter(function(m) { return m.categoria === 'transferencia'; });
+  } else if (movsTipo === 'cartao') {
+    movsFiltered = movsByDate.filter(function(m) { return !!m.cartao_id; });
   }
 
   // Agrupar movimentações por data
@@ -942,14 +997,6 @@ export default function CaixaView(props) {
         var simbolo = getSymbol(contaMoeda2);
         var saldoBRL = convertToBRL(s.saldo || 0, contaMoeda2, rates);
 
-        // Get last 5 movs for this conta
-        var contaMovs = [];
-        for (var mi = 0; mi < movs.length; mi++) {
-          if (movs[mi].conta === sName && contaMovs.length < 5) {
-            contaMovs.push(movs[mi]);
-          }
-        }
-
         var destOptions = saldos.filter(function(x) { return x.id !== s.id; });
 
         return (
@@ -990,36 +1037,6 @@ export default function CaixaView(props) {
               {/* EXPANDED */}
               {isExp ? (
                 <View style={styles.expandedWrap}>
-                  {/* Last movs */}
-                  {contaMovs.length > 0 ? (
-                    <View style={{ marginBottom: 10 }}>
-                      {contaMovs.map(function(m, mi) {
-                        var isEntrada = m.tipo === 'entrada';
-                        var movColor = isEntrada ? C.green : m.tipo === 'transferencia' ? C.accent : C.red;
-                        var catIcon = CAT_IONICONS[m.categoria] || 'ellipse-outline';
-                        var isAutoMini = AUTO_CATEGORIAS.indexOf(m.categoria) >= 0;
-                        var isAjuste = m.categoria === 'ajuste_manual';
-                        return (
-                          <SwipeableRow key={m.id || mi} enabled={!isAutoMini} onDelete={function() { handleDeleteMov(m); }}>
-                            <View style={[styles.miniMovRow, { backgroundColor: C.cardSolid }, isAjuste && { opacity: 0.5 }]}>
-                              <Ionicons name={catIcon} size={12} color={movColor} style={{ width: 16, textAlign: 'center' }} />
-                              <Text style={styles.miniMovDesc} numberOfLines={1}>
-                                {m.ticker ? m.ticker + ' · ' : ''}{m.descricao || CAT_LABELS[m.categoria] || m.categoria}
-                              </Text>
-                              <Text style={[styles.miniMovVal, { color: movColor }, ps]}>
-                                {isEntrada ? '+' : '-'}{simbolo} {fmt(m.valor)}
-                              </Text>
-                            </View>
-                          </SwipeableRow>
-                        );
-                      })}
-                    </View>
-                  ) : (
-                    <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, textAlign: 'center', marginBottom: 10 }}>
-                      Nenhuma movimentação
-                    </Text>
-                  )}
-
                   {/* Action buttons */}
                   {!actMode ? (
                     <View style={{ gap: 6 }}>
@@ -1052,6 +1069,12 @@ export default function CaixaView(props) {
                           <Text style={[styles.saldoBtnText, { color: C.red + 'CC' }]}>Excluir conta</Text>
                         </TouchableOpacity>
                       </View>
+                      <TouchableOpacity onPress={function() { navigation.navigate('Extrato', { conta: sName }); }} activeOpacity={0.7}
+                        style={[styles.saldoBtn, { borderColor: C.text + '20', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }]}
+                        accessibilityRole="button" accessibilityLabel={'Transações de ' + sName}>
+                        <Ionicons name="receipt-outline" size={14} color={C.text + 'CC'} />
+                        <Text style={[styles.saldoBtnText, { color: C.text + 'CC' }]}>Transações</Text>
+                      </TouchableOpacity>
                     </View>
                   ) : (
                     <View style={{ gap: 8 }}>
@@ -1173,6 +1196,106 @@ export default function CaixaView(props) {
         );
       })}
 
+      {/* ══════ 2.5. CARTÕES DE CRÉDITO ══════ */}
+      {cartoes.length > 0 ? (
+        <View style={{ marginTop: 0 }}>
+          <SectionLabel>CARTÕES DE CRÉDITO</SectionLabel>
+          {cartoes.map(function(c, idx) {
+            var isCardExp = expandedCartao === c.id;
+            var fatTotal = faturasTotais[c.id] || 0;
+            var sym = getSymbol(c.moeda || 'BRL');
+            var bandeira = c.bandeira ? c.bandeira.toUpperCase() : '';
+            var label = (c.apelido || bandeira) + ' ••••' + c.ultimos_digitos;
+
+            return (
+              <PressableCard key={c.id} onPress={function() {
+                animateLayout();
+                setExpandedCartao(isCardExp ? null : c.id);
+              }}>
+                <Glass style={{ marginBottom: 8, padding: 14 }}>
+                  {/* Header row */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <Ionicons name="card-outline" size={20} color={C.accent} />
+                      <Text style={{ fontSize: 14, fontFamily: F.body, color: C.text }}>{label}</Text>
+                    </View>
+                    <Sensitive>
+                      <Text style={{ fontSize: 14, fontFamily: F.mono, color: fatTotal > 0 ? C.yellow : C.green }}>
+                        {sym + ' ' + fatTotal.toFixed(2).replace('.', ',')}
+                      </Text>
+                    </Sensitive>
+                  </View>
+
+                  {/* Expanded content */}
+                  {isCardExp ? (
+                    <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 12 }}>
+                      {/* Fatura info */}
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <Text style={{ fontSize: 11, color: C.dim }}>Fatura aberta</Text>
+                        <Sensitive>
+                          <Text style={{ fontSize: 13, fontFamily: F.mono, color: C.text }}>
+                            {sym + ' ' + fatTotal.toFixed(2).replace('.', ',')}
+                          </Text>
+                        </Sensitive>
+                      </View>
+
+                      {/* Limit bar */}
+                      {c.limite && c.limite > 0 ? (
+                        <View style={{ marginBottom: 10 }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <Text style={{ fontSize: 10, color: C.dim }}>Limite</Text>
+                            <Sensitive>
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                                {sym + ' ' + Number(c.limite).toFixed(2).replace('.', ',')}
+                              </Text>
+                            </Sensitive>
+                          </View>
+                          <View style={{ height: 4, backgroundColor: C.border, borderRadius: 2 }}>
+                            <View style={{ height: 4, borderRadius: 2, backgroundColor: fatTotal / c.limite > 0.9 ? C.red : fatTotal / c.limite > 0.7 ? C.yellow : C.green, width: Math.min(fatTotal / c.limite, 1) * 100 + '%' }} />
+                          </View>
+                        </View>
+                      ) : null}
+
+                      {/* Info row */}
+                      <Text style={{ fontSize: 11, color: C.dim, marginBottom: 10 }}>
+                        {'Fech. dia ' + c.dia_fechamento + ' · Venc. dia ' + c.dia_vencimento + (c.moeda && c.moeda !== 'BRL' ? ' · ' + c.moeda : '')}
+                      </Text>
+
+                      {/* Action buttons */}
+                      <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                        <TouchableOpacity onPress={function() { navigation.navigate('Fatura', { cartaoId: c.id, cartao: c }); }}
+                          style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.accent + '22', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, gap: 4 }}>
+                          <Ionicons name="receipt-outline" size={14} color={C.accent} />
+                          <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.body }}>Ver Fatura</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity onPress={function() { navigation.navigate('AddCartao', { cartao: c }); }}
+                          style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.accent + '22', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, gap: 4 }}>
+                          <Ionicons name="create-outline" size={14} color={C.accent} />
+                          <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.body }}>Editar</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity onPress={function() { handleDesativarCartao(c); }}
+                          style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.yellow + '22', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, gap: 4 }}>
+                          <Ionicons name="pause-circle-outline" size={14} color={C.yellow} />
+                          <Text style={{ fontSize: 12, color: C.yellow, fontFamily: F.body }}>Desativar</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity onPress={function() { handleApagarCartao(c); }}
+                          style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.red + '22', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, gap: 4 }}>
+                          <Ionicons name="trash-outline" size={14} color={C.red} />
+                          <Text style={{ fontSize: 12, color: C.red, fontFamily: F.body }}>Apagar</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : null}
+                </Glass>
+              </PressableCard>
+            );
+          })}
+        </View>
+      ) : null}
+
       {/* ══════ 3. GRÁFICO ENTRADAS VS SAÍDAS (6 meses) ══════ */}
       {hist6m.length > 0 ? (
         <View>
@@ -1212,7 +1335,7 @@ export default function CaixaView(props) {
                       </Text>
                     </View>
                     <Text style={[{ fontSize: 12, fontWeight: '700', color: color, fontFamily: F.mono }, ps]}>
-                      {sign}R$ {fmt(m.valor)}
+                      {sign}{getSymbol(getMovMoeda(m))} {fmt(m.valor)}
                     </Text>
                   </View>
                 );
@@ -1348,7 +1471,7 @@ export default function CaixaView(props) {
                             </View>
                           </View>
                           <Text style={[styles.movVal, { color: isEntrada ? C.green : C.red }, ps]}>
-                            {isEntrada ? '+' : '-'}R$ {fmt(m.valor)}
+                            {isEntrada ? '+' : '-'}{getSymbol(getMovMoeda(m))} {fmt(m.valor)}
                           </Text>
                         </View>
                       </SwipeableRow>

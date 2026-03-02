@@ -248,6 +248,51 @@ export function SkeletonRendaFixa() {
   );
 }
 
+// ═══════════ SKELETON FINANCAS ═══════════
+export function SkeletonFinancas() {
+  return (
+    <View style={styles.loadingWrap}>
+      {/* Hero card */}
+      <View style={[styles.skelCard, { height: 130 }]}>
+        <Skeleton width="45%" height={10} />
+        <View style={{ height: 10 }} />
+        <Skeleton width="60%" height={28} />
+        <View style={{ height: 12 }} />
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Skeleton width={70} height={10} />
+          <Skeleton width={70} height={10} />
+        </View>
+      </View>
+      {/* Pie chart placeholder */}
+      <View style={[styles.skelCard, { height: 140, alignItems: 'center', justifyContent: 'center' }]}>
+        <Skeleton width={100} height={100} radius={50} />
+        <View style={{ height: 8 }} />
+        <Skeleton width="40%" height={8} />
+      </View>
+      {/* Budget bars */}
+      <View style={[styles.skelCard, { height: 44 }]}>
+        <Skeleton width="80%" height={10} />
+        <View style={{ height: 8 }} />
+        <Skeleton width="100%" height={6} radius={3} />
+      </View>
+      <View style={[styles.skelCard, { height: 44 }]}>
+        <Skeleton width="65%" height={10} />
+        <View style={{ height: 8 }} />
+        <Skeleton width="100%" height={6} radius={3} />
+      </View>
+      <View style={[styles.skelCard, { height: 44 }]}>
+        <Skeleton width="70%" height={10} />
+        <View style={{ height: 8 }} />
+        <Skeleton width="100%" height={6} radius={3} />
+      </View>
+      {/* Recorrentes rows */}
+      <SkeletonRow />
+      <SkeletonRow />
+      <SkeletonRow />
+    </View>
+  );
+}
+
 // ═══════════ EMPTY STATE ═══════════
 export function EmptyState(props) {
   var icon = props.icon;

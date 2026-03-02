@@ -746,36 +746,7 @@ export default function AssetDetailScreen(props) {
           </Glass>
         ) : null}
 
-        {/* ══════ INDICADORES DE OPÇÕES ══════ */}
-        {opcoesForTicker.length > 0 || (indicator && indicator.hv_20 != null) ? (
-          <Glass padding={14}>
-            <SectionLabel>INDICADORES DE OPÇÕES</SectionLabel>
-            <View style={styles.indGrid}>
-              {[
-                { l: 'Ativas', v: ativasLabel, c: C.opcoes },
-                { l: 'Cobertura', v: coberturaLabel, c: coberturaColor },
-                { l: 'Prêmios Rec.', v: opcoesForTicker.length > 0 ? currPrefix + fmt(premiosRecebidos) : '\u2013', c: premiosRecebidos >= 0 ? C.green : C.red },
-                { l: 'P&L Opções', v: opcoesForTicker.length > 0 ? (plOpcoes >= 0 ? '+' : '') + currPrefix + fmt(plOpcoes) : '\u2013', c: plOpcoes >= 0 ? C.green : C.red },
-                { l: 'HV 20d', v: hv20 != null ? hv20.toFixed(1) + '%' : '\u2013', c: C.opcoes },
-                { l: 'VI Média', v: ivMedia != null ? ivMedia.toFixed(1) + '%' : '\u2013', c: ivColor },
-                { l: 'Yield Opções', v: yieldOpcoes > 0 ? yieldOpcoes.toFixed(2) + '%' : '\u2013', c: yieldOpcoes > 0 ? C.green : C.text },
-                { l: 'Próx. Venc.', v: proxVenc != null ? proxVenc + 'd' : '\u2013', c: proxVencColor },
-              ].map(function(d, idx) {
-                return (
-                  <View key={idx} style={styles.indItem}>
-                    <Text style={styles.indLabel}>{d.l}</Text>
-                    <Text style={[styles.indValue, { color: d.c }, ps]}>{d.v}</Text>
-                  </View>
-                );
-              })}
-            </View>
-            {indicator && indicator.data_calculo ? (
-              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, textAlign: 'right', marginTop: 6 }}>
-                {'HV calculado em ' + new Date(indicator.data_calculo).toLocaleDateString('pt-BR')}
-              </Text>
-            ) : null}
-          </Glass>
-        ) : null}
+        {/* INDICADORES DE OPÇÕES removidos — agora visíveis apenas no card expandido da Carteira (FundamentalAccordion) */}
 
         {/* ══════ POSICAO ══════ */}
         <Glass glow={C.acoes} padding={14}>

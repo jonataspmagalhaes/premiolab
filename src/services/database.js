@@ -64,6 +64,88 @@ export async function addOperacao(userId, operacao) {
   return { data: result.data, error: result.error };
 }
 
+export async function addOperacoesBatch(userId, operacoes) {
+  var inserted = 0;
+  var failed = [];
+  for (var i = 0; i < operacoes.length; i++) {
+    var op = operacoes[i];
+    var result = await addOperacao(userId, op);
+    if (result.error) {
+      failed.push({ index: i, ticker: op.ticker, error: result.error.message });
+    } else {
+      inserted = inserted + 1;
+    }
+  }
+  return { inserted: inserted, failed: failed };
+}
+
+export async function getOperacoesForDedup(userId) {
+  var result = await supabase
+    .from('operacoes')
+    .select('ticker, data, tipo, quantidade, preco')
+    .eq('user_id', userId);
+  return { data: result.data || [], error: result.error };
+}
+
+export async function getOpcoesForDedup(userId) {
+  var result = await supabase
+    .from('opcoes')
+    .select('ticker_opcao, data_abertura, premio, quantidade')
+    .eq('user_id', userId);
+  return { data: result.data || [], error: result.error };
+}
+
+// Router unificado para importacao em batch (operacoes + opcoes + exercicios)
+// Cada item deve ter _importType: 'operacao' | 'opcao' | 'exercicio' | 'skip'
+export async function importBatch(userId, items) {
+  var inserted = 0;
+  var failed = [];
+  var counts = { operacao: 0, opcao: 0, exercicio: 0 };
+
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    var importType = item._importType || 'operacao';
+
+    // Skip items should not reach here, but just in case
+    if (importType === 'skip') continue;
+
+    // Build clean payload (remove _ prefixed internal fields)
+    var clean = {};
+    var keys = Object.keys(item);
+    for (var k = 0; k < keys.length; k++) {
+      if (keys[k].charAt(0) !== '_') {
+        clean[keys[k]] = item[keys[k]];
+      }
+    }
+
+    var result;
+    if (importType === 'opcao') {
+      result = await addOpcao(userId, clean);
+      if (result.error) {
+        failed.push({ index: i, ticker: item.ticker_opcao || item.ativo_base, error: result.error.message });
+      } else {
+        inserted = inserted + 1;
+        counts.opcao = counts.opcao + 1;
+      }
+    } else {
+      // 'operacao' or 'exercicio' → both create operacoes
+      result = await addOperacao(userId, clean);
+      if (result.error) {
+        failed.push({ index: i, ticker: item.ticker, error: result.error.message });
+      } else {
+        inserted = inserted + 1;
+        if (importType === 'exercicio') {
+          counts.exercicio = counts.exercicio + 1;
+        } else {
+          counts.operacao = counts.operacao + 1;
+        }
+      }
+    }
+  }
+
+  return { inserted: inserted, failed: failed, counts: counts };
+}
+
 export async function deleteOperacao(id) {
   var result = await supabase
     .from('operacoes')
@@ -175,7 +257,7 @@ export async function getPositions(userId) {
       };
     }
     var p = positions[tickerKey];
-    var corr = op.corretora || 'Sem corretora';
+    var corr = (op.corretora || 'Sem corretora').toUpperCase().trim();
     if (!p.por_corretora[corr]) {
       p.por_corretora[corr] = 0;
       p.custo_por_corretora[corr] = 0;
@@ -304,6 +386,14 @@ export async function addOpcao(userId, opcao) {
   return { data: result.data, error: result.error };
 }
 
+export async function updateOpcaoAlertaPL(opcaoId, valor) {
+  var result = await supabase
+    .from('opcoes')
+    .update({ alerta_pl: valor })
+    .eq('id', opcaoId);
+  return { error: result.error };
+}
+
 // ═══════════ RENDA FIXA ═══════════
 export async function getRendaFixa(userId) {
   var result = await supabase
@@ -382,7 +472,9 @@ export async function getSaldos(userId) {
   var result = await supabase
     .from('saldos_corretora')
     .select('*')
-    .eq('user_id', userId);
+    .eq('user_id', userId)
+    .order('corretora', { ascending: true })
+    .order('moeda', { ascending: true });
   return { data: result.data || [], error: result.error };
 }
 
@@ -589,7 +681,9 @@ function buildMovDescricao(categoria, ticker, extra) {
     salario: 'Salário ', despesa_fixa: 'Despesa fixa ',
     despesa_variavel: 'Despesa variável ',
     ajuste_manual: 'Ajuste ',
+    pagamento_fatura: 'Pgto fatura',
   };
+  if (categoria === 'pagamento_fatura') return 'Pgto fatura' + (extra ? ' - ' + extra : '');
   return (MAP[categoria] || '') + (ticker || '') + (extra ? ' ' + extra : '');
 }
 
@@ -642,6 +736,7 @@ export async function reconciliarVendasAntigas(userId) {
     try {
       await addMovimentacaoComSaldo(userId, {
         conta: item.corretora,
+        moeda: (item.op && item.op.mercado === 'INT') ? 'USD' : 'BRL',
         tipo: 'entrada',
         categoria: 'venda_ativo',
         valor: item.valor,
@@ -665,32 +760,58 @@ export async function recalcularSaldos(userId) {
   var movsResult = await getMovimentacoes(userId, {});
   var allMovs = movsResult.data || [];
 
-  // 2. Somar por conta
-  var saldoPorConta = {};
+  // 2. Buscar todas as contas existentes para mapear conta→moeda
+  var saldosResult = await getSaldos(userId);
+  var saldosList = saldosResult.data || [];
+  // Mapa: contaUpper → [{id, corretora, moeda, saldo}]
+  var contaMap = {};
+  for (var s = 0; s < saldosList.length; s++) {
+    var sl = saldosList[s];
+    var slKey = (sl.corretora || sl.name || '').toUpperCase().trim();
+    if (!contaMap[slKey]) contaMap[slKey] = [];
+    contaMap[slKey].push(sl);
+  }
+
+  // 3. Somar por conta+moeda (chave: "CONTA|MOEDA")
+  var saldoPorContaMoeda = {};
   for (var i = 0; i < allMovs.length; i++) {
     var m = allMovs[i];
-    var conta = m.conta || '';
+    var conta = (m.conta || '').toUpperCase().trim();
     if (!conta) continue;
-    if (!saldoPorConta[conta]) saldoPorConta[conta] = 0;
+    // Determinar moeda: buscar na conta existente
+    var moeda = 'BRL';
+    var contaEntries = contaMap[conta];
+    if (contaEntries && contaEntries.length === 1) {
+      moeda = contaEntries[0].moeda || 'BRL';
+    } else if (contaEntries && contaEntries.length > 1) {
+      // Multiplas moedas — usar saldo_apos da movimentacao para inferir
+      // ou default BRL se nao conseguir determinar
+      moeda = 'BRL';
+    }
+    var chave = conta + '|' + moeda;
+    if (!saldoPorContaMoeda[chave]) saldoPorContaMoeda[chave] = 0;
     if (m.tipo === 'entrada') {
-      saldoPorConta[conta] += (m.valor || 0);
+      saldoPorContaMoeda[chave] += (m.valor || 0);
     } else if (m.tipo === 'saida') {
-      saldoPorConta[conta] -= (m.valor || 0);
+      saldoPorContaMoeda[chave] -= (m.valor || 0);
     }
   }
 
-  // 3. Atualizar cada conta
-  var contas = Object.keys(saldoPorConta);
+  // 4. Atualizar cada conta+moeda
+  var chaves = Object.keys(saldoPorContaMoeda);
   var atualizadas = 0;
-  for (var c = 0; c < contas.length; c++) {
-    var nome = contas[c];
-    var novoSaldo = saldoPorConta[nome];
-    // Buscar conta existente
+  for (var c = 0; c < chaves.length; c++) {
+    var parts = chaves[c].split('|');
+    var nome = parts[0];
+    var mda = parts[1] || 'BRL';
+    var novoSaldo = saldoPorContaMoeda[chaves[c]];
+    // Buscar conta existente por nome + moeda
     var contaResult = await supabase
       .from('saldos_corretora')
       .select('*')
       .eq('user_id', userId)
       .eq('corretora', nome)
+      .eq('moeda', mda)
       .maybeSingle();
     if (contaResult.data) {
       await supabase
@@ -701,7 +822,7 @@ export async function recalcularSaldos(userId) {
     }
   }
 
-  return { contas: contas.length, atualizadas: atualizadas, saldos: saldoPorConta };
+  return { contas: chaves.length, atualizadas: atualizadas };
 }
 
 export async function getMovimentacoes(userId, filters) {
@@ -728,6 +849,10 @@ export async function getMovimentacoes(userId, filters) {
 }
 
 export async function addMovimentacao(userId, mov) {
+  // Normalizar conta para uppercase (consistente com addMovimentacaoComSaldo)
+  if (mov.conta) {
+    mov.conta = (mov.conta || '').toUpperCase().trim();
+  }
   var payload = { user_id: userId };
   var keys = Object.keys(mov);
   for (var i = 0; i < keys.length; i++) {
@@ -764,6 +889,7 @@ export async function addMovimentacaoComSaldo(userId, mov) {
       .select('*')
       .eq('user_id', userId)
       .eq('corretora', contaNorm)
+      .order('moeda', { ascending: true })
       .limit(1);
     var fallbackRows = (fallbackResult.data) || [];
     if (fallbackRows.length > 0) {
@@ -810,6 +936,95 @@ export async function addMovimentacaoComSaldo(userId, mov) {
     await supabase
       .from('saldos_corretora')
       .insert(insertPayload);
+  }
+
+  return { data: movResult.data, error: null };
+}
+
+export async function updateMovimentacaoComSaldo(userId, movId, oldMov, newMov) {
+  // 1. Calculate saldo impact of old mov
+  var oldImpact = (oldMov.tipo === 'entrada') ? (oldMov.valor || 0) : -(oldMov.valor || 0);
+  // 2. Calculate saldo impact of new mov
+  var newImpact = (newMov.tipo === 'entrada') ? (newMov.valor || 0) : -(newMov.valor || 0);
+  var diff = newImpact - oldImpact;
+
+  var oldContaNorm = (oldMov.conta || '').toUpperCase().trim();
+  var newContaNorm = (newMov.conta || '').toUpperCase().trim();
+  var contaChanged = oldContaNorm !== newContaNorm;
+
+  // 3. Update the movimentacao row
+  var updatePayload = {
+    tipo: newMov.tipo,
+    categoria: newMov.categoria,
+    conta: newContaNorm,
+    valor: newMov.valor,
+    descricao: newMov.descricao || '',
+    data: newMov.data,
+  };
+  if (newMov.ticker !== undefined) updatePayload.ticker = newMov.ticker;
+
+  var movResult = await supabase
+    .from('movimentacoes')
+    .update(updatePayload)
+    .eq('id', movId)
+    .eq('user_id', userId)
+    .select()
+    .single();
+
+  if (movResult.error) return { data: null, error: movResult.error };
+
+  // 4. Adjust saldos
+  if (contaChanged) {
+    // Revert old conta: subtract old impact
+    var oldSaldoRes = await supabase
+      .from('saldos_corretora')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('corretora', oldContaNorm)
+      .limit(1);
+    var oldSaldoRow = (oldSaldoRes.data && oldSaldoRes.data[0]) || null;
+    if (oldSaldoRow) {
+      var revertedSaldo = (oldSaldoRow.saldo || 0) - oldImpact;
+      await supabase
+        .from('saldos_corretora')
+        .update({ saldo: revertedSaldo, updated_at: new Date().toISOString() })
+        .eq('id', oldSaldoRow.id);
+    }
+    // Apply new impact to new conta
+    var newSaldoRes = await supabase
+      .from('saldos_corretora')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('corretora', newContaNorm)
+      .limit(1);
+    var newSaldoRow = (newSaldoRes.data && newSaldoRes.data[0]) || null;
+    if (newSaldoRow) {
+      var appliedSaldo = (newSaldoRow.saldo || 0) + newImpact;
+      await supabase
+        .from('saldos_corretora')
+        .update({ saldo: appliedSaldo, updated_at: new Date().toISOString() })
+        .eq('id', newSaldoRow.id);
+      // Update saldo_apos on the mov
+      await supabase.from('movimentacoes').update({ saldo_apos: appliedSaldo }).eq('id', movId);
+    }
+  } else {
+    // Same conta — apply diff
+    var saldoRes = await supabase
+      .from('saldos_corretora')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('corretora', newContaNorm)
+      .limit(1);
+    var saldoRow = (saldoRes.data && saldoRes.data[0]) || null;
+    if (saldoRow) {
+      var updatedSaldo = (saldoRow.saldo || 0) + diff;
+      await supabase
+        .from('saldos_corretora')
+        .update({ saldo: updatedSaldo, updated_at: new Date().toISOString() })
+        .eq('id', saldoRow.id);
+      // Update saldo_apos on the mov
+      await supabase.from('movimentacoes').update({ saldo_apos: updatedSaldo }).eq('id', movId);
+    }
   }
 
   return { data: movResult.data, error: null };
@@ -1063,6 +1278,7 @@ export async function getDashboard(userId) {
           tipo_opcao: (opItem.tipo || 'call').toUpperCase(),
           valor: opPremTotal,
           quantidade: opItem.quantidade || 0,
+          corretora: opItem.corretora || '',
         });
       } else if (dReceb.getMonth() === mesAnterior && dReceb.getFullYear() === anoMesAnterior) {
         premiosMesAnterior += opPremTotal;
@@ -1093,6 +1309,7 @@ export async function getDashboard(userId) {
           tipo_opcao: (rcOp.tipo || 'call').toUpperCase(),
           valor: rcPremFech,
           quantidade: rcOp.quantidade || 0,
+          corretora: rcOp.corretora || '',
         });
       } else if (rcM === mesAnterior && rcY === anoMesAnterior) {
         recompraMesAnterior += rcPremFech;
@@ -1505,4 +1722,547 @@ export async function deleteSavedAnalysis(userId, id) {
     .eq('id', id)
     .eq('user_id', userId);
   return { error: result.error };
+}
+
+// ═══════════ ORÇAMENTOS ═══════════
+
+export async function getOrcamentos(userId) {
+  var result = await supabase
+    .from('orcamentos')
+    .select('*')
+    .eq('user_id', userId)
+    .order('grupo');
+  return { data: result.data || [], error: result.error };
+}
+
+export async function upsertOrcamentos(userId, budgets) {
+  // budgets: [{ grupo, valor_limite, ativo, moeda }]
+  var errors = [];
+  for (var i = 0; i < budgets.length; i++) {
+    var b = budgets[i];
+    var result = await supabase
+      .from('orcamentos')
+      .upsert({
+        user_id: userId,
+        grupo: b.grupo,
+        valor_limite: b.valor_limite,
+        ativo: b.ativo !== false,
+        moeda: b.moeda || 'BRL',
+      }, { onConflict: 'user_id,grupo' });
+    if (result.error) errors.push(result.error);
+  }
+  return { error: errors.length > 0 ? errors[0] : null };
+}
+
+export async function deleteOrcamento(userId, grupo) {
+  var result = await supabase
+    .from('orcamentos')
+    .delete()
+    .eq('user_id', userId)
+    .eq('grupo', grupo);
+  return { error: result.error };
+}
+
+// ═══════════ TRANSAÇÕES RECORRENTES ═══════════
+
+export async function getRecorrentes(userId) {
+  var result = await supabase
+    .from('transacoes_recorrentes')
+    .select('*')
+    .eq('user_id', userId)
+    .order('proximo_vencimento');
+  return { data: result.data || [], error: result.error };
+}
+
+export async function addRecorrente(userId, data) {
+  var row = {
+    user_id: userId,
+    tipo: data.tipo,
+    categoria: data.categoria,
+    subcategoria: data.subcategoria || null,
+    conta: (data.conta || '').toUpperCase(),
+    valor: data.valor,
+    descricao: data.descricao || null,
+    frequencia: data.frequencia,
+    dia_vencimento: data.dia_vencimento || 1,
+    proximo_vencimento: data.proximo_vencimento,
+    ativo: data.ativo !== false,
+  };
+  var result = await supabase.from('transacoes_recorrentes').insert(row).select();
+  return { data: result.data && result.data[0], error: result.error };
+}
+
+export async function updateRecorrente(userId, id, updates) {
+  var result = await supabase
+    .from('transacoes_recorrentes')
+    .update(updates)
+    .eq('id', id)
+    .eq('user_id', userId);
+  return { error: result.error };
+}
+
+export async function deleteRecorrente(id) {
+  var result = await supabase
+    .from('transacoes_recorrentes')
+    .delete()
+    .eq('id', id);
+  return { error: result.error };
+}
+
+export async function advanceRecorrente(id, novaData) {
+  var result = await supabase
+    .from('transacoes_recorrentes')
+    .update({ proximo_vencimento: novaData })
+    .eq('id', id);
+  return { error: result.error };
+}
+
+// ═══════════ FINANCAS SUMMARY ═══════════
+
+var finCats = require('../constants/financeCategories');
+var AUTO_CATS_SET = {};
+for (var aci = 0; aci < finCats.AUTO_CATEGORIAS.length; aci++) {
+  AUTO_CATS_SET[finCats.AUTO_CATEGORIAS[aci]] = true;
+}
+
+export async function getFinancasSummary(userId, mes, ano) {
+  var dataInicio = ano + '-' + String(mes).padStart(2, '0') + '-01';
+  var nextMonth = mes === 12 ? 1 : mes + 1;
+  var nextYear = mes === 12 ? ano + 1 : ano;
+  var dataFim = nextYear + '-' + String(nextMonth).padStart(2, '0') + '-01';
+
+  var result = await supabase
+    .from('movimentacoes')
+    .select('*')
+    .eq('user_id', userId)
+    .gte('data', dataInicio)
+    .lt('data', dataFim);
+
+  var movs = result.data || [];
+  var totalEntradas = 0;
+  var totalSaidas = 0;
+  var totalEntradasPessoais = 0;
+  var totalSaidasPessoais = 0;
+  var porGrupo = {};
+  var porGrupoEntrada = {};
+  var porSubcategoria = {};
+  var movsPessoais = [];
+
+  for (var i = 0; i < movs.length; i++) {
+    var m = movs[i];
+    var isAuto = AUTO_CATS_SET[m.categoria] || false;
+
+    if (m.tipo === 'entrada') totalEntradas += (m.valor || 0);
+    else if (m.tipo === 'saida') totalSaidas += (m.valor || 0);
+
+    // Pessoais = exclui auto-categorias de investimento
+    // Transferencias e ajustes nao contam como despesas pessoais
+    var isSistemaOp = m.categoria === 'transferencia' || m.categoria === 'ajuste_manual' || m.categoria === 'pagamento_fatura';
+    if (!isAuto) {
+      if (m.tipo === 'entrada') totalEntradasPessoais += (m.valor || 0);
+      else if (m.tipo === 'saida' && !isSistemaOp) totalSaidasPessoais += (m.valor || 0);
+      movsPessoais.push(m);
+    }
+
+    // Agrupar por grupo (exclui transferencia/ajuste_manual que sao operacoes de sistema)
+    var grupo = finCats.getGrupo(m.categoria, m.subcategoria);
+    var isSistema = m.categoria === 'transferencia' || m.categoria === 'ajuste_manual' || m.categoria === 'pagamento_fatura';
+    if (m.tipo === 'saida' && !isSistema) {
+      if (!porGrupo[grupo]) porGrupo[grupo] = 0;
+      porGrupo[grupo] += (m.valor || 0);
+    }
+    if (m.tipo === 'entrada' && !isAuto) {
+      if (!porGrupoEntrada[grupo]) porGrupoEntrada[grupo] = 0;
+      porGrupoEntrada[grupo] += (m.valor || 0);
+    }
+
+    // Agrupar por subcategoria (se presente)
+    if (m.subcategoria) {
+      if (!porSubcategoria[m.subcategoria]) porSubcategoria[m.subcategoria] = 0;
+      if (m.tipo === 'saida') porSubcategoria[m.subcategoria] += (m.valor || 0);
+    }
+  }
+
+  return {
+    totalEntradas: totalEntradas,
+    totalSaidas: totalSaidas,
+    totalEntradasPessoais: totalEntradasPessoais,
+    totalSaidasPessoais: totalSaidasPessoais,
+    saldo: totalEntradas - totalSaidas,
+    saldoPessoal: totalEntradasPessoais - totalSaidasPessoais,
+    porGrupo: porGrupo,
+    porGrupoEntrada: porGrupoEntrada,
+    porSubcategoria: porSubcategoria,
+    movsPessoais: movsPessoais,
+    total: movs.length,
+  };
+}
+
+// Processa transações recorrentes vencidas — cria movimentação real + avança data
+export async function processRecorrentes(userId) {
+  var hoje = new Date();
+  var hojeStr = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0') + '-' + String(hoje.getDate()).padStart(2, '0');
+
+  var result = await supabase
+    .from('transacoes_recorrentes')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('ativo', true)
+    .lte('proximo_vencimento', hojeStr);
+
+  var recorrentes = result.data || [];
+  var criadas = 0;
+
+  for (var i = 0; i < recorrentes.length; i++) {
+    var r = recorrentes[i];
+    // Criar movimentação real
+    var mov = {
+      tipo: r.tipo,
+      categoria: r.categoria,
+      subcategoria: r.subcategoria,
+      conta: r.conta,
+      valor: r.valor,
+      descricao: r.descricao || '',
+      data: r.proximo_vencimento,
+    };
+    var addResult = await addMovimentacaoComSaldo(userId, mov);
+    if (!addResult.error) {
+      criadas++;
+      // Avançar próximo vencimento
+      var prox = calcProximoVencimento(r.proximo_vencimento, r.frequencia, r.dia_vencimento);
+      await advanceRecorrente(r.id, prox);
+    }
+  }
+
+  return { criadas: criadas, total: recorrentes.length };
+}
+
+function calcProximoVencimento(dataAtual, frequencia, diaVenc) {
+  var parts = dataAtual.split('-');
+  var y = parseInt(parts[0]);
+  var m = parseInt(parts[1]) - 1; // 0-indexed
+  var d = parseInt(parts[2]);
+  var dt = new Date(y, m, d);
+
+  if (frequencia === 'semanal') {
+    dt.setDate(dt.getDate() + 7);
+  } else if (frequencia === 'quinzenal') {
+    dt.setDate(dt.getDate() + 15);
+  } else if (frequencia === 'mensal') {
+    dt.setMonth(dt.getMonth() + 1);
+    // Clamp ao dia de vencimento (ex: dia 31 em fevereiro → 28/29)
+    if (diaVenc) {
+      var maxDay = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate();
+      dt.setDate(Math.min(diaVenc, maxDay));
+    }
+  } else if (frequencia === 'anual') {
+    dt.setFullYear(dt.getFullYear() + 1);
+    if (diaVenc) {
+      var maxD = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate();
+      dt.setDate(Math.min(diaVenc, maxD));
+    }
+  }
+
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+}
+
+// ═══════════ CARTÕES DE CRÉDITO ═══════════
+
+export async function getCartoes(userId) {
+  var result = await supabase
+    .from('cartoes_credito')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('ativo', true)
+    .order('created_at');
+  return { data: result.data || [], error: result.error };
+}
+
+export async function addCartao(userId, data) {
+  var payload = {
+    user_id: userId,
+    ultimos_digitos: data.ultimos_digitos,
+    bandeira: data.bandeira,
+    apelido: data.apelido,
+    dia_fechamento: data.dia_fechamento,
+    dia_vencimento: data.dia_vencimento,
+    limite: data.limite,
+    moeda: data.moeda || 'BRL',
+    conta_vinculada: data.conta_vinculada,
+    tipo_beneficio: data.tipo_beneficio,
+    programa_nome: data.programa_nome,
+  };
+  var result = await supabase
+    .from('cartoes_credito')
+    .insert(payload)
+    .select()
+    .single();
+  return { data: result.data, error: result.error };
+}
+
+export async function updateCartao(userId, id, updates) {
+  var result = await supabase
+    .from('cartoes_credito')
+    .update(updates)
+    .eq('id', id)
+    .eq('user_id', userId);
+  return { error: result.error };
+}
+
+export async function deleteCartao(id) {
+  var result = await supabase
+    .from('cartoes_credito')
+    .update({ ativo: false })
+    .eq('id', id);
+  return { error: result.error };
+}
+
+export async function hardDeleteCartao(userId, id) {
+  // 1. Desvincular movimentacoes
+  var r1 = await supabase
+    .from('movimentacoes')
+    .update({ cartao_id: null })
+    .eq('cartao_id', id);
+  if (r1.error) return { error: r1.error };
+
+  // 2. Excluir regras de pontos
+  var r2 = await supabase
+    .from('regras_pontos')
+    .delete()
+    .eq('cartao_id', id);
+  if (r2.error) return { error: r2.error };
+
+  // 3. Excluir cartao
+  var r3 = await supabase
+    .from('cartoes_credito')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', userId);
+  return { error: r3.error };
+}
+
+function daysInMonth(y, m) {
+  return new Date(y, m + 1, 0).getDate();
+}
+
+function padTwo(n) {
+  return String(n).padStart(2, '0');
+}
+
+function formatDateStr(dt) {
+  return dt.getFullYear() + '-' + padTwo(dt.getMonth() + 1) + '-' + padTwo(dt.getDate());
+}
+
+export async function getFatura(userId, cartaoId, mes, ano) {
+  // 1. Buscar cartao para obter dia_fechamento e dia_vencimento
+  var cardResult = await supabase
+    .from('cartoes_credito')
+    .select('*')
+    .eq('id', cartaoId)
+    .eq('user_id', userId)
+    .single();
+  if (cardResult.error) return { data: null, error: cardResult.error };
+  var card = cardResult.data;
+
+  var diaFech = card.dia_fechamento;
+  var diaVenc = card.dia_vencimento;
+
+  // 2. Calcular cycleEnd = dia_fechamento do mes dado (clamped)
+  var cycleEndDate = new Date(ano, mes - 1, Math.min(diaFech, daysInMonth(ano, mes - 1)));
+
+  // 3. Calcular cycleStart = dia_fechamento + 1 do mes anterior
+  var prevM = mes === 1 ? 12 : mes - 1;
+  var prevY = mes === 1 ? ano - 1 : ano;
+  var startDay = Math.min(diaFech + 1, daysInMonth(prevY, prevM - 1));
+  var cycleStartDate = new Date(prevY, prevM - 1, startDay);
+
+  var cycleStartStr = formatDateStr(cycleStartDate);
+  var cycleEndStr = formatDateStr(cycleEndDate);
+
+  // 4. Buscar movimentacoes do ciclo (excluindo pagamento_fatura)
+  var movsResult = await supabase
+    .from('movimentacoes')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('cartao_id', cartaoId)
+    .gte('data', cycleStartStr)
+    .lte('data', cycleEndStr)
+    .neq('categoria', 'pagamento_fatura')
+    .order('data', { ascending: false });
+  var movs = movsResult.data || [];
+
+  // 5. Somar total da fatura
+  var total = 0;
+  for (var i = 0; i < movs.length; i++) {
+    total += (movs[i].valor || 0);
+  }
+
+  // 6. Calcular data de vencimento (mes seguinte ao fechamento)
+  var dueMonth = mes === 12 ? 1 : mes + 1;
+  var dueYear = mes === 12 ? ano + 1 : ano;
+  // Se dia_vencimento < dia_fechamento, vencimento e no mesmo mes do fechamento
+  if (diaVenc > diaFech) {
+    dueMonth = mes;
+    dueYear = ano;
+  }
+  var dueDateClamped = Math.min(diaVenc, daysInMonth(dueYear, dueMonth - 1));
+  var dueDate = new Date(dueYear, dueMonth - 1, dueDateClamped);
+  var dueDateStr = formatDateStr(dueDate);
+
+  // 7. Verificar se fatura foi paga (pagamento_fatura com referencia ao cartao no periodo de pagamento)
+  var pagWindow = new Date(cycleEndDate.getTime());
+  pagWindow.setDate(pagWindow.getDate() + 35);
+  var pagResult = await supabase
+    .from('movimentacoes')
+    .select('id, valor')
+    .eq('user_id', userId)
+    .eq('categoria', 'pagamento_fatura')
+    .eq('cartao_id', cartaoId)
+    .gte('data', cycleEndStr)
+    .lte('data', formatDateStr(pagWindow));
+  var pagMovs = pagResult.data || [];
+  var pago = pagMovs.length > 0;
+  var pagamentoTotal = 0;
+  for (var p = 0; p < pagMovs.length; p++) {
+    pagamentoTotal += (pagMovs[p].valor || 0);
+  }
+
+  return {
+    data: {
+      movs: movs,
+      total: total,
+      cycleStart: cycleStartStr,
+      cycleEnd: cycleEndStr,
+      dueDate: dueDateStr,
+      pago: pago,
+      pagamentoTotal: pagamentoTotal,
+    },
+    error: null,
+  };
+}
+
+export async function addMovimentacaoCartao(userId, mov) {
+  var payload = {
+    user_id: userId,
+    cartao_id: mov.cartao_id,
+    tipo: 'saida',
+    categoria: mov.categoria,
+    subcategoria: mov.subcategoria,
+    conta: mov.conta || ('CARTÃO ' + (mov.bandeira || '').toUpperCase() + ' •' + (mov.ultimos_digitos || '')),
+    valor: mov.valor,
+    descricao: mov.descricao,
+    data: mov.data,
+  };
+  if (mov.moeda_original) payload.moeda_original = mov.moeda_original;
+  if (mov.valor_original) payload.valor_original = mov.valor_original;
+  if (mov.taxa_cambio_mov) payload.taxa_cambio_mov = mov.taxa_cambio_mov;
+  var result = await supabase
+    .from('movimentacoes')
+    .insert(payload)
+    .select()
+    .single();
+  return { data: result.data, error: result.error };
+}
+
+export async function pagarFatura(userId, cartaoId, conta, valor, moeda, data) {
+  var cardResult = await supabase
+    .from('cartoes_credito')
+    .select('bandeira, ultimos_digitos')
+    .eq('id', cartaoId)
+    .single();
+  var cardLabel = '';
+  if (cardResult.data) {
+    cardLabel = (cardResult.data.bandeira || '').toUpperCase() + ' •' + (cardResult.data.ultimos_digitos || '');
+  }
+  var descricao = buildMovDescricao('pagamento_fatura', null, cardLabel);
+
+  var movPayload = {
+    conta: conta,
+    tipo: 'saida',
+    categoria: 'pagamento_fatura',
+    valor: valor,
+    descricao: descricao,
+    data: data,
+    cartao_id: cartaoId,
+  };
+  if (moeda) {
+    movPayload.moeda = moeda;
+  }
+  var result = await addMovimentacaoComSaldo(userId, movPayload);
+  return { data: result.data, error: result.error };
+}
+
+export async function updateMovimentacao(userId, id, updates) {
+  var result = await supabase
+    .from('movimentacoes')
+    .update(updates)
+    .eq('id', id)
+    .eq('user_id', userId);
+  return { error: result.error };
+}
+
+// ═══════════ REGRAS DE PONTOS ═══════════
+
+export async function getRegrasPontos(cartaoId) {
+  var result = await supabase
+    .from('regras_pontos')
+    .select('*')
+    .eq('cartao_id', cartaoId)
+    .order('valor_min');
+  return { data: result.data || [], error: result.error };
+}
+
+export async function addRegraPontos(cartaoId, regra) {
+  var payload = {
+    cartao_id: cartaoId,
+    moeda: regra.moeda,
+    valor_min: regra.valor_min,
+    valor_max: regra.valor_max,
+    taxa: regra.taxa,
+  };
+  var result = await supabase
+    .from('regras_pontos')
+    .insert(payload)
+    .select()
+    .single();
+  return { data: result.data, error: result.error };
+}
+
+export async function deleteRegraPontos(id) {
+  var result = await supabase
+    .from('regras_pontos')
+    .delete()
+    .eq('id', id);
+  return { error: result.error };
+}
+
+// ── Gastos Rápidos ──────────────────────────────────────────────────
+
+export async function getGastosRapidos(userId) {
+  var result = await getProfile(userId);
+  if (result.error) return { data: [], error: result.error };
+  var profile = result.data;
+  return { data: (profile && profile.gastos_rapidos) || [], error: null };
+}
+
+export async function saveGastosRapidos(userId, presets) {
+  return await updateProfile(userId, { gastos_rapidos: presets });
+}
+
+export async function executeGastoRapido(userId, preset) {
+  var now = new Date();
+  var yyyy = now.getFullYear();
+  var mm = padTwo(now.getMonth() + 1);
+  var dd = padTwo(now.getDate());
+  var dateStr = yyyy + '-' + mm + '-' + dd;
+
+  var mov = {
+    cartao_id: preset.cartao_id,
+    categoria: preset.categoria || 'despesa_variavel',
+    subcategoria: preset.subcategoria || null,
+    valor: preset.valor,
+    descricao: preset.label || 'Gasto rápido',
+    data: dateStr,
+  };
+  return await addMovimentacaoCartao(userId, mov);
 }

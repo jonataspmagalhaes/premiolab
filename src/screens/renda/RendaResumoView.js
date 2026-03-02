@@ -162,6 +162,7 @@ export default function RendaResumoView(props) {
   var proventosMesDetalhe = data.proventosMesDetalhe || [];
   var premiosMesDetalhe = data.premiosMesDetalhe || [];
   var recompraMesDetalhe = data.recompraMesDetalhe || [];
+  var positions = data.positions || [];
 
   // Aggregations
   var provAgrupados = aggregateProventos(proventosMesDetalhe);
@@ -169,6 +170,72 @@ export default function RendaResumoView(props) {
   var recAgrupados = aggregateOpcoes(recompraMesDetalhe);
 
   var hasDetalhe = provAgrupados.length > 0 || premAgrupados.length > 0 || recAgrupados.length > 0 || rfRendaMensal > 0;
+
+  // ── Ticker → corretora(s) map from positions ──
+  var tickerCorretoras = {};
+  for (var pi = 0; pi < positions.length; pi++) {
+    var posTk = (positions[pi].ticker || '').toUpperCase().trim();
+    var porCor = positions[pi].por_corretora;
+    if (posTk && porCor) {
+      var corKeys = Object.keys(porCor);
+      if (corKeys.length > 0) {
+        tickerCorretoras[posTk] = corKeys;
+      }
+    }
+  }
+
+  // Helper: primeira corretora de um ticker (para exibir badge)
+  function getCorretora(tk) {
+    var cors = tickerCorretoras[(tk || '').toUpperCase().trim()];
+    if (cors && cors.length > 0) return cors[0];
+    return null;
+  }
+
+  // ── Proventos por corretora (só dividendos/JCP/rendimentos, sem opções) ──
+  var rendaPorCorretora = {};
+  for (var rci = 0; rci < proventosMesDetalhe.length; rci++) {
+    var rcItem = proventosMesDetalhe[rci];
+    var rcTk = (rcItem.ticker || '').toUpperCase().trim();
+    var rcCors = tickerCorretoras[rcTk];
+    if (rcCors && rcCors.length > 0) {
+      var rcShare = rcItem.valor / rcCors.length;
+      for (var rcc = 0; rcc < rcCors.length; rcc++) {
+        var rcName = rcCors[rcc];
+        if (!rendaPorCorretora[rcName]) rendaPorCorretora[rcName] = { recebido: 0, aReceber: 0, items: [] };
+        if (rcItem.recebido) {
+          rendaPorCorretora[rcName].recebido += rcShare;
+        } else {
+          rendaPorCorretora[rcName].aReceber += rcShare;
+        }
+        rendaPorCorretora[rcName].items.push({
+          ticker: rcTk, valor: rcShare,
+          tipoLabel: rcItem.tipo || 'dividendo',
+          recebido: rcItem.recebido,
+        });
+      }
+    } else {
+      var rcFallback = 'Sem corretora';
+      if (!rendaPorCorretora[rcFallback]) rendaPorCorretora[rcFallback] = { recebido: 0, aReceber: 0, items: [] };
+      if (rcItem.recebido) {
+        rendaPorCorretora[rcFallback].recebido += rcItem.valor;
+      } else {
+        rendaPorCorretora[rcFallback].aReceber += rcItem.valor;
+      }
+      rendaPorCorretora[rcFallback].items.push({
+        ticker: rcTk, valor: rcItem.valor,
+        tipoLabel: rcItem.tipo || 'dividendo',
+        recebido: rcItem.recebido,
+      });
+    }
+  }
+
+  var corretoraKeys = Object.keys(rendaPorCorretora);
+  corretoraKeys.sort(function(a, b) {
+    var totalA = rendaPorCorretora[a].recebido + rendaPorCorretora[a].aReceber;
+    var totalB = rendaPorCorretora[b].recebido + rendaPorCorretora[b].aReceber;
+    return totalB - totalA;
+  });
+  var hasRendaCorretora = corretoraKeys.length > 0;
 
   var metaPct = meta > 0 ? Math.min((rendaTotalMes / meta) * 100, 150) : 0;
 
@@ -336,8 +403,91 @@ export default function RendaResumoView(props) {
         <Glass padding={SIZE.padding}>
           <Text style={[st.sectionTitle, { marginBottom: 14 }]}>DETALHAMENTO DO MÊS</Text>
 
-          {/* PROVENTOS por ticker */}
-          {provAgrupados.length > 0 ? (
+          {/* PROVENTOS por corretora */}
+          {hasRendaCorretora ? (
+            <View style={{ marginBottom: premAgrupados.length > 0 || recAgrupados.length > 0 || rfRendaMensal > 0 ? 16 : 0 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <Text style={st.subTitle}>PROVENTOS</Text>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <Text style={[{ fontSize: 12, color: '#22c55e', fontFamily: F.mono, fontWeight: '600' }, ps]}>
+                    {'Receb. ' + fmt(dividendosRecebidosMes)}
+                  </Text>
+                  {dividendosAReceberMes > 0 ? (
+                    <Text style={[{ fontSize: 12, color: C.yellow, fontFamily: F.mono, fontWeight: '600' }, ps]}>
+                      {'A receber ' + fmt(dividendosAReceberMes)}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+              {corretoraKeys.map(function(corName, cIdx) {
+                var corData = rendaPorCorretora[corName];
+                var corTotal = corData.recebido + corData.aReceber;
+                var corItems = corData.items;
+                // Agrupar items por ticker dentro da corretora
+                var byTk = {};
+                for (var ci = 0; ci < corItems.length; ci++) {
+                  var cit = corItems[ci];
+                  var citKey = cit.ticker;
+                  if (!byTk[citKey]) byTk[citKey] = { ticker: citKey, valor: 0, tipoLabel: cit.tipoLabel, recebido: true };
+                  byTk[citKey].valor += cit.valor;
+                  if (!cit.recebido) byTk[citKey].recebido = false;
+                }
+                var tkItems = [];
+                var tkKeys = Object.keys(byTk);
+                for (var ti = 0; ti < tkKeys.length; ti++) { tkItems.push(byTk[tkKeys[ti]]); }
+                tkItems.sort(function(a, b) { return Math.abs(b.valor) - Math.abs(a.valor); });
+
+                return (
+                  <View key={'cor_' + cIdx} style={cIdx > 0 ? { marginTop: 10 } : {}}>
+                    {/* Corretora header */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: C.accent + '18', justifyContent: 'center', alignItems: 'center' }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: C.accent, fontFamily: F.mono }}>
+                            {(corName || 'CT').substring(0, 2).toUpperCase()}
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display }}>{corName}</Text>
+                      </View>
+                      <Sensitive>
+                        <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 13, fontWeight: '800', fontFamily: F.mono, color: corTotal >= 0 ? '#22c55e' : '#ef4444' }]}>
+                          {(corTotal >= 0 ? '+' : '') + 'R$ ' + fmtShort(Math.abs(corTotal))}
+                        </Text>
+                      </Sensitive>
+                    </View>
+                    {/* Tickers dentro da corretora */}
+                    {tkItems.map(function(tkItem, tkIdx) {
+                      var tipoLabel = TIPO_LABELS[tkItem.tipoLabel] || (tkItem.tipoLabel || 'DIV').toUpperCase();
+                      var tipoColor = tkItem.tipoLabel === 'rendimento' || tkItem.tipoLabel === 'rendimento_fii' ? P.fii.color
+                        : tkItem.tipoLabel === 'jcp' ? P.acao.color
+                        : tkItem.tipoLabel === 'PRÊMIO' ? P.opcao.color
+                        : tkItem.tipoLabel === 'RECOMPRA' ? '#ef4444'
+                        : P.acao.color;
+                      var isNeg = tkItem.valor < 0;
+                      return (
+                        <View key={tkItem.ticker + '_' + tkIdx} style={[st.detalheRow, { paddingLeft: 32 }, tkIdx > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.03)' }]}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                            <Text style={[st.detalheTicker, { fontSize: 12 }]}>{tkItem.ticker}</Text>
+                            <Badge text={tipoLabel} color={tipoColor} />
+                            {!tkItem.recebido ? (
+                              <View style={{ backgroundColor: C.yellow + '18', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 }}>
+                                <Text style={{ fontSize: 9, color: C.yellow, fontFamily: F.mono, fontWeight: '700' }}>PENDENTE</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                          <Sensitive>
+                            <Text maxFontSizeMultiplier={1.5} style={[st.detalheVal, { color: isNeg ? '#ef4444' : '#22c55e' }]}>
+                              {(isNeg ? '-' : '+') + 'R$ ' + fmtShort(Math.abs(tkItem.valor))}
+                            </Text>
+                          </Sensitive>
+                        </View>
+                      );
+                    })}
+                  </View>
+                );
+              })}
+            </View>
+          ) : provAgrupados.length > 0 ? (
             <View style={{ marginBottom: premAgrupados.length > 0 || recAgrupados.length > 0 || rfRendaMensal > 0 ? 16 : 0 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                 <Text style={st.subTitle}>PROVENTOS</Text>
@@ -399,6 +549,7 @@ export default function RendaResumoView(props) {
                   <View key={'prem_' + group.ticker + '_' + gIdx}>
                     {group.opcoes.map(function(item, idx) {
                       var globalIdx = gIdx * 100 + idx;
+                      var premCor = item.corretora || getCorretora(item.ticker);
                       return (
                         <View key={'po_' + globalIdx} style={[st.detalheRow, (gIdx > 0 || idx > 0) && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.04)' }]}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
@@ -407,7 +558,9 @@ export default function RendaResumoView(props) {
                             {item.ticker_opcao ? (
                               <Text style={{ fontSize: 11, color: P.opcao.color, fontFamily: F.mono }}>{item.ticker_opcao}</Text>
                             ) : null}
-                            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>{item.quantidade + ' opts'}</Text>
+                            {premCor ? (
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{premCor}</Text>
+                            ) : null}
                           </View>
                           <Sensitive>
                             <Text maxFontSizeMultiplier={1.5} style={[st.detalheVal, { color: '#22c55e' }]}>
@@ -439,6 +592,7 @@ export default function RendaResumoView(props) {
                   <View key={'rec_' + group.ticker + '_' + gIdx}>
                     {group.opcoes.map(function(item, idx) {
                       var globalIdx = gIdx * 100 + idx;
+                      var recCor = item.corretora || getCorretora(item.ticker);
                       return (
                         <View key={'ro_' + globalIdx} style={[st.detalheRow, (gIdx > 0 || idx > 0) && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.04)' }]}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
@@ -447,7 +601,9 @@ export default function RendaResumoView(props) {
                             {item.ticker_opcao ? (
                               <Text style={{ fontSize: 11, color: '#ef4444', fontFamily: F.mono }}>{item.ticker_opcao}</Text>
                             ) : null}
-                            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>{item.quantidade + ' opts'}</Text>
+                            {recCor ? (
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{recCor}</Text>
+                            ) : null}
                           </View>
                           <Sensitive>
                             <Text maxFontSizeMultiplier={1.5} style={[st.detalheVal, { color: '#ef4444' }]}>

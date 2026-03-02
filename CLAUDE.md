@@ -33,7 +33,7 @@ src/
   screens/
     analise/       Dashboard analitico + Rebalanceamento hierarquico
     auth/          Login + Onboarding
-    carteira/      Portfolio (Carteira, AddOperacao, EditOperacao, AssetDetail)
+    carteira/      Portfolio (Carteira, AddOperacao, EditOperacao, AssetDetail, ImportOperacoes)
     gestao/        Gestao (GestaoScreen wrapper Ativos/Caixa, CaixaView, AddMovimentacao, Extrato, AddConta)
     home/          Dashboard principal (patrimonio, renda, KPIs, alertas, eventos)
     mais/          Menu + Configs (Meta, Corretoras, Alertas, Selic, Guia, Sobre, Historico) + acesso a Analise
@@ -51,6 +51,7 @@ src/
     tickerSearchService.js Busca e validacao de tickers via brapi.dev (BR) + Yahoo Finance (INT)
     fundamentalService.js Dados fundamentalistas via brapi.dev (BR) + Yahoo Finance (INT), cache 24h
     currencyService.js Cambio multi-moeda via brapi.dev + fallback
+    csvImportService.js Parse CSV/TSV/XML/nota de corretagem, detect B3/CEI/generic, validate, deduplicate
   theme/
     index.js       Cores (C), Fontes (F), Tamanhos (SIZE), Sombras (SHADOW)
   utils/
@@ -70,7 +71,7 @@ supabase/
 5. **Mais** - Menu de configuracoes, utilidades + acesso a Analise Completa (stack screen)
 
 ### Stacks modais
-- AddOperacao, EditOperacao, AssetDetail
+- AddOperacao, EditOperacao, AssetDetail, ImportOperacoes
 - AddOpcao, EditOpcao
 - AddRendaFixa, EditRendaFixa
 - AddProvento, EditProvento
@@ -87,7 +88,7 @@ supabase/
 |--------|-----------|
 | `profiles` | id, nome, meta_mensal, selic, last_dividend_sync |
 | `operacoes` | ticker, tipo(compra/venda), categoria(acao/fii/etf/stock_int), quantidade, preco, custos, corretora, data, mercado(BR/INT), taxa_cambio |
-| `opcoes` | ativo_base, ticker_opcao, tipo(call/put), direcao(venda/compra/lancamento), strike, premio, quantidade, vencimento, data_abertura, status, corretora, premio_fechamento, data_fechamento |
+| `opcoes` | ativo_base, ticker_opcao, tipo(call/put), direcao(venda/compra/lancamento), strike, premio, quantidade, vencimento, data_abertura, status, corretora, premio_fechamento, data_fechamento, alerta_pl |
 | `proventos` | ticker, tipo_provento, valor_por_cota, quantidade, valor_total, data_pagamento |
 | `renda_fixa` | tipo(cdb/lci_lca/tesouro_*), emissor, taxa, indexador, valor_aplicado, vencimento |
 | `saldos_corretora` | name, saldo, tipo(corretora/banco), moeda(BRL/USD/EUR/etc, default BRL). UNIQUE(user_id, name, moeda) — permite mesma instituicao com contas em moedas diferentes |
@@ -113,7 +114,7 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - **Profiles**: getProfile, updateProfile
 - **Operacoes**: getOperacoes, addOperacao, deleteOperacao
 - **Positions**: getPositions (agrega operacoes em posicoes com PM, por_corretora, normaliza ticker, taxa_cambio_media ponderada para INT)
-- **Opcoes**: getOpcoes, addOpcao
+- **Opcoes**: getOpcoes, addOpcao, updateOpcaoAlertaPL
 - **Proventos**: getProventos, addProvento, deleteProvento
 - **Renda Fixa**: getRendaFixa, addRendaFixa, deleteRendaFixa
 - **Corretoras**: getUserCorretoras, incrementCorretora
@@ -170,6 +171,23 @@ Todas as tabelas tem Row Level Security ativado com policies `auth.uid() = user_
 - `mapLabelToTipo(label)` - "DIVIDENDO" → "dividendo", "JCP" → "jcp", "RENDIMENTO" → "rendimento"
 - `shouldSyncDividends(lastSyncDate)` - Verifica dia util + hora >= 18 BRT + nao sincronizou hoje
 - `runDividendSync(userId)` - Orquestrador: posicoes BR → brapi+StatusInvest, posicoes INT → Yahoo Finance + USD→BRL → merge → dedup → addProvento → updateProfile
+
+### csvImportService.js - Funcoes exportadas
+- `parseCSVText(text)` - Parse CSV/TSV → { headers, rows }. Converte XML Spreadsheet automaticamente
+- `parseCEI(headers, rows)` - Parse formato CEI → operacoes/opcoes/exercicios normalizados
+- `parseB3(headers, rows)` - Parse formato B3 → operacoes normalizadas
+- `parseGeneric(headers, rows)` - Parse CSV generico → operacoes normalizadas
+- `isNotaCorretagem(text)` - Detecta nota de corretagem por score de keywords
+- `parseNotaCorretagem(text)` - Parse nota completa: header + trades + custos pro-rata
+- `detectFormat(headers)` - Detecta formato: 'cei', 'b3', 'generic', 'unknown'
+- `findDuplicates(newOps, existingOps, existingOpcoes)` - Dedup exact/partial/opcao match
+- `validateRow(op)` - Validacao por _importType
+- `decodeCSVBuffer(buffer)` - Detecta encoding UTF-8/Latin-1
+- `decodeOptionTicker(ticker)` - Decode ticker opcao B3 (PETRC402 → base/tipo/mes/strike)
+- `estimateStrike(strikeRef)` - Heuristica strike B3
+- `extractTicker(produto)` - Extrai ticker de campo Produto B3
+- `mapCorretora(nome)` - Nome legal B3 → nome comercial
+- `detectCategory(ticker)` - Classifica acao/fii/etf
 
 ## Componentes
 
@@ -1440,14 +1458,540 @@ Tres melhorias visuais: grade de opcoes em tela cheia, treemap heatmap na cartei
 | `src/screens/home/HomeScreen.js` | `rendaAnteriorLabel`, badge 2 linhas (% + valor anterior) |
 
 ### Build
-- Versao: 4.1.0 (build 5)
-- TestFlight: publicado via `eas build --platform ios` + `eas submit --platform ios`
+- Versao: 4.1.0 (build 10)
+- TestFlight: publicado via `eas build --platform ios --non-interactive` + `eas submit --platform ios --non-interactive --latest`
+
+## Analise Tecnica com Grafico Anotado (Implementado)
+
+Grafico de precos SVG interativo com suportes, resistencias, topos, fundos, tendencia, SMAs e indicadores toggleaveis na aba Calc do OpcoesScreen. Dados tecnicos enviados a IA para enriquecer analise.
+
+### Arquitetura
+
+| Arquivo | Acao | Descricao |
+|---------|------|-----------|
+| `src/services/technicalAnalysisService.js` | **Criado** ~500 linhas | Calculos deterministicos: pivots fractais, volume profile, numeros redondos, clustering adaptativo, tendencia |
+| `src/components/TechnicalChart.js` | **Criado** ~700 linhas | Grafico SVG anotado com 10+ camadas, touch interativo, indicadores toggleaveis |
+| `src/screens/opcoes/OpcoesScreen.js` | **Modificado** +~300 linhas | Integracao: states, useEffect fetch, render inline + fullscreen, toggles, AI payload |
+| `supabase/functions/analyze-option/index.ts` | **Modificado** +~4 linhas | Prompt IA com periodo dinamico + suportes/resistencias |
+| `src/components/index.js` | **Modificado** +1 linha | Export TechnicalChart |
+
+### technicalAnalysisService.js — Funcoes exportadas
+
+| Funcao | Retorno |
+|--------|---------|
+| `calcSMASeries(closes, period)` | `number[]` (null nos primeiros period-1) |
+| `findPivotPoints(highs, lows, volumes, avgVol, lookback, totalLen)` | `{ pivotHighs, pivotLows }` com volRatio e recency |
+| `clusterLevels(pivots, atr, spotPrice, totalCandles, type)` | `[{price, strength, compositeScore, hasVolumeNode, hasRound, maxVolRatio}]` |
+| `detectTrend(closes, sma20, sma50)` | `{ direction, strength, label }` |
+| `detectBreakouts(analysis, spot)` | `[{title, message, actionHint, icon, color}]` alertas de proximidade |
+| `analyzeTechnicals(ohlcv, strikePrice)` | Objeto completo com tudo acima |
+| `buildTechnicalSummary(analysis, spot)` | String compacta para prompt IA |
+
+### Deteccao de Suportes/Resistencias (3 fontes)
+
+1. **Pivots fractais**: candle cujo high/low e extremo local (lookback 5 major, 3 minor, adaptativo para periodos curtos). Volume-weighted: pivots com volume > media recebem bonus
+2. **Volume Profile**: bins de preco (30 bins), nodes com volume > 1.5x media viram candidatos a suporte/resistencia
+3. **Numeros redondos psicologicos**: step adaptativo ao preco (0.50 para <10, 1 para <50, 5 para <200, 10 para >200)
+
+### Clustering adaptativo
+- Tolerancia baseada em ATR (1 ATR / spot, clamped 0.8%–3.5%) em vez de % fixo
+- Score composto (0-100): toques 40% + volume 25% + recencia 20% + confirmacao 15%
+- Maximo 5 niveis por lado (suporte/resistencia)
+- Campos extras: `hasVolumeNode`, `hasRound`, `maxVolRatio`
+
+### TechnicalChart.js — Camadas SVG
+
+1. Grid horizontal (4 linhas, labels preco no eixo Y)
+2. Linha SMA 50 (tracejada, `C.etfs + '80'`)
+3. Linha SMA 20 (tracejada, `C.rf + '80'`)
+4. Area high-low range (sombreado sutil `C.text + '08'` entre highs e lows)
+5. Linha de preco (solida, `C.text`, bezier suavizada)
+6. Bollinger Bands (area sombreada `C.accent + '22'` + linhas tracejadas `C.accent + '80'`, 1.3px)
+7. Expected Move ±1σ (faixa `C.opcoes`, labels dentro da banda)
+8. Volume bars (18% altura, verde/vermelho, opacity 40%)
+9. Linhas de suporte (horizontal tracejada verde)
+10. Linhas de resistencia (horizontal tracejada vermelha)
+11. Linha do strike (pontilhada roxa)
+12. Linha do spot (solida fina amarela)
+13. Marcadores de topos (triangulo vermelho) e fundos (triangulo verde)
+14. RSI panel (60px abaixo do grafico principal, zonas 30/70)
+15. Cursor touch + tooltip (data, close, SMA20, SMA50, BB, RSI, Volume)
+
+### Indicadores toggleaveis (4)
+
+| Indicador | Prop key | Descricao | Default |
+|-----------|----------|-----------|---------|
+| Bollinger Bands | `bb` | Periodo 20, 2 desvios. Area + linhas tracejadas | OFF |
+| RSI (14) | `rsi` | Painel dedicado 60px abaixo do grafico. Zonas 30/70 | OFF |
+| Volume | `volume` | Barras na base do grafico (18% altura). Verde/vermelho | OFF |
+| ±1σ Movimento Esperado | `expectedMove` | Faixa baseada em HV + DTE. Requer DTE e HV > 0 | OFF |
+
+Cada indicador tem pill toggle + InfoTip com tooltip explicativo (inline + fullscreen).
+
+### Filtros de periodo
+
+Pills: 1M, 3M, 6M (default), 1A. Usa `fetchPriceHistoryRange(ticker, period)`. Minimo 20 candles para analise. Textos dinamicos via `techPeriodLabel`.
+
+### Fullscreen com landscape
+
+- Modal `animationType="fade"`, `supportedOrientations={['portrait', 'landscape']}`
+- `expo-screen-orientation`: portrait travado globalmente, desbloqueado ao abrir fullscreen, retravado ao fechar
+- Layout responsivo via `onLayout` + `techFsDims`:
+  - Portrait: header paddingTop 54, chart h-260, width w-36
+  - Landscape: header paddingTop 10, paddingHorizontal 44 (safe area), chart h-90, width w-88 (panoramico)
+- Cleanup useEffect restaura portrait se componente desmontar com modal aberto
+
+### Integracao IA
+
+- `technicalSummary` adicionado ao payload de `handleAiAnalysis`
+- `technicalPeriod` com label dinamico do periodo
+- Edge Function usa periodo no prompt: "Analise tecnica (X meses): ..."
+- IA integra suportes/resistencias em [RISCO] e [CENARIOS], nao cria secao separada
+
+### Configuracao necessaria (novo build nativo)
+
+```
+app.json: "orientation": "default" (era "portrait")
+plugins: + "expo-screen-orientation"
+```
+Requer `eas build` para gerar novo binario com o plugin nativo.
+
+### Arquivos modificados/criados (resumo)
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/services/technicalAnalysisService.js` | **Criado** — 3 fontes de S/R, clustering adaptativo, score composto |
+| `src/components/TechnicalChart.js` | **Criado** — SVG 15 camadas, 4 indicadores, touch, RSI panel, high-low range |
+| `src/screens/opcoes/OpcoesScreen.js` | States tech*, toggles, periodo, fullscreen landscape, ScreenOrientation, AI payload |
+| `supabase/functions/analyze-option/index.ts` | Periodo dinamico no prompt |
+| `src/components/index.js` | Export TechnicalChart |
+| `src/navigation/AppNavigator.js` | Import + lockAsync PORTRAIT_UP global |
+| `app.json` | orientation default, plugin expo-screen-orientation |
+
+## Favoritos e Watchlist no Supabase (Implementado)
+
+Migração de favoritos (tickers favoritos) e watchlist (lista de análise) do AsyncStorage local para Supabase, permitindo persistência cross-device.
+
+### Antes vs Depois
+| Dado | Antes | Depois |
+|------|-------|--------|
+| Favoritos (tickers) | AsyncStorage `@premiolab_opcoes_favorites` | `profiles.opcoes_favorites` JSONB |
+| Watchlist (análise) | AsyncStorage `@premiolab_opcoes_watchlist` | `profiles.opcoes_watchlist` JSONB |
+| Análises salvas IA | Já no Supabase (`saved_analyses`) | Inalterado |
+
+### Migração transparente
+Na primeira abertura após a atualização:
+1. Lê `profiles` do Supabase
+2. Se colunas vazias (`[]`), importa dados do AsyncStorage local
+3. Salva no Supabase via `updateProfile`
+4. Limpa AsyncStorage local (`multiRemove`)
+5. Se Supabase já tem dados, usa esses e limpa local
+
+### SQL executado
+```sql
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS opcoes_favorites JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS opcoes_watchlist JSONB DEFAULT '[]'::jsonb;
+```
+
+### Arquivos modificados
+| Arquivo | Mudança |
+|---------|---------|
+| `src/screens/opcoes/OpcoesScreen.js` | Import `updateProfile`, `useAuth` movido para cima, `saveFavorites`/`saveWatchlist` usam `updateProfile`, useEffect com migração AsyncStorage→Supabase, removido `authUser` duplicado |
+| `add-opcoes-favorites-columns.sql` | **Criado** — migration SQL |
+
+## Treemap Heatmap — Legibilidade (Implementado)
+
+Correcao de legibilidade nos 2 treemaps do app (CarteiraScreen e AnaliseScreen). Numeros de variacao ficavam cortados e dificeis de ler.
+
+### Problemas corrigidos
+1. **Primeiro digito cortado**: texto SVG transbordava limites do tile. Corrigido com `<ClipPath>` por tile
+2. **Texto ilegivel**: texto colorido (verde/vermelho) sobre fundo colorido (verde/vermelho) sem contraste. Corrigido com texto branco + sombra preta (texto duplicado com fill preto opacity 0.4 atras)
+3. **Sinais +/- sobrepostos**: em tiles estreitos, `+12.3%` era longo demais. Corrigido com formatacao adaptativa por largura do tile
+
+### Formatacao adaptativa
+| Largura tile | Formato | Exemplo |
+|-------------|---------|---------|
+| >= 58px | Sinal + valor + % | `+2.3%` |
+| < 58px, valor < 10 | Valor + % (sem sinal) | `2.3%` |
+| < 58px, valor >= 10 | Valor inteiro + % (sem sinal) | `12%` |
+
+Cor do tile (verde/vermelho) indica direcao, dispensando o sinal em tiles estreitos.
+
+### Thresholds adaptativos de exibicao
+| Conteudo | Antes | Depois |
+|----------|-------|--------|
+| Ticker (label) | tile >= 40x30 | tile >= 36x26 |
+| Variacao (%) | tile >= 30x20 | tile >= 26x18 |
+| Font size ticker | 10px fixo | 10px (wide) / 9px (narrow) |
+
+### Tecnica SVG
+- `<Defs>` com `<ClipPath id="tc-{i}">` por tile usando `<Rect>` com mesmas dimensoes
+- `<G clipPath="url(#tc-{i})">` agrupa textos do tile
+- Sombra: `<SvgText fill="black" opacity={0.4}>` renderizado antes do texto branco
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/carteira/CarteiraScreen.js` | TreemapChart: ClipPath, texto branco + sombra, pctStr adaptativo, thresholds relaxados |
+| `src/screens/analise/AnaliseScreen.js` | TreemapChart: mesmas correcoes (codigo identico) |
+
+## Patrimonio Livre Dropdown (Implementado)
+
+No card hero da CarteiraScreen, o valor de "Patrimonio Livre" agora e clicavel e exibe um dropdown com detalhes de cada conta e saldo.
+
+### Comportamento
+- Toque no valor de patrimonio livre (ou no icone chevron) abre/fecha dropdown
+- Dropdown renderiza full-width abaixo da linha INVESTIDO/PATRIMONIO LIVRE
+- Cada conta mostra: icone circular (2 letras iniciais), nome da conta, saldo na moeda original
+- Contas em moeda estrangeira exibem linha adicional "≈ R$ X" com valor convertido
+- Prefixo de moeda via `getSymbol(moeda)` do currencyService
+
+### Visual
+- Background `C.bg` (solido) com borderRadius 10, padding 12
+- Icone circular: 28px, fundo `C.accent + '22'`, texto branco 11px bold
+- Nome da conta: fontSize 13, `C.text`, maxWidth 140 (trunca com ellipsis)
+- Saldo: fontSize 13, font mono, cor `C.rf` (ciano)
+- Conversao BRL: fontSize 10, `C.dim`
+- Chevron: Ionicons `chevron-down`/`chevron-up`, 14px, cor `C.dim`
+
+### State
+```
+var _showSaldosDD = useState(false); var showSaldosDD = _showSaldosDD[0]; var setShowSaldosDD = _showSaldosDD[1];
+```
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/carteira/CarteiraScreen.js` | Import `getSymbol`, state `showSaldosDD`, TouchableOpacity no valor livre, dropdown panel full-width com contas |
+
+## Importacao de Operacoes — CSV, B3 Excel, Nota de Corretagem (Implementado)
+
+Tela de importacao completa com 5 modos de input, auto-detect de formato, preview com dedup, e importacao em batch. Suporta operacoes (acoes/FIIs/ETFs), opcoes (call/put), exercicios. Futuros e termos sao exibidos mas nao importados.
+
+### Modos de input
+
+| Modo | Descricao |
+|------|-----------|
+| CEI/B3 | CSV do CEI (cei.b3.com.br). Upload ou colar. Suporta Latin-1 e UTF-8 |
+| B3 (Excel) | Extrato da B3 (investidor.b3.com.br). XML Spreadsheet 2003 convertido para TSV |
+| Nota PDF | Texto copiado de nota de corretagem em PDF. Auto-detect de formato |
+| Colar CSV | Colar dados CSV/TSV diretamente |
+| CSV Generico | CSV com colunas: Data, Tipo, Ticker, Quantidade, Preco |
+
+### csvImportService.js — Funcoes exportadas
+
+| Funcao | Descricao |
+|--------|-----------|
+| `parseCSVText(text)` | Parse CSV/TSV → { headers, rows }. Converte XML Spreadsheet 2003 automaticamente |
+| `parseCEI(headers, rows)` | Parse formato CEI → operacoes/opcoes/exercicios normalizados |
+| `parseB3(headers, rows)` | Parse formato B3 → operacoes normalizadas |
+| `parseGeneric(headers, rows)` | Parse CSV generico → operacoes normalizadas |
+| `isNotaCorretagem(text)` | Detecta nota de corretagem por score de keywords (>=3 de 8 padroes) |
+| `parseNotaCorretagem(text)` | Orquestrador: header + trades + custos → ops normalizadas com custos pro-rata |
+| `detectFormat(headers)` | Detecta formato pelos headers: 'cei', 'b3', 'generic', 'unknown' |
+| `findDuplicates(newOps, existingOps, existingOpcoes)` | Dedup: exact match, partial match, opcao match |
+| `validateRow(op)` | Validacao por tipo (_importType): ticker, preco, qty, data |
+| `decodeCSVBuffer(buffer)` | Detecta encoding UTF-8/Latin-1 automaticamente |
+| `decodeOptionTicker(ticker)` | PETRC402 → { ativoBase, tipo, monthIdx, strikeRef } |
+| `estimateStrike(strikeRef)` | 402 → 40.20, 25 → 25 (heuristica B3) |
+| `extractTicker(produto)` | Remove sufixo F (fracionario), extrai ticker de "PETR4 - PETROBRAS PN N2" |
+| `mapCorretora(nome)` | CORRETORA_MAP: nome legal B3 → nome comercial |
+| `detectCategory(ticker)` | Classifica acao/fii/etf por ticker |
+| `parseBRNumber(str)` | "1.234,56" → 1234.56 |
+| `parseDateBR(str)` | "23/02/2026" → "2026-02-23" |
+
+### Nota de Corretagem — Parsing detalhado
+
+Parser de texto copiado de PDF de nota de corretagem. Formato padronizado pela B3 (todas as corretoras seguem layout similar).
+
+**Funcoes internas:**
+- `parseNotaHeader(text)` — Extrai data pregao (DD/MM/YYYY), nr nota, corretora (via CORRETORA_MAP)
+- `parseNotaTrades(text)` — Regex trailing: `desc qty preco valor D/C` por linha. Filtra por venue (B3/BOVESPA/LISTADO) ou validacao qty*preco≈valor
+- `parseTradeDescription(desc)` — Remove venue prefix, extrai C/V, tipo mercado (VISTA/FRACIONARIO/OPCAO DE COMPRA/OPCAO DE VENDA/EXERCICIO/TERMO/FUTURO), prazo MM/YY, spec text
+- `extractNotaStrike(specText)` — Strike de "PN XX,XX" ou "ON XX,XX" (override de estimateStrike)
+- `parseNotaCosts(text)` — Taxa de liquidacao, registro, emolumentos, clearing (Outras Bovespa), ISS, IRRF
+- `thirdFriday(year, month)` — 3a sexta-feira do mes (vencimento opcoes B3)
+- `inferAtivoBase(base4)` — PETR→PETR4 (PN), VALE→VALE3 (ON) via heuristica
+
+**Custos pro-rata:** `custoProRata = (trade.valor / somaValores) * custosTotais`. Cada operacao recebe sua fracao proporcional dos custos totais da nota.
+
+**C/V vs D/C:**
+- C/V na descricao = Compra/Venda (fonte primaria)
+- D/C no final = Debito/Credito (fallback: D=compra, C=venda)
+
+**Campos extras nas ops de nota:** `_notaNumero` (numero da nota), `_notaCustos` (custos pro-rata), `_strikeEstimated` (strike veio do ticker, nao da spec)
+
+### ImportOperacoesScreen.js — Fluxo
+
+**Step 1 (Input):**
+- Pills de modo (CEI/B3, B3 Excel, Nota PDF, Colar CSV, CSV Generico)
+- Help card por modo com instrucoes
+- File picker (CSV/Excel) ou textarea para colar
+- Auto-detect: colar nota em qualquer modo → detecta automaticamente via `isNotaCorretagem()`
+
+**Step 2 (Preview):**
+- Summary card com contagem por tipo e formato detectado
+- Filter pills: Todas, Novas, Duplicados, Possiveis, Erros, Ignoradas
+- Cards por operacao com checkbox, badge status, badge tipo (ACAO/OPCAO/EXERCICIO)
+- Opcoes mostram: ticker_opcao, CALL/PUT, VENDA/COMPRA, base, strike (badge ESTIMADO se heuristico), vencimento
+- Notas mostram custos pro-rata e numero da nota
+- Selecionar novas / Todas / Nenhuma
+- Botao importar floating com contagem
+
+**Step 3 (Resultado):**
+- Contagem importada por tipo
+- Erros detalhados se houver
+- Botoes "Importar mais" e "Concluir"
+
+### Deduplicacao
+
+| Tipo | Chave exact | Chave partial |
+|------|-------------|---------------|
+| Operacao | ticker + data + tipo + qty + preco | ticker + data + tipo |
+| Opcao | ticker_opcao + data_abertura + premio + qty | — |
+
+### Arquivos
+
+| Arquivo | Acao |
+|---------|------|
+| `src/services/csvImportService.js` | **Criado** — parse CSV/TSV/XML/nota, detect, validate, dedup (~1450 linhas) |
+| `src/screens/carteira/ImportOperacoesScreen.js` | **Criado** — tela 3 steps, 5 modos input, preview, import batch (~1250 linhas) |
+
+## Sistema de Gestão de Gastos Pessoais — Finanças (Implementado)
+
+Sub-tab "Finanças" em Carteira (Ativos / Caixa / Finanças) com dashboard de gastos pessoais, orçamentos, transações recorrentes, gráfico pizza, comparativo mensal.
+
+### Arquitetura de Categorias
+
+Sistema de 2 níveis: `categoria` (campo legado, CHECK constraint inalterado) + `subcategoria` (novo campo TEXT). Módulo centralizado `src/constants/financeCategories.js` substitui definições inline duplicadas em CaixaView, ExtratoScreen, AddMovimentacaoScreen.
+
+**12 grupos**: moradia, alimentacao, transporte, saude, educacao, lazer, compras, servicos, seguros, renda, investimento (auto, excluído de orçamentos), outro.
+
+**Subcategorias por grupo** (~30): moradia_aluguel, alimentacao_supermercado, transporte_combustivel, etc.
+
+### Tabelas SQL (financas-migration.sql)
+
+| Tabela | Descrição |
+|--------|-----------|
+| `orcamentos` | user_id, grupo, valor_limite, ativo. UNIQUE(user_id, grupo) + RLS |
+| `transacoes_recorrentes` | user_id, tipo, categoria, subcategoria, conta, valor, frequencia, dia_vencimento, proximo_vencimento, ativo + RLS |
+| `movimentacoes.subcategoria` | Nova coluna TEXT (nullable) |
+
+### Telas
+
+| Tela | Descrição |
+|------|-----------|
+| `FinancasView.js` (~872 linhas) | Dashboard: hero (saldo + poupança), DonutChart pizza de gastos, progress bars orçamentos, comparativo mensal, próximas recorrentes, FAB |
+| `OrcamentoScreen.js` (~339 linhas) | Configuração de limites por grupo com máscara R$ + switch ativo |
+| `RecorrentesScreen.js` (~413 linhas) | Lista agrupada por frequência, SwipeableRow, ativo toggle, summary |
+| `AddRecorrenteScreen.js` (~529 linhas) | Form: tipo, grupo, subcategoria, conta, valor, frequência, dia, preview próximas 3 |
+
+### database.js — Funções adicionadas
+
+- `getOrcamentos(userId)`, `upsertOrcamentos(userId, budgets)`, `deleteOrcamento(userId, grupo)`
+- `getRecorrentes(userId)`, `addRecorrente(userId, data)`, `updateRecorrente(userId, id, updates)`, `deleteRecorrente(id)`, `advanceRecorrente(id, novaData)`
+- `getFinancasSummary(userId, mes, ano)` — agrega por grupo/subcategoria, exclui auto-categorias
+- `processRecorrentes(userId)` — processa recorrentes vencidas, cria movimentações reais, avança datas
+
+### Integrações
+
+- **HomeScreen**: fire-and-forget `processRecorrentes()` ao abrir (como dividendos/indicadores)
+- **AddMovimentacaoScreen**: após salvar saída, verifica orçamento do grupo via `checkBudgetAlert()`. >90% → toast warning, >100% → toast error com valor excedido
+- **AddMovimentacaoScreen**: subcategoria picker (grupo pills → subcategory pills) salva no payload
+- **GestaoScreen**: 3ª sub-tab "Finanças" renderiza FinancasView
+- **AppNavigator**: +3 stack screens (Orcamento, Recorrentes, AddRecorrente)
+- **States.js**: SkeletonFinancas
+
+### Arquivos criados/modificados
+
+| Arquivo | Ação |
+|---------|------|
+| `financas-migration.sql` | **Criado** — SQL para orcamentos + transacoes_recorrentes + subcategoria |
+| `src/constants/financeCategories.js` | **Criado** — módulo centralizado de categorias (~323 linhas) |
+| `src/screens/gestao/FinancasView.js` | **Criado** — dashboard principal (~872 linhas) |
+| `src/screens/gestao/OrcamentoScreen.js` | **Criado** — configuração de orçamentos |
+| `src/screens/gestao/RecorrentesScreen.js` | **Criado** — lista de recorrentes |
+| `src/screens/gestao/AddRecorrenteScreen.js` | **Criado** — form de recorrente |
+| `src/services/database.js` | +~180 linhas CRUD orçamentos, recorrentes, summary, processRecorrentes |
+| `src/screens/gestao/GestaoScreen.js` | +import FinancasView, +3ª sub-tab |
+| `src/screens/gestao/AddMovimentacaoScreen.js` | +subcategoria picker, +budget alert toast |
+| `src/screens/gestao/CaixaView.js` | Import categorias do módulo compartilhado |
+| `src/screens/gestao/ExtratoScreen.js` | Import categorias do módulo compartilhado |
+| `src/screens/home/HomeScreen.js` | +fire-and-forget processRecorrentes |
+| `src/navigation/AppNavigator.js` | +3 stack screens |
+| `src/components/States.js` | +SkeletonFinancas |
+| `src/components/index.js` | +export SkeletonFinancas |
+
+## Gastos Rapidos + Widget Nativo (Implementado)
+
+Feature de registro rapido de despesas no cartao de credito com 2 partes: telas in-app para configurar presets de gastos frequentes + widget nativo para iOS (SwiftUI) e Android (JSX) na home screen do celular.
+
+### Fase 1 — Gastos Rapidos (in-app)
+
+**Data Model**: coluna JSONB `gastos_rapidos` em `profiles`, array de ate 8 presets com id, label, valor, cartao_id, categoria, subcategoria, icon, ordem.
+
+**Telas**:
+| Tela | Descricao |
+|------|-----------|
+| `ConfigGastosRapidosScreen.js` (~431 linhas) | Lista editavel com SwipeableRow, reorder via chevron-up/down, toque para editar |
+| `AddGastoRapidoScreen.js` (~468 linhas) | Form: nome, valor R$ (mascara centavos), cartao (Pills), grupo/subcategoria, icone (grid 4x5 Ionicons), preview Glass |
+
+**Acesso**: Mais > Gastos Rapidos (item CONFIGURACOES) + botao flash-outline no header da FaturaScreen.
+
+**database.js — 3 funcoes**:
+- `getGastosRapidos(userId)` — profile.gastos_rapidos || []
+- `saveGastosRapidos(userId, presets)` — updateProfile
+- `executeGastoRapido(userId, preset)` — addMovimentacaoCartao com dados do preset
+
+### Fase 2 — Widget Nativo (iOS + Android)
+
+| Plataforma | Pacote | Widget UI | Data Bridge |
+|-----------|--------|-----------|-------------|
+| iOS | `@bacons/apple-targets` | SwiftUI | App Groups + NSUserDefaults |
+| Android | `react-native-android-widget` | JSX (FlexWidget/TextWidget) | AsyncStorage + requestWidgetUpdate |
+
+**Layout do widget** (medium size, 4x2):
+- Header: label cartao + fatura total + vencimento + barra limite (ProgressView/LinearGradient)
+- Grid 2x2: 4 presets com icone + label + valor
+- Footer: "+ Outro" (abre AddMovimentacao) + "Config" (abre ConfigGastosRapidos)
+
+**widgetBridge.js** (~120 linhas): API unificada para compartilhar dados entre app e widget nativo.
+- `updateWidgetData(cartao, faturaTotal, limite, vencimento, moeda, presets)` — salva JSON
+- `updateWidgetFromContext(userId, database, currencyService)` — busca dados e atualiza widget
+- iOS: NSUserDefaults via App Group `group.com.premiotrader.app.data`
+- Android: AsyncStorage + `requestWidgetUpdate('QuickExpenseWidget')`
+
+**Deep Linking**: scheme `premiolab://` com 4 rotas:
+- `premiolab://gasto-rapido/{presetId}` — executa gasto automaticamente + toast confirmacao
+- `premiolab://add-gasto` — abre AddMovimentacaoScreen
+- `premiolab://config-gastos` — abre ConfigGastosRapidosScreen
+- `premiolab://fatura/{cartaoId}` — abre FaturaScreen
+
+**Widget data atualizado em**: HomeScreen (load), AddMovimentacaoScreen (submit), FaturaScreen (pagar fatura), ConfigGastosRapidosScreen (delete/reorder), AddGastoRapidoScreen (save preset), AddCartaoScreen (save/edit cartao).
+
+### SQL Migration (gastos-rapidos-migration.sql)
+```sql
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS gastos_rapidos JSONB DEFAULT '[]'::jsonb;
+```
+
+### Arquivos criados/modificados
+| Arquivo | Acao |
+|---------|------|
+| `gastos-rapidos-migration.sql` | **Criado** — ALTER TABLE profiles |
+| `src/services/database.js` | +3 funcoes gastos rapidos |
+| `src/services/widgetBridge.js` | **Criado** — bridge nativo iOS/Android |
+| `src/screens/gestao/ConfigGastosRapidosScreen.js` | **Criado** — lista editavel |
+| `src/screens/gestao/AddGastoRapidoScreen.js` | **Criado** — form preset |
+| `targets/widget/expo-target.config.js` | **Criado** — config Apple target |
+| `targets/widget/Widget.swift` | **Criado** — SwiftUI widget iOS |
+| `src/widgets/QuickExpenseWidget.js` | **Criado** — widget Android JSX |
+| `src/widgets/widgetTaskHandler.js` | **Criado** — handler eventos Android |
+| `src/navigation/AppNavigator.js` | +2 stack screens, deep linking config, gasto-rapido handler |
+| `src/screens/mais/MaisScreen.js` | +item Gastos Rapidos |
+| `src/screens/gestao/FaturaScreen.js` | +botao flash header + widget update |
+| `src/screens/gestao/AddMovimentacaoScreen.js` | +widget update apos submit |
+| `src/screens/gestao/AddCartaoScreen.js` | +widget update apos save |
+| `src/screens/home/HomeScreen.js` | +widget update fire-and-forget |
+| `App.js` | +Android widget task handler registration |
+| `app.json` | +plugins (apple-targets, android-widget), +entitlements App Group |
+
+### Build
+Requer `eas build` para gerar binario com plugins nativos. Widget nao funciona em Expo Go.
+
+## Logo Real do App + Splash Screen (Implementado)
+
+Substituicao dos placeholders (SVG generico "PL" com moleculas, caractere unicode `◈`, avatar com inicial do email) pela imagem real do logo do app em 3 telas. Splash screen atualizada para o novo icone.
+
+### Assets
+
+| Arquivo | Descricao |
+|---------|-----------|
+| `assets/icon.png` | Icone oficial 1024x1024 (AppStore, adaptive-icon) |
+| `assets/splash-icon.png` | Splash screen oficial (substitui splash.png antigo, removido) |
+| `assets/Icone_header.jpg` | Logo horizontal "PL + PremioLab" com fundo preto (fonte original) |
+| `assets/logo-header.png` | Versao otimizada 400x148 do header, fundo cor `#070a11` (app bg) |
+| `assets/logo.png` | Icone 200x200 cropado (PL grafico) para LoginScreen e MaisScreen |
+
+### Mudancas
+
+| Tela | Antes | Depois |
+|------|-------|--------|
+| HomeScreen (header) | `<Logo>` SVG + `<Wordmark>` texto | `<Image>` logo-header.png (PL + PremioLab horizontal, 66px altura) |
+| LoginScreen | `<LinearGradient>` + caractere `◈` | `<Image>` logo.png (72x72, borderRadius 20) |
+| MaisScreen | Avatar circular com inicial do email | `<Image>` logo.png (42x42, borderRadius 12) |
+| Splash screen | `splash.png` (antigo) | `splash-icon.png` (novo icone) |
+
+### Logo.js — Componente
+
+- **Antes**: SVG complexo com gradientes, "PL" e moleculas (~60 linhas, import react-native-svg)
+- **Depois**: `Image` do React Native com `require('../../assets/logo.png')`, props `size` e `borderRadius` proporcional (~15 linhas)
+- `Wordmark` inalterado (texto "PremioLab" bicolor)
+
+### Arquivos modificados
+
+| Arquivo | Mudanca |
+|---------|---------|
+| `assets/logo-header.png` | **Criado** — 400x148, otimizado do Icone_header.jpg |
+| `assets/logo.png` | **Criado** — 200x200, cropado do icon.png |
+| `assets/splash.png` | **Removido** — substituido por splash-icon.png |
+| `src/components/Logo.js` | SVG → Image, remove import react-native-svg |
+| `src/screens/home/HomeScreen.js` | Logo+Wordmark → Image logo-header.png, remove import Logo/Wordmark |
+| `src/screens/auth/LoginScreen.js` | LinearGradient+◈ → Image logo.png |
+| `src/screens/mais/MaisScreen.js` | Avatar inicial → Image logo.png |
+| `app.json` | splash.png → splash-icon.png, buildNumber 9 → 10, removido App Groups entitlement |
+
+### Build
+- Versao: 4.1.0 (build 10)
+- TestFlight: publicado via `eas build --platform ios --non-interactive` + `eas submit --platform ios --non-interactive --latest`
+
+## Preco Atual + P&L nas Opcoes Ativas + Alerta P&L (Implementado)
+
+Cards de opcoes ativas agora exibem preco atual de mercado (via OpLab API) e P&L em tempo real. Usuario pode definir alertas de P&L alvo por opcao.
+
+### Prefetch de cadeias OpLab
+- No `load()` do OpcoesScreen, coleta tickers unicos de `ativo_base` das opcoes ativas
+- Chama `fetchOptionsChain` para cada (fire-and-forget, paralelo)
+- Resultado fica no cache do oplabService (5min), cards usam `getCachedOptionData`/`getCachedChain`
+- State `chainsReady` (timestamp) forca re-render apos prefetch completar
+- `onRefresh` limpa cache OpLab (`clearOplabCache`) + recarrega
+
+### Preco atual + P&L no OpCard
+- Secao **MERCADO** apos PREMIO: mid-price `(bid+ask)/2` com bid/ask em parenteses
+- P&L calculo: VENDA `premio - precoAtual`, COMPRA `precoAtual - premio`
+- `plTotal = plUnit * quantidade`, `plPct = (plUnit / premio) * 100`
+- Verde (lucro) / vermelho (prejuizo), bold
+- Sem dados OpLab: "Preço indisponível" em dim
+
+### Alerta de P&L por opcao
+- Coluna `opcoes.alerta_pl` (NUMERIC, NULL = sem alerta). Valor em R$ total
+- `updateOpcaoAlertaPL(opcaoId, valor)` em database.js
+- Icone sino (`notifications-outline`/`notifications`) ao lado do P&L
+- Toque abre editor inline com campo R$ + Salvar/Remover
+- `useEffect` em `chainsReady` checa alertas: toast + haptic quando P&L atinge alvo
+- Badge "ALERTA P&L" amarelo no card quando atingido
+- `alertsFired` state previne disparo repetido na mesma sessao
+
+### Summary bar atualizado
+- Segunda linha abaixo de PUTs/CALLs/ATM/ITM/VENC7D (so aparece com dados OpLab)
+- 3 KPIs: Premio Mes, Theta/Dia, P&L Total
+- P&L Total: soma P&L de todas ativas com preco de mercado disponivel
+
+### Migration SQL
+```sql
+ALTER TABLE opcoes ADD COLUMN IF NOT EXISTS alerta_pl NUMERIC DEFAULT NULL;
+```
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/opcoes/OpcoesScreen.js` | Prefetch chains no load, states chainsReady/alertsFired, MERCADO section no OpCard com preco+P&L+sino+editor alerta, badge ALERTA P&L, useEffect checagem alertas, handleAlertaPLSave, summary bar com Premio Mes/Theta/P&L Total |
+| `src/services/database.js` | +updateOpcaoAlertaPL |
+| `alerta-pl-migration.sql` | Migration SQL para coluna alerta_pl |
 
 ## Proximas Melhorias Possiveis
 
 - [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
 - [ ] Notificacoes push para vencimentos proximos
-- [ ] Importacao de operacoes via CSV/Excel
+- [x] Importacao de operacoes via CSV/Excel/Nota de Corretagem
 - [ ] Integracao com CEI/B3 para importacao automatica
 - [ ] Dark/Light mode toggle
 - [ ] Backup/restore de dados

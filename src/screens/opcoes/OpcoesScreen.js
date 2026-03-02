@@ -2,25 +2,32 @@ import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, TextInput, Alert, Dimensions, Modal,
-  ActivityIndicator, KeyboardAvoidingView, Platform,
+  ActivityIndicator, KeyboardAvoidingView, Platform, AppState,
 } from 'react-native';
 import Svg, { Line, Rect, Path, Text as SvgText } from 'react-native-svg';
 import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators, getProfile, addMovimentacaoComSaldo, addMovimentacao, getSavedAnalyses, addSavedAnalysis, deleteSavedAnalysis } from '../../services/database';
-import { enrichPositionsWithPrices, clearPriceCache, fetchPrices } from '../../services/priceService';
+import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators, getProfile, updateProfile, addMovimentacaoComSaldo, addMovimentacao, getSavedAnalyses, addSavedAnalysis, deleteSavedAnalysis, updateOpcaoAlertaPL } from '../../services/database';
+import { enrichPositionsWithPrices, clearPriceCache, fetchPrices, fetchPriceHistoryRange } from '../../services/priceService';
+import { analyzeTechnicals, buildTechnicalSummary } from '../../services/technicalAnalysisService';
+import TechnicalChart from '../../components/TechnicalChart';
 import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { supabase } from '../../config/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { Glass, Badge, Pill, SectionLabel, Fab, InfoTip } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, Fab, InfoTip, TickerInput } from '../../components';
+import { searchTickers } from '../../services/tickerSearchService';
 import { SkeletonOpcoes, EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import Sensitive from '../../components/Sensitive';
 import * as Haptics from 'expo-haptics';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import Toast from 'react-native-toast-message';
 var geminiService = require('../../services/geminiService');
 var analyzeOption = geminiService.analyzeOption;
+
+// Module-level: persiste entre mounts para sobreviver a background/tab switch
+var _pendingAi = null; // { data, ts, result, error, done }
 import AsyncStorage from '@react-native-async-storage/async-storage';
 var oplabModule = require('../../services/oplabService');
 var fetchOptionsChain = oplabModule.fetchOptionsChain;
@@ -635,8 +642,11 @@ var OpCard = React.memo(function OpCard(props) {
   var onEdit = props.onEdit;
   var onDelete = props.onDelete;
   var onClose = props.onClose;
+  var onAlertaPLSave = props.onAlertaPLSave;
 
   var _showClose = useState(false); var showClose = _showClose[0]; var setShowClose = _showClose[1];
+  var _showAlertaEditor = useState(false); var showAlertaEditor = _showAlertaEditor[0]; var setShowAlertaEditor = _showAlertaEditor[1];
+  var _alertaInput = useState(op.alerta_pl != null ? String(op.alerta_pl) : ''); var alertaInput = _alertaInput[0]; var setAlertaInput = _alertaInput[1];
   var _premRecompra = useState(''); var premRecompra = _premRecompra[0]; var setPremRecompra = _premRecompra[1];
   var _dataFechamento = useState(todayBr()); var dataFechamento = _dataFechamento[0]; var setDataFechamento = _dataFechamento[1];
   var _qtyFechamento = useState(String(op.quantidade || 0)); var qtyFechamento = _qtyFechamento[0]; var setQtyFechamento = _qtyFechamento[1];
@@ -692,7 +702,7 @@ var OpCard = React.memo(function OpCard(props) {
       coberturaDetail = 'Sem ' + op.ativo_base + ' ' + (op.corretora || 'nenhuma corretora');
     }
   } else if (tipoLabel === 'PUT' && isVenda) {
-    // PUT vendida (CSP): precisa ter saldo >= strike * qty na mesma corretora
+    // PUT vendida (CSP): saldo + valor de ativos na mesma corretora (com haircut)
     var custoExercicio = (op.strike || 0) * (op.quantidade || 0);
     var saldoMatch = null;
     for (var si = 0; si < saldos.length; si++) {
@@ -703,18 +713,44 @@ var OpCard = React.memo(function OpCard(props) {
     }
     var saldoVal = saldoMatch ? (saldoMatch.saldo || 0) : 0;
 
-    if (saldoMatch && saldoVal >= custoExercicio) {
-      cobertura = 'CSP';
-      coberturaColor = C.green;
-      coberturaDetail = 'Saldo R$ ' + fmt(saldoVal) + ' ' + op.corretora + ' (precisa R$ ' + fmt(custoExercicio) + ')';
-    } else if (saldoMatch) {
-      cobertura = 'CSP PARCIAL';
+    // Somar valor dos ativos na mesma corretora (com haircut por categoria)
+    var HAIRCUT_MAP = { acao: 0.80, fii: 0.70, etf: 0.85, stock_int: 0.75, rf: 0.95 };
+    var garantiaValor = 0;
+    if (op.corretora && positions && positions.length > 0) {
+      for (var gi = 0; gi < positions.length; gi++) {
+        var gPos = positions[gi];
+        var qtyGarantia = (gPos.por_corretora && gPos.por_corretora[op.corretora]) || 0;
+        if (qtyGarantia > 0 && gPos.preco_atual > 0) {
+          var haircut = HAIRCUT_MAP[gPos.categoria] || 0.70;
+          garantiaValor = garantiaValor + (qtyGarantia * gPos.preco_atual * haircut);
+        }
+      }
+    }
+    var coberturaTotal = saldoVal + garantiaValor;
+
+    if (coberturaTotal >= custoExercicio) {
+      if (garantiaValor > 0 && saldoVal < custoExercicio) {
+        cobertura = 'GARANTIDA';
+        coberturaColor = C.green;
+        coberturaDetail = 'Caixa R$ ' + fmt(saldoVal) + ' + ativos R$ ' + fmt(garantiaValor) + ' cobrem R$ ' + fmt(custoExercicio);
+      } else {
+        cobertura = 'GARANTIDA';
+        coberturaColor = C.green;
+        coberturaDetail = 'Caixa R$ ' + fmt(saldoVal) + ' em ' + op.corretora + ' cobre R$ ' + fmt(custoExercicio);
+      }
+    } else if (coberturaTotal > 0) {
+      var pctCob = Math.round(coberturaTotal / custoExercicio * 100);
+      cobertura = 'PARCIAL ' + pctCob + '%';
       coberturaColor = C.yellow;
-      coberturaDetail = 'Saldo R$ ' + fmt(saldoVal) + '/' + fmt(custoExercicio) + ' ' + op.corretora;
+      if (garantiaValor > 0) {
+        coberturaDetail = 'Caixa R$ ' + fmt(saldoVal) + ' + ativos R$ ' + fmt(garantiaValor) + ' de R$ ' + fmt(custoExercicio);
+      } else {
+        coberturaDetail = 'Caixa R$ ' + fmt(saldoVal) + ' de R$ ' + fmt(custoExercicio) + ' em ' + op.corretora;
+      }
     } else {
       cobertura = 'DESCOBERTA';
       coberturaColor = C.red;
-      coberturaDetail = 'Sem saldo ' + (op.corretora || 'nenhuma corretora') + ' (precisa R$ ' + fmt(custoExercicio) + ')';
+      coberturaDetail = 'Sem garantia em ' + (op.corretora || 'nenhuma corretora') + ' (precisa R$ ' + fmt(custoExercicio) + ')';
     }
   } else if (isVenda) {
     cobertura = 'VENDA';
@@ -789,6 +825,113 @@ var OpCard = React.memo(function OpCard(props) {
           {'= R$ ' + fmt(premTotal)}
         </Text>
       </View>
+
+      {/* Mercado: preco atual + P&L */}
+      {(function() {
+        var bid = cachedOption && cachedOption.bid != null ? cachedOption.bid : null;
+        var ask = cachedOption && cachedOption.ask != null ? cachedOption.ask : null;
+        var close = cachedOption && cachedOption.close != null ? cachedOption.close : null;
+        var mid = null;
+        if (bid != null && ask != null && (bid > 0 || ask > 0)) {
+          mid = (bid + ask) / 2;
+        } else if (close != null && close > 0) {
+          mid = close;
+        }
+        if (mid == null) {
+          return (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>MERCADO</Text>
+              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, fontStyle: 'italic' }}>Preço indisponível</Text>
+            </View>
+          );
+        }
+        var plUnit = isVenda ? ((op.premio || 0) - mid) : (mid - (op.premio || 0));
+        var plTotal = plUnit * (op.quantidade || 0);
+        var plPct = (op.premio || 0) > 0 ? (plUnit / (op.premio || 0)) * 100 : 0;
+        var plColor = plTotal >= 0 ? C.green : C.red;
+        var plSign = plTotal >= 0 ? '+' : '';
+        var hasAlerta = op.alerta_pl != null;
+        var alertaAtingido = hasAlerta && (
+          (op.alerta_pl >= 0 && plTotal >= op.alerta_pl) ||
+          (op.alerta_pl < 0 && plTotal <= op.alerta_pl)
+        );
+
+        return (
+          <View style={{ marginBottom: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>MERCADO</Text>
+                <Text style={[{ fontSize: 12, color: C.text, fontFamily: F.mono, fontWeight: '700' }, ps]}>
+                  {'R$ ' + fmt(mid)}
+                </Text>
+                <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>
+                  {'(' + (bid != null ? fmt(bid) : '–') + '/' + (ask != null ? fmt(ask) : '–') + ')'}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={[{ fontSize: 12, fontWeight: '800', color: plColor, fontFamily: F.mono }, ps]}>
+                  {plSign + 'R$ ' + fmt(Math.abs(plTotal))}
+                </Text>
+                <Text style={[{ fontSize: 10, color: plColor, fontFamily: F.mono }, ps]}>
+                  {plSign + plPct.toFixed(1) + '%'}
+                </Text>
+                <TouchableOpacity
+                  onPress={function() { setShowAlertaEditor(!showAlertaEditor); }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons
+                    name={hasAlerta ? 'notifications' : 'notifications-outline'}
+                    size={16}
+                    color={alertaAtingido ? C.yellow : (hasAlerta ? C.accent : C.dim)}
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+            {alertaAtingido ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>
+                <Badge text="ALERTA P&L" color={C.yellow} />
+                <Text style={{ fontSize: 10, color: C.yellow, fontFamily: F.mono }}>
+                  {'Alvo R$ ' + fmt(Math.abs(op.alerta_pl)) + ' atingido'}
+                </Text>
+              </View>
+            ) : null}
+            {showAlertaEditor ? (
+              <View style={{ marginTop: 6, padding: 10, borderRadius: 8, backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border }}>
+                <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4 }}>ALERTA P&L (R$ total)</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <TextInput
+                    value={alertaInput}
+                    onChangeText={setAlertaInput}
+                    placeholder="Ex: 50 ou -30"
+                    placeholderTextColor={C.dim}
+                    keyboardType="numeric"
+                    style={{
+                      flex: 1, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+                      borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
+                      fontSize: 13, color: C.text, fontFamily: F.mono,
+                    }}
+                  />
+                  <TouchableOpacity
+                    onPress={function() {
+                      var val = alertaInput.trim() === '' ? null : parseFloat(alertaInput.replace(',', '.'));
+                      if (onAlertaPLSave) onAlertaPLSave(op.id, val);
+                      setShowAlertaEditor(false);
+                    }}
+                    style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: C.accent + '20' }}
+                  >
+                    <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.display, fontWeight: '700' }}>
+                      {alertaInput.trim() === '' ? 'Remover' : 'Salvar'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginTop: 4 }}>
+                  {'P&L atual: ' + plSign + 'R$ ' + fmt(Math.abs(plTotal)) + '. Positivo = alerta de lucro, negativo = prejuízo.'}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        );
+      })()}
 
       {/* Option code + moneyness text + cobertura detail */}
       {op.ticker_opcao ? (
@@ -1017,7 +1160,7 @@ var TUTORIAL_STEPS = [
   {
     title: 'Parâmetros do Simulador',
     icon: 'settings-outline',
-    text: 'Spot: preço atual do ativo no mercado.\n\nStrike: preço de exercício da opção. Quanto mais distante do spot, mais barata (OTM).\n\nPrêmio: valor da opção por unidade. Se você vende 100 opções a R$1,20, recebe R$120.\n\nVI (Volatilidade Implícita): expectativa do mercado sobre oscilação futura. VI alta = prêmios maiores = bom para vender.\n\nDTE: dias até o vencimento. Mais DTE = mais prêmio, mas mais risco de movimento.\n\nQtd: número total de opções (não contratos).',
+    text: 'Spot: preço atual do ativo no mercado.\n\nStrike: preço de exercício da opção. Quanto mais distante do spot, mais barata (OTM).\n\nPrêmio: valor da opção por unidade. Se você vende 100 opções a R$1,20, recebe R$120 bruto.\n\nVI (Volatilidade Implícita): expectativa do mercado sobre oscilação futura. VI alta = prêmios maiores = bom para vender.\n\nDTE: dias até o vencimento. Mais DTE = mais prêmio, mas mais risco de movimento.\n\nQtd: número total de opções (não contratos).\n\n⚠ Valores de prêmios exibidos são brutos. O valor líquido creditado na conta pode ser menor devido a impostos (IR 15%), corretagem, emolumentos e outras taxas.',
   },
   {
     title: 'As Gregas',
@@ -1058,6 +1201,10 @@ function AiAnalysisModal(props) {
   var analysis = props.analysis;
   var onClose = props.onClose;
   var onSave = props.onSave;
+  var aiTechOhlcv = props.techOhlcv;
+  var aiTechAnalysis = props.techAnalysis;
+  var aiSpot = props.spot;
+  var aiStrikePrice = props.strikePrice;
   var _saved = useState(false); var saved = _saved[0]; var setSaved = _saved[1];
 
   // Reset saved state when analysis changes (new analysis generated)
@@ -1104,6 +1251,37 @@ function AiAnalysisModal(props) {
         </View>
       </View>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SIZE.padding, gap: SIZE.gap, paddingBottom: 50 }}>
+        {aiTechOhlcv && aiTechAnalysis ? (
+          <Glass padding={10}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+              <Ionicons name="analytics-outline" size={11} color={C.opcoes} />
+              <Text style={{ fontSize: 10, color: C.opcoes, fontFamily: F.mono, fontWeight: '600' }}>CONTEXTO TÉCNICO</Text>
+              {aiTechAnalysis.trend ? (
+                <View style={{
+                  backgroundColor: (aiTechAnalysis.trend.direction === 'up' ? C.green : aiTechAnalysis.trend.direction === 'down' ? C.red : C.etfs) + '20',
+                  paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3,
+                }}>
+                  <Text style={{
+                    fontSize: 8, fontWeight: '700', fontFamily: F.mono,
+                    color: aiTechAnalysis.trend.direction === 'up' ? C.green : aiTechAnalysis.trend.direction === 'down' ? C.red : C.etfs,
+                  }}>
+                    {aiTechAnalysis.trend.label.toUpperCase()}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            <TechnicalChart
+              ohlcv={aiTechOhlcv}
+              analysis={aiTechAnalysis}
+              spot={aiSpot}
+              strikePrice={aiStrikePrice > 0 ? aiStrikePrice : null}
+              height={140}
+              width={Dimensions.get('window').width - SIZE.padding * 2 - 20}
+              color={C.opcoes}
+              compact={true}
+            />
+          </Glass>
+        ) : null}
         {secs.map(function(sec) {
           var content = analysis[sec.key];
           if (!content) return null;
@@ -1155,42 +1333,76 @@ function CalculadoraOpcoes(props) {
   var positions = props.positions || [];
   var indicatorsMap = props.indicators || {};
   var chainSelicRate = props.selicRate || 13.25;
+  var ativas = props.ativas || [];
 
   // Custom ticker entries (persisted across re-renders)
   var _customEntries = useState({}); var customEntries = _customEntries[0]; var setCustomEntries = _customEntries[1];
 
-  // Watchlist — lista de análise do usuário (persisted via AsyncStorage)
-  var WATCHLIST_KEY = '@premiolab_opcoes_watchlist';
+  var authUser = useAuth().user;
+
+  // Watchlist + Favoritos — persistidos no Supabase (profiles JSONB)
   var _watchlist = useState([]); var watchlist = _watchlist[0]; var setWatchlist = _watchlist[1];
   var _showWatchlistInput = useState(false); var showWatchlistInput = _showWatchlistInput[0]; var setShowWatchlistInput = _showWatchlistInput[1];
-  var _watchlistTicker = useState(''); var watchlistTicker = _watchlistTicker[0]; var setWatchlistTicker = _watchlistTicker[1];
-
-  // Favoritos — tickers favoritos do usuário (persisted via AsyncStorage)
-  var FAVORITES_KEY = '@premiolab_opcoes_favorites';
   var _favorites = useState([]); var favorites = _favorites[0]; var setFavorites = _favorites[1];
 
-  // Load watchlist + favorites on mount
+  // Load watchlist + favorites from Supabase (with AsyncStorage migration)
   useEffect(function() {
-    AsyncStorage.getItem(WATCHLIST_KEY).then(function(val) {
-      if (val) {
-        try { setWatchlist(JSON.parse(val)); } catch(e) {}
-      }
+    if (!authUser || !authUser.id) return;
+    getProfile(authUser.id).then(function(res) {
+      var profile = res.data;
+      if (!profile) return;
+      var dbWatchlist = profile.opcoes_watchlist || [];
+      var dbFavorites = profile.opcoes_favorites || [];
+
+      // Migrate from AsyncStorage if Supabase is empty
+      var WATCHLIST_KEY = '@premiolab_opcoes_watchlist';
+      var FAVORITES_KEY = '@premiolab_opcoes_favorites';
+      var needsMigration = false;
+
+      AsyncStorage.multiGet([WATCHLIST_KEY, FAVORITES_KEY]).then(function(stores) {
+        var localWl = null;
+        var localFav = null;
+        try { if (stores[0][1]) localWl = JSON.parse(stores[0][1]); } catch(e) {}
+        try { if (stores[1][1]) localFav = JSON.parse(stores[1][1]); } catch(e) {}
+
+        // Merge: Supabase wins, AsyncStorage fills gaps
+        var finalWl = dbWatchlist.length > 0 ? dbWatchlist : (localWl || []);
+        var finalFav = dbFavorites.length > 0 ? dbFavorites : (localFav || []);
+
+        setWatchlist(finalWl);
+        setFavorites(finalFav);
+
+        // If we migrated from local, persist to Supabase and clean local
+        if (dbWatchlist.length === 0 && localWl && localWl.length > 0) needsMigration = true;
+        if (dbFavorites.length === 0 && localFav && localFav.length > 0) needsMigration = true;
+
+        if (needsMigration) {
+          var updates = {};
+          if (dbWatchlist.length === 0 && localWl && localWl.length > 0) updates.opcoes_watchlist = localWl;
+          if (dbFavorites.length === 0 && localFav && localFav.length > 0) updates.opcoes_favorites = localFav;
+          updateProfile(authUser.id, updates).then(function() {
+            AsyncStorage.multiRemove([WATCHLIST_KEY, FAVORITES_KEY]).catch(function() {});
+          });
+        } else if (localWl || localFav) {
+          // Supabase already has data, clean local
+          AsyncStorage.multiRemove([WATCHLIST_KEY, FAVORITES_KEY]).catch(function() {});
+        }
+      });
     });
-    AsyncStorage.getItem(FAVORITES_KEY).then(function(val) {
-      if (val) {
-        try { setFavorites(JSON.parse(val)); } catch(e) {}
-      }
-    });
-  }, []);
+  }, [authUser && authUser.id]);
 
   function saveWatchlist(list) {
     setWatchlist(list);
-    AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(list));
+    if (authUser && authUser.id) {
+      updateProfile(authUser.id, { opcoes_watchlist: list }).catch(function() {});
+    }
   }
 
   function saveFavorites(list) {
     setFavorites(list);
-    AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(list));
+    if (authUser && authUser.id) {
+      updateProfile(authUser.id, { opcoes_favorites: list }).catch(function() {});
+    }
   }
 
   function addToWatchlist(tk) {
@@ -1308,7 +1520,27 @@ function CalculadoraOpcoes(props) {
   var handleTickerChange = function(tk) {
     setChainTicker(tk);
     setShowCustom(false);
+    setShowWatchlistInput(false);
     setSpotOverride('');
+    // If ticker has no spot price yet (watchlist/favorites not in portfolio), fetch it
+    if (tk && !tickerSpots[tk] && !customEntries[tk]) {
+      setFetchingSpot(true);
+      fetchPrices([tk]).then(function(priceMap) {
+        var p = priceMap && priceMap[tk];
+        if (p && p.price) {
+          var next = {};
+          var prevKeys = Object.keys(customEntries);
+          for (var ci = 0; ci < prevKeys.length; ci++) {
+            next[prevKeys[ci]] = customEntries[prevKeys[ci]];
+          }
+          next[tk] = p.price;
+          setCustomEntries(next);
+        }
+        setFetchingSpot(false);
+      }).catch(function() {
+        setFetchingSpot(false);
+      });
+    }
   };
 
   var handleCustomSearch = function() {
@@ -1327,6 +1559,7 @@ function CalculadoraOpcoes(props) {
         setCustomEntries(next);
         setChainTicker(tk);
         setShowCustom(false);
+        setShowWatchlistInput(false);
         setSpotOverride('');
         setCustomTicker('');
       } else {
@@ -1356,6 +1589,7 @@ function CalculadoraOpcoes(props) {
         setCustomEntries(next);
         setChainTicker(tk);
         setShowCustom(false);
+        setShowWatchlistInput(false);
         setSpotOverride('');
         setCustomTicker('');
         Toast.show({ type: 'success', text1: tk + ' adicionado à lista de análise' });
@@ -1392,6 +1626,60 @@ function CalculadoraOpcoes(props) {
   var _aiObj = useState('renda'); var aiObjetivo = _aiObj[0]; var setAiObjetivo = _aiObj[1];
   var _aiCapital = useState(''); var aiCapital = _aiCapital[0]; var setAiCapital = _aiCapital[1];
 
+  // Recuperar analise IA pendente ao voltar do background ou re-focus
+  function recoverPendingAi() {
+    if (!_pendingAi) return;
+    if (_pendingAi.done && _pendingAi.result) {
+      setAiAnalysis(_pendingAi.result);
+      setAiLoading(false);
+      setAiError(null);
+      setAiModalOpen(true);
+      _pendingAi = null;
+    } else if (_pendingAi.done && _pendingAi.error) {
+      setAiError(_pendingAi.error);
+      setAiLoading(false);
+      _pendingAi = null;
+    } else if (!_pendingAi.done) {
+      // Ainda pendente — se ja passou mais de 90s, considerar timeout
+      var elapsed = Date.now() - _pendingAi.ts;
+      if (elapsed > 90000) {
+        setAiError('A análise demorou muito. Tente novamente.');
+        setAiLoading(false);
+        _pendingAi = null;
+      } else {
+        // Retry — se a Edge Function ja respondeu, o cache serve instantaneo
+        setAiLoading(true);
+        analyzeOption(_pendingAi.data).then(function(result) {
+          _pendingAi = null;
+          setAiLoading(false);
+          if (result && result.error) {
+            setAiError(result.error);
+          } else if (result) {
+            setAiAnalysis(result);
+            setAiModalOpen(true);
+          } else {
+            setAiError('Resposta vazia da IA.');
+          }
+        }).catch(function(err) {
+          _pendingAi = null;
+          setAiLoading(false);
+          setAiError('Erro: ' + (err && err.message ? err.message : ''));
+        });
+      }
+    }
+  }
+
+  useEffect(function() {
+    var sub = AppState.addEventListener('change', function(nextState) {
+      if (nextState === 'active' && _pendingAi && !_pendingAi.done) {
+        recoverPendingAi();
+      }
+    });
+    // Tambem recuperar no mount (caso componente foi desmontado e remontado)
+    if (_pendingAi) recoverPendingAi();
+    return function() { sub.remove(); };
+  }, []);
+
   // Real options chain states
   var _chainData = useState(null); var chainData = _chainData[0]; var setChainData = _chainData[1];
   var _chainLoading = useState(false); var chainLoading = _chainLoading[0]; var setChainLoading = _chainLoading[1];
@@ -1399,6 +1687,38 @@ function CalculadoraOpcoes(props) {
   var _selectedSeries = useState(0); var selectedSeries = _selectedSeries[0]; var setSelectedSeries = _selectedSeries[1];
   var _chainLastUpdate = useState(null); var chainLastUpdate = _chainLastUpdate[0]; var setChainLastUpdate = _chainLastUpdate[1];
   var _gradeFull = useState(false); var gradeFullscreen = _gradeFull[0]; var setGradeFullscreen = _gradeFull[1];
+  var _showMyStrikes = useState(true); var showMyStrikes = _showMyStrikes[0]; var setShowMyStrikes = _showMyStrikes[1];
+
+  // Technical analysis states
+  var _techAnalysis = useState(null); var techAnalysis = _techAnalysis[0]; var setTechAnalysis = _techAnalysis[1];
+  var _techOhlcv = useState(null); var techOhlcv = _techOhlcv[0]; var setTechOhlcv = _techOhlcv[1];
+  var _techLoading = useState(false); var techLoading = _techLoading[0]; var setTechLoading = _techLoading[1];
+  var _techFullscreen = useState(false); var techFullscreen = _techFullscreen[0]; var setTechFullscreen = _techFullscreen[1];
+  var _techPeriod = useState('6mo'); var techPeriod = _techPeriod[0]; var setTechPeriod = _techPeriod[1];
+  var _techFsDims = useState({ w: Dimensions.get('window').width, h: Dimensions.get('window').height });
+  var techFsDims = _techFsDims[0]; var setTechFsDims = _techFsDims[1];
+
+  var _techIndicators = useState({ bb: false, rsi: false, volume: false, expectedMove: false });
+  var techIndicators = _techIndicators[0]; var setTechIndicators = _techIndicators[1];
+
+  function toggleIndicator(key) {
+    var updated = {};
+    updated.bb = techIndicators.bb;
+    updated.rsi = techIndicators.rsi;
+    updated.volume = techIndicators.volume;
+    updated.expectedMove = techIndicators.expectedMove;
+    updated[key] = !updated[key];
+    setTechIndicators(updated);
+  }
+
+  var techPeriodLabel = techPeriod === '1mo' ? 'último mês' : techPeriod === '3mo' ? 'últimos 3 meses' : techPeriod === '1y' ? 'último ano' : 'últimos 6 meses';
+
+  // Restore portrait orientation on unmount (safety net)
+  useEffect(function() {
+    return function() {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(function() {});
+    };
+  }, []);
 
   // Auto-fill chainIV from HV 20d when ticker changes (fallback if no OpLab IV)
   useEffect(function() {
@@ -1473,7 +1793,6 @@ function CalculadoraOpcoes(props) {
   }, [selectedSeries, chainData]);
 
   // Saved analyses states
-  var authUser = useAuth().user;
   var _savedList = useState([]); var savedList = _savedList[0]; var setSavedList = _savedList[1];
   var _showSavedDD = useState(false); var showSavedDD = _showSavedDD[0]; var setShowSavedDD = _showSavedDD[1];
   var _savingAnalysis = useState(false); var savingAnalysis = _savingAnalysis[0]; var setSavingAnalysis = _savingAnalysis[1];
@@ -1486,6 +1805,32 @@ function CalculadoraOpcoes(props) {
       });
     }
   }, [authUser && authUser.id]));
+
+  // Fetch OHLCV + run technical analysis when ticker/spot/period changes
+  useEffect(function() {
+    if (!chainTicker || spot <= 0) {
+      setTechAnalysis(null);
+      setTechOhlcv(null);
+      return;
+    }
+    setTechLoading(true);
+    fetchPriceHistoryRange([chainTicker], techPeriod).then(function(histMap) {
+      var hist = histMap && histMap[chainTicker];
+      if (hist && hist.length >= 20) {
+        var result = analyzeTechnicals(hist, parseFloat(strikeInput) || 0);
+        setTechOhlcv(hist);
+        setTechAnalysis(result);
+      } else {
+        setTechOhlcv(null);
+        setTechAnalysis(null);
+      }
+      setTechLoading(false);
+    }).catch(function() {
+      setTechLoading(false);
+      setTechOhlcv(null);
+      setTechAnalysis(null);
+    });
+  }, [chainTicker, spot, techPeriod]);
 
   // Parse strike + market prices first (needed for auto-skew)
   var fk = parseFloat(strikeInput) || 0;
@@ -1875,22 +2220,36 @@ function CalculadoraOpcoes(props) {
       hvManual: hvInput ? parseFloat(hvInput) : null,
       vwap: vwapInput ? parseFloat(vwapInput.replace(',', '.')) : null,
       openInterest: oiInput ? parseAbrevNum(oiInput) : null,
+      technicalSummary: techAnalysis ? buildTechnicalSummary(techAnalysis, spot) : null,
+      technicalPeriod: techPeriodLabel,
     };
 
     setAiLoading(true);
     setAiError(null);
 
+    _pendingAi = { data: data, ts: Date.now(), result: null, error: null, done: false };
+
     analyzeOption(data).then(function(result) {
+      if (_pendingAi) {
+        _pendingAi.done = true;
+        _pendingAi.result = (result && !result.error) ? result : null;
+        _pendingAi.error = (result && result.error) ? result.error : (!result ? 'Resposta vazia da IA.' : null);
+      }
       setAiLoading(false);
       if (result && result.error) {
         setAiError(result.error);
       } else if (result) {
         setAiAnalysis(result);
         setAiModalOpen(true);
+        _pendingAi = null;
       } else {
         setAiError('Resposta vazia da IA.');
       }
     }).catch(function(err) {
+      if (_pendingAi) {
+        _pendingAi.done = true;
+        _pendingAi.error = 'Erro inesperado: ' + (err && err.message ? err.message : '');
+      }
       setAiLoading(false);
       setAiError('Erro inesperado: ' + (err && err.message ? err.message : ''));
     });
@@ -2264,6 +2623,24 @@ function CalculadoraOpcoes(props) {
             strikes = allStrikes.slice(startIdx, endIdx);
           }
 
+          // Build map of user's active options at each strike for this ticker
+          // Key: strike rounded to 2 decimals. Value: array of {tipo, direcao, qty}
+          var myStrikesMap = {};
+          var myStrikesCount = 0;
+          for (var mi = 0; mi < ativas.length; mi++) {
+            var mOp = ativas[mi];
+            if (mOp.ativo_base && mOp.ativo_base.toUpperCase() === chainTicker.toUpperCase() && mOp.strike > 0) {
+              var mKey = mOp.strike.toFixed(2);
+              if (!myStrikesMap[mKey]) myStrikesMap[mKey] = [];
+              var mDir = (mOp.direcao === 'compra') ? 'C' : 'V';
+              var mTipo = (mOp.tipo === 'call') ? 'CALL' : 'PUT';
+              myStrikesMap[mKey].push({ tipo: mTipo, direcao: mDir, qty: mOp.quantidade || 0 });
+              myStrikesCount++;
+            }
+          }
+          // When toggle is off, clear the map but keep count for the button
+          if (!showMyStrikes) myStrikesMap = {};
+
           return (
             <View>
               {/* Expiry date line */}
@@ -2273,6 +2650,17 @@ function CalculadoraOpcoes(props) {
                   {'Vencimento: ' + activeSerie.due_date.split('-').reverse().join('/') + ' (' + seriesDTE + ' dias)'}
                 </Text>
               </View>
+              {/* Toggle: show my strikes */}
+              {myStrikesCount > 0 ? (
+                <TouchableOpacity activeOpacity={0.7}
+                  onPress={function() { setShowMyStrikes(!showMyStrikes); }}
+                  style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: 5, marginBottom: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: showMyStrikes ? C.accent + '20' : C.card, borderWidth: 1, borderColor: showMyStrikes ? C.accent + '60' : C.border }}>
+                  <Ionicons name={showMyStrikes ? 'eye' : 'eye-off-outline'} size={13} color={showMyStrikes ? C.accent : C.dim} />
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: showMyStrikes ? C.accent : C.dim, fontFamily: F.body }}>
+                    {'Minhas opções (' + myStrikesCount + ')'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
               {/* Side labels — CALL | STRIKE | PUT */}
               <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 3, paddingHorizontal: 1, marginBottom: 2 }}>
                 <View style={{ width: 148, alignItems: 'center' }}>
@@ -2314,9 +2702,11 @@ function CalculadoraOpcoes(props) {
                 var sk = stRow.strike;
                 var callOpt = stRow.call;
                 var putOpt = stRow.put;
-                var isAtm = Math.abs(sk - chainSpot) / chainSpot < 0.015;
-                var callItm = sk < chainSpot;
-                var putItm = sk > chainSpot;
+                var callMoney = callOpt && callOpt.moneyness ? callOpt.moneyness.toUpperCase() : null;
+                var putMoney = putOpt && putOpt.moneyness ? putOpt.moneyness.toUpperCase() : null;
+                var isAtm = (callMoney === 'ATM' || putMoney === 'ATM') ? true : (chainSpot > 0 && Math.abs(sk - chainSpot) / chainSpot < 0.01);
+                var callItm = isAtm ? false : (callMoney === 'ITM' ? true : sk < chainSpot);
+                var putItm = isAtm ? false : (putMoney === 'ITM' ? true : sk > chainSpot);
 
                 var mLabel = isAtm ? 'ATM' : (callItm ? 'ITM' : 'OTM');
                 var mColor = isAtm ? C.yellow : (callItm ? C.green : C.sub);
@@ -2345,13 +2735,18 @@ function CalculadoraOpcoes(props) {
                 var putBidColor = priceColor(putOpt && putOpt.bid, putOpt && putOpt.ask, bsPutPrice, C.text);
                 var putAskColor = priceColor(putOpt && putOpt.bid, putOpt && putOpt.ask, bsPutPrice, C.text);
 
-                var rowBg = isAtm ? C.yellow + '12'
+                // Check if user has active options at this strike
+                var myOpsAtStrike = myStrikesMap[sk.toFixed(2)] || null;
+                var isMine = myOpsAtStrike && myOpsAtStrike.length > 0;
+
+                var rowBg = isMine ? C.accent + '18'
+                  : isAtm ? C.yellow + '12'
                   : callItm ? C.green + '08'
                   : putItm ? C.red + '08'
                   : (ri % 2 === 0) ? 'rgba(255,255,255,0.02)' : 'transparent';
 
-                var leftBorderColor = callItm ? C.green + '40' : 'transparent';
-                var rightBorderColor = putItm ? C.red + '40' : 'transparent';
+                var leftBorderColor = isMine ? C.accent : (callItm ? C.green + '40' : 'transparent');
+                var rightBorderColor = isMine ? C.accent : (putItm ? C.red + '40' : 'transparent');
 
                 var showSpotLine = false;
                 if (ri > 0) {
@@ -2400,7 +2795,7 @@ function CalculadoraOpcoes(props) {
                       </Text>
                       {/* STRIKE center */}
                       <View style={{ minWidth: 70, alignItems: 'center', paddingHorizontal: 1 }}>
-                        <Text numberOfLines={1} style={[{ fontSize: 11, fontFamily: F.mono, fontWeight: isAtm ? '800' : '600', color: isAtm ? C.yellow : C.text }, ps]}>
+                        <Text numberOfLines={1} style={[{ fontSize: 11, fontFamily: F.mono, fontWeight: isAtm ? '800' : '600', color: isMine ? C.accent : (isAtm ? C.yellow : C.text) }, ps]}>
                           {sk.toFixed(2)}
                         </Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 }}>
@@ -2416,6 +2811,20 @@ function CalculadoraOpcoes(props) {
                             {putOpt ? ((putOpt.maturity_type && putOpt.maturity_type.toUpperCase() === 'EUROPEAN') ? 'E' : 'A') : ''}
                           </Text>
                         </View>
+                        {isMine ? (
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 2, marginTop: 2 }}>
+                            {myOpsAtStrike.map(function(mEntry, mIdx) {
+                              var mBg = mEntry.tipo === 'CALL' ? C.green : C.red;
+                              return (
+                                <View key={mIdx} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 3, paddingVertical: 1, borderRadius: 3, backgroundColor: mBg + '30' }}>
+                                  <Text style={{ fontSize: 7, fontWeight: '800', color: mBg, fontFamily: F.mono }}>
+                                    {mEntry.direcao + ' ' + mEntry.tipo + ' ' + mEntry.qty}
+                                  </Text>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ) : null}
                       </View>
                       {/* PUT side */}
                       <Text style={[{ width: 30, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: C.dim }, ps]}>
@@ -2437,6 +2846,12 @@ function CalculadoraOpcoes(props) {
 
               {/* Legend */}
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                {myStrikesCount > 0 ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.accent }} />
+                    <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Minha</Text>
+                  </View>
+                ) : null}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                   <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: C.yellow + '20' }}>
                     <Text style={{ fontSize: 8, fontWeight: '700', color: C.yellow, fontFamily: F.mono }}>ATM</Text>
@@ -2467,16 +2882,25 @@ function CalculadoraOpcoes(props) {
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 4 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.yellow }} />
-                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Caro</Text>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Caro (bom p/ vender)</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.rf }} />
-                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Barato</Text>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Barato (bom p/ comprar)</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                   <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.text }} />
                   <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>Justo</Text>
                 </View>
+                <InfoTip title="Preço Real vs Teórico (BS)" text={'As cores dos preços Bid/Ask comparam o preço real de mercado com o preço teórico calculado por Black-Scholes (coluna Teor).'
+                  + '\n\n' + '● Amarelo — Prêmio caro (+10% acima do BS)'
+                  + '\n' + '  CALL: bom para VENDER call coberta (recebe mais). Ruim para COMPRAR call (paga caro).'
+                  + '\n' + '  PUT: bom para VENDER put / CSP (recebe mais). Ruim para COMPRAR put de hedge (paga caro).'
+                  + '\n\n' + '● Ciano — Prêmio barato (-10% abaixo do BS)'
+                  + '\n' + '  CALL: bom para COMPRAR call (aposta de alta barata). Ruim para VENDER call (recebe pouco).'
+                  + '\n' + '  PUT: bom para COMPRAR put de hedge (proteção barata). Ruim para VENDER put / CSP (recebe pouco).'
+                  + '\n\n' + '● Branco — Preço justo (±10% do BS). Sem distorção significativa.'
+                  + '\n\n' + '⚠ O preço teórico BS é uma estimativa baseada em IV, DTE e taxa livre de risco. Diferenças podem indicar oportunidades, mas também refletem liquidez, oferta/demanda e expectativas do mercado.'} size={12} />
               </View>
               {!isFullscreen ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8, paddingVertical: 8, backgroundColor: C.accent + '10', borderRadius: 8, borderWidth: 1, borderColor: C.accent + '20' }}>
@@ -2789,21 +3213,10 @@ function CalculadoraOpcoes(props) {
           </View>
         ) : null}
 
-        {/* Actions row: + Adicionar | + Outro | Saved */}
+        {/* Actions row: + Outro | Saved */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <TouchableOpacity activeOpacity={0.7}
-            onPress={function() { setShowWatchlistInput(!showWatchlistInput); setShowCustom(false); }}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
-              backgroundColor: showWatchlistInput ? C.opcoes + '25' : C.card,
-              borderWidth: 1, borderColor: showWatchlistInput ? C.opcoes : C.border }}>
-            <Ionicons name={showWatchlistInput ? 'close' : 'add'} size={14} color={showWatchlistInput ? C.opcoes : C.sub} />
-            <Text style={{ fontSize: 11, fontWeight: showWatchlistInput ? '700' : '500',
-              color: showWatchlistInput ? C.opcoes : C.sub, fontFamily: F.mono }}>
-              {showWatchlistInput ? 'Fechar' : 'Adicionar'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity activeOpacity={0.7}
-            onPress={function() { setShowCustom(true); setShowWatchlistInput(false); setChainTicker(null); }}
+            onPress={function() { var next = !showCustom; setShowCustom(next); setShowWatchlistInput(next); if (next) setChainTicker(null); }}
             style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
               backgroundColor: showCustom ? C.opcoes + '25' : C.card,
               borderWidth: 1, borderColor: showCustom ? C.opcoes : C.border }}>
@@ -2831,36 +3244,37 @@ function CalculadoraOpcoes(props) {
         {/* Watchlist + Favorites panel */}
         {showWatchlistInput ? (
           <View style={{ marginTop: 6, padding: 10, borderRadius: 8, backgroundColor: C.card, borderWidth: 1, borderColor: C.opcoes + '30' }}>
-            {/* Add ticker input */}
-            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body, marginBottom: 6 }}>
-              Adicionar ticker à lista de análise:
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-              <TextInput
-                value={watchlistTicker}
-                onChangeText={function(t) { setWatchlistTicker(t.toUpperCase()); }}
+
+            {/* Search + add to list */}
+            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 1, marginBottom: 8 }}>BUSCAR ATIVO</Text>
+            <View style={{ zIndex: 20 }}>
+              <TickerInput
+                value={customTicker}
+                onChangeText={function(t) { setCustomTicker(t); }}
+                tickers={portfolioTickers}
                 placeholder="Ex: VALE3"
-                placeholderTextColor={C.dim}
-                autoCapitalize="characters"
                 autoFocus
-                returnKeyType="done"
-                onSubmitEditing={function() {
-                  if (watchlistTicker.trim().length >= 4) {
-                    addToWatchlist(watchlistTicker);
-                    setWatchlistTicker('');
-                  }
-                }}
-                style={{ flex: 1, height: 38, backgroundColor: C.bg, borderRadius: 6, borderWidth: 1, borderColor: C.border, paddingHorizontal: 10, color: C.text, fontFamily: F.mono, fontSize: 13 }}
+                returnKeyType="search"
+                onSearch={function(query) { return searchTickers(query, 'BR'); }}
+                style={styles.simFieldText}
               />
-              <TouchableOpacity activeOpacity={0.7}
-                onPress={function() {
-                  if (watchlistTicker.trim().length >= 4) {
-                    addToWatchlist(watchlistTicker);
-                    setWatchlistTicker('');
-                  }
-                }}
-                style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 6, backgroundColor: C.opcoes + '20', borderWidth: 1, borderColor: C.opcoes + '40' }}>
-                <Text style={{ fontSize: 12, fontWeight: '600', color: C.opcoes, fontFamily: F.body }}>Adicionar</Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+              <TouchableOpacity activeOpacity={0.7} onPress={handleCustomSearch}
+                disabled={fetchingSpot || customTicker.trim().length < 2}
+                style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: C.acoes + '15', borderWidth: 1, borderColor: C.acoes + '30', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6, opacity: fetchingSpot || customTicker.trim().length < 2 ? 0.5 : 1 }}>
+                {fetchingSpot ? (
+                  <ActivityIndicator size="small" color={C.acoes} />
+                ) : (
+                  <Ionicons name="search-outline" size={14} color={C.acoes} />
+                )}
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.acoes, fontFamily: F.body }}>Buscar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity activeOpacity={0.7} onPress={handleCustomAddToList}
+                disabled={fetchingSpot || customTicker.trim().length < 4}
+                style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: C.opcoes + '15', borderWidth: 1, borderColor: C.opcoes + '30', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6, opacity: fetchingSpot || customTicker.trim().length < 4 ? 0.5 : 1 }}>
+                <Ionicons name="add-circle-outline" size={14} color={C.opcoes} />
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.opcoes, fontFamily: F.body }}>Adicionar à lista</Text>
               </TouchableOpacity>
             </View>
 
@@ -2982,43 +3396,7 @@ function CalculadoraOpcoes(props) {
         </Glass>
       ) : null}
 
-      {/* Custom ticker input */}
-      {showCustom ? (
-        <Glass padding={14}>
-          <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 1, marginBottom: 8 }}>BUSCAR ATIVO</Text>
-          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-            <View style={{ flex: 1 }}>
-              <View style={styles.simFieldInput}>
-                <TextInput value={customTicker} onChangeText={function(t) { setCustomTicker(t.toUpperCase()); }}
-                  placeholder="Ex: VALE3"
-                  autoCapitalize="characters" autoFocus returnKeyType="search"
-                  onSubmitEditing={handleCustomSearch}
-                  style={styles.simFieldText} placeholderTextColor={C.dim} />
-              </View>
-            </View>
-          </View>
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-            <TouchableOpacity activeOpacity={0.7} onPress={handleCustomSearch}
-              disabled={fetchingSpot || customTicker.trim().length < 2}
-              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: C.acoes + '15', borderWidth: 1, borderColor: C.acoes + '30', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6, opacity: fetchingSpot || customTicker.trim().length < 2 ? 0.5 : 1 }}>
-              {fetchingSpot ? (
-                <ActivityIndicator size="small" color={C.acoes} />
-              ) : (
-                <Ionicons name="search-outline" size={14} color={C.acoes} />
-              )}
-              <Text style={{ fontSize: 12, fontWeight: '600', color: C.acoes, fontFamily: F.body }}>Buscar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity activeOpacity={0.7} onPress={handleCustomAddToList}
-              disabled={fetchingSpot || customTicker.trim().length < 4}
-              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: C.opcoes + '15', borderWidth: 1, borderColor: C.opcoes + '30', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6, opacity: fetchingSpot || customTicker.trim().length < 4 ? 0.5 : 1 }}>
-              <Ionicons name="add-circle-outline" size={14} color={C.opcoes} />
-              <Text style={{ fontSize: 12, fontWeight: '600', color: C.opcoes, fontFamily: F.body }}>Adicionar à lista</Text>
-            </TouchableOpacity>
-          </View>
-        </Glass>
-      ) : null}
-
-      {spot <= 0 && !showCustom ? (
+      {spot <= 0 && !showWatchlistInput ? (
         <Glass padding={24}>
           <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.body, textAlign: 'center' }}>
             Selecione um ativo ou toque em "Outro" para buscar um ticker.
@@ -3098,6 +3476,423 @@ function CalculadoraOpcoes(props) {
         </View>
       </Modal>
 
+      {/* ═══ ANÁLISE TÉCNICA ═══ */}
+      {chainTicker && spot > 0 ? (
+        <Glass padding={12}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <Ionicons name="analytics-outline" size={13} color={C.opcoes} />
+            <Text style={{ fontSize: 12, color: C.opcoes, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>ANÁLISE TÉCNICA</Text>
+            <InfoTip title="Análise Técnica" text={"Gráfico de preços dos " + techPeriodLabel + " com indicadores técnicos.\n\nFixos:\n• SMA 20 (ciano) e SMA 50 (amarelo)\n• Suportes (verde) e Resistências (vermelho)\n• Topos/fundos e linha de Strike\n\nToggle (toque nos botões):\n• Bollinger Bands — faixa de volatilidade, preço fora = oportunidade\n• RSI — sobrecomprado (>70) / sobrevendido (<30)\n• Volume — confirma rompimentos e suportes\n• ±1σ Esperado — faixa onde o mercado espera o preço no vencimento (usa HV e DTE do simulador)\n\nToque e arraste no gráfico para ver detalhes."} size={12} />
+            {techLoading ? <ActivityIndicator size="small" color={C.opcoes} /> : null}
+            {techAnalysis ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <View style={{
+                  backgroundColor: (techAnalysis.trend.direction === 'up' ? C.green : techAnalysis.trend.direction === 'down' ? C.red : C.etfs) + '20',
+                  paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
+                }}>
+                  <Text style={{
+                    fontSize: 9, fontWeight: '700', fontFamily: F.mono,
+                    color: techAnalysis.trend.direction === 'up' ? C.green : techAnalysis.trend.direction === 'down' ? C.red : C.etfs,
+                  }}>
+                    {techAnalysis.trend.label.toUpperCase()}
+                  </Text>
+                </View>
+                <InfoTip title="Tendência" text={"Calculada automaticamente a partir das médias móveis:\n\n• ALTA: SMA 20 acima da SMA 50 e preço acima da SMA 20. Momento comprador.\n• BAIXA: SMA 20 abaixo da SMA 50 e preço abaixo da SMA 20. Momento vendedor.\n• LATERAL: Sem direção clara. SMAs próximas ou preço entre elas.\n\nA tendência ajuda a escolher a direção da operação (CALL para alta, PUT para baixa)."} size={11} />
+              </View>
+            ) : null}
+            <View style={{ flex: 1 }} />
+            {techAnalysis && techOhlcv ? (
+              <TouchableOpacity activeOpacity={0.6} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                onPress={function() {
+                  ScreenOrientation.unlockAsync().catch(function() {});
+                  setTechFullscreen(true);
+                }}
+                accessibilityRole="button" accessibilityLabel="Expandir análise técnica em tela cheia">
+                <Ionicons name="expand-outline" size={16} color={C.opcoes} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          {/* Period filter pills */}
+          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 6 }}>
+            {[
+              { label: '1M', value: '1mo' },
+              { label: '3M', value: '3mo' },
+              { label: '6M', value: '6mo' },
+              { label: '1A', value: '1y' },
+            ].map(function(p) {
+              var active = techPeriod === p.value;
+              return (
+                <TouchableOpacity key={p.value} activeOpacity={0.7}
+                  onPress={function() { setTechPeriod(p.value); }}
+                  style={{
+                    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6,
+                    backgroundColor: active ? C.opcoes + '25' : 'transparent',
+                    borderWidth: 1, borderColor: active ? C.opcoes + '50' : C.border,
+                  }}>
+                  <Text style={{
+                    fontSize: 10, fontWeight: active ? '700' : '500', fontFamily: F.mono,
+                    color: active ? C.opcoes : C.dim,
+                  }}>{p.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            {techOhlcv ? (
+              <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, alignSelf: 'center', marginLeft: 4 }}>
+                {techOhlcv.length + ' candles'}
+              </Text>
+            ) : null}
+          </View>
+          {/* Indicator toggle pills */}
+          {techAnalysis && techOhlcv ? (
+            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              {[
+                { key: 'bb', label: 'Bollinger', tip: "Bandas de Bollinger (20 períodos, 2 desvios).\n\nFaixa sombreada que mostra a volatilidade do ativo. Quando o preço toca ou ultrapassa:\n• Banda superior → ativo sobrecomprado, bom para vender CALL\n• Banda inferior → ativo sobrevendido, bom para vender PUT\n\nBandas estreitas = baixa volatilidade, possível movimento forte em breve (squeeze).\nBandas largas = alta volatilidade, prêmios de opções mais caros." },
+                { key: 'rsi', label: 'RSI', tip: "RSI — Índice de Força Relativa (14 períodos).\n\nMede a velocidade e magnitude das mudanças de preço (0-100).\n\n• Acima de 70: sobrecomprado — o ativo subiu rápido demais, pode corrigir. Bom momento para venda de CALL.\n• Abaixo de 30: sobrevendido — o ativo caiu rápido demais, pode reverter. Bom momento para venda de PUT (CSP).\n• Entre 30-70: zona neutra.\n\nCombine com suportes/resistências para sinais mais fortes." },
+                { key: 'volume', label: 'Volume', tip: "Volume de negociação diário.\n\nBarras verdes = dia de alta (fechou acima da abertura).\nBarras vermelhas = dia de queda (fechou abaixo da abertura).\n\nPara opções:\n• Rompimento de suporte/resistência com volume alto = movimento real, maior risco.\n• Rompimento sem volume = possível falso sinal.\n• Volume crescente confirma a tendência atual." },
+                { key: 'expectedMove', label: '±1σ Esperado', tip: "Faixa de Movimento Esperado (±1 desvio padrão).\n\nCalcula onde o mercado espera que o preço esteja no vencimento da opção, baseado na Volatilidade Histórica (HV) e no DTE (dias até o vencimento) do simulador.\n\n• 68% de probabilidade do preço ficar dentro da faixa.\n• Strike fora da faixa = menor chance de exercício.\n• Strike dentro da faixa = maior risco.\n\nRequer DTE e HV no simulador para funcionar." },
+              ].map(function(ind) {
+                var active = techIndicators[ind.key];
+                var disabled = ind.key === 'expectedMove' && (dteVal <= 0 || currentHV <= 0);
+                return (
+                  <View key={ind.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                    <TouchableOpacity activeOpacity={0.7}
+                      onPress={function() { if (!disabled) toggleIndicator(ind.key); }}
+                      style={{
+                        paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
+                        backgroundColor: active ? C.accent + '20' : 'transparent',
+                        borderWidth: 1,
+                        borderColor: disabled ? C.border + '40' : (active ? C.accent + '50' : C.border),
+                        opacity: disabled ? 0.4 : 1,
+                      }}>
+                      <Text style={{
+                        fontSize: 9, fontWeight: active ? '700' : '500', fontFamily: F.mono,
+                        color: active ? C.accent : C.dim,
+                      }}>{ind.label}</Text>
+                    </TouchableOpacity>
+                    <InfoTip title={ind.label} text={ind.tip} size={10} />
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+          {techAnalysis && techOhlcv ? (
+            <View>
+              <TechnicalChart
+                ohlcv={techOhlcv}
+                analysis={techAnalysis}
+                spot={spot}
+                strikePrice={fk > 0 ? fk : null}
+                height={200}
+                width={Dimensions.get('window').width - SIZE.padding * 2 - 24}
+                color={C.opcoes}
+                indicators={techIndicators}
+                dte={dteVal}
+                hv={currentHV || 0}
+              />
+              {/* Breakout / Proximity Alerts */}
+              {techAnalysis.alerts && techAnalysis.alerts.length > 0 ? (
+                <View style={{ marginTop: 8, gap: 6 }}>
+                  {techAnalysis.alerts.map(function(alert, aidx) {
+                    var alertColor = alert.color === 'red' ? C.red : alert.color === 'green' ? C.green : C.etfs;
+                    return (
+                      <View key={'ta-' + aidx} style={{
+                        flexDirection: 'row', alignItems: 'flex-start', gap: 6,
+                        backgroundColor: alertColor + '10', borderRadius: 8, padding: 8,
+                        borderLeftWidth: 3, borderLeftColor: alertColor,
+                      }}>
+                        <Ionicons name={alert.icon} size={14} color={alertColor} style={{ marginTop: 1 }} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: alertColor, fontFamily: F.mono, marginBottom: 2 }}>
+                            {alert.title.toUpperCase()}
+                          </Text>
+                          <Text style={{ fontSize: 10, color: C.text, fontFamily: F.body, lineHeight: 15 }}>
+                            {alert.message}
+                          </Text>
+                          <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.body, lineHeight: 14, marginTop: 2, fontStyle: 'italic' }}>
+                            {alert.actionHint}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
+              {/* Supports / Resistances summary */}
+              {(techAnalysis.supports.length > 0 || techAnalysis.resistances.length > 0) ? (
+                <View style={{ flexDirection: 'row', marginTop: 8, gap: 12 }}>
+                  {techAnalysis.supports.length > 0 ? (
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                        <Text style={{ fontSize: 9, color: C.green, fontFamily: F.mono, fontWeight: '700' }}>SUPORTES</Text>
+                        <InfoTip title="Suportes" text={"Regiões de preço onde o ativo historicamente parou de cair e voltou a subir.\n\nIdentificados por 3 fontes nos " + techPeriodLabel + ":\n• Pivots fractais (topos/fundos)\n• Perfil de volume (zonas de alto volume — badge VOL)\n• Números redondos psicológicos\n\nNx = toques na região. Quanto mais, mais forte.\n\nPara opções:\n• Venda de PUT com strike próximo a suporte forte tem menor risco de exercício.\n• Se preço romper suporte, pode acelerar queda."} size={10} />
+                      </View>
+                      {techAnalysis.supports.map(function(s, idx) {
+                        return (
+                          <View key={'ts-' + idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                            <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: C.green }} />
+                            <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono }}>
+                              {'R$ ' + s.price.toFixed(2)}
+                            </Text>
+                            <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>
+                              {'(' + s.strength + 'x)'}
+                            </Text>
+                            {s.hasVolumeNode ? (
+                              <View style={{ backgroundColor: C.green + '25', paddingHorizontal: 3, paddingVertical: 1, borderRadius: 3 }}>
+                                <Text style={{ fontSize: 7, color: C.green, fontFamily: F.mono, fontWeight: '700' }}>VOL</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                  {techAnalysis.resistances.length > 0 ? (
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 3 }}>
+                        <Text style={{ fontSize: 9, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>RESISTÊNCIAS</Text>
+                        <InfoTip title="Resistências" text={"Regiões de preço onde o ativo historicamente parou de subir e recuou.\n\nIdentificadas por 3 fontes nos " + techPeriodLabel + ":\n• Pivots fractais (topos/fundos)\n• Perfil de volume (zonas de alto volume — badge VOL)\n• Números redondos psicológicos\n\nNx = toques na região. Quanto mais, mais forte.\n\nPara opções:\n• Venda de CALL com strike próximo a resistência forte tem menor risco de exercício.\n• Se preço romper resistência, pode acelerar alta (breakout)."} size={10} />
+                      </View>
+                      {techAnalysis.resistances.map(function(r, idx) {
+                        return (
+                          <View key={'tr-' + idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                            <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: C.red }} />
+                            <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono }}>
+                              {'R$ ' + r.price.toFixed(2)}
+                            </Text>
+                            <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>
+                              {'(' + r.strength + 'x)'}
+                            </Text>
+                            {r.hasVolumeNode ? (
+                              <View style={{ backgroundColor: C.red + '25', paddingHorizontal: 3, paddingVertical: 1, borderRadius: 3 }}>
+                                <Text style={{ fontSize: 7, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>VOL</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          ) : (!techLoading ? (
+            <View style={{ height: 60, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>Dados insuficientes para análise técnica</Text>
+            </View>
+          ) : null)}
+        </Glass>
+      ) : null}
+
+      {/* ═══ ANÁLISE TÉCNICA FULLSCREEN ═══ */}
+      <Modal visible={techFullscreen} animationType="fade" transparent={false} supportedOrientations={['portrait', 'landscape']}
+        onRequestClose={function() {
+          ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(function() {});
+          setTechFullscreen(false);
+        }}>
+        <View style={{ flex: 1, backgroundColor: C.bg }} onLayout={function(e) {
+          var layout = e.nativeEvent.layout;
+          setTechFsDims({ w: layout.width, h: layout.height });
+        }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: techFsDims.w > techFsDims.h ? 44 : SIZE.padding, paddingTop: techFsDims.w > techFsDims.h ? 10 : 54, paddingBottom: techFsDims.w > techFsDims.h ? 6 : 10, borderBottomWidth: 1, borderBottomColor: C.border }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Ionicons name="analytics-outline" size={18} color={C.opcoes} />
+              <Text style={{ fontSize: techFsDims.w > techFsDims.h ? 14 : 16, fontWeight: '800', color: C.text, fontFamily: F.display }}>Análise Técnica</Text>
+              {chainTicker ? (
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>{chainTicker}</Text>
+              ) : null}
+              {techAnalysis ? (
+                <View style={{
+                  backgroundColor: (techAnalysis.trend.direction === 'up' ? C.green : techAnalysis.trend.direction === 'down' ? C.red : C.etfs) + '20',
+                  paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
+                }}>
+                  <Text style={{
+                    fontSize: 10, fontWeight: '700', fontFamily: F.mono,
+                    color: techAnalysis.trend.direction === 'up' ? C.green : techAnalysis.trend.direction === 'down' ? C.red : C.etfs,
+                  }}>
+                    {techAnalysis.trend.label.toUpperCase()}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            <TouchableOpacity activeOpacity={0.6} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              onPress={function() {
+                ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(function() {});
+                setTechFullscreen(false);
+              }}
+              accessibilityRole="button" accessibilityLabel="Fechar análise técnica">
+              <Ionicons name="close" size={24} color={C.text} />
+            </TouchableOpacity>
+          </View>
+          {/* Body — panoramic chart */}
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingVertical: techFsDims.w > techFsDims.h ? 8 : SIZE.padding, paddingHorizontal: techFsDims.w > techFsDims.h ? 44 : SIZE.padding, paddingBottom: 40 }}>
+            {techAnalysis && techOhlcv ? (
+              <View>
+                {/* Indicator toggles in fullscreen */}
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: techFsDims.w > techFsDims.h ? 4 : 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {[
+                    { key: 'bb', label: 'Bollinger Bands', tip: "Bandas de Bollinger (20 períodos, 2 desvios).\n\nFaixa sombreada que mostra a volatilidade do ativo.\n• Banda superior → sobrecomprado, bom para vender CALL\n• Banda inferior → sobrevendido, bom para vender PUT\n• Bandas estreitas (squeeze) = movimento forte em breve" },
+                    { key: 'rsi', label: 'RSI (14)', tip: "RSI — Índice de Força Relativa (14 períodos).\n\nMede momentum do preço (0-100).\n• >70: sobrecomprado — favorável para venda de CALL\n• <30: sobrevendido — favorável para venda de PUT\n\nCombine com suportes/resistências para sinais mais fortes." },
+                    { key: 'volume', label: 'Volume', tip: "Volume de negociação diário.\n\nVerde = dia de alta. Vermelho = dia de queda.\n\nRompimento com volume alto = movimento real.\nRompimento sem volume = possível falso sinal." },
+                    { key: 'expectedMove', label: '±1σ Movimento Esperado', tip: "Faixa de Movimento Esperado (±1σ).\n\nBaseado na HV e DTE do simulador. 68% de probabilidade do preço ficar dentro da faixa no vencimento.\n\nStrike fora = menor risco de exercício.\nRequer DTE e HV no simulador." },
+                  ].map(function(ind) {
+                    var active = techIndicators[ind.key];
+                    var disabled = ind.key === 'expectedMove' && (dteVal <= 0 || currentHV <= 0);
+                    return (
+                      <View key={'fs-' + ind.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                        <TouchableOpacity activeOpacity={0.7}
+                          onPress={function() { if (!disabled) toggleIndicator(ind.key); }}
+                          style={{
+                            paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8,
+                            backgroundColor: active ? C.accent + '20' : 'transparent',
+                            borderWidth: 1,
+                            borderColor: disabled ? C.border + '40' : (active ? C.accent + '50' : C.border),
+                            opacity: disabled ? 0.4 : 1,
+                          }}>
+                          <Text style={{
+                            fontSize: 11, fontWeight: active ? '700' : '500', fontFamily: F.mono,
+                            color: active ? C.accent : C.dim,
+                          }}>{ind.label}</Text>
+                        </TouchableOpacity>
+                        <InfoTip title={ind.label} text={ind.tip} size={11} />
+                      </View>
+                    );
+                  })}
+                </View>
+                <TechnicalChart
+                  ohlcv={techOhlcv}
+                  analysis={techAnalysis}
+                  spot={spot}
+                  strikePrice={fk > 0 ? fk : null}
+                  height={techFsDims.w > techFsDims.h ? Math.max(techFsDims.h - 90, 200) : techFsDims.h - 260}
+                  width={techFsDims.w - (techFsDims.w > techFsDims.h ? 88 : SIZE.padding * 2)}
+                  color={C.opcoes}
+                  indicators={techIndicators}
+                  dte={dteVal}
+                  hv={currentHV || 0}
+                />
+                {/* Breakout / Proximity Alerts (fullscreen) */}
+                {techAnalysis.alerts && techAnalysis.alerts.length > 0 ? (
+                  <View style={{ marginTop: 14, gap: 8 }}>
+                    {techAnalysis.alerts.map(function(alert, aidx) {
+                      var alertColor = alert.color === 'red' ? C.red : alert.color === 'green' ? C.green : C.etfs;
+                      return (
+                        <View key={'fta-' + aidx} style={{
+                          flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+                          backgroundColor: alertColor + '10', borderRadius: 10, padding: 12,
+                          borderLeftWidth: 3, borderLeftColor: alertColor,
+                        }}>
+                          <Ionicons name={alert.icon} size={18} color={alertColor} style={{ marginTop: 1 }} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: alertColor, fontFamily: F.mono, marginBottom: 3 }}>
+                              {alert.title.toUpperCase()}
+                            </Text>
+                            <Text style={{ fontSize: 12, color: C.text, fontFamily: F.body, lineHeight: 18 }}>
+                              {alert.message}
+                            </Text>
+                            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body, lineHeight: 16, marginTop: 3, fontStyle: 'italic' }}>
+                              {alert.actionHint}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : null}
+                {/* Supports / Resistances side by side */}
+                {(techAnalysis.supports.length > 0 || techAnalysis.resistances.length > 0) ? (
+                  <View style={{ flexDirection: 'row', marginTop: 14, gap: 20 }}>
+                    {techAnalysis.supports.length > 0 ? (
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                          <Text style={{ fontSize: 11, color: C.green, fontFamily: F.mono, fontWeight: '700' }}>SUPORTES</Text>
+                          <InfoTip title="Suportes" text={"Regiões de preço onde o ativo historicamente parou de cair e voltou a subir.\n\nIdentificados por pivots fractais, perfil de volume (badge VOL) e números redondos nos " + techPeriodLabel + ".\n\nQuanto mais toques e maior o volume, mais forte o nível.\n\nPara opções: venda de PUT com strike próximo a suporte forte tem menor risco de exercício."} size={11} />
+                        </View>
+                        {techAnalysis.supports.map(function(s, idx) {
+                          return (
+                            <View key={'fs-' + idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.green }} />
+                              <Text style={{ fontSize: 13, color: C.text, fontFamily: F.mono }}>
+                                {'R$ ' + s.price.toFixed(2)}
+                              </Text>
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                                {'(' + s.strength + ' toques)'}
+                              </Text>
+                              {s.hasVolumeNode ? (
+                                <View style={{ backgroundColor: C.green + '25', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 }}>
+                                  <Text style={{ fontSize: 8, color: C.green, fontFamily: F.mono, fontWeight: '700' }}>VOL</Text>
+                                </View>
+                              ) : null}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ) : null}
+                    {techAnalysis.resistances.length > 0 ? (
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                          <Text style={{ fontSize: 11, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>RESISTÊNCIAS</Text>
+                          <InfoTip title="Resistências" text={"Regiões de preço onde o ativo historicamente parou de subir e recuou.\n\nIdentificadas por pivots fractais, perfil de volume (badge VOL) e números redondos nos " + techPeriodLabel + ".\n\nQuanto mais toques e maior o volume, mais forte o nível.\n\nPara opções: venda de CALL com strike próximo a resistência forte tem menor risco de exercício."} size={11} />
+                        </View>
+                        {techAnalysis.resistances.map(function(r, idx) {
+                          return (
+                            <View key={'fr-' + idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.red }} />
+                              <Text style={{ fontSize: 13, color: C.text, fontFamily: F.mono }}>
+                                {'R$ ' + r.price.toFixed(2)}
+                              </Text>
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                                {'(' + r.strength + ' toques)'}
+                              </Text>
+                              {r.hasVolumeNode ? (
+                                <View style={{ backgroundColor: C.red + '25', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 }}>
+                                  <Text style={{ fontSize: 8, color: C.red, fontFamily: F.mono, fontWeight: '700' }}>VOL</Text>
+                                </View>
+                              ) : null}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+                {/* SMA values + spot/strike info */}
+                <View style={{ flexDirection: 'row', marginTop: 14, gap: 16, flexWrap: 'wrap' }}>
+                  {spot > 0 ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <View style={{ width: 8, height: 2, backgroundColor: C.etfs, borderRadius: 1 }} />
+                      <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{'Spot R$ ' + spot.toFixed(2)}</Text>
+                      <InfoTip title="Spot" text={"Preço atual do ativo no mercado à vista.\n\nÉ o valor de referência para calcular se uma opção está ITM (dentro do dinheiro), ATM (no dinheiro) ou OTM (fora do dinheiro)."} size={10} />
+                    </View>
+                  ) : null}
+                  {fk > 0 ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <View style={{ width: 8, height: 2, backgroundColor: C.opcoes, borderRadius: 1 }} />
+                      <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{'Strike R$ ' + fk.toFixed(2)}</Text>
+                      <InfoTip title="Strike" text={"Preço de exercício da opção selecionada no simulador.\n\nCompare o strike com suportes e resistências: um strike de CALL vendida próximo a uma resistência forte tem menor chance de ser exercido. Um strike de PUT vendida próximo a um suporte forte é mais seguro."} size={10} />
+                    </View>
+                  ) : null}
+                  {techAnalysis.sma20[techAnalysis.sma20.length - 1] != null ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <View style={{ width: 8, height: 2, backgroundColor: C.rf, borderRadius: 1 }} />
+                      <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{'SMA 20: R$ ' + techAnalysis.sma20[techAnalysis.sma20.length - 1].toFixed(2)}</Text>
+                      <InfoTip title="SMA 20" text={"Média Móvel Simples de 20 dias (curto prazo).\n\nCalcula a média dos preços de fechamento dos últimos 20 pregões. Funciona como suporte/resistência dinâmico.\n\n• Preço acima da SMA 20: tendência de curto prazo é de alta.\n• Preço abaixo da SMA 20: tendência de curto prazo é de baixa.\n• Cruzamento com SMA 50: sinal de mudança de tendência."} size={10} />
+                    </View>
+                  ) : null}
+                  {techAnalysis.sma50[techAnalysis.sma50.length - 1] != null ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <View style={{ width: 8, height: 2, backgroundColor: C.etfs + '80', borderRadius: 1 }} />
+                      <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{'SMA 50: R$ ' + techAnalysis.sma50[techAnalysis.sma50.length - 1].toFixed(2)}</Text>
+                      <InfoTip title="SMA 50" text={"Média Móvel Simples de 50 dias (médio prazo).\n\nCalcula a média dos preços de fechamento dos últimos 50 pregões. Indica a tendência de médio prazo.\n\n• SMA 20 > SMA 50 (golden cross): sinal altista.\n• SMA 20 < SMA 50 (death cross): sinal baixista.\n• Distância entre SMAs indica a força da tendência."} size={10} />
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
+          </ScrollView>
+        </View>
+      </Modal>
+
       {/* ═══ PREÇOS DO MERCADO (after grid, when strike selected) ═══ */}
       {hasResult ? (
         <View style={{ gap: SIZE.gap }}>
@@ -3146,7 +3941,7 @@ function CalculadoraOpcoes(props) {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <Ionicons name="document-text-outline" size={14} color={C.accent} />
               <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>RESUMO</Text>
-              <InfoTip text={"Resumo dos valores-chave da simulação para o strike selecionado.\n\nBreakeven = preço em que a operação de venda de opção empata (sem lucro nem prejuízo).\n\nTheta/dia = quanto de prêmio a opção perde por dia pelo decaimento temporal (beneficia o vendedor).\n\nPreço Teórico BS = preço justo calculado pelo modelo Black-Scholes usando IV e outros parâmetros."} size={12} />
+              <InfoTip text={"Resumo dos valores-chave da simulação para o strike selecionado.\n\nBreakeven = preço em que a operação de venda de opção empata (sem lucro nem prejuízo).\n\nTheta/dia = quanto de prêmio a opção perde por dia pelo decaimento temporal (beneficia o vendedor).\n\nPreço Teórico BS = preço justo calculado pelo modelo Black-Scholes usando IV e outros parâmetros.\n\n⚠ Valores de prêmios são brutos. O líquido creditado na conta pode ser menor devido a impostos, corretagem e taxas B3."} size={12} />
             </View>
             <View style={{ gap: 4 }}>
               {[
@@ -3154,8 +3949,8 @@ function CalculadoraOpcoes(props) {
                 { l: 'PUT - Breakeven (venda)', v: 'R$ ' + fmt(fk - fPutMid), c: C.red, tip: 'Se você vendeu uma PUT neste strike, o ativo pode cair até este preço sem prejuízo. Abaixo deste valor, a opção gera perda.' },
                 { l: 'Theta/dia CALL (100 opções)', v: 'R$ ' + fmt(fCallG.theta * 100), c: fCallG.theta > 0 ? C.green : C.red, tip: 'Quanto o prêmio da CALL perde de valor por dia. Para o vendedor, theta positivo é bom: o tempo trabalha a seu favor.' },
                 { l: 'Theta/dia PUT (100 opções)', v: 'R$ ' + fmt(fPutG.theta * 100), c: fPutG.theta > 0 ? C.green : C.red, tip: 'Quanto o prêmio da PUT perde de valor por dia. Para o vendedor, theta positivo é bom: o tempo trabalha a seu favor.' },
-                hasCallMkt ? { l: 'Prêmio mercado CALL (100)', v: 'R$ ' + fmt(mcMid * 100), c: C.text, tip: 'Valor total que você receberia vendendo 100 opções de CALL ao preço médio de mercado (média entre bid e ask).' } : null,
-                hasPutMkt ? { l: 'Prêmio mercado PUT (100)', v: 'R$ ' + fmt(mpMid * 100), c: C.text, tip: 'Valor total que você receberia vendendo 100 opções de PUT ao preço médio de mercado (média entre bid e ask).' } : null,
+                hasCallMkt ? { l: 'Prêmio mercado CALL (100)', v: 'R$ ' + fmt(mcMid * 100), c: C.text, tip: 'Valor total que você receberia vendendo 100 opções de CALL ao preço médio de mercado (média entre bid e ask).\n\n⚠ O valor líquido creditado na sua conta pode ser menor, pois não considera impostos (IR 15%), taxas de corretagem, emolumentos B3 e outras taxas operacionais.' } : null,
+                hasPutMkt ? { l: 'Prêmio mercado PUT (100)', v: 'R$ ' + fmt(mpMid * 100), c: C.text, tip: 'Valor total que você receberia vendendo 100 opções de PUT ao preço médio de mercado (média entre bid e ask).\n\n⚠ O valor líquido creditado na sua conta pode ser menor, pois não considera impostos (IR 15%), taxas de corretagem, emolumentos B3 e outras taxas operacionais.' } : null,
               ].map(function(rr, i) {
                 if (!rr) return null;
                 return (
@@ -3436,7 +4231,8 @@ function CalculadoraOpcoes(props) {
       <Modal visible={aiModalOpen} animationType="slide" transparent={false}
         onRequestClose={function() { setAiModalOpen(false); }}>
         <AiAnalysisModal analysis={aiAnalysis} onClose={function() { setAiModalOpen(false); }}
-          onSave={function() { handleSaveAnalysis(true); }} />
+          onSave={function() { handleSaveAnalysis(true); }}
+          techOhlcv={techOhlcv} techAnalysis={techAnalysis} spot={spot} strikePrice={fk} />
       </Modal>
     </View>
   );
@@ -3468,6 +4264,8 @@ export default function OpcoesScreen() {
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
   var _tut = useState(-1); var tutStep = _tut[0]; var setTutStep = _tut[1];
+  var _chainsReady = useState(0); var chainsReady = _chainsReady[0]; var setChainsReady = _chainsReady[1];
+  var _alertsFired = useState({}); var alertsFired = _alertsFired[0]; var setAlertsFired = _alertsFired[1];
 
   var load = async function() {
     if (!user) return;
@@ -3614,6 +4412,7 @@ export default function OpcoesScreen() {
             if (autoExValor > 0 && autoOp.corretora) {
               addMovimentacaoComSaldo(user.id, {
                 conta: autoOp.corretora,
+                moeda: 'BRL',
                 tipo: autoOpTipo === 'compra' ? 'saida' : 'entrada',
                 categoria: 'exercicio_opcao',
                 valor: autoExValor,
@@ -3707,15 +4506,100 @@ export default function OpcoesScreen() {
       console.warn('OpcoesScreen price enrichment failed:', e.message);
       setPricesAvailable(false);
     }
+
+    // Prefetch OpLab chains for active options (fire-and-forget)
+    var bases = [];
+    var nonExp = allOpcoes.filter(function(o) { return o.status === 'ativa'; });
+    for (var bi = 0; bi < nonExp.length; bi++) {
+      var bOp = nonExp[bi];
+      if (bOp.ativo_base && bases.indexOf(bOp.ativo_base) === -1) {
+        bases.push(bOp.ativo_base);
+      }
+    }
+    if (bases.length > 0) {
+      var chainPromises = [];
+      for (var bci = 0; bci < bases.length; bci++) {
+        chainPromises.push(fetchOptionsChain(bases[bci], selicRate));
+      }
+      Promise.all(chainPromises).then(function() {
+        setChainsReady(Date.now());
+      }).catch(function() {});
+    }
   };
 
   useFocusEffect(useCallback(function() { load(); }, [user]));
 
+  // Check P&L alerts after chains load
+  useEffect(function() {
+    if (chainsReady === 0) return;
+    var ativas = opcoes.filter(function(o) { return o.status === 'ativa'; });
+    var newFired = {};
+    var firedKeys = Object.keys(alertsFired);
+    for (var fi = 0; fi < firedKeys.length; fi++) { newFired[firedKeys[fi]] = alertsFired[firedKeys[fi]]; }
+    for (var ai = 0; ai < ativas.length; ai++) {
+      var aOp = ativas[ai];
+      if (aOp.alerta_pl == null || alertsFired[aOp.id]) continue;
+      var co = getCachedOptionData(aOp.ativo_base, aOp.strike, aOp.tipo, aOp.vencimento);
+      if (!co) continue;
+      var bid = co.bid != null ? co.bid : null;
+      var ask = co.ask != null ? co.ask : null;
+      var close = co.close != null ? co.close : null;
+      var mid = null;
+      if (bid != null && ask != null && (bid > 0 || ask > 0)) { mid = (bid + ask) / 2; }
+      else if (close != null && close > 0) { mid = close; }
+      if (mid == null) continue;
+      var isV = aOp.direcao === 'lancamento' || aOp.direcao === 'venda';
+      var plU = isV ? ((aOp.premio || 0) - mid) : (mid - (aOp.premio || 0));
+      var plT = plU * (aOp.quantidade || 0);
+      var triggered = (aOp.alerta_pl >= 0 && plT >= aOp.alerta_pl) || (aOp.alerta_pl < 0 && plT <= aOp.alerta_pl);
+      if (triggered) {
+        newFired[aOp.id] = true;
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        Toast.show({
+          type: 'info',
+          text1: 'Alerta P&L: ' + aOp.ativo_base + ' ' + (aOp.tipo || '').toUpperCase(),
+          text2: 'P&L R$ ' + fmt(Math.abs(plT)) + (plT >= 0 ? ' (lucro)' : ' (prejuízo)') + ' atingiu alvo R$ ' + aOp.alerta_pl,
+          visibilityTime: 6000,
+        });
+      }
+    }
+    setAlertsFired(newFired);
+  }, [chainsReady]);
+
   var onRefresh = async function() {
     setRefreshing(true);
     clearPriceCache();
+    clearOplabCache();
     await load();
     setRefreshing(false);
+  };
+
+  var handleAlertaPLSave = async function(opcaoId, valor) {
+    var result = await updateOpcaoAlertaPL(opcaoId, valor);
+    if (result.error) {
+      Alert.alert('Erro', 'Falha ao salvar alerta: ' + (result.error.message || ''));
+      return;
+    }
+    // Update local state
+    var updated = [];
+    for (var ui = 0; ui < opcoes.length; ui++) {
+      if (opcoes[ui].id === opcaoId) {
+        var copy = {};
+        var ks = Object.keys(opcoes[ui]);
+        for (var ki = 0; ki < ks.length; ki++) { copy[ks[ki]] = opcoes[ui][ks[ki]]; }
+        copy.alerta_pl = valor;
+        updated.push(copy);
+      } else {
+        updated.push(opcoes[ui]);
+      }
+    }
+    setOpcoes(updated);
+    if (valor != null) {
+      Toast.show({ type: 'success', text1: 'Alerta definido', text2: 'P&L alvo: R$ ' + valor });
+    } else {
+      Toast.show({ type: 'success', text1: 'Alerta removido' });
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   var handleDelete = function(id) {
@@ -3876,6 +4760,7 @@ export default function OpcoesScreen() {
               // Use addMovimentacaoComSaldo for atomic saldo update + log
               var resM = await addMovimentacaoComSaldo(user.id, {
                 conta: saldoName,
+                moeda: saldoMatch.moeda || 'BRL',
                 tipo: 'saida',
                 categoria: 'recompra_opcao',
                 valor: recompraTotal,
@@ -3997,6 +4882,7 @@ export default function OpcoesScreen() {
             if (exValor > 0 && expOp.corretora) {
               addMovimentacaoComSaldo(user.id, {
                 conta: expOp.corretora,
+                moeda: 'BRL',
                 tipo: opTipo === 'compra' ? 'saida' : 'entrada',
                 categoria: 'exercicio_opcao',
                 valor: exValor,
@@ -4076,6 +4962,26 @@ export default function OpcoesScreen() {
     if (sMon && sMon.label === 'ITM') totalITM++;
     var sDays = Math.ceil((parseLocalDate(sop.vencimento).getTime() - nowMs) / (1000 * 60 * 60 * 24));
     if (sDays >= 0 && sDays <= 7) totalVenc7d++;
+  }
+
+  // P&L total das ativas com preco de mercado disponivel
+  var plTotalAtivas = 0;
+  var plTotalCount = 0;
+  for (var pli = 0; pli < ativas.length; pli++) {
+    var plOp = ativas[pli];
+    var plCached = getCachedOptionData(plOp.ativo_base, plOp.strike, plOp.tipo, plOp.vencimento);
+    if (!plCached) continue;
+    var plBid = plCached.bid != null ? plCached.bid : null;
+    var plAsk = plCached.ask != null ? plCached.ask : null;
+    var plClose = plCached.close != null ? plCached.close : null;
+    var plMid = null;
+    if (plBid != null && plAsk != null && (plBid > 0 || plAsk > 0)) { plMid = (plBid + plAsk) / 2; }
+    else if (plClose != null && plClose > 0) { plMid = plClose; }
+    if (plMid == null) continue;
+    var plIsVenda = plOp.direcao === 'lancamento' || plOp.direcao === 'venda';
+    var plUnit = plIsVenda ? ((plOp.premio || 0) - plMid) : (plMid - (plOp.premio || 0));
+    plTotalAtivas += plUnit * (plOp.quantidade || 0);
+    plTotalCount++;
   }
 
   if (loading) return <View style={styles.container}><SkeletonOpcoes /></View>;
@@ -4212,6 +5118,22 @@ export default function OpcoesScreen() {
                     );
                   })}
                 </View>
+                {plTotalCount > 0 ? (
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
+                    {[
+                      { l: 'Prêmio Mês', v: 'R$ ' + fmt(premioMes), c: C.green },
+                      { l: 'Theta/Dia', v: (thetaDiaTotal >= 0 ? '+' : '') + 'R$ ' + fmt(thetaDiaTotal), c: thetaDiaTotal >= 0 ? C.green : C.red },
+                      { l: 'P&L Total', v: (plTotalAtivas >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(plTotalAtivas)), c: plTotalAtivas >= 0 ? C.green : C.red },
+                    ].map(function(m, i) {
+                      return (
+                        <View key={'pl' + i} style={{ alignItems: 'center', flex: 1 }}>
+                          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4 }}>{m.l}</Text>
+                          <Sensitive><Text style={{ fontSize: 14, fontWeight: '700', color: m.c, fontFamily: F.mono, marginTop: 2 }}>{m.v}</Text></Sensitive>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : null}
               </Glass>
 
               {/* BANNER: gregas usando PM */}
@@ -4233,6 +5155,7 @@ export default function OpcoesScreen() {
                     onEdit={function() { navigation.navigate('EditOpcao', { opcao: op }); }}
                     onDelete={function() { handleDelete(op.id); }}
                     onClose={handleClose}
+                    onAlertaPLSave={handleAlertaPLSave}
                   />
                 );
               })}
@@ -4287,7 +5210,7 @@ export default function OpcoesScreen() {
       {sub === 'sim' && (
         <View style={{ gap: SIZE.gap }}>
           <SectionLabel>CALCULADORA DE OPÇÕES</SectionLabel>
-          <CalculadoraOpcoes positions={positions} indicators={indicators} selicRate={selicRate} />
+          <CalculadoraOpcoes positions={positions} indicators={indicators} selicRate={selicRate} ativas={ativas} />
         </View>
       )}
 

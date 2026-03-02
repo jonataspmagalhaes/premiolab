@@ -162,6 +162,12 @@ function buildPrompt(data: any): string {
     p += "\n";
   }
 
+  // Technical analysis context
+  if (data.technicalSummary) {
+    p += "Análise técnica (" + (data.technicalPeriod || "6 meses") + "): " + data.technicalSummary + "\n";
+    p += "INSTRUÇÃO: use suportes/resistências para sugerir strikes ideais. Tendência influencia direção. Integre em [RISCO] e [CENÁRIOS], NÃO crie seção separada.\n";
+  }
+
   // Instructions per objective
   p += "\nResponda com EXATAMENTE estas 4 seções (use os cabeçalhos entre colchetes):\n\n";
 

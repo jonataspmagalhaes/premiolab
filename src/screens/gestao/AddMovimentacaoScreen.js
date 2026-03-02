@@ -6,9 +6,12 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getSaldos, addMovimentacaoComSaldo, buildMovDescricao } from '../../services/database';
-import { Glass, Pill, Badge } from '../../components';
+import { getSaldos, addMovimentacaoComSaldo, buildMovDescricao, getOrcamentos, getFinancasSummary, getCartoes, addMovimentacaoCartao } from '../../services/database';
+import { getSymbol, fetchExchangeRates } from '../../services/currencyService';
+import { Glass, Pill, Badge, SectionLabel, CurrencyPicker } from '../../components';
 import * as Haptics from 'expo-haptics';
+import Toast from 'react-native-toast-message';
+var finCats = require('../../constants/financeCategories');
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -35,37 +38,23 @@ function todayBr() {
   return d + '/' + m + '/' + y;
 }
 
-var CATEGORIAS_ENTRADA = [
-  { k: 'deposito', l: 'Depósito', g: 'Outro' },
-  { k: 'salario', l: 'Salário', g: 'Renda' },
-  { k: 'venda_ativo', l: 'Venda ativo', g: 'Investimento' },
-  { k: 'premio_opcao', l: 'Prêmio opção', g: 'Investimento' },
-  { k: 'dividendo', l: 'Dividendo', g: 'Renda' },
-  { k: 'jcp', l: 'JCP', g: 'Renda' },
-  { k: 'rendimento_fii', l: 'Rend. FII', g: 'Renda' },
-  { k: 'rendimento_rf', l: 'Rend. RF', g: 'Renda' },
-  { k: 'ajuste_manual', l: 'Ajuste', g: 'Outro' },
-  { k: 'outro', l: 'Outro', g: 'Outro' },
-];
-
-var CATEGORIAS_SAIDA = [
-  { k: 'retirada', l: 'Retirada', g: 'Outro' },
-  { k: 'compra_ativo', l: 'Compra ativo', g: 'Investimento' },
-  { k: 'recompra_opcao', l: 'Recompra opção', g: 'Investimento' },
-  { k: 'exercicio_opcao', l: 'Exercício opção', g: 'Investimento' },
-  { k: 'despesa_fixa', l: 'Despesa fixa', g: 'Despesa' },
-  { k: 'despesa_variavel', l: 'Despesa variável', g: 'Despesa' },
-  { k: 'ajuste_manual', l: 'Ajuste', g: 'Outro' },
-  { k: 'outro', l: 'Outro', g: 'Outro' },
-];
+var CATEGORIAS_ENTRADA = finCats.CATEGORIAS_ENTRADA;
+var CATEGORIAS_SAIDA = finCats.CATEGORIAS_SAIDA;
+var SUBCATS_SAIDA = finCats.SUBCATS_SAIDA;
+var SUBCATS_ENTRADA = finCats.SUBCATS_ENTRADA;
+var FINANCE_GROUPS = finCats.FINANCE_GROUPS;
 
 export default function AddMovimentacaoScreen(props) {
   var navigation = props.navigation;
+  var route = props.route;
   var user = useAuth().user;
+  var presetTipo = route && route.params && route.params.presetTipo;
 
-  var _tipo = useState('entrada'); var tipo = _tipo[0]; var setTipo = _tipo[1];
-  var _cat = useState('deposito'); var categoria = _cat[0]; var setCategoria = _cat[1];
+  var _tipo = useState(presetTipo === 'saida' ? 'saida' : 'entrada'); var tipo = _tipo[0]; var setTipo = _tipo[1];
+  var _cat = useState(presetTipo === 'saida' ? 'retirada' : 'deposito'); var categoria = _cat[0]; var setCategoria = _cat[1];
   var _conta = useState(''); var conta = _conta[0]; var setConta = _conta[1];
+  var _contaId = useState(null); var contaId = _contaId[0]; var setContaId = _contaId[1];
+  var _contaMoeda = useState('BRL'); var contaMoeda = _contaMoeda[0]; var setContaMoeda = _contaMoeda[1];
   var _valor = useState(''); var valor = _valor[0]; var setValor = _valor[1];
   var _desc = useState(''); var descricao = _desc[0]; var setDescricao = _desc[1];
   var _ticker = useState(''); var ticker = _ticker[0]; var setTicker = _ticker[1];
@@ -73,10 +62,52 @@ export default function AddMovimentacaoScreen(props) {
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
   var _saldos = useState([]); var saldos = _saldos[0]; var setSaldos = _saldos[1];
+  var _subcat = useState(null); var subcategoria = _subcat[0]; var setSubcategoria = _subcat[1];
+  var _subcatGrupo = useState(null); var subcatGrupo = _subcatGrupo[0]; var setSubcatGrupo = _subcatGrupo[1];
+
+  // ── Credit card payment states ──
+  var _payMethod = useState('conta'); var payMethod = _payMethod[0]; var setPayMethod = _payMethod[1];
+  var _cartaoId = useState(null); var cartaoId = _cartaoId[0]; var setCartaoId = _cartaoId[1];
+  var _cartaoLabel = useState(''); var cartaoLabel = _cartaoLabel[0]; var setCartaoLabel = _cartaoLabel[1];
+  var _cartoes = useState([]); var cartoes = _cartoes[0]; var setCartoes = _cartoes[1];
+  var _moedaOriginal = useState(''); var moedaOriginal = _moedaOriginal[0]; var setMoedaOriginal = _moedaOriginal[1];
+  var _valorOriginal = useState(''); var valorOriginal = _valorOriginal[0]; var setValorOriginal = _valorOriginal[1];
+  var _taxaCambio = useState(''); var taxaCambio = _taxaCambio[0]; var setTaxaCambio = _taxaCambio[1];
+  var _showCurrencyPicker = useState(false); var showCurrencyPicker = _showCurrencyPicker[0]; var setShowCurrencyPicker = _showCurrencyPicker[1];
+  var _cartaoMoeda = useState('BRL'); var cartaoMoeda = _cartaoMoeda[0]; var setCartaoMoeda = _cartaoMoeda[1];
+
+  var presetCartaoId = route && route.params && route.params.presetCartaoId;
+  var presetPayMethod = route && route.params && route.params.presetPayMethod;
 
   useFocusEffect(useCallback(function() {
     if (!user) return;
     getSaldos(user.id).then(function(r) { setSaldos(r.data || []); });
+    getCartoes(user.id).then(function(res) {
+      if (res.data) {
+        setCartoes(res.data);
+        // Pre-select card if passed via route params
+        if (presetCartaoId) {
+          for (var ci = 0; ci < res.data.length; ci++) {
+            var c = res.data[ci];
+            if (c.id === presetCartaoId) {
+              setPayMethod('cartao');
+              setCartaoId(c.id);
+              var lbl = (c.apelido || c.bandeira.toUpperCase()) + ' ••' + c.ultimos_digitos;
+              setCartaoLabel(lbl);
+              setCartaoMoeda(c.moeda || 'BRL');
+              break;
+            }
+          }
+        } else if (presetPayMethod === 'cartao' && res.data.length > 0) {
+          setPayMethod('cartao');
+          var first = res.data[0];
+          setCartaoId(first.id);
+          var firstLbl = (first.apelido || first.bandeira.toUpperCase()) + ' ••' + first.ultimos_digitos;
+          setCartaoLabel(firstLbl);
+          setCartaoMoeda(first.moeda || 'BRL');
+        }
+      }
+    });
   }, [user]));
 
   function onChangeVal(t) {
@@ -96,7 +127,9 @@ export default function AddMovimentacaoScreen(props) {
   var categorias = tipo === 'entrada' ? CATEGORIAS_ENTRADA : CATEGORIAS_SAIDA;
   var isoDate = data.length === 10 ? brToIso(data) : null;
   var valorNum = parseVal();
-  var canSubmit = conta && valorNum > 0 && isoDate;
+  var canSubmitConta = conta && valorNum > 0 && isoDate;
+  var canSubmitCartao = cartaoId && isoDate && (valorNum > 0 || (moedaOriginal && moedaOriginal !== cartaoMoeda && parseBR(valorOriginal) > 0 && parseFloat(taxaCambio) > 0));
+  var canSubmit = (payMethod === 'cartao') ? canSubmitCartao : canSubmitConta;
 
   var valorValid = valorNum > 0;
   var valorError = valor.length > 0 && valorNum <= 0;
@@ -106,6 +139,71 @@ export default function AddMovimentacaoScreen(props) {
   // Show ticker field for investment categories
   var showTicker = ['compra_ativo', 'venda_ativo', 'premio_opcao', 'recompra_opcao',
     'exercicio_opcao', 'dividendo', 'jcp', 'rendimento_fii'].indexOf(categoria) >= 0;
+
+  // ── Credit card multi-currency helpers ──
+  function parseBR(str) {
+    return parseFloat((str || '').replace(/\./g, '').replace(',', '.')) || 0;
+  }
+
+  function handleSelectMoeda(code) {
+    setMoedaOriginal(code);
+    setValorOriginal('');
+    setValor('');
+    // Auto-fetch exchange rate: rate = how many units of card currency per 1 unit of foreign currency
+    // fetchExchangeRates returns X->BRL rates (e.g. USD: 5.12 means 1 USD = 5.12 BRL)
+    fetchExchangeRates([code]).then(function(rates) {
+      if (rates && rates[code]) {
+        if (cartaoMoeda === 'BRL') {
+          // Card is BRL: rate is directly X->BRL (e.g. 1 USD = 5.12 BRL)
+          setTaxaCambio(String(rates[code].toFixed(6)));
+        } else {
+          // Card is foreign (e.g. USD): need cross-rate spending->cardMoeda
+          fetchExchangeRates([cartaoMoeda]).then(function(cardRates) {
+            if (cardRates && cardRates[cartaoMoeda]) {
+              // rates[code] = X->BRL, cardRates[cartaoMoeda] = cardMoeda->BRL
+              // cross = X->BRL / cardMoeda->BRL = X->cardMoeda
+              var crossRate = rates[code] / cardRates[cartaoMoeda];
+              setTaxaCambio(String(crossRate.toFixed(6)));
+            }
+          });
+        }
+      }
+    });
+  }
+
+  function onChangeValorOriginal(t) {
+    var nums = t.replace(/[^0-9]/g, '');
+    if (!nums) { setValorOriginal(''); setValor(''); return; }
+    var cents = parseInt(nums, 10);
+    var reais = (cents / 100).toFixed(2);
+    var parts = reais.split('.');
+    var intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    var formatted = intPart + ',' + parts[1];
+    setValorOriginal(formatted);
+    autoFillConvertido(formatted, taxaCambio);
+  }
+
+  function calcConvertido() {
+    var vo = parseBR(valorOriginal);
+    var tc = parseFloat(taxaCambio) || 0;
+    if (!vo || !tc) return '0,00';
+    var converted = vo * tc;
+    return converted.toFixed(2).replace('.', ',');
+  }
+
+  function autoFillConvertido(voStr, tcStr) {
+    var vo = parseBR(voStr);
+    var tc = parseFloat(tcStr) || 0;
+    if (vo > 0 && tc > 0) {
+      var converted = (vo * tc).toFixed(2);
+      var parts = converted.split('.');
+      parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+      setValor(parts[0] + ',' + parts[1]);
+    }
+  }
+
+  // ── Determine effective moeda for display ──
+  var effectiveMoeda = (payMethod === 'cartao' && cartaoId) ? cartaoMoeda : contaMoeda;
 
   useEffect(function() {
     return navigation.addListener('beforeRemove', function(e) {
@@ -119,27 +217,110 @@ export default function AddMovimentacaoScreen(props) {
     });
   }, [navigation, submitted, valor]);
 
+  // Fire-and-forget: check budget limit after saving an expense
+  function checkBudgetAlert(userId, cat, subcat) {
+    var grupo = finCats.getGrupo(cat, subcat);
+    if (!grupo || grupo === 'investimento' || grupo === 'outro') return;
+    var grupoMeta = finCats.getGrupoMeta(grupo);
+    var grupoLabel = grupoMeta ? grupoMeta.label : grupo;
+
+    Promise.all([
+      getOrcamentos(userId),
+      getFinancasSummary(userId, new Date().getMonth() + 1, new Date().getFullYear()),
+    ]).then(function(results) {
+      var orcamentos = results[0].data || [];
+      var summary = results[1];
+      var orcamento = null;
+      for (var i = 0; i < orcamentos.length; i++) {
+        if (orcamentos[i].grupo === grupo && orcamentos[i].ativo) { orcamento = orcamentos[i]; break; }
+      }
+      if (!orcamento) return;
+      var gasto = (summary.porGrupo && summary.porGrupo[grupo]) || 0;
+      var limite = orcamento.valor_limite || 0;
+      if (limite <= 0) return;
+      var pct = gasto / limite;
+
+      if (pct > 1) {
+        var excesso = gasto - limite;
+        Toast.show({
+          type: 'error',
+          text1: 'Orçamento ultrapassado!',
+          text2: grupoLabel + ': R$ ' + fmt(gasto) + ' / R$ ' + fmt(limite) + ' (+R$ ' + fmt(excesso) + ')',
+          visibilityTime: 5000,
+        });
+      } else if (pct > 0.9) {
+        Toast.show({
+          type: 'info',
+          text1: 'Orçamento quase no limite',
+          text2: grupoLabel + ': ' + Math.round(pct * 100) + '% utilizado (R$ ' + fmt(gasto) + ' / R$ ' + fmt(limite) + ')',
+          visibilityTime: 4000,
+        });
+      }
+    }).catch(function(e) {
+      console.warn('Budget alert check failed:', e);
+    });
+  }
+
   var handleSubmit = async function() {
     Keyboard.dismiss();
     if (!canSubmit || submitted) return;
     setSubmitted(true);
     setLoading(true);
     try {
-      var autoDesc = descricao || buildMovDescricao(categoria, ticker || null, null);
-      var result = await addMovimentacaoComSaldo(user.id, {
-        conta: conta,
-        tipo: tipo,
-        categoria: categoria,
-        valor: valorNum,
-        descricao: autoDesc,
-        ticker: ticker ? ticker.toUpperCase().trim() : null,
-        data: isoDate,
-      });
+      var result;
+
+      if (payMethod === 'cartao' && cartaoId) {
+        // ── Credit card payment flow ──
+        var autoDescCartao = descricao || buildMovDescricao(categoria, ticker || null, null);
+        var movCartao = {
+          conta: cartaoLabel,
+          tipo: 'saida',
+          categoria: categoria,
+          subcategoria: subcategoria || null,
+          valor: valorNum,
+          descricao: autoDescCartao,
+          data: isoDate,
+          ticker: ticker ? ticker.toUpperCase().trim() : null,
+          cartao_id: cartaoId,
+        };
+        if (moedaOriginal && moedaOriginal !== cartaoMoeda) {
+          movCartao.moeda_original = moedaOriginal;
+          movCartao.valor_original = parseBR(valorOriginal);
+          movCartao.taxa_cambio_mov = parseFloat(taxaCambio) || null;
+          // Auto-fill valor in card currency if empty
+          if (!movCartao.valor && movCartao.valor_original && movCartao.taxa_cambio_mov) {
+            movCartao.valor = movCartao.valor_original * movCartao.taxa_cambio_mov;
+          }
+        }
+        result = await addMovimentacaoCartao(user.id, movCartao);
+      } else {
+        // ── Existing conta-based flow ──
+        var autoDesc = descricao || buildMovDescricao(categoria, ticker || null, null);
+        var movPayload = {
+          conta: conta,
+          moeda: contaMoeda,
+          tipo: tipo,
+          categoria: categoria,
+          valor: valorNum,
+          descricao: autoDesc,
+          ticker: ticker ? ticker.toUpperCase().trim() : null,
+          data: isoDate,
+        };
+        if (subcategoria) { movPayload.subcategoria = subcategoria; }
+        result = await addMovimentacaoComSaldo(user.id, movPayload);
+      }
+
       if (result.error) {
         Alert.alert('Erro', result.error.message || 'Falha ao salvar.');
         setSubmitted(false);
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+        // Budget alert: check if expense group is near/over budget limit
+        if (tipo === 'saida') {
+          checkBudgetAlert(user.id, categoria, subcategoria);
+        }
+
         Alert.alert('Sucesso!', 'Movimentação registrada.', [
           {
             text: 'Adicionar outra',
@@ -149,6 +330,15 @@ export default function AddMovimentacaoScreen(props) {
               setTicker('');
               setData(todayBr());
               setSubmitted(false);
+              setContaMoeda('BRL');
+              setConta('');
+              setContaId(null);
+              setSubcategoria(null);
+              setSubcatGrupo(null);
+              // Reset card fields
+              setMoedaOriginal('');
+              setValorOriginal('');
+              setTaxaCambio('');
             },
           },
           { text: 'Concluir', onPress: function() { navigation.goBack(); } },
@@ -161,10 +351,20 @@ export default function AddMovimentacaoScreen(props) {
     setLoading(false);
   };
 
-  // Switch tipo resets categoria
+  // Switch tipo resets categoria + subcategoria + payMethod
   function switchTipo(newTipo) {
     setTipo(newTipo);
     setCategoria(newTipo === 'entrada' ? 'deposito' : 'retirada');
+    setSubcategoria(null);
+    setSubcatGrupo(null);
+    if (newTipo === 'entrada') {
+      setPayMethod('conta');
+      setCartaoId(null);
+      setCartaoLabel('');
+      setMoedaOriginal('');
+      setValorOriginal('');
+      setTaxaCambio('');
+    }
   }
 
   return (
@@ -198,37 +398,231 @@ export default function AddMovimentacaoScreen(props) {
         {categorias.map(function(cat) {
           return (
             <Pill key={cat.k} active={categoria === cat.k} color={tipo === 'entrada' ? C.green : C.red}
-              onPress={function() { setCategoria(cat.k); }}>
+              onPress={function() { setCategoria(cat.k); setSubcategoria(null); setSubcatGrupo(null); }}>
               {cat.l}
             </Pill>
           );
         })}
       </View>
 
-      {/* Conta */}
-      <Text style={styles.label}>CONTA *</Text>
-      {saldos.length > 0 ? (
-        <View style={styles.pillRow}>
-          {saldos.map(function(s) {
-            var sName = s.corretora || s.name || '';
-            return (
-              <Pill key={s.id} active={conta === sName} color={C.accent}
-                onPress={function() { setConta(sName); }}>
-                {sName}
-              </Pill>
-            );
-          })}
+      {/* Subcategoria picker — saídas: despesa_fixa / despesa_variavel */}
+      {tipo === 'saida' && (categoria === 'despesa_fixa' || categoria === 'despesa_variavel') ? (
+        <View style={{ gap: 6 }}>
+          <Text style={styles.label}>SUBCATEGORIA</Text>
+          <View style={styles.pillRow}>
+            {SUBCATS_SAIDA.map(function(grp) {
+              var grpMeta = null;
+              for (var gi = 0; gi < FINANCE_GROUPS.length; gi++) {
+                if (FINANCE_GROUPS[gi].k === grp.grupo) { grpMeta = FINANCE_GROUPS[gi]; break; }
+              }
+              return (
+                <Pill key={grp.grupo} active={subcatGrupo === grp.grupo}
+                  color={grpMeta ? grpMeta.color : C.dim}
+                  onPress={function() {
+                    var g = grp.grupo;
+                    if (subcatGrupo === g) { setSubcatGrupo(null); setSubcategoria(null); }
+                    else { setSubcatGrupo(g); setSubcategoria(null); }
+                  }}>
+                  {grpMeta ? grpMeta.l : grp.grupo}
+                </Pill>
+              );
+            })}
+          </View>
+          {subcatGrupo ? (
+            <View style={styles.pillRow}>
+              {(function() {
+                var items = [];
+                for (var si = 0; si < SUBCATS_SAIDA.length; si++) {
+                  if (SUBCATS_SAIDA[si].grupo === subcatGrupo) { items = SUBCATS_SAIDA[si].items; break; }
+                }
+                return items.map(function(sc) {
+                  var grpMeta2 = null;
+                  for (var gi2 = 0; gi2 < FINANCE_GROUPS.length; gi2++) {
+                    if (FINANCE_GROUPS[gi2].k === subcatGrupo) { grpMeta2 = FINANCE_GROUPS[gi2]; break; }
+                  }
+                  return (
+                    <Pill key={sc.k} active={subcategoria === sc.k}
+                      color={grpMeta2 ? grpMeta2.color : C.dim}
+                      onPress={function() { setSubcategoria(sc.k); }}>
+                      {sc.l}
+                    </Pill>
+                  );
+                });
+              })()}
+            </View>
+          ) : null}
         </View>
-      ) : (
-        <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>
-          Nenhuma conta cadastrada. Crie uma conta primeiro.
-        </Text>
-      )}
+      ) : null}
+
+      {/* Subcategoria picker — entradas: salario / outro */}
+      {tipo === 'entrada' && (categoria === 'salario' || categoria === 'outro') ? (
+        <View style={{ gap: 6 }}>
+          <Text style={styles.label}>SUBCATEGORIA</Text>
+          <View style={styles.pillRow}>
+            {SUBCATS_ENTRADA.map(function(grp) {
+              var grpMeta3 = null;
+              for (var gi3 = 0; gi3 < FINANCE_GROUPS.length; gi3++) {
+                if (FINANCE_GROUPS[gi3].k === grp.grupo) { grpMeta3 = FINANCE_GROUPS[gi3]; break; }
+              }
+              return grp.items.map(function(sc) {
+                return (
+                  <Pill key={sc.k} active={subcategoria === sc.k}
+                    color={grpMeta3 ? grpMeta3.color : C.dim}
+                    onPress={function() { setSubcategoria(sc.k); }}>
+                    {sc.l}
+                  </Pill>
+                );
+              });
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      {/* Payment method toggle (only for saída) */}
+      {tipo === 'saida' && cartoes.length > 0 ? (
+        <View>
+          <Text style={styles.label}>MÉTODO DE PAGAMENTO</Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+            <Pill active={payMethod === 'conta'} onPress={function() { setPayMethod('conta'); setCartaoId(null); setCartaoLabel(''); setMoedaOriginal(''); setValorOriginal(''); setTaxaCambio(''); }} color={C.accent}>
+              Conta
+            </Pill>
+            <Pill active={payMethod === 'cartao'} onPress={function() {
+              setPayMethod('cartao');
+              if (cartoes.length === 1) {
+                var c = cartoes[0];
+                var lbl = (c.apelido || c.bandeira.toUpperCase()) + ' ••' + c.ultimos_digitos;
+                setCartaoId(c.id);
+                setCartaoLabel(lbl);
+                setCartaoMoeda(c.moeda || 'BRL');
+              } else if (cartoes.length > 1) {
+                Toast.show({ type: 'info', text1: 'Selecione um cartão', text2: 'Escolha o cartão para esta movimentação', visibilityTime: 3000 });
+              }
+            }} color={C.accent}>
+              Cartão
+            </Pill>
+          </View>
+        </View>
+      ) : null}
+
+      {/* Card selector (when payMethod === 'cartao') */}
+      {payMethod === 'cartao' && cartoes.length > 0 ? (
+        <View>
+          <Text style={styles.label}>CARTÃO *</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {cartoes.map(function(c) {
+                var cLabel = (c.apelido || c.bandeira.toUpperCase()) + ' ••' + c.ultimos_digitos;
+                return (
+                  <Pill key={c.id} active={cartaoId === c.id} onPress={function() {
+                    setCartaoId(c.id);
+                    setCartaoLabel(cLabel);
+                    setCartaoMoeda(c.moeda || 'BRL');
+                    // Reset foreign currency when switching cards
+                    setMoedaOriginal('');
+                    setValorOriginal('');
+                    setTaxaCambio('');
+                  }} color={C.accent}>
+                    {cLabel}
+                  </Pill>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </View>
+      ) : null}
+
+      {/* Currency selector (when card is selected) */}
+      {payMethod === 'cartao' && cartaoId ? (
+        <View>
+          <Text style={styles.label}>MOEDA DO GASTO</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+            <Pill active={!moedaOriginal || moedaOriginal === cartaoMoeda} onPress={function() { setMoedaOriginal(''); setValorOriginal(''); setTaxaCambio(''); setValor(''); }} color={C.rf}>
+              {cartaoMoeda}
+            </Pill>
+            {cartaoMoeda !== 'BRL' ? (
+              <Pill active={moedaOriginal === 'BRL'} onPress={function() { handleSelectMoeda('BRL'); }} color={C.rf}>
+                BRL
+              </Pill>
+            ) : null}
+            {cartaoMoeda !== 'USD' ? (
+              <Pill active={moedaOriginal === 'USD'} onPress={function() { handleSelectMoeda('USD'); }} color={C.rf}>
+                USD
+              </Pill>
+            ) : null}
+            {cartaoMoeda !== 'EUR' ? (
+              <Pill active={moedaOriginal === 'EUR'} onPress={function() { handleSelectMoeda('EUR'); }} color={C.rf}>
+                EUR
+              </Pill>
+            ) : null}
+            <Pill active={false} onPress={function() { setShowCurrencyPicker(true); }} color={C.dim}>
+              Buscar
+            </Pill>
+          </View>
+        </View>
+      ) : null}
+
+      {/* Foreign currency fields (when moedaOriginal is set and different from card currency) */}
+      {moedaOriginal && moedaOriginal !== cartaoMoeda ? (
+        <View>
+          <Text style={styles.label}>{'VALOR EM ' + getSymbol(moedaOriginal)}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.mono }}>{getSymbol(moedaOriginal)}</Text>
+            <TextInput
+              value={valorOriginal}
+              onChangeText={onChangeValorOriginal}
+              keyboardType="decimal-pad"
+              placeholder="0,00"
+              placeholderTextColor={C.dim}
+              style={[styles.input, { flex: 1 }]}
+            />
+          </View>
+          <Text style={styles.label}>TAXA DE CÂMBIO</Text>
+          <TextInput
+            value={taxaCambio}
+            onChangeText={function(t) { setTaxaCambio(t); autoFillConvertido(valorOriginal, t); }}
+            keyboardType="decimal-pad"
+            placeholder="0,0000"
+            placeholderTextColor={C.dim}
+            style={[styles.input, { marginBottom: 4 }]}
+          />
+          {valorOriginal && taxaCambio ? (
+            <Text style={{ color: C.dim, fontSize: 11, fontFamily: F.mono, marginBottom: 12 }}>
+              {'Convertido: ' + getSymbol(cartaoMoeda) + ' ' + calcConvertido()}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Conta (only when payMethod === 'conta') */}
+      {payMethod === 'conta' ? (
+        <View>
+          <Text style={styles.label}>CONTA *</Text>
+          {saldos.length > 0 ? (
+            <View style={styles.pillRow}>
+              {saldos.map(function(s) {
+                var sName = s.corretora || s.name || '';
+                var sMoeda = s.moeda || 'BRL';
+                var pillLabel = sMoeda !== 'BRL' ? sName + ' (' + sMoeda + ')' : sName;
+                return (
+                  <Pill key={s.id} active={contaId === s.id} color={C.accent}
+                    onPress={function() { setConta(sName); setContaId(s.id); setContaMoeda(sMoeda); }}>
+                    {pillLabel}
+                  </Pill>
+                );
+              })}
+            </View>
+          ) : (
+            <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>
+              Nenhuma conta cadastrada. Crie uma conta primeiro.
+            </Text>
+          )}
+        </View>
+      ) : null}
 
       {/* Valor */}
-      <Text style={styles.label}>VALOR (R$) *</Text>
+      <Text style={styles.label}>{'VALOR (' + getSymbol(effectiveMoeda) + ')' + (moedaOriginal && moedaOriginal !== cartaoMoeda ? '' : ' *')}</Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.mono }}>R$</Text>
+        <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.mono }}>{getSymbol(effectiveMoeda)}</Text>
         <TextInput
           value={valor}
           onChangeText={onChangeVal}
@@ -285,18 +679,24 @@ export default function AddMovimentacaoScreen(props) {
       {dateError ? <Text style={styles.fieldError}>Data inválida</Text> : null}
 
       {/* Resumo */}
-      {valorNum > 0 ? (
+      {valorNum > 0 || (payMethod === 'cartao' && moedaOriginal && moedaOriginal !== cartaoMoeda && parseBR(valorOriginal) > 0) ? (
         <Glass glow={tipo === 'entrada' ? C.green : C.red} padding={14}>
           <View style={styles.resumoRow}>
             <Text style={styles.resumoLabel}>{tipo === 'entrada' ? 'ENTRADA' : 'SAÍDA'}</Text>
             <Text style={[styles.resumoValue, { color: tipo === 'entrada' ? C.green : C.red }]}>
-              {tipo === 'entrada' ? '+' : '-'}R$ {fmt(valorNum)}
+              {tipo === 'entrada' ? '+' : '-'}{getSymbol(effectiveMoeda) + ' '}{fmt(valorNum || (parseBR(valorOriginal) * (parseFloat(taxaCambio) || 0)))}
             </Text>
           </View>
           <View style={styles.resumoRow}>
-            <Text style={styles.resumoLabel}>CONTA</Text>
-            <Text style={styles.resumoSmall}>{conta || '—'}</Text>
+            <Text style={styles.resumoLabel}>{payMethod === 'cartao' ? 'CARTÃO' : 'CONTA'}</Text>
+            <Text style={styles.resumoSmall}>{payMethod === 'cartao' ? (cartaoLabel || '—') : (conta || '—')}</Text>
           </View>
+          {moedaOriginal && moedaOriginal !== cartaoMoeda && parseBR(valorOriginal) > 0 ? (
+            <View style={styles.resumoRow}>
+              <Text style={styles.resumoLabel}>ORIGINAL</Text>
+              <Text style={styles.resumoSmall}>{getSymbol(moedaOriginal) + ' ' + valorOriginal}</Text>
+            </View>
+          ) : null}
         </Glass>
       ) : null}
 
@@ -313,6 +713,19 @@ export default function AddMovimentacaoScreen(props) {
 
       <View style={{ height: 40 }} />
     </ScrollView>
+
+    {/* CurrencyPicker modal */}
+    <CurrencyPicker
+      visible={showCurrencyPicker}
+      onClose={function() { setShowCurrencyPicker(false); }}
+      onSelect={function(currency) {
+        handleSelectMoeda(currency.code);
+        setShowCurrencyPicker(false);
+      }}
+      cardMoeda={cartaoMoeda}
+      color={C.rf}
+    />
+
     </KeyboardAvoidingView>
   );
 }

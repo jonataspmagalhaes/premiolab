@@ -1,6 +1,8 @@
 // =========== CSV IMPORT SERVICE ===========
-// Parse CSV/TSV text, detect B3/CEI/generic format, validate, deduplicate
+// Parse CSV/TSV/XLSX text, detect B3/CEI/generic format, validate, deduplicate
 // Supports: operacoes (acoes/FIIs/ETFs), opcoes (call/put), exercicios, futuros (skip)
+
+var XLSX = require('xlsx');
 
 // ── Corretora name mapping (B3 legal name → commercial name) ──
 var CORRETORA_MAP = {
@@ -335,11 +337,27 @@ function convertXMLSpreadsheet(text) {
   return tsvLines.join('\n');
 }
 
+// ── Convert XLSX buffer to TSV text via SheetJS ──
+function convertXLSXBuffer(buffer) {
+  var uint8 = new Uint8Array(buffer);
+  var workbook = XLSX.read(uint8, { type: 'array' });
+  var sheetName = workbook.SheetNames[0];
+  var sheet = workbook.Sheets[sheetName];
+  var tsv = XLSX.utils.sheet_to_csv(sheet, { FS: '\t' });
+  return tsv;
+}
+
 // ── Decode file buffer with automatic encoding detection ──
-// Handles UTF-8 (with or without BOM) and Latin-1/Windows-1252
-// B3/CEI exports often use Latin-1, which garbles accented chars when read as UTF-8
+// Handles XLSX (binary Excel), UTF-8 (with or without BOM) and Latin-1/Windows-1252
+// B3/CEI exports may be .xlsx or Latin-1 .csv
 function decodeCSVBuffer(buffer) {
   var bytes = new Uint8Array(buffer);
+
+  // Detect XLSX/ZIP magic bytes (PK\x03\x04) — convert via SheetJS
+  if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4B && bytes[2] === 0x03 && bytes[3] === 0x04) {
+    return convertXLSXBuffer(buffer);
+  }
+
   var start = 0;
 
   // Skip UTF-8 BOM (EF BB BF)
@@ -1419,6 +1437,223 @@ function parseNotaCorretagem(text) {
   return ops;
 }
 
+// ── Fatura (credit card invoice) parser ──
+
+var FATURA_IGNORE = /^(TOTAL|PAGAMENTO\s+ANTERIOR|PAGAMENTO\s+EFETUADO|PAGAMENTO\s+RECEBIDO|ENCARGOS|JUROS|MULTA|CET|IOF\s+TOTAL|IOF\s+REFIN|SALDO\s+ANTERIOR|SALDO\s+FINAL|LIMITE|VENCIMENTO|VALOR\s+MINIMO|DATA\s+DE\s+VENCIMENTO|CARTAO\s+FINAL|FATURA\s+DO\s+MES)/i;
+
+var FATURA_KEYWORDS = [
+  { re: /\bUBER\b/i, cat: 'transporte_app' },
+  { re: /\b99\s*(POP|TAXI|APP)?\b/i, cat: 'transporte_app' },
+  { re: /\bCABIFY\b/i, cat: 'transporte_app' },
+  { re: /\bIFOOD\b/i, cat: 'alimentacao_delivery' },
+  { re: /\bRAPPI\b/i, cat: 'alimentacao_delivery' },
+  { re: /\bNETFLIX\b/i, cat: 'lazer_streaming' },
+  { re: /\bSPOTIFY\b/i, cat: 'lazer_streaming' },
+  { re: /\bDISNEY\b/i, cat: 'lazer_streaming' },
+  { re: /\bPRIME\s*VIDEO\b/i, cat: 'lazer_streaming' },
+  { re: /\bAMAZON\s*PRIME\b/i, cat: 'lazer_streaming' },
+  { re: /\bHBO\b/i, cat: 'lazer_streaming' },
+  { re: /\bAPPLE\s*(TV|MUSIC|ONE)\b/i, cat: 'lazer_streaming' },
+  { re: /\bYOUTUBE\s*PREMIUM\b/i, cat: 'lazer_streaming' },
+  { re: /\bAMAZON\b/i, cat: 'compras' },
+  { re: /\bMERCADO\s*LIVRE\b/i, cat: 'compras' },
+  { re: /\bSHOPEE\b/i, cat: 'compras' },
+  { re: /\bALIEXPRESS\b/i, cat: 'compras' },
+  { re: /\bMAGAZINE\s*LUIZA\b/i, cat: 'compras' },
+  { re: /\bAMERICANAS\b/i, cat: 'compras' },
+  { re: /\bSUPERMERCADO\b/i, cat: 'alimentacao_supermercado' },
+  { re: /\bCARREFOUR\b/i, cat: 'alimentacao_supermercado' },
+  { re: /\bPAO\s*DE\s*ACUCAR\b/i, cat: 'alimentacao_supermercado' },
+  { re: /\bASSAI\b/i, cat: 'alimentacao_supermercado' },
+  { re: /\bEXTRA\s*(HIPER)?/i, cat: 'alimentacao_supermercado' },
+  { re: /\bBIG\s*BOMPRECO\b/i, cat: 'alimentacao_supermercado' },
+  { re: /\bFARMACIA\b/i, cat: 'saude_farmacia' },
+  { re: /\bDROGARIA\b/i, cat: 'saude_farmacia' },
+  { re: /\bDROGA\s*\w/i, cat: 'saude_farmacia' },
+  { re: /\bPOSTO\b/i, cat: 'transporte_combustivel' },
+  { re: /\bSHELL\b/i, cat: 'transporte_combustivel' },
+  { re: /\bBR\s*DISTRIBUIDORA\b/i, cat: 'transporte_combustivel' },
+  { re: /\bIPIRANGA\b/i, cat: 'transporte_combustivel' },
+  { re: /\bALE\s*COMBUST/i, cat: 'transporte_combustivel' },
+];
+
+function categorizeFaturaLine(desc) {
+  if (!desc) return null;
+  var upper = desc.toUpperCase();
+  for (var i = 0; i < FATURA_KEYWORDS.length; i++) {
+    if (FATURA_KEYWORDS[i].re.test(upper)) {
+      return FATURA_KEYWORDS[i].cat;
+    }
+  }
+  return null;
+}
+
+function detectFaturaForeignCurrency(desc) {
+  if (!desc) return null;
+  var upper = desc.toUpperCase();
+  if (upper.indexOf('COMPRA INTERNACIONAL') >= 0) return 'USD';
+  if (upper.indexOf('PURCHASE INTERNATIONAL') >= 0) return 'USD';
+  // US$ prefix in description
+  if (/US\$\s*[\d,.]/.test(desc)) return 'USD';
+  if (/EUR\s*[\d,.]/.test(desc)) return 'EUR';
+  if (/GBP\s*[\d,.]/.test(desc)) return 'GBP';
+  return null;
+}
+
+function extractFaturaOriginalValue(desc) {
+  if (!desc) return null;
+  // Try to extract US$ 12.34 or EUR 12,34 pattern
+  var m = desc.match(/US\$\s*([\d.,]+)/);
+  if (m) {
+    // US format: 12.34 or 1,234.56
+    var val = m[1].replace(/,/g, '');
+    var n = parseFloat(val);
+    return isNaN(n) ? null : n;
+  }
+  m = desc.match(/EUR\s*([\d.,]+)/);
+  if (m) {
+    return parseBRNumber(m[1]);
+  }
+  m = desc.match(/GBP\s*([\d.,]+)/);
+  if (m) {
+    return parseBRNumber(m[1]);
+  }
+  return null;
+}
+
+function parseFaturaText(text, cartaoMoeda) {
+  if (!text || typeof text !== 'string') {
+    return { lancamentos: [], ignoradas: 0 };
+  }
+
+  var moedaBase = cartaoMoeda || 'BRL';
+  var lines = text.split(/\r?\n/);
+  var lancamentos = [];
+  var ignoradas = 0;
+
+  // Pattern A: DD/MM  DESCRICAO  VALOR (comma decimal: 1.234,56 or -1.234,56)
+  var reA = /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+([\-]?\d[\d.]*,\d{2})\s*$/;
+  // Pattern B: DD/MM or DD/MM/YYYY  DESCRICAO  R$ VALOR
+  var reB = /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R\$\s*([\-]?\d[\d.]*,\d{2})\s*$/;
+  // Pattern C: DD/MM  DESCRICAO  PARCELA X/Y  VALOR (parcela embedded in description)
+  var reC = /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(\d{1,2}\/\d{1,2})\s+([\-]?\d[\d.]*,\d{2})\s*$/;
+
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line) continue;
+    if (line.length < 10) continue;
+
+    // Skip header/total/summary lines
+    if (FATURA_IGNORE.test(line)) {
+      ignoradas = ignoradas + 1;
+      continue;
+    }
+
+    var dataPart = null;
+    var descPart = null;
+    var valorStr = null;
+    var parcela = null;
+    var matched = false;
+
+    // Try Pattern B first (has R$ prefix, more specific)
+    var mb = reB.exec(line);
+    if (mb) {
+      dataPart = mb[1];
+      descPart = mb[2].trim();
+      valorStr = mb[3];
+      matched = true;
+    }
+
+    // Try Pattern C (parcela X/Y before valor)
+    if (!matched) {
+      var mc = reC.exec(line);
+      if (mc) {
+        dataPart = mc[1];
+        descPart = mc[2].trim();
+        parcela = mc[3];
+        valorStr = mc[4];
+        matched = true;
+      }
+    }
+
+    // Try Pattern A (most generic)
+    if (!matched) {
+      var ma = reA.exec(line);
+      if (ma) {
+        dataPart = ma[1];
+        descPart = ma[2].trim();
+        valorStr = ma[3];
+        matched = true;
+      }
+    }
+
+    if (!matched) {
+      // Could not parse this line — count as ignored
+      // But skip truly empty/short junk lines silently
+      if (line.length > 5) {
+        ignoradas = ignoradas + 1;
+      }
+      continue;
+    }
+
+    // Parse date — add current year if only DD/MM
+    var dataISO = '';
+    if (dataPart.length <= 5) {
+      // DD/MM only — assume current year
+      var now = new Date();
+      var yyyy = String(now.getFullYear());
+      dataISO = parseDateBR(dataPart + '/' + yyyy);
+    } else {
+      dataISO = parseDateBR(dataPart);
+    }
+
+    // Parse valor
+    var valor = parseBRNumber(valorStr);
+    if (valor === 0) continue; // skip zero lines
+
+    // Check if this looks like a credit/estorno (negative)
+    var descUpper = descPart.toUpperCase();
+    var isEstorno = descUpper.indexOf('ESTORNO') >= 0 ||
+                    descUpper.indexOf('DEVOLUCAO') >= 0 ||
+                    descUpper.indexOf('DEVOLUÇÃO') >= 0 ||
+                    descUpper.indexOf('CREDITO') >= 0 ||
+                    descUpper.indexOf('CRÉDITO') >= 0;
+    // If the value was explicitly negative in the text, keep it negative
+    // If it's an estorno keyword and value is positive, make it negative
+    if (isEstorno && valor > 0) {
+      valor = -valor;
+    }
+
+    // Detect foreign currency from description
+    var foreignCurrency = detectFaturaForeignCurrency(descPart);
+    var moedaOriginal = foreignCurrency || moedaBase;
+    var valorOriginal = null;
+    if (foreignCurrency) {
+      valorOriginal = extractFaturaOriginalValue(descPart);
+    }
+
+    // Append parcela info to description if detected
+    var descFinal = descPart;
+    if (parcela) {
+      descFinal = descPart + ' ' + parcela;
+    }
+
+    // Auto-categorize
+    var catSugerida = categorizeFaturaLine(descFinal);
+
+    lancamentos.push({
+      data: dataISO,
+      descricao: descFinal,
+      valor: valor,
+      moeda_original: moedaOriginal,
+      valor_original: valorOriginal,
+      categoria_sugerida: catSugerida,
+    });
+  }
+
+  return { lancamentos: lancamentos, ignoradas: ignoradas };
+}
+
 // ── Exports ──
 export {
   parseCSVText,
@@ -1439,5 +1674,6 @@ export {
   decodeCSVBuffer,
   isNotaCorretagem,
   parseNotaCorretagem,
+  parseFaturaText,
   CORRETORA_MAP,
 };

@@ -207,6 +207,70 @@ export async function fetchPriceHistoryLong(tickers) {
   return result;
 }
 
+// ══════════ FETCH HISTORY RANGE (variable period OHLCV) ══════════
+var _rangeCache = {};
+var CACHE_RANGE_MS = 3600000; // 1h
+
+export async function fetchPriceHistoryRange(tickers, range) {
+  if (!tickers || tickers.length === 0) return {};
+  var rng = range || '6mo';
+
+  // Check cache keyed by ticker:range
+  var allCached = true;
+  for (var ck = 0; ck < tickers.length; ck++) {
+    var ckey = tickers[ck] + ':' + rng;
+    var entry = _rangeCache[ckey];
+    if (!entry || (Date.now() - entry.ts > CACHE_RANGE_MS)) {
+      allCached = false;
+      break;
+    }
+  }
+  if (allCached) {
+    var cached = {};
+    for (var cc = 0; cc < tickers.length; cc++) {
+      cached[tickers[cc]] = _rangeCache[tickers[cc] + ':' + rng].data;
+    }
+    return cached;
+  }
+
+  var result = {};
+  for (var t = 0; t < tickers.length; t++) {
+    try {
+      var ticker = tickers[t];
+      var url = buildUrl(ticker, { range: rng, interval: '1d' });
+      var response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
+      if (!response.ok) continue;
+      var json = await response.json();
+      var results = json.results || [];
+      if (results.length > 0 && results[0].historicalDataPrice) {
+        var histData = results[0].historicalDataPrice;
+        var ohlcv = [];
+        for (var h = 0; h < histData.length; h++) {
+          var candle = histData[h];
+          if (candle.close != null) {
+            ohlcv.push({
+              date: candle.date ? new Date(candle.date * 1000).toISOString().substring(0, 10) : null,
+              open: candle.open || candle.close,
+              high: candle.high || candle.close,
+              low: candle.low || candle.close,
+              close: candle.close,
+              volume: candle.volume || 0,
+            });
+          }
+        }
+        result[ticker] = ohlcv;
+        _rangeCache[ticker + ':' + rng] = { data: ohlcv, ts: Date.now() };
+      }
+    } catch (err) {
+      console.warn('fetchPriceHistoryRange error for ' + tickers[t] + ':', err.message);
+    }
+  }
+  return result;
+}
+
 // ══════════ FETCH TICKER PROFILE (sector/industry) ══════════
 var _profileCache = {};
 var PROFILE_CACHE_MS = 86400000; // 24h

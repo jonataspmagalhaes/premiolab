@@ -1,14 +1,18 @@
 import React from 'react';
-import { View, Text, StyleSheet, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, StatusBar, Platform } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Toast from 'react-native-toast-message';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { useAuth } from '../contexts/AuthContext';
 import { C, F, SIZE } from '../theme';
 import toastConfig from '../components/ToastConfig';
+
+// Lock app to portrait globally (landscape only in specific modals)
+ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(function() {});
 
 // Screens
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -38,8 +42,17 @@ import AddProventoScreen from '../screens/proventos/AddProventoScreen';
 import EditProventoScreen from '../screens/proventos/EditProventoScreen';
 import AddSaldoScreen from '../screens/carteira/AddSaldoScreen';
 import AddMovimentacaoScreen from '../screens/gestao/AddMovimentacaoScreen';
+import EditMovimentacaoScreen from '../screens/gestao/EditMovimentacaoScreen';
 import ExtratoScreen from '../screens/gestao/ExtratoScreen';
 import AddContaScreen from '../screens/gestao/AddContaScreen';
+import ImportOperacoesScreen from '../screens/carteira/ImportOperacoesScreen';
+import OrcamentoScreen from '../screens/gestao/OrcamentoScreen';
+import RecorrentesScreen from '../screens/gestao/RecorrentesScreen';
+import AddRecorrenteScreen from '../screens/gestao/AddRecorrenteScreen';
+import AddCartaoScreen from '../screens/gestao/AddCartaoScreen';
+import FaturaScreen from '../screens/gestao/FaturaScreen';
+import ConfigGastosRapidosScreen from '../screens/gestao/ConfigGastosRapidosScreen';
+import AddGastoRapidoScreen from '../screens/gestao/AddGastoRapidoScreen';
 
 // SafeArea HOC — protege telas stack contra notch/camera/relogio/home indicator
 function withSafeArea(Screen) {
@@ -78,8 +91,17 @@ var SafeEditProventoScreen = withSafeArea(EditProventoScreen);
 var SafeAddSaldoScreen = withSafeArea(AddSaldoScreen);
 var SafeAnaliseScreen = withSafeArea(AnaliseScreen);
 var SafeAddMovimentacaoScreen = withSafeArea(AddMovimentacaoScreen);
+var SafeEditMovimentacaoScreen = withSafeArea(EditMovimentacaoScreen);
 var SafeExtratoScreen = withSafeArea(ExtratoScreen);
 var SafeAddContaScreen = withSafeArea(AddContaScreen);
+var SafeImportOperacoesScreen = withSafeArea(ImportOperacoesScreen);
+var SafeOrcamentoScreen = withSafeArea(OrcamentoScreen);
+var SafeRecorrentesScreen = withSafeArea(RecorrentesScreen);
+var SafeAddRecorrenteScreen = withSafeArea(AddRecorrenteScreen);
+var SafeAddCartaoScreen = withSafeArea(AddCartaoScreen);
+var SafeFaturaScreen = withSafeArea(FaturaScreen);
+var SafeConfigGastosRapidosScreen = withSafeArea(ConfigGastosRapidosScreen);
+var SafeAddGastoRapidoScreen = withSafeArea(AddGastoRapidoScreen);
 
 // Dark Theme
 var PremioLabTheme = Object.assign({}, DefaultTheme, {
@@ -219,8 +241,17 @@ function AppStack() {
       <Stack.Screen name="AddSaldo" component={SafeAddSaldoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="Analise" component={SafeAnaliseScreen} />
       <Stack.Screen name="AddMovimentacao" component={SafeAddMovimentacaoScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="EditMovimentacao" component={SafeEditMovimentacaoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="Extrato" component={SafeExtratoScreen} />
       <Stack.Screen name="AddConta" component={SafeAddContaScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="ImportOperacoes" component={SafeImportOperacoesScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="Orcamento" component={SafeOrcamentoScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="Recorrentes" component={SafeRecorrentesScreen} />
+      <Stack.Screen name="AddRecorrente" component={SafeAddRecorrenteScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="AddCartao" component={SafeAddCartaoScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="Fatura" component={SafeFaturaScreen} />
+      <Stack.Screen name="ConfigGastosRapidos" component={SafeConfigGastosRapidosScreen} />
+      <Stack.Screen name="AddGastoRapido" component={SafeAddGastoRapidoScreen} options={{ animation: 'slide_from_bottom' }} />
     </Stack.Navigator>
   );
 }

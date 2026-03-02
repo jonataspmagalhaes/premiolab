@@ -546,7 +546,7 @@ export default function HomeScreen({ navigation }) {
         <View style={st.header}>
           <Image
             source={require('../../../assets/logo-header.png')}
-            style={{ height: 66, width: 66 * (400 / 95) }}
+            style={{ height: 52, width: 52 * (400 / 95) }}
             resizeMode="contain"
           />
           <View style={st.syncBadge}>

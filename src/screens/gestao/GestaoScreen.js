@@ -4,10 +4,12 @@ import { C, SIZE } from '../../theme';
 import { Pill } from '../../components';
 import CarteiraScreen from '../carteira/CarteiraScreen';
 import CaixaView from './CaixaView';
+import FinancasView from './FinancasView';
 
 var SUB_TABS = [
   { k: 'ativos', l: 'Ativos', color: C.acoes },
   { k: 'caixa', l: 'Caixa', color: C.green },
+  { k: 'financas', l: 'Finanças', color: C.etfs },
 ];
 
 export default function GestaoScreen(props) {
@@ -29,10 +31,12 @@ export default function GestaoScreen(props) {
       </View>
 
       {/* Content */}
-      {sub === 'ativos' ? (
-        <CarteiraScreen navigation={navigation} />
-      ) : (
+      {sub === 'financas' ? (
+        <FinancasView navigation={navigation} />
+      ) : sub === 'caixa' ? (
         <CaixaView navigation={navigation} />
+      ) : (
+        <CarteiraScreen navigation={navigation} />
       )}
     </View>
   );

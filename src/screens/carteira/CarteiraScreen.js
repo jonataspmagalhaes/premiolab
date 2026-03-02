@@ -9,7 +9,7 @@ var dateUtils = require('../../utils/dateUtils');
 var parseLocalDate = dateUtils.parseLocalDate;
 var formatDateBR = dateUtils.formatDateBR;
 import Svg, {
-  Circle as SvgCircle, Path, Defs, LinearGradient as SvgGrad,
+  Circle as SvgCircle, Path, Defs, LinearGradient as SvgGrad, ClipPath,
   Stop, Line as SvgLine, Rect as SvgRect, G, Text as SvgText,
 } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa, getOpcoes, getIndicatorByTicker } from '../../services/database';
 import { fetchFundamentals } from '../../services/fundamentalService';
 import { enrichPositionsWithPrices, fetchPriceHistory, fetchHistoryRouted, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
+import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/currencyService';
 import { Glass, Badge, Pill, SectionLabel, InfoTip, PressableCard, FundamentalAccordion, Fab } from '../../components';
 import { MiniLineChart } from '../../components/InteractiveChart';
 import { SkeletonCarteira, EmptyState } from '../../components/States';
@@ -162,33 +163,60 @@ function TreemapChart(props) {
   return (
     <View onLayout={function (e) { setWidth(e.nativeEvent.layout.width); }}>
       <Svg width={width} height={height}>
+        <Defs>
+          {rects.map(function (r, i) {
+            return (
+              <ClipPath key={'cp-' + i} id={'tc-' + i}>
+                <SvgRect x={r.x + 1} y={r.y + 1} width={Math.max(r.w - 2, 1)} height={Math.max(r.h - 2, 1)} rx={4} />
+              </ClipPath>
+            );
+          })}
+        </Defs>
         {rects.map(function (r, i) {
           var changeDay = r.item.change_day || 0;
           var intensity = clamp(Math.abs(changeDay) / 5, 0.2, 0.7);
           var fill = changeDay >= 0 ? C.green : C.red;
-          var showLabel = r.w > 40 && r.h > 30;
-          var showPct = r.w > 30 && r.h > 20;
+          var showLabel = r.w > 36 && r.h > 26;
+          var showPct = r.w > 26 && r.h > 18;
+          var pctStr = r.w > 58 ? ((changeDay >= 0 ? '+' : '') + changeDay.toFixed(1) + '%') : (Math.abs(changeDay).toFixed(changeDay >= 10 || changeDay <= -10 ? 0 : 1) + '%');
+          var pctSize = r.w > 58 ? 10 : 9;
           return (
             <G key={i}>
               <SvgRect x={r.x + 1} y={r.y + 1} width={Math.max(r.w - 2, 1)} height={Math.max(r.h - 2, 1)}
                 rx={4} fill={fill} opacity={intensity} />
-              {showLabel ? (
-                <G>
-                  <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 - 6} fill="#fff" fontSize="10"
-                    fontWeight="700" textAnchor="middle" opacity="0.95">
-                    {r.item.ticker}
-                  </SvgText>
-                  <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 + 8} fill={changeDay >= 0 ? '#4ade80' : '#fb7185'}
-                    fontSize="9" fontWeight="600" textAnchor="middle">
-                    {changeDay >= 0 ? '+' : ''}{changeDay.toFixed(1)}%
-                  </SvgText>
-                </G>
-              ) : showPct ? (
-                <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 + 3} fill="#fff" fontSize="8"
-                  fontWeight="600" textAnchor="middle" opacity="0.8">
-                  {r.item.ticker}
-                </SvgText>
-              ) : null}
+              <G clipPath={'url(#tc-' + i + ')'}>
+                {showLabel ? (
+                  <G>
+                    <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 - 5} fill="#000" fontSize="11"
+                      fontWeight="800" textAnchor="middle" opacity="0.4">
+                      {r.item.ticker}
+                    </SvgText>
+                    <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 - 5} fill="#fff" fontSize="11"
+                      fontWeight="800" textAnchor="middle">
+                      {r.item.ticker}
+                    </SvgText>
+                    <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 + 10} fill="#000" fontSize={pctSize}
+                      fontWeight="700" textAnchor="middle" opacity="0.4">
+                      {pctStr}
+                    </SvgText>
+                    <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 + 10} fill="#fff" fontSize={pctSize}
+                      fontWeight="700" textAnchor="middle">
+                      {pctStr}
+                    </SvgText>
+                  </G>
+                ) : showPct ? (
+                  <G>
+                    <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 + 3} fill="#000" fontSize="9"
+                      fontWeight="700" textAnchor="middle" opacity="0.4">
+                      {r.item.ticker}
+                    </SvgText>
+                    <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 + 3} fill="#fff" fontSize="9"
+                      fontWeight="700" textAnchor="middle">
+                      {r.item.ticker}
+                    </SvgText>
+                  </G>
+                ) : null}
+              </G>
               {onPressTile ? (
                 <SvgRect x={r.x} y={r.y} width={r.w} height={r.h}
                   fill="transparent" onPress={function () { onPressTile(r.item); }} />
@@ -466,6 +494,29 @@ var PositionCard = React.memo(function PositionCard(props) {
           ) : null}
         </View>
 
+        {/* Row 3: Valor total + P&L */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: C.border + '30' }}>
+          <View>
+            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>TOTAL</Text>
+            <Text style={[{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }, ps]}>
+              {'R$ ' + fmt(valorAtual)}
+            </Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>P&L</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={[{ fontSize: 14, fontWeight: '700', color: pnlColor, fontFamily: F.mono }, ps]}>
+                {(isPos ? '+' : '') + 'R$ ' + fmt(Math.abs(pnl))}
+              </Text>
+              <View style={[styles.typeBadge, { backgroundColor: pnlColor + '14' }]}>
+                <Text style={[styles.typeBadgeText, { color: pnlColor }, ps]}>
+                  {(isPos ? '+' : '') + pnlPct.toFixed(1) + '%'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
         {/* EXPANDED */}
         {expanded ? (
           <View style={styles.expandedWrap}>
@@ -634,6 +685,7 @@ export default function CarteiraScreen(props) {
 
   var _pos = useState([]); var positions = _pos[0]; var setPositions = _pos[1];
   var _sal = useState([]); var saldos = _sal[0]; var setSaldos = _sal[1];
+  var _fxRates = useState({ BRL: 1 }); var fxRates = _fxRates[0]; var setFxRates = _fxRates[1];
   var _fil = useState('todos'); var filter = _fil[0]; var setFilter = _fil[1];
   var _load = useState(true); var loading = _load[0]; var setLoading = _load[1];
   var _ref = useState(false); var refreshing = _ref[0]; var setRefreshing = _ref[1];
@@ -648,6 +700,7 @@ export default function CarteiraScreen(props) {
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
   var _selTile = useState(null); var selectedTile = _selTile[0]; var setSelectedTile = _selTile[1];
   var _treemapModal = useState(false); var treemapModalVisible = _treemapModal[0]; var setTreemapModal = _treemapModal[1];
+  var _showSaldosDD = useState(false); var showSaldosDD = _showSaldosDD[0]; var setShowSaldosDD = _showSaldosDD[1];
   var _fund = useState({}); var fundamentals = _fund[0]; var setFundamentals = _fund[1];
   var _fundL = useState({}); var fundLoading = _fundL[0]; var setFundLoading = _fundL[1];
   var _opc = useState([]); var opcoes = _opc[0]; var setOpcoes = _opc[1];
@@ -665,10 +718,26 @@ export default function CarteiraScreen(props) {
       ]);
       rawPos = results[0].data || [];
       setEncerradas(results[0].encerradas || []);
-      setSaldos(results[1].data || []);
+      var saldosArr = results[1].data || [];
+      setSaldos(saldosArr);
       setRfItems(results[2].data || []);
       setOpcoes(results[3].data || []);
       setPositions(rawPos);
+
+      // Buscar câmbio para saldos em moeda estrangeira
+      var moedasEstr = [];
+      for (var mi2 = 0; mi2 < saldosArr.length; mi2++) {
+        var m2 = saldosArr[mi2].moeda || 'BRL';
+        if (m2 !== 'BRL' && moedasEstr.indexOf(m2) === -1) { moedasEstr.push(m2); }
+      }
+      if (moedasEstr.length > 0) {
+        try {
+          var rates = await fetchExchangeRates(moedasEstr);
+          setFxRates(rates);
+        } catch (e2) { /* fallback BRL:1 */ }
+      } else {
+        setFxRates({ BRL: 1 });
+      }
     } catch (e) {
       console.warn('CarteiraScreen load failed:', e);
       setLoadError(true);
@@ -732,8 +801,11 @@ export default function CarteiraScreen(props) {
     return s + p.quantidade * (p.preco_atual || p.pm);
   }, 0);
   var totalRF = rfAtivos.reduce(function (s, r) { return s + (parseFloat(r.valor_aplicado) || 0); }, 0);
-  var totalSaldos = saldos.reduce(function (s, c) { return s + (c.saldo || 0); }, 0);
-  var totalValue = totalPositions + totalRF + totalSaldos;
+  var totalSaldos = saldos.reduce(function (s, c) {
+    return s + convertToBRL(c.saldo || 0, c.moeda || 'BRL', fxRates);
+  }, 0);
+  var totalInvestido = totalPositions + totalRF;
+  var totalValue = totalInvestido + totalSaldos;
 
   var totalCusto = positions.reduce(function (s, p) {
     if (p.mercado === 'INT') {
@@ -937,7 +1009,7 @@ export default function CarteiraScreen(props) {
       <Glass glow={C.acoes} padding={16}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View>
-            <Text style={styles.heroLabel}>PATRIMÔNIO EM CARTEIRA</Text>
+            <Text style={styles.heroLabel}>PATRIMÔNIO TOTAL</Text>
             <Text style={[styles.heroValue, ps]}>R$ {fmt(totalValue)}</Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
@@ -973,6 +1045,50 @@ export default function CarteiraScreen(props) {
             </View>
           </View>
         ) : null}
+        <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View>
+              <Text style={styles.heroLabel}>INVESTIDO</Text>
+              <Text style={[{ fontSize: 15, color: C.text, fontFamily: F.mono }, ps]}>R$ {fmt(totalInvestido)}</Text>
+            </View>
+            <TouchableOpacity activeOpacity={0.7} onPress={function() { setShowSaldosDD(!showSaldosDD); }}>
+              <View style={{ alignItems: 'flex-end' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <InfoTip title="Patrimônio Livre" text={'Patrimônio Livre é o valor em caixa disponível nas suas contas de corretoras e bancos — ou seja, o dinheiro que não está investido em ativos (ações, FIIs, ETFs, renda fixa).' + '\n\n' + 'Cálculo: Patrimônio Total - Patrimônio Investido = Patrimônio Livre.' + '\n\n' + '⚠ Para que este valor seja preciso, mantenha os saldos de todas as suas contas atualizados na aba Caixa.'} size={12} />
+                  <Text style={styles.heroLabel}>PATRIMÔNIO LIVRE</Text>
+                  <Ionicons name={showSaldosDD ? 'chevron-up' : 'chevron-down'} size={11} color={C.dim} />
+                </View>
+                <Text style={[{ fontSize: 15, color: totalSaldos > 0 ? C.rf : C.dim, fontFamily: F.mono }, ps]}>R$ {fmt(totalSaldos)}</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+          {showSaldosDD && saldos.length > 0 ? (
+            <View style={{ marginTop: 10, borderRadius: 10, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, padding: 12 }}>
+              {saldos.map(function(conta, ci) {
+                var moeda = conta.moeda || 'BRL';
+                var sym = getSymbol(moeda);
+                var valBRL = convertToBRL(conta.saldo || 0, moeda, fxRates);
+                var isForeign = moeda !== 'BRL';
+                return (
+                  <View key={ci} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: ci > 0 ? 1 : 0, borderTopColor: C.border + '40' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: C.accent + '18', alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>{(conta.corretora || '??').substring(0, 2).toUpperCase()}</Text>
+                      </View>
+                      <Text numberOfLines={1} style={{ fontSize: 13, color: C.text, fontFamily: F.body, maxWidth: 140 }}>{conta.corretora || 'Conta'}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={[{ fontSize: 13, color: (conta.saldo || 0) > 0 ? C.rf : C.dim, fontFamily: F.mono, fontWeight: '600' }, ps]}>{sym + ' ' + fmt(conta.saldo || 0)}</Text>
+                      {isForeign ? (
+                        <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>{'≈ R$ ' + fmt(valBRL)}</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+        </View>
         <View style={styles.heroStats}>
           {[
             { l: 'ATIVOS', v: String(positions.length + rfAtivos.length), c: C.accent },
@@ -1061,6 +1177,13 @@ export default function CarteiraScreen(props) {
         <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>POSIÇÕES</Text>
         <TouchableOpacity onPress={function() { setInfoModal({ title: 'Posições', text: 'Posições agregadas por ticker com preço médio ponderado. PM = custo médio de compra.' }); }}>
           <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+        </TouchableOpacity>
+        <View style={{ flex: 1 }} />
+        <TouchableOpacity onPress={function() { navigation.navigate('ImportOperacoes'); }}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2, paddingHorizontal: 6 }}
+          accessibilityRole="button" accessibilityLabel="Importar operações">
+          <Ionicons name="cloud-upload-outline" size={16} color={C.accent} />
+          <Text style={{ fontSize: 11, fontFamily: F.body, color: C.accent }}>Importar</Text>
         </TouchableOpacity>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}

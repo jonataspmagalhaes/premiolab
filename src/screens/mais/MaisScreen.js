@@ -217,7 +217,7 @@ var styles = StyleSheet.create({
 
   profileRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatar: {
-    width: 42, height: 42, borderRadius: 12,
+    width: 52, height: 52, borderRadius: 14,
   },
   profileName: { fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.display },
   profileEmail: { fontSize: 10, color: C.sub, fontFamily: F.body },

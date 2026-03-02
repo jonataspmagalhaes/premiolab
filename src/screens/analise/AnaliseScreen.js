@@ -11,7 +11,7 @@ var formatDateBR = dateUtils.formatDateBR;
 import Svg, {
   Circle, Rect as SvgRect, G,
   Text as SvgText, Line as SvgLine, Path,
-  Defs, LinearGradient as SvgLinearGradient, Stop,
+  Defs, LinearGradient as SvgLinearGradient, Stop, ClipPath,
 } from 'react-native-svg';
 import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
@@ -1025,33 +1025,60 @@ function TreemapChart(props) {
   return (
     <View onLayout={function (e) { setWidth(e.nativeEvent.layout.width); }}>
       <Svg width={width} height={height}>
+        <Defs>
+          {rects.map(function (r, i) {
+            return (
+              <ClipPath key={'cp-' + i} id={'ta-' + i}>
+                <SvgRect x={r.x + 1} y={r.y + 1} width={Math.max(r.w - 2, 1)} height={Math.max(r.h - 2, 1)} rx={4} />
+              </ClipPath>
+            );
+          })}
+        </Defs>
         {rects.map(function (r, i) {
           var changeDay = r.item.change_day || 0;
           var intensity = clamp(Math.abs(changeDay) / 5, 0.2, 0.7);
           var fill = changeDay >= 0 ? C.green : C.red;
-          var showLabel = r.w > 40 && r.h > 30;
-          var showPct = r.w > 30 && r.h > 20;
+          var showLabel = r.w > 36 && r.h > 26;
+          var showPct = r.w > 26 && r.h > 18;
+          var pctStr = r.w > 58 ? ((changeDay >= 0 ? '+' : '') + changeDay.toFixed(1) + '%') : (Math.abs(changeDay).toFixed(changeDay >= 10 || changeDay <= -10 ? 0 : 1) + '%');
+          var pctSize = r.w > 58 ? 10 : 9;
           return (
             <G key={i}>
               <SvgRect x={r.x + 1} y={r.y + 1} width={Math.max(r.w - 2, 1)} height={Math.max(r.h - 2, 1)}
                 rx={4} fill={fill} opacity={intensity} />
-              {showLabel ? (
-                <G>
-                  <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 - 6} fill="#fff" fontSize="10"
-                    fontWeight="700" textAnchor="middle" opacity="0.95">
-                    {r.item.ticker}
-                  </SvgText>
-                  <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 + 8} fill={changeDay >= 0 ? '#4ade80' : '#fb7185'}
-                    fontSize="9" fontWeight="600" textAnchor="middle">
-                    {changeDay >= 0 ? '+' : ''}{changeDay.toFixed(1)}%
-                  </SvgText>
-                </G>
-              ) : showPct ? (
-                <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 + 3} fill="#fff" fontSize="8"
-                  fontWeight="600" textAnchor="middle" opacity="0.8">
-                  {r.item.ticker}
-                </SvgText>
-              ) : null}
+              <G clipPath={'url(#ta-' + i + ')'}>
+                {showLabel ? (
+                  <G>
+                    <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 - 5} fill="#000" fontSize="11"
+                      fontWeight="800" textAnchor="middle" opacity="0.4">
+                      {r.item.ticker}
+                    </SvgText>
+                    <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 - 5} fill="#fff" fontSize="11"
+                      fontWeight="800" textAnchor="middle">
+                      {r.item.ticker}
+                    </SvgText>
+                    <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 + 10} fill="#000" fontSize={pctSize}
+                      fontWeight="700" textAnchor="middle" opacity="0.4">
+                      {pctStr}
+                    </SvgText>
+                    <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 + 10} fill="#fff" fontSize={pctSize}
+                      fontWeight="700" textAnchor="middle">
+                      {pctStr}
+                    </SvgText>
+                  </G>
+                ) : showPct ? (
+                  <G>
+                    <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 + 3} fill="#000" fontSize="9"
+                      fontWeight="700" textAnchor="middle" opacity="0.4">
+                      {r.item.ticker}
+                    </SvgText>
+                    <SvgText x={r.x + r.w / 2} y={r.y + r.h / 2 + 3} fill="#fff" fontSize="9"
+                      fontWeight="700" textAnchor="middle">
+                      {r.item.ticker}
+                    </SvgText>
+                  </G>
+                ) : null}
+              </G>
               {onPressTile ? (
                 <SvgRect x={r.x} y={r.y} width={r.w} height={r.h}
                   fill="transparent" onPress={function () { onPressTile(r.item); }} />

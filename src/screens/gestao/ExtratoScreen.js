@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, FlatList, StyleSheet, RefreshControl,
   TouchableOpacity, Alert, ActivityIndicator,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { animateLayout } from '../../utils/a11y';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
@@ -12,34 +13,30 @@ import { getSaldos, getMovimentacoes, deleteMovimentacao, upsertSaldo, addMovime
 import { Glass, Pill, Badge, SectionLabel, SwipeableRow, PeriodFilter } from '../../components';
 import { LoadingScreen } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
+import { getSymbol } from '../../services/currencyService';
 import * as Haptics from 'expo-haptics';
+var finCats = require('../../constants/financeCategories');
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-var CAT_LABELS = {
-  deposito: 'Depósito', retirada: 'Retirada', transferencia: 'Transferência',
-  compra_ativo: 'Compra ativo', venda_ativo: 'Venda ativo',
-  premio_opcao: 'Prêmio opção', recompra_opcao: 'Recompra opção',
-  exercicio_opcao: 'Exercício', dividendo: 'Dividendo',
-  jcp: 'JCP', rendimento_fii: 'Rendimento FII', rendimento_rf: 'Rendimento RF',
-  ajuste_manual: 'Ajuste', salario: 'Salário',
-  despesa_fixa: 'Despesa fixa', despesa_variavel: 'Despesa variável', outro: 'Outro',
-};
+var CAT_LABELS = finCats.CAT_LABELS;
 
 var MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
 
 // Auto-generated movs (from integrations) should not be deletable
-var AUTO_CATEGORIAS = ['compra_ativo', 'venda_ativo', 'premio_opcao', 'recompra_opcao',
-  'exercicio_opcao', 'dividendo', 'jcp', 'rendimento_fii', 'rendimento_rf'];
+var AUTO_CATEGORIAS = finCats.AUTO_CATEGORIAS;
 
 var PAGE_SIZE = 50;
 
 export default function ExtratoScreen(props) {
   var navigation = props.navigation;
+  var route = props.route;
   var user = useAuth().user;
+
+  var initConta = (route && route.params && route.params.conta) ? route.params.conta : 'todos';
 
   var _movs = useState([]); var movs = _movs[0]; var setMovs = _movs[1];
   var _saldos = useState([]); var saldos = _saldos[0]; var setSaldos = _saldos[1];
@@ -47,7 +44,7 @@ export default function ExtratoScreen(props) {
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
   var _loadingMore = useState(false); var loadingMore = _loadingMore[0]; var setLoadingMore = _loadingMore[1];
   var _hasMore = useState(true); var hasMore = _hasMore[0]; var setHasMore = _hasMore[1];
-  var _contaFilter = useState('todos'); var contaFilter = _contaFilter[0]; var setContaFilter = _contaFilter[1];
+  var _contaFilter = useState(initConta); var contaFilter = _contaFilter[0]; var setContaFilter = _contaFilter[1];
   var _dateRange = useState(null); var dateRange = _dateRange[0]; var setDateRange = _dateRange[1];
   var ps = usePrivacyStyle();
 
@@ -95,10 +92,11 @@ export default function ExtratoScreen(props) {
     setRefreshing(false);
   };
 
-  // Filter by conta
+  // Filter by conta (case-insensitive)
   var filtered = movs;
   if (contaFilter !== 'todos') {
-    filtered = movs.filter(function(m) { return m.conta === contaFilter; });
+    var filterUp = contaFilter.toUpperCase().trim();
+    filtered = movs.filter(function(m) { return (m.conta || '').toUpperCase().trim() === filterUp; });
   }
 
   // Group by month
@@ -142,8 +140,19 @@ export default function ExtratoScreen(props) {
     var saved = undoRef.current;
     if (!saved || !user) return;
     undoRef.current = null;
+    // Find moeda from saldos for the conta
+    var undoMoeda = 'BRL';
+    var undoConta = saved.conta || '';
+    for (var ui = 0; ui < saldos.length; ui++) {
+      var uName = saldos[ui].corretora || saldos[ui].name || '';
+      if (uName === undoConta || uName.toUpperCase() === undoConta.toUpperCase()) {
+        undoMoeda = saldos[ui].moeda || 'BRL';
+        break;
+      }
+    }
     var movPayload = {
       conta: saved.conta,
+      moeda: undoMoeda,
       tipo: saved.tipo,
       categoria: saved.categoria,
       valor: saved.valor,
@@ -164,7 +173,7 @@ export default function ExtratoScreen(props) {
     var desc = mov.descricao || CAT_LABELS[mov.categoria] || mov.categoria;
     Alert.alert(
       'Excluir movimentação?',
-      desc + '\nR$ ' + fmt(mov.valor) + '\n\nO saldo será revertido automaticamente.',
+      desc + '\n' + getSymbol(getMovMoeda(mov)) + ' ' + fmt(mov.valor) + '\n\nO saldo será revertido automaticamente.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -176,10 +185,10 @@ export default function ExtratoScreen(props) {
                 Alert.alert('Erro', 'Falha ao excluir.');
                 return;
               }
-              var conta = mov.conta || '';
+              var conta = (mov.conta || '').toUpperCase().trim();
               var saldoAtual = null;
               for (var si = 0; si < saldos.length; si++) {
-                var sName = saldos[si].corretora || saldos[si].name || '';
+                var sName = (saldos[si].corretora || saldos[si].name || '').toUpperCase().trim();
                 if (sName === conta) {
                   saldoAtual = saldos[si];
                   break;
@@ -228,6 +237,17 @@ export default function ExtratoScreen(props) {
   }
 
   if (loading) return <View style={styles.container}><LoadingScreen /></View>;
+
+  // Mapa conta→moeda para exibir símbolo correto
+  var contaMoedaMap = {};
+  for (var cmi = 0; cmi < saldos.length; cmi++) {
+    var cmName = (saldos[cmi].corretora || saldos[cmi].name || '').toUpperCase().trim();
+    if (cmName) contaMoedaMap[cmName] = saldos[cmi].moeda || 'BRL';
+  }
+  function getMovMoeda(mov) {
+    var conta = (mov.conta || '').toUpperCase().trim();
+    return contaMoedaMap[conta] || 'BRL';
+  }
 
   // Conta names for filter
   var contaNames = ['todos'];
@@ -329,20 +349,41 @@ export default function ExtratoScreen(props) {
                     <Text style={styles.movDesc} numberOfLines={1}>
                       {mov.descricao || CAT_LABELS[mov.categoria] || mov.categoria}
                     </Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <Text style={styles.movDate}>{formatDate(mov.data)}</Text>
                       <Badge text={mov.conta} color={C.dim} />
                       {mov.ticker ? <Badge text={mov.ticker} color={C.acoes} /> : null}
                       {isAuto ? <Badge text="auto" color={C.accent} /> : null}
+                      {mov.cartao_id ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                          <Ionicons name="card-outline" size={10} color={C.accent} />
+                          <Text style={{ fontSize: 9, color: C.accent, fontFamily: F.body }}>{'CARTÃO'}</Text>
+                        </View>
+                      ) : null}
                     </View>
                   </View>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={[styles.movVal, { color: movColor }, ps]}>
-                      {isEntrada ? '+' : '-'}R$ {fmt(mov.valor)}
-                    </Text>
-                    {mov.saldo_apos != null ? (
-                      <Text style={[styles.movSaldoApos, ps]}>Saldo: R$ {fmt(mov.saldo_apos)}</Text>
-                    ) : null}
+                  <View style={{ alignItems: 'flex-end', flexDirection: 'row', gap: 8 }}>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={[styles.movVal, { color: movColor }, ps]}>
+                        {isEntrada ? '+' : '-'}{getSymbol(getMovMoeda(mov))} {fmt(mov.valor)}
+                      </Text>
+                      {mov.moeda_original && mov.valor_original && mov.moeda_original !== 'BRL' ? (
+                        <Text style={[styles.movOriginalCurrency, ps]}>
+                          {'(' + getSymbol(mov.moeda_original) + ' ' + Number(mov.valor_original).toFixed(2).replace('.', ',') + ')'}
+                        </Text>
+                      ) : null}
+                      {mov.saldo_apos != null ? (
+                        <Text style={[styles.movSaldoApos, ps]}>Saldo: {getSymbol(getMovMoeda(mov))} {fmt(mov.saldo_apos)}</Text>
+                      ) : null}
+                    </View>
+                    <TouchableOpacity
+                      onPress={function() { navigation.navigate('EditMovimentacao', { movimentacao: mov }); }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      style={{ opacity: isAuto ? 0.4 : 1 }}
+                      accessibilityLabel="Editar movimentação"
+                      accessibilityRole="button">
+                      <Ionicons name="create-outline" size={16} color={C.dim} />
+                    </TouchableOpacity>
                   </View>
                 </View>
               </SwipeableRow>
@@ -403,5 +444,6 @@ var styles = StyleSheet.create({
   movDesc: { fontSize: 12, fontWeight: '600', color: C.text, fontFamily: F.body },
   movDate: { fontSize: 10, color: C.dim, fontFamily: F.mono },
   movVal: { fontSize: 13, fontWeight: '700', fontFamily: F.mono },
+  movOriginalCurrency: { fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 1 },
   movSaldoApos: { fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 1 },
 });

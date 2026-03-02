@@ -172,7 +172,7 @@ export default function AddOpcaoScreen(props) {
           var opDesc = 'Prêmio ' + tipo.toUpperCase() + ' ' + ativoBase.toUpperCase();
           Alert.alert(
             'Opção registrada!',
-            'Creditar prêmio R$ ' + fmt(premioTotal) + ' em ' + corretora + '?',
+            'Creditar prêmio R$ ' + fmt(premioTotal) + ' em ' + corretora + '?\n\nObs: valor bruto — o líquido pode ser menor devido a impostos e taxas.',
             [
               {
                 text: 'Não',
@@ -189,6 +189,7 @@ export default function AddOpcaoScreen(props) {
                 onPress: function() {
                   addMovimentacaoComSaldo(user.id, {
                     conta: corretora,
+                    moeda: 'BRL',
                     tipo: 'entrada',
                     categoria: 'premio_opcao',
                     valor: premioTotal,
