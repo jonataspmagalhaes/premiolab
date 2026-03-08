@@ -86,7 +86,7 @@ supabase/
 
 | Tabela | Descricao |
 |--------|-----------|
-| `profiles` | id, nome, meta_mensal, selic, last_dividend_sync |
+| `profiles` | id, nome, meta_mensal, selic, last_dividend_sync, trial_pro_used, trial_pro_start, trial_premium_used, trial_premium_start, referral_code(UNIQUE), referred_by, referral_reward_tier, referral_reward_end, device_id, opcoes_favorites(JSONB), opcoes_watchlist(JSONB), gastos_rapidos(JSONB) |
 | `operacoes` | ticker, tipo(compra/venda), categoria(acao/fii/etf/stock_int), quantidade, preco, custos, corretora, data, mercado(BR/INT), taxa_cambio |
 | `opcoes` | ativo_base, ticker_opcao, tipo(call/put), direcao(venda/compra/lancamento), strike, premio, quantidade, vencimento, data_abertura, status, corretora, premio_fechamento, data_fechamento, alerta_pl |
 | `proventos` | ticker, tipo_provento, valor_por_cota, quantidade, valor_total, data_pagamento |
@@ -96,8 +96,10 @@ supabase/
 | `alertas_config` | flags de alertas + thresholds |
 | `indicators` | HV, RSI, SMA, EMA, Beta, ATR, BB, MaxDD por ticker (UNIQUE user_id+ticker) |
 | `rebalance_targets` | class_targets(JSONB), sector_targets(JSONB), ticker_targets(JSONB) — metas de rebalanceamento persistidas |
-| `patrimonio_snapshots` | user_id, data(DATE), valor — snapshot diario/semanal do patrimonio real (UNIQUE user_id+data) |
+| `patrimonio_snapshots` | user_id, data(DATE), valor, portfolio_id(UUID nullable) — snapshot diario/semanal do patrimonio real. NULL=global, UUID=portfolio custom, sentinela `00000000-0000-0000-0000-000000000001`=Padrao. UNIQUE via index COALESCE |
 | `movimentacoes` | conta, tipo(entrada/saida/transferencia), categoria, valor, descricao, referencia_id, ticker, conta_destino, saldo_apos, data — fluxo de caixa completo |
+| `vip_overrides` | email(UNIQUE), tier(pro/premium), motivo, concedido_por, ativo(bool) — bypass de acesso VIP gerenciado via SQL |
+| `referrals` | referrer_id, referred_id, referred_email, device_id, status(pending/active/expired), activated_at — programa de indicacao. UNIQUE(referred_id), RLS por referrer_id |
 
 ### Status de opcoes
 `ativa`, `exercida`, `expirada`, `fechada`, `expirou_po`
@@ -348,7 +350,10 @@ Ao configurar um novo ambiente, executar `supabase-migration.sql` no SQL Editor 
 - Tabela `movimentacoes` com indexes + RLS (fluxo de caixa)
 - Coluna `saldos_corretora.moeda` (TEXT DEFAULT 'BRL') para multi-moeda
 
-Apos `supabase-migration.sql`, executar tambem `fix-multi-moeda-constraint.sql` para alterar constraint UNIQUE de (user_id, name) para (user_id, name, moeda), permitindo mesma instituicao com contas em moedas diferentes.
+Apos `supabase-migration.sql`, executar tambem:
+- `fix-multi-moeda-constraint.sql` — UNIQUE (user_id, name, moeda) em saldos_corretora
+- `subscription-trial-migration.sql` — colunas trial_pro/premium no profiles
+- `subscription-extras-migration.sql` — tabela vip_overrides + tabela referrals + RPCs anti-fraude + colunas referral/device_id no profiles
 
 ## Padroes Importantes
 
@@ -1987,12 +1992,1281 @@ ALTER TABLE opcoes ADD COLUMN IF NOT EXISTS alerta_pl NUMERIC DEFAULT NULL;
 | `src/services/database.js` | +updateOpcaoAlertaPL |
 | `alerta-pl-migration.sql` | Migration SQL para coluna alerta_pl |
 
+## Cadastro Completo + Recuperar Senha + Perfil do Usuario (Implementado)
+
+Sistema completo de registro com campos extras, recuperacao de senha, e tela de perfil editavel com troca de senha segura.
+
+### Registro com campos extras (LoginScreen)
+- 5 campos adicionais no modo registro: Nome (obrigatorio), Pais (default "Brasil"), Cidade, Data de nascimento (DD/MM/AAAA), Sexo (Pills)
+- Campos salvos como `user_metadata` no signUp, depois persistidos no profiles durante onboarding
+- `maskDate` e `parseDate` helpers para data BR
+- ScrollView no modo registro (form maior)
+
+### Recuperacao de senha (RecuperarSenhaScreen)
+- Tela acessada via "Esqueceu a senha?" no LoginScreen
+- `supabase.auth.resetPasswordForEmail(email)` envia link de reset
+- 2 estados: form (input email + botao) e sent (confirmacao)
+
+### Perfil do usuario (ProfileScreen)
+- 6 campos editaveis: Nome, Email, Pais, Cidade, Data de nascimento, Sexo
+- Troca de email via `supabase.auth.updateUser({ email })` com verificacao
+- beforeRemove dirty check com `origRef` e `savedRef`
+- Acessado via MaisScreen (toque no card do perfil)
+
+### Troca de senha segura (ProfileScreen)
+- Secao expansivel "Alterar senha" com 3 campos: Senha atual, Nova senha, Confirmar senha
+- Verificacao da senha atual via `supabase.auth.signInWithPassword` antes de permitir troca
+- `supabase.auth.updateUser({ password })` para aplicar nova senha
+- Validacoes: senha atual obrigatoria, nova senha min 6 chars, confirmacao deve coincidir
+
+### Migration SQL (profile-fields-migration.sql)
+```sql
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pais TEXT DEFAULT '';
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS cidade TEXT DEFAULT '';
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS data_nascimento DATE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS sexo TEXT DEFAULT '';
+```
+
+### Arquivos criados/modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `profile-fields-migration.sql` | **Criado** — 4 colunas novas em profiles |
+| `src/contexts/AuthContext.js` | signUp aceita profileData (3o param), completeOnboarding merge user_metadata |
+| `src/screens/auth/LoginScreen.js` | 5 campos registro, ScrollView, maskDate, parseDate, link "Esqueceu a senha?" |
+| `src/screens/auth/RecuperarSenhaScreen.js` | **Criado** — tela de recuperacao de senha |
+| `src/screens/auth/OnboardingScreen.js` | Pre-fill nome do profile ou user_metadata |
+| `src/screens/mais/ProfileScreen.js` | **Criado** — edicao de perfil + troca de senha segura |
+| `src/screens/mais/MaisScreen.js` | Card perfil clicavel, profileNome, chevron |
+| `src/navigation/AppNavigator.js` | +RecuperarSenha (AuthStack), +Profile (AppStack) |
+
+## Sistema de Assinaturas — Free / PRO / Premium (Implementado)
+
+Monetizacao com 3 tiers de assinatura. RevenueCat SDK preparado (try/catch guard — funciona sem SDK instalado). Admin email com bypass permanente. VIP emails via tabela. Programa de indicacao com anti-fraude.
+
+### Tiers e Precos
+
+| Tier | Mensal | Anual | Trial |
+|------|--------|-------|-------|
+| Free | R$ 0 | — | — |
+| PRO | R$ 19,90 | R$ 179,90 | 7 dias |
+| Premium | R$ 29,90 | R$ 269,90 | 7 dias |
+
+### Features por Tier
+
+| Feature | Free | PRO | Premium |
+|---------|------|-----|---------|
+| Posicoes na carteira | Max 5 | Ilimitado | Ilimitado |
+| Opcoes ativas | Max 3 | Ilimitado | Ilimitado |
+| Grafico tecnico anotado | — | Sim | Sim |
+| Indicadores tecnicos/fundamentalistas | — | Sim | Sim |
+| Analise Completa, Relatorios, Import CSV | — | Sim | Sim |
+| Financas (orcamentos/recorrentes) | — | Sim | Sim |
+| Auto-sync dividendos | — | Sim | Sim |
+| Analise IA Claude | — | — | Sim |
+| Analises salvas IA | — | — | Sim |
+
+### Hierarquia de acesso (ordem de verificacao)
+
+1. **Admin** — `jonataspmagalhaes@gmail.com` hardcoded → Premium permanente
+2. **VIP** — tabela `vip_overrides` (email + tier) → tier configuravel via SQL
+3. **RevenueCat** — `Purchases.getCustomerInfo()` entitlements → tier do entitlement
+4. **Referral reward** — `profiles.referral_reward_tier/end` → tier temporario (30 dias)
+5. **Trial local** — `profiles.trial_pro_start/trial_premium_start` + 7 dias → tier do trial
+6. **Default** → free
+
+### Arquitetura
+
+| Arquivo | Descricao |
+|---------|-----------|
+| `src/constants/subscriptionFeatures.js` | TIERS, FEATURES map, LIMITS, PRICES, TIER_LABELS, TIER_COLORS, isAdminEmail, tierMeetsMin, getRequiredTier, generateReferralCode, REFERRAL_THRESHOLDS |
+| `src/contexts/SubscriptionContext.js` | Provider + hook `useSubscription()`. Exports: tier, tierLabel, tierColor, isAdmin, isVip, loading, trialInfo, trialExpiredRecently, referralCode, referralCount, canAccess, isAtLimit, startTrial, purchase, restore, refresh, applyReferralCode |
+| `src/components/UpgradePrompt.js` | Componente reutilizavel de bloqueio. Props: feature, compact, navigation, message. Modo bloco (Glass+lock+CTA) e modo compact (inline lock+badge) |
+| `src/screens/mais/PaywallScreen.js` | 3 cards tier com feature comparison, toggle mensal/anual, trial buttons, purchase, restore, secao "Indique amigos" com codigo + share + contagem, badge VIP |
+
+### 14 Gates nas telas
+
+**Limites Free (2)**:
+1. CarteiraScreen — FAB desabilitado quando positions >= 5 e !canAccess('POSITIONS_UNLIMITED')
+2. OpcoesScreen — Adicionar opcao bloqueado quando ativas >= 3 e !canAccess('OPTIONS_UNLIMITED')
+
+**Features PRO (10)**:
+3. OpcoesScreen — Grafico tecnico: !canAccess('TECHNICAL_CHART')
+4. CarteiraScreen — FundamentalAccordion: !canAccess('FUNDAMENTALS')
+5. MaisScreen — Import CSV item com lock: !canAccess('CSV_IMPORT')
+6. AnaliseScreen — Tela inteira: !canAccess('ANALYSIS_TAB')
+7. RelatoriosScreen — Tela inteira: !canAccess('REPORTS')
+8. GestaoScreen — Sub-tab Financas: !canAccess('FINANCES')
+9. FinancasView — Conteudo inteiro: !canAccess('FINANCES')
+10. ProventosScreen — Botao sync oculto: !canAccess('AUTO_SYNC_DIVIDENDS')
+11. HomeScreen — Auto-calc indicadores: !canAccess('INDICATORS')
+12. MaisScreen — Analise Completa item com lock: !canAccess('ANALYSIS_TAB')
+
+**Features Premium (2)**:
+13. OpcoesScreen — Botao IA: !canAccess('AI_ANALYSIS')
+14. OpcoesScreen — Analises salvas: !canAccess('SAVED_ANALYSES')
+
+### VIP Override
+
+Gerenciado via SQL Editor no Supabase Dashboard:
+```sql
+-- Conceder acesso
+INSERT INTO vip_overrides (email, tier, motivo) VALUES ('email@exemplo.com', 'pro', 'Parceria');
+-- Revogar
+UPDATE vip_overrides SET ativo = FALSE WHERE email = 'email@exemplo.com';
+```
+Client consulta via RPC `check_vip_override(email)` (SECURITY DEFINER).
+
+### RevenueCat — Configuracao para Cobrancas Reais (A Fazer)
+
+O codigo do app ja esta preparado para RevenueCat (try/catch guard — funciona sem SDK instalado). Para ativar cobrancas reais, seguir os passos abaixo:
+
+**Passo 1 — App Store Connect (portal Apple)**:
+1. Acessar App Store Connect → seu app → Subscriptions
+2. Criar Subscription Group (ex: "PremioLab Plans")
+3. Criar 4 produtos de assinatura auto-renovavel:
+   - `premiolab_pro_monthly` — PRO Mensal R$ 19,90
+   - `premiolab_pro_annual` — PRO Anual R$ 199,90
+   - `premiolab_premium_monthly` — Premium Mensal R$ 29,90
+   - `premiolab_premium_annual` — Premium Anual R$ 299,90
+4. Configurar periodo de trial gratuito se desejado (Apple gerencia)
+5. Submeter para review da Apple (pode levar 1-2 dias)
+
+**Passo 2 — Conta RevenueCat (revenueCat.com)**:
+1. Criar conta gratuita em revenueCat.com
+2. Criar projeto "PremioLab"
+3. Conectar com App Store Connect (Apple App-Specific Shared Secret)
+4. Criar 2 Entitlements: `pro` e `premium`
+5. Criar Offerings com os 4 produtos do App Store Connect
+6. Mapear produtos → entitlements (pro_monthly e pro_annual → `pro`, premium_monthly e premium_annual → `premium`)
+7. Copiar API Key publica (iOS) para usar no app
+
+**Passo 3 — Instalar SDK no app**:
+```bash
+npx expo install react-native-purchases
+```
+
+**Passo 4 — Configurar no app**:
+Adicionar em `App.js` ou no `SubscriptionContext.js` (antes do Provider):
+```javascript
+if (Purchases) {
+  Purchases.configure({ apiKey: 'SUA_REVENUECAT_API_KEY_IOS' });
+  if (user) Purchases.logIn(user.id);
+}
+```
+
+**Passo 5 — Build nativo**:
+```bash
+eas build --platform ios
+```
+RevenueCat precisa de modulo nativo — nao funciona em Expo Go.
+
+**Passo 6 — Testar**:
+- Usar Sandbox Tester (App Store Connect → Users and Access → Sandbox Testers)
+- Assinaturas sandbox renovam em minutos (nao meses)
+- Verificar entitlements no dashboard RevenueCat
+
+**Resumo da arquitetura**:
+
+| Parte | Onde | O que faz |
+|-------|------|-----------|
+| App Store Connect | Site Apple | Cria produtos, precos, review |
+| RevenueCat | revenueCat.com | Gerencia assinaturas, analytics, webhooks, promotional |
+| SDK `react-native-purchases` | Codigo JS | Paywall, compra, restore, listener |
+| SubscriptionContext.js | App | Ja preparado — detecta entitlements automaticamente |
+
+### RevenueCat Promotional
+
+Ja suportado automaticamente. Quando admin concede entitlement "pro" ou "premium" via Dashboard RevenueCat:
+1. Dashboard → Customers → buscar App User ID
+2. Grant Promotional → selecionar entitlement + duracao
+3. App detecta via `addCustomerInfoUpdateListener` em tempo real
+
+### Programa de Indicacao
+
+**Regras**:
+- Cada usuario recebe codigo unico `PL-XXXXXX` (gerado no primeiro acesso)
+- Novo usuario insere codigo do amigo no registro (campo opcional)
+- Indicacao fica "pending" ate indicado iniciar trial ou assinar
+- 3 indicados ativos → 1 mes PRO gratis para o referrer
+- 5 indicados ativos → 1 mes Premium gratis para o referrer
+
+**Anti-fraude (3 camadas)**:
+1. **Rate limiting** — max 10 indicacoes/mes por referrer (RPC `check_referral_rate_limit`)
+2. **Device ID** — UUID unico por instalacao (AsyncStorage), salvo em profiles + referrals. RPC `check_referral_device` bloqueia mesmo dispositivo referindo ao mesmo referrer
+3. **Ativacao condicional** — referral so vira "active" quando indicado realmente assina/trial (nao basta criar conta)
+
+Outras protecoes: email verificado (Supabase Auth), codigo proprio bloqueado, UNIQUE(referred_id)
+
+### Trial — 7 dias por plano, 1 vez cada
+
+- Cada usuario pode testar PRO 7 dias (1 vez) e Premium 7 dias (1 vez), independentemente
+- Controle via profiles: `trial_pro_used` + `trial_pro_start`, `trial_premium_used` + `trial_premium_start`
+- Ao iniciar: marca `used = TRUE` + salva `start = hoje`
+- SubscriptionContext verifica `start + 7 dias > hoje`
+- Expirado: tier volta a free automaticamente
+- HomeScreen exibe alerta quando trial com <= 2 dias restantes
+
+### Arquivos criados/modificados
+
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/constants/subscriptionFeatures.js` | **Criado** — constantes, helpers, REFERRAL_THRESHOLDS, generateReferralCode |
+| `src/contexts/SubscriptionContext.js` | **Criado** — Provider com 6 checks hierarquicos, trial, VIP, referral, RevenueCat |
+| `src/components/UpgradePrompt.js` | **Criado** — lock/upgrade component (bloco + compact) |
+| `src/screens/mais/PaywallScreen.js` | **Criado** — 3 tier cards, billing toggle, trial, purchase, restore, referral section |
+| `src/utils/deviceId.js` | **Criado** — UUID unico por instalacao para anti-fraude |
+| `subscription-trial-migration.sql` | **Criado** — 4 colunas trial no profiles |
+| `subscription-extras-migration.sql` | **Criado** — tabela vip_overrides, tabela referrals, RPCs anti-fraude, colunas referral/device no profiles |
+| `App.js` | +SubscriptionProvider entre AuthProvider e PrivacyProvider |
+| `src/components/index.js` | +export UpgradePrompt |
+| `src/navigation/AppNavigator.js` | +PaywallScreen stack screen |
+| `src/screens/mais/MaisScreen.js` | +secao ASSINATURA, +badge tier, +gates em items, +item "Indicar amigos" |
+| `src/screens/auth/LoginScreen.js` | +campo "Codigo de indicacao" no registro |
+| `src/contexts/AuthContext.js` | +processamento referral code no onboarding, +device ID save |
+| `src/services/database.js` | +checkVipOverride, +getReferralsByReferrer, +getReferralCount, +addReferral, +activateReferral, +findReferrerByCode, +applyReferralReward, +checkReferralRateLimit, +checkReferralDevice, +saveDeviceId |
+| `src/screens/analise/AnaliseScreen.js` | +gate ANALYSIS_TAB (full screen) |
+| `src/screens/relatorios/RelatoriosScreen.js` | +gate REPORTS (full screen) |
+| `src/screens/gestao/GestaoScreen.js` | +gate FINANCES (sub-tab) |
+| `src/screens/gestao/FinancasView.js` | +gate FINANCES (conteudo) |
+| `src/screens/proventos/ProventosScreen.js` | +gate AUTO_SYNC_DIVIDENDS (sync button) |
+| `src/screens/home/HomeScreen.js` | +gates INDICATORS/AUTO_SYNC_DIVIDENDS, +alerta trial expirando |
+| `src/screens/opcoes/OpcoesScreen.js` | +4 gates (OPTIONS_UNLIMITED, TECHNICAL_CHART, AI_ANALYSIS, SAVED_ANALYSES) |
+| `src/screens/carteira/CarteiraScreen.js` | +3 gates (POSITIONS_UNLIMITED, FUNDAMENTALS, CSV_IMPORT) |
+
+## Creditos IA + Limites de Uso + Consumable IAP (Implementado)
+
+Sistema de controle de uso de IA com limites por plano e venda de creditos extras via compra consumivel (in-app purchase).
+
+### Limites por plano
+
+| Plano | Limite diario | Limite mensal | Creditos extras |
+|-------|---------------|---------------|-----------------|
+| Free | 0 | 0 | Nao pode comprar |
+| PRO | 0 | 0 | Nao pode comprar |
+| Premium | 5 analises | 100 analises | Sim |
+
+### Custos e margens
+
+| Metrica | Valor |
+|---------|-------|
+| Custo por analise (Haiku 4.5) | ~R$ 0,10 (~$0,016) |
+| Receita liquida Premium (apos Apple 30%) | ~R$ 20,93/mes |
+| Alocacao IA (~35% do liquido) | ~R$ 7,33/mes |
+| Custo medio real (utilizacao ~30%) | ~R$ 3-4/mes |
+
+### Pacotes de creditos extras (Consumable IAP)
+
+| Product ID | Creditos | Preco | Por credito | Margem liquida |
+|------------|----------|-------|-------------|----------------|
+| `premiolab_ai_20` | 20 analises | R$ 9,90 | R$ 0,50 | ~72% |
+| `premiolab_ai_50` | 50 analises | R$ 19,90 | R$ 0,40 | ~75% |
+| `premiolab_ai_150` | 150 analises | R$ 44,90 | R$ 0,30 | ~77% |
+
+### Tabelas SQL
+
+```sql
+-- Log de uso de IA
+CREATE TABLE ai_usage (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  tipo TEXT NOT NULL,           -- 'opcao', 'carteira', 'ativo', 'resumo'
+  tokens_in INTEGER,
+  tokens_out INTEGER,
+  custo_estimado NUMERIC,
+  resultado_id TEXT             -- referencia para recuperar analise salva
+);
+CREATE INDEX idx_ai_usage_user_date ON ai_usage(user_id, created_at);
+ALTER TABLE ai_usage ENABLE ROW LEVEL SECURITY;
+CREATE POLICY ai_usage_user ON ai_usage FOR ALL USING (auth.uid() = user_id);
+
+-- Creditos extras no perfil
+ALTER TABLE profiles ADD COLUMN ai_credits_extra INTEGER DEFAULT 0;
+```
+
+### Fluxo de verificacao (Edge Function)
+
+```
+1. Verifica tier Premium (RevenueCat)
+   - Nao Premium → retorna 403
+2. Conta uso hoje: SELECT COUNT FROM ai_usage WHERE date = today
+   - < 5 → OK (limite diario do plano)
+   - >= 5 → verifica creditos extras
+3. Creditos extras? profiles.ai_credits_extra > 0
+   - Sim → reserva 1 credito (decrementa)
+   - Nao → verifica limite mensal
+4. Limite mensal? COUNT mes < 100
+   - Sim → OK
+   - Nao → retorna 429 "Limite atingido"
+5. Chama Claude API
+6. SUCESSO → INSERT ai_usage (confirma debito)
+   ERRO → restaura credito reservado (refund automatico)
+7. Retorna resultado
+```
+
+### Protecao contra erros (refund automatico)
+
+**Principio**: credito so e debitado definitivamente APOS sucesso da analise.
+
+| Cenario de erro | Acao | Credito |
+|-----------------|------|---------|
+| Claude API timeout/500 | Edge Function retorna erro | Nao debita (restaura se reservado) |
+| Resposta truncada/invalida | Detecta e retorna erro | Nao debita (restaura se reservado) |
+| Edge Function crash | Nenhum INSERT ai_usage | Nao debita |
+| Rede do usuario cai | Analise salva no servidor | Debita (analise gerada e recuperavel) |
+
+**Recuperacao de analise perdida**: se a rede caiu mas a analise foi gerada, o app busca `GET /ai-usage/last` na proxima abertura e exibe a analise pendente. O campo `resultado_id` na tabela `ai_usage` referencia a analise completa salva.
+
+**Implementacao na Edge Function**:
+```
+// Pseudo-codigo
+var creditoUsado = false;
+if (usoHoje >= 5 && creditosExtras > 0) {
+  await decrementCredito(userId);  // reserva
+  creditoUsado = true;
+}
+try {
+  var resultado = await chamarClaude(prompt);
+  if (!resultado || resultado.truncado) throw new Error('resposta invalida');
+  await insertAiUsage(userId, tipo, tokens);
+  return resultado;
+} catch (erro) {
+  if (creditoUsado) await incrementCredito(userId);  // refund
+  return { error: erro.message };
+}
+```
+
+### Venda de creditos — RevenueCat Consumables
+
+**Product type**: Consumable (nao subscription)
+**Webhook**: RevenueCat → Edge Function `add-ai-credits` → incrementa `profiles.ai_credits_extra`
+**Nunca confiar no client**: creditos adicionados apenas via webhook server-side
+
+### Pontos de entrada para compra
+
+1. **PaywallScreen** — secao "Creditos IA extras" abaixo dos planos de assinatura
+2. **Tela de analise IA** — Alert quando atinge limite: "Comprar mais creditos?"
+3. **MaisScreen** — item "Creditos IA" com saldo atual + botao comprar
+
+### UI de saldo
+Header da analise IA ou MaisScreen:
+```
+Analises IA: 3/5 hoje | 47/100 mes | +12 creditos extras
+```
+
+### Tipos de analise IA (todos compartilham o mesmo limite)
+
+| Tipo | Descricao | Tela |
+|------|-----------|------|
+| `opcao` | Analise de operacao de opcoes (existente) | OpcoesScreen > Simulador |
+| `carteira` | Analise completa da carteira | CarteiraScreen ou AnaliseScreen |
+| `ativo` | Analise individual de ativo | AssetDetailScreen |
+| `resumo` | Resumo diario/semanal inteligente | HomeScreen |
+| `estrategia` | Sugestao de covered calls/CSP | OpcoesScreen |
+| `renda` | Analise de renda passiva/proventos | RendaScreen |
+
+### Arquivos criados/modificados
+
+| Arquivo | Acao |
+|---------|------|
+| `creditos-ia-migration.sql` | **Criado** — tabela ai_usage + coluna ai_credits_extra + 5 RPCs (get_ai_usage_today, get_ai_usage_month, decrement_ai_credit, increment_ai_credit, add_ai_credits) |
+| `supabase/functions/analyze-option/index.ts` | **Modificado** — supabaseAdmin service role, verificacao limites (5/dia, 100/mes), reserva credito, refund em 3 pontos (API error, empty response, catch), log ai_usage, retorna _usage |
+| `supabase/functions/add-ai-credits/index.ts` | **Criado** — webhook RevenueCat (INITIAL_PURCHASE/NON_RENEWING_PURCHASE) + admin manual call, 3 pacotes (20/50/150 creditos) |
+| `src/services/aiUsageService.js` | **Criado** — getAiUsageToday, getAiUsageMonth, getAiCreditsExtra, logAiUsage, getAiUsageSummary, checkAiLimit |
+| `src/screens/mais/PaywallScreen.js` | **Modificado** — secao "Creditos IA" com 3 KPIs (hoje/mes/extras) + 3 pacotes de compra (preview, sem IAP ativo ainda) |
+| `src/screens/opcoes/OpcoesScreen.js` | **Modificado** — import aiUsageService, state aiUsage, fetch summary no load, exibe uso inline (Hoje: X/5, Mes: X/100, +N extras), atualiza apos analise via _usage |
+
+## 4 Novos Widgets iOS — Patrimonio, Heatmap, Vencimentos, Renda (Implementado)
+
+5 widgets iOS nativos via WidgetBundle no mesmo target. Dados sincronizados via UserDefaults (App Group) com payload unificado. Deep links para navegacao direta por tab.
+
+### Widgets
+
+| Widget | Tamanho | Descricao | Deep Link |
+|--------|---------|-----------|-----------|
+| QuickExpense | medium | Gastos rapidos no cartao (existente) | premiolab://gasto-rapido/{id} |
+| Patrimonio | small + medium | Valor total + rentabilidade % + sparkline 30d | premiolab://tab/home |
+| Heatmap | medium | Grid 4x2 com top 8 posicoes e variacao diaria colorida | premiolab://tab/carteira |
+| Vencimentos | medium | 3 proximas opcoes a vencer com DTE badge (verm/amar/verde) | premiolab://tab/opcoes |
+| Renda | small | Total mensal + progress bar meta + comparativo mes anterior | premiolab://tab/renda |
+
+### Arquitetura de dados
+
+- **Payload unificado**: key `allWidgetData` no UserDefaults (App Group), JSON com 5 slices
+- **Sync**: `widgetBridge.updateAllWidgetsFromDashboard()` recebe resultado do getDashboard (zero queries extras para patrimonio/heatmap/vencimentos/renda), busca cartoes/fatura/presets separadamente para QuickExpense
+- **Compatibilidade**: mantem key `widgetData` para QuickExpense legado, `loadAllWidgetData()` faz fallback
+- **Limites**: 30 history points, 8 positions, 3 opcoes
+
+### Deep links de tab
+
+`premiolab://tab/{home,carteira,opcoes,renda,mais}` via linkingConfig do React Navigation com nested screens em MainTabs.
+
+### Arquivos modificados/criados
+
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/services/database.js` | +`opsAtivasData` no return de getDashboard (array completo de opcoes ativas) |
+| `src/services/widgetBridge.js` | +`updateAllWidgetsFromDashboard()`, +`saveAllWidgetData()`, +`parseLocalDate()` |
+| `src/screens/home/HomeScreen.js` | Troca `updateWidgetFromContext` por `updateAllWidgetsFromDashboard` com result do dashboard |
+| `src/navigation/AppNavigator.js` | +deep links `tab/{home,carteira,opcoes,renda,mais}` no linkingConfig |
+| `targets/widget/Widget.swift` | WidgetBundle com 5 widgets, 5 models Codable, 5 providers, 5 views, sparkline Shape |
+| `targets/widget/expo-target.config.js` | displayName atualizado para 'PremioLab Widgets' |
+
+## PIX como Meio de Pagamento (Implementado)
+
+PIX diferenciado de debito e cartao em todo o fluxo de despesas. Campo `meio_pagamento` na tabela `movimentacoes` identifica o meio usado (pix, debito, credito, null=legado).
+
+### Migration SQL (pix-migration.sql)
+```sql
+ALTER TABLE movimentacoes ADD COLUMN IF NOT EXISTS meio_pagamento TEXT DEFAULT NULL;
+```
+
+### Valores do campo `meio_pagamento`
+| Valor | Significado |
+|-------|-------------|
+| `null` | Legado / sistema (compra_ativo, dividendo, etc.) |
+| `'pix'` | Pagamento via PIX (debita saldo da conta) |
+| `'debito'` | Debito direto da conta |
+| `'credito'` | Cartao de credito (vai para fatura) |
+
+### Fluxo por meio de pagamento
+| Meio | Funcao | Efeito |
+|------|--------|--------|
+| PIX | `addMovimentacaoComSaldo` | Debita saldo da conta + registra mov com `meio_pagamento: 'pix'` |
+| Conta | `addMovimentacaoComSaldo` | Debita saldo da conta + registra mov com `meio_pagamento: 'debito'` |
+| Cartao | `addMovimentacaoCartao` | Registra mov na fatura com `meio_pagamento: 'credito'` |
+
+### Gastos Rapidos com PIX
+- Presets agora aceitam `meio_pagamento: 'pix'` ou `'credito'`
+- PIX presets salvam `conta` (nome) e `conta_moeda` em vez de `cartao_id`
+- `executeGastoRapido` roteia: PIX/debito → `addMovimentacaoComSaldo`, credito → `addMovimentacaoCartao`
+- Widget iOS mostra icone raio (bolt.fill, verde) para PIX, icone original para cartao
+
+### UI
+- **AddMovimentacaoScreen**: 3 pills (Conta / PIX / Cartao). PIX mostra selector de conta
+- **CaixaView**: filtro "PIX" nas movimentacoes. Badge "PIX" verde + icone flash nos itens
+- **AddGastoRapidoScreen**: toggle Cartao/PIX no topo. PIX mostra selector de conta
+- **ConfigGastosRapidosScreen**: badge "PIX" (verde) ou "CARTAO" (accent) em cada preset
+- **FinancasView**: secao "MEIO DE PAGAMENTO" com 3 cards (PIX/Cartao/Debito) mostrando valor + %
+- **FinancasView FAB**: item "PIX" com icone flash para criar despesa PIX rapidamente
+
+### getFinancasSummary — porMeioPagamento
+Retorno inclui `porMeioPagamento: { pix: X, credito: Y, debito: Z, outro: W }` com totais de saidas por meio.
+
+### Arquivos criados/modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `pix-migration.sql` | **Criado** — ALTER TABLE movimentacoes ADD meio_pagamento |
+| `src/services/database.js` | addMovimentacaoCartao salva meio_pagamento, executeGastoRapido roteia PIX/cartao, getFinancasSummary agrega porMeioPagamento |
+| `src/screens/gestao/AddMovimentacaoScreen.js` | 3 pills pagamento (Conta/PIX/Cartao), suporte presetPayMethod='pix', meio_pagamento no payload |
+| `src/screens/gestao/CaixaView.js` | Filtro PIX em MOVS_TIPOS, icone flash + badge PIX nos itens |
+| `src/screens/gestao/AddGastoRapidoScreen.js` | Toggle Cartao/PIX, selector conta para PIX, preset salva meio_pagamento/conta/conta_moeda |
+| `src/screens/gestao/ConfigGastosRapidosScreen.js` | Badge PIX/CARTAO no card do preset |
+| `src/screens/gestao/FinancasView.js` | Secao MEIO DE PAGAMENTO (3 cards), item PIX no FAB |
+| `src/services/widgetBridge.js` | Preset inclui meio_pagamento e conta |
+| `targets/widget/Widget.swift` | WidgetPreset +meio_pagamento +conta, icone bolt verde para PIX |
+| `src/navigation/AppNavigator.js` | Toast "via PIX" no deep link gasto-rapido |
+
+## Subcategorias Expandidas + UI Profissional (Implementado)
+
+Expansao massiva do sistema de subcategorias financeiras e padronizacao visual de todas as telas de movimentacao.
+
+### Categorias expandidas (financeCategories.js)
+
+- **14 grupos**: moradia, alimentacao, transporte, saude, educacao, lazer, compras, servicos, seguros, pessoal, pets, renda, investimento, outro
+- **~90+ subcategorias**: cobrindo praticamente todos os gastos do dia a dia
+- **2 grupos novos**: `pessoal` (cabeleireiro, cosmeticos, vestuario, calcados, academia) e `pets` (racao, veterinario, petshop, medicamentos pet)
+- **Exports centralizados**: SUBCATS_SAIDA, SUBCATS_ENTRADA, getGrupoMeta, getCatIcon, getCatColor, getCatLabel, getSubcatLabel
+
+### UI Card Grid para selecao de grupo/subcategoria
+
+**AddMovimentacaoScreen** e **AddRecorrenteScreen**: selecao de grupo usa card grid profissional com Glass cards contendo icone + label do grupo como header, subcategorias como Pills dentro. Padrao identico para entrada e saida.
+
+### Subcategoria visivel em todas as telas
+
+**ExtratoScreen** e **CaixaView** (3 locais): movimentacoes usam icone, cor e label da subcategoria quando disponivel (`finCats.SUBCATEGORIAS[mov.subcategoria]`). Badge do grupo exibido. PIX badge verde. Ionicons substituem setas de texto.
+
+### Renomeacao "Conta" para "Debito"
+
+AddMovimentacaoScreen: pill de meio de pagamento renomeada de "Conta" para "Debito". Resumo exibe "DEBITO" em vez de "CONTA". Tres meios: Debito, PIX, Cartao.
+
+### Correcao de portugues
+
+- `financeCategories.js`: "Cabelereiro/Barbeiro" → "Cabeleireiro/Barbeiro" (2 ocorrencias)
+
+### Arquivos modificados
+
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/constants/financeCategories.js` | +2 grupos (pessoal, pets), ~60 subcategorias novas, fix "Cabeleireiro" |
+| `src/screens/gestao/AddMovimentacaoScreen.js` | Card grid para entrada (igual saida), "Conta" → "Debito", subcategoria picker profissional |
+| `src/screens/gestao/AddRecorrenteScreen.js` | Card grid para grupo/subcategoria (entrada e saida) |
+| `src/screens/gestao/ExtratoScreen.js` | Subcategoria icon/color/label, PIX badge, grupo badge, Ionicons |
+| `src/screens/gestao/CaixaView.js` | 3 locais atualizados com subcategoria metadata, PIX badge, grupo badge |
+
+## FaturaScreen — Fix Teclado + Cashback Melhorado (Implementado)
+
+Correcao de bugs de teclado e melhoria na exibicao de cashback/pontos na fatura e no card do cartao.
+
+### Bugs corrigidos
+
+1. **Teclado sumindo/voltando ao digitar R$**: painel "Lancar total manual" estava dentro do `ListHeaderComponent` do FlatList. Cada keystroke causava re-render do header, remontando o TextInput e dismissing o teclado. **Fix**: moveu o painel para FORA do FlatList, renderizado acima dele como componente independente.
+2. **Cursor pulando para R$ ao digitar observacao**: mesma causa — TextInputs dentro de `ListHeaderComponent` perdiam foco ao re-render. **Fix**: ambos campos agora estao fora do FlatList. Adicionado `returnKeyType="next"` e `returnKeyType="done"`.
+
+### Cashback/pontos mais visivel (FaturaScreen)
+
+Card redesenhado com layout profissional:
+- Icone circular (36px) com fundo colorido (amarelo pontos, verde cashback)
+- Nome do programa + "Acumulado este mes"
+- Valor grande centralizado (24px, bold)
+- Unidade abaixo: "pontos" ou "X% da fatura"
+- Badges de taxa por regra (ex: "3x", "1.5% (USD)")
+
+### Cashback/pontos no card do cartao (CaixaView)
+
+- Badge compacto abaixo do nome do cartao no card de credito
+- Icone estrela (pontos) ou cifrao (cashback) + valor + nome do programa
+- Dados calculados no `load()` via `getRegrasPontos` + `calcPontos` para cada cartao
+- State `cardPontos` armazena valores por cartao
+
+### Arquivos modificados
+
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/gestao/FaturaScreen.js` | Painel manual fora do FlatList, card cashback redesenhado, novos styles |
+| `src/screens/gestao/CaixaView.js` | +import getRegrasPontos, +calcPontos helper, +state cardPontos, badge cashback no card |
+
+## Logo PL Recentralizado (Implementado)
+
+Recorte do logo PL do icon.png com melhor centralizacao e tamanho maior. Logo anterior estava ligeiramente deslocado para a esquerda.
+
+### Mudancas
+
+- `assets/logo.png`: recortado do icon.png (1024x1024) com offset (165, 175, 700x700) → 200x200, PL maior e centrado
+- `LoginScreen.js`: logo 96x96 → 120x120, borderRadius 24 → 28
+
+### Build
+
+- Versao: 4.1.0 (build 17)
+- Widget.swift: fix parametros faltantes `meio_pagamento` e `conta` nos presets de exemplo
+- TestFlight: publicado
+
+## Alertas de Preco de Opcoes (Implementado)
+
+Sistema de alertas configuráveis para opções na grade real OpLab. Usuário pode criar alertas de preço, divergência BS, IV e volume diretamente na grade de opções.
+
+### Tipos de alerta
+
+| Tipo | Descrição | Verificação |
+|------|-----------|-------------|
+| `preco` | Preço mid (bid+ask)/2 atinge valor alvo | mid >= ou <= valor_alvo |
+| `divergencia` | Divergência entre preço real e teórico BS | abs(mid - bs_price) / bs_price * 100 |
+| `iv` | Volatilidade implícita atinge threshold | IV da opção >= ou <= valor_alvo |
+| `volume` | Volume ultrapassa mínimo | volume >= valor_alvo |
+
+### Tabela `alertas_opcoes`
+- user_id, ticker_opcao, ativo_base, tipo_alerta, valor_alvo, direcao (acima/abaixo), tipo_opcao (call/put), strike, vencimento, ativo, disparado, disparado_em, criado_em
+- RLS por user_id, index no user_id
+
+### UI na grade (OpcoesScreen)
+- Ícone sino (notifications-outline) em cada strike row, ao lado do moneyness badge
+- Sino preenchido (amarelo) se já tem alerta ativo naquele strike
+- Toque abre Modal bottom sheet com:
+  - Info do strike + ticker + valores atuais (mid, IV, volume)
+  - Pills tipo de alerta (Preço, Divergência BS, IV, Volume)
+  - Pills CALL/PUT
+  - Pills direção (Cair abaixo de / Subir acima de)
+  - Input valor alvo (decimal-pad)
+  - Lista de alertas ativos no mesmo strike com botão excluir
+  - Botão "Criar Alerta" com loading state
+
+### Verificação de alertas
+- useEffect no `chainsReady` + `priceAlerts` constrói mapa de chains cached e chama `checkPriceAlerts`
+- Alertas disparados: toast + haptic warning + notificação local push + markAlertaDisparado no DB
+- State `priceAlertsFired` previne disparo repetido na mesma sessão
+
+### database.js — Funções adicionadas
+- `getAlertasOpcoes(userId)` — busca alertas ativos
+- `addAlertaOpcao(userId, data)` — insere novo alerta
+- `deleteAlertaOpcao(id)` — exclui alerta
+- `markAlertaDisparado(id)` — marca como disparado com timestamp
+- `deactivateAlertaOpcao(id)` — desativa alerta
+- `savePushToken(userId, token, platform)` — upsert token push
+
+### Arquivos criados/modificados
+| Arquivo | Mudança |
+|---------|---------|
+| `alertas-opcoes-notif-migration.sql` | **Criado** — tabelas alertas_opcoes + push_tokens |
+| `src/services/database.js` | +6 funções CRUD alertas + push tokens |
+| `src/screens/opcoes/OpcoesScreen.js` | Import alertas, states, bell icon na grade, Modal criação, useEffect verificação |
+
+## Notificações Push (Implementado)
+
+Push notifications via expo-notifications para vencimentos de opções, renda fixa, e alertas de preço. Registro automático de token, agendamento local, handler foreground.
+
+### Arquitetura
+
+| Componente | Descrição |
+|------------|-----------|
+| `expo-notifications` | SDK Expo para push notifications (local + remote) |
+| `notificationService.js` | Service com 8 funções: register, save token, schedule, check, send, setup |
+| `push_tokens` (Supabase) | Tabela com tokens por usuário para futuro push server-side |
+| `App.js` | Handler foreground + canal Android configurados no startup |
+| `HomeScreen.js` | Register token + schedule expiry notifications no load |
+| `OpcoesScreen.js` | Check price alerts quando chains carregam |
+
+### Notificações locais agendadas
+
+| Evento | Antecedência | Título |
+|--------|-------------|--------|
+| Opção vencendo | 7d, 3d, 1d | "Opção vencendo em X dias" |
+| Renda fixa vencendo | 7d, 1d | "Renda fixa vencendo em X dias" |
+| Alerta preço disparado | Imediato | "Alerta de opção disparado" |
+
+### Agendamento
+- `scheduleOptionExpiryNotifications`: cancela todos os agendados primeiro, depois agenda para cada opção ativa nos triggers 7d/3d/1d. Horário: 9h BRT (12h UTC)
+- `scheduleRFExpiryNotifications`: agenda para RF nos triggers 7d/1d
+- Re-agendado a cada abertura do app (HomeScreen load)
+
+### notificationService.js — Funções exportadas
+- `registerForPushNotifications()` — pede permissão, retorna Expo push token
+- `savePushToken(userId, token, platform)` — upsert na tabela push_tokens
+- `scheduleOptionExpiryNotifications(opcoes)` — agenda notifs locais para opções
+- `scheduleRFExpiryNotifications(rendaFixa)` — agenda notifs locais para RF
+- `checkPriceAlerts(userId, alertasOpcoes, chainsCache)` — verifica 4 tipos de alerta contra cache OpLab
+- `sendLocalNotification(title, body, data)` — notificação local imediata
+- `setupNotificationChannel()` — canal Android (HIGH importance)
+- `setNotificationHandler()` — handler foreground (show alert + sound)
+
+### Configuração (app.json)
+```json
+["expo-notifications", { "icon": "./assets/icon.png", "color": "#6C5CE7", "sounds": [], "defaultChannel": "default" }]
+```
+
+### Build
+Requer `eas build` para gerar binário com expo-notifications nativo. Notificações locais funcionam sem servidor. Push remoto futuro via Expo Push API + tokens salvos.
+
+### Arquivos criados/modificados
+| Arquivo | Mudança |
+|---------|---------|
+| `alertas-opcoes-notif-migration.sql` | **Criado** — tabela push_tokens |
+| `src/services/notificationService.js` | **Criado** — 8 funções de notificação |
+| `app.json` | +plugin expo-notifications |
+| `App.js` | +setup handler + canal Android |
+| `src/screens/home/HomeScreen.js` | +register token, +schedule option/RF expiry notifications |
+| `src/screens/opcoes/OpcoesScreen.js` | +check price alerts, +send local notification on trigger |
+| `package.json` | +expo-notifications dependency |
+
+## Parcelamento de Cartao de Credito (Implementado)
+
+Compras no cartao de credito podem ser parceladas em ate 12x. Cada parcela vira uma movimentacao separada com data deslocada por mes.
+
+### Arquitetura
+
+- `addMovimentacaoCartao` em database.js aceita `mov.parcelas` (default 1)
+- Multi-parcela gera `parcela_grupo_id` UUID para agrupar
+- `valorParcela = valor / parcelas` (ultima parcela absorve centavos residuais)
+- Cada payload tem `parcela_atual`, `parcela_total`, `parcela_grupo_id`
+- Descricao acrescida de `(1/3)`, `(2/3)`, etc.
+- Single parcela usa `.insert().select().single()`, multi usa `.insert(payloads).select()`
+
+### UI (AddMovimentacaoScreen)
+- Pills 1-12x em ScrollView horizontal (so aparece quando `payMethod === 'cartao' && cartaoId`)
+- Preview: "3x de R$ 33,33 (total R$ 100,00)"
+- Reset parcelas ao "Adicionar outra"
+
+### Badges
+- CaixaView (2 locais), ExtratoScreen e FaturaScreen exibem badge amarelo `1/3` quando parcela
+
+### Migration SQL (parcelamento-migration.sql)
+```sql
+ALTER TABLE movimentacoes ADD COLUMN IF NOT EXISTS parcela_atual INTEGER DEFAULT NULL;
+ALTER TABLE movimentacoes ADD COLUMN IF NOT EXISTS parcela_total INTEGER DEFAULT NULL;
+ALTER TABLE movimentacoes ADD COLUMN IF NOT EXISTS parcela_grupo_id UUID DEFAULT NULL;
+CREATE INDEX IF NOT EXISTS idx_movimentacoes_parcela_grupo ON movimentacoes(parcela_grupo_id) WHERE parcela_grupo_id IS NOT NULL;
+```
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `parcelamento-migration.sql` | **Criado** — 3 colunas + index |
+| `src/services/database.js` | addMovimentacaoCartao com batch parcelas |
+| `src/screens/gestao/AddMovimentacaoScreen.js` | Pills 1-12x, preview, state parcelas |
+| `src/screens/gestao/CaixaView.js` | Badge parcela em 2 locais |
+| `src/screens/gestao/ExtratoScreen.js` | Badge parcela |
+| `src/screens/gestao/FaturaScreen.js` | Badge parcela |
+
+## Sparkline por Ativo no Card Expandido (Implementado)
+
+Cards expandidos na CarteiraScreen agora incluem grafico de historico de precos com filtros de periodo. Lazy loading ao expandir.
+
+### Comportamento
+- Secao "HISTORICO DE PRECOS" entre DESEMPENHO e FundamentalAccordion
+- Pills de periodo: 1M, 3M (default), 6M, 1A
+- InteractiveChart (120px altura) com dados OHLCV via `fetchPriceHistoryRange`
+- Loading spinner enquanto busca dados
+- Dados transformados de OHLCV `{date, close}` para `[{value, date}]`
+
+### States no PositionCard
+```javascript
+var _chartData = useState(null); var chartData = _chartData[0]; var setChartData = _chartData[1];
+var _chartPeriod = useState('3mo'); var chartPeriod = _chartPeriod[0]; var setChartPeriod = _chartPeriod[1];
+var _chartLoading = useState(false); var chartLoading = _chartLoading[0]; var setChartLoading = _chartLoading[1];
+```
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/carteira/CarteiraScreen.js` | Import InteractiveChart + fetchPriceHistoryRange, states chart*, loadChart(), handleChartPeriod(), secao HISTORICO DE PRECOS com pills + chart |
+
+## Botao Meta no Card Expandido (Implementado)
+
+Botao "Meta" (icone flag) no card expandido da CarteiraScreen que navega direto para Analise > Rebalanceamento.
+
+### Comportamento
+- Botao amarelo (C.etfs) na segunda linha de acoes (ao lado de "Mais")
+- Navega para `navigation.navigate('Analise', { initialTab: 'rebal' })`
+- AnaliseScreen aceita `route.params.initialTab` para abrir na sub-tab correta
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/carteira/CarteiraScreen.js` | Botao Meta com Ionicons flag-outline |
+| `src/screens/analise/AnaliseScreen.js` | Aceita `route.params.initialTab` no useState |
+
+## Push Notifications Server-Side (Implementado)
+
+Edge Function `check-price-alerts` roda a cada 5 minutos durante horario de mercado via pg_cron. Verifica alertas de preco de opcoes contra dados reais do mercado (OpLab API) e envia push notifications via Expo Push API.
+
+### Arquitetura
+- **Edge Function**: `supabase/functions/check-price-alerts/index.ts`
+- **Cron**: `check-alerts-cron.sql` — pg_cron `*/5 * * * *`, filtra seg-sex 10-18h BRT
+- **Dados**: OpLab API `/v3/market/instruments/series/{ticker}?bs=true`
+- **Push**: Expo Push API `https://exp.host/--/api/v2/push/send`
+- **Tokens**: tabela `push_tokens` (registrados via `notificationService.registerPushToken`)
+
+### Tipos de alerta verificados
+| Tipo | Verificacao |
+|------|-------------|
+| `preco` | Mid-price (bid+ask)/2 vs valor_alvo, direcao acima/abaixo |
+| `divergencia` | % divergencia mid vs preco teorico BS |
+| `iv` | IV da opcao vs threshold |
+| `volume` | Volume da opcao vs threshold |
+
+### Fluxo
+1. Busca alertas ativos nao disparados (`alertas_opcoes WHERE ativo=true AND disparado=false`)
+2. Agrupa por `ativo_base`, busca cadeia OpLab para cada
+3. Encontra opcao na cadeia por `ticker_opcao`
+4. Verifica condicao do alerta
+5. Se disparado: marca `disparado=true`, busca push tokens do usuario, envia via Expo Push API
+6. Max 50 notificacoes por execucao
+
+### Deploy
+```
+npx supabase functions deploy check-price-alerts --no-verify-jwt --project-ref zephynezarjsxzselozi
+```
+Apos deploy, executar `check-alerts-cron.sql` no SQL Editor do Supabase Dashboard.
+
+### Arquivos criados
+| Arquivo | Mudanca |
+|---------|---------|
+| `supabase/functions/check-price-alerts/index.ts` | **Criado** — Edge Function com OpLab + Expo Push |
+| `check-alerts-cron.sql` | **Criado** — pg_cron job cada 5min em horario de mercado |
+
 ## Proximas Melhorias Possiveis
 
-- [ ] Rolagem de opcoes (fechar atual + abrir nova com um clique)
-- [ ] Notificacoes push para vencimentos proximos
+- [x] Rolagem de opcoes (fechar atual + abrir nova com um clique)
+- [x] Notificacoes push para vencimentos proximos
+- [x] Alertas de preco de opcoes (grade OpLab)
 - [x] Importacao de operacoes via CSV/Excel/Nota de Corretagem
+- [x] Push notifications server-side via Expo Push API (Edge Function cron)
+- [x] Parcelamento de cartao de credito (1-12x)
+- [x] Sparkline por ativo no card expandido
+- [x] Ordenacao de posicoes (sort por valor, nome, variacao, P&L)
+- [x] Export CSV de relatorios (botao download + compartilhar)
+- [x] Comparativo entre ativos (grafico normalizado ate 3 tickers)
+- [x] Multi-portfolio (portfolios nomeados com cor/icone)
+- [x] Resumo IA diario/semanal com push notification
 - [ ] Integracao com CEI/B3 para importacao automatica
-- [ ] Dark/Light mode toggle
-- [ ] Backup/restore de dados
+- [x] Backup/restore de dados
 - [ ] Screen reader flow: testar e ajustar ordem de leitura com accessibilityOrder
+
+## Ordenacao de Posicoes na Carteira (Implementado)
+
+Sort pills abaixo dos filtros de categoria na CarteiraScreen. Permite ordenar posicoes por 4 criterios.
+
+### Opcoes de ordenacao
+| Chave | Label | Logica |
+|-------|-------|--------|
+| `valor` | Valor | Qty × preco atual, DESC (default) |
+| `nome` | A-Z | Ticker alphabetico, ASC |
+| `var` | Variacao | Variacao diaria %, DESC |
+| `pl` | P&L | P&L absoluto (R$), DESC |
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/carteira/CarteiraScreen.js` | State `sortKey`, logica sort em `filteredPositions`, pills UI com setas direcao |
+
+## Export CSV de Relatorios (Implementado)
+
+Botao de download no canto superior direito dos Relatorios. Gera CSV da sub-tab ativa e abre share sheet do sistema.
+
+### Formato CSV por sub-tab
+| Sub-tab | Colunas |
+|---------|---------|
+| Caixa | Data, Tipo, Categoria, Conta, Valor, Descricao |
+| Dividendos | Data, Ticker, Tipo, Valor/Cota, Quantidade, Total |
+| Opcoes | Data Abertura, Ativo Base, Ticker Opcao, Tipo, Direcao, Strike, Premio, Qtd, Status, Premio Fech. |
+| Operacoes | Data, Ticker, Tipo, Categoria, Qtd, Preco, Custos, Corretora |
+| IR | Mes + vendas/ganhos/perdas/IR por classe (Acoes, FII, ETF, Stocks) |
+
+### Dependencias
+- `expo-file-system` — escrever CSV no cache
+- `expo-sharing` — abrir share sheet nativa
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/relatorios/RelatoriosScreen.js` | Import FileSystem+Sharing, state exporting, handleExport com CSV builder por sub-tab, botao download no header |
+
+## Comparativo entre Ativos (Implementado)
+
+Sub-tab "Comparativo" na AnaliseScreen. Permite selecionar ate 3 tickers do portfolio e ver grafico de retorno normalizado comparando performance lado a lado.
+
+### Funcionalidades
+- Ticker selector: Pills mostrando todos os tickers do portfolio, toggle ate 3
+- Periodo: Pills 1M, 3M, 6M (default), 1A
+- Grafico SVG: linhas normalizadas `(close/firstClose - 1) * 100` por ticker
+- 3 cores distintas: `C.acoes`, `C.fiis`, `C.opcoes`
+- Touch interativo com tooltip mostrando data + retorno % + preco de todos tickers
+- Legenda com ticker + cor + retorno total %
+- Dots com glow no ultimo ponto de cada serie
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/analise/AnaliseScreen.js` | Import fetchPriceHistoryRange, 5 states (compTickers, compPeriod, compData, compLoading, compTouch), sub-tab 'compar', ~250 linhas de chart SVG |
+
+## Multi-Portfolio / Portfólios de Família (Implementado)
+
+Sistema de portfolios nomeados para separar investimentos (ex: "Meu", "Esposa", "Filho", "Previdencia"). Feature opcional — sem portfolios, zero mudancas na UI. Visao combinada "Todos (Família)" mostra breakdown por portfolio.
+
+### Tabela `portfolios`
+| Coluna | Tipo | Descricao |
+|--------|------|-----------|
+| id | UUID | PK auto-gerado |
+| user_id | UUID | FK auth.users |
+| nome | TEXT | Nome do portfolio |
+| cor | TEXT | Hex color |
+| icone | TEXT | Ionicons name |
+| ordem | INTEGER | Ordem de exibicao |
+
+### Colunas com `portfolio_id`
+- `operacoes.portfolio_id` UUID nullable FK
+- `opcoes.portfolio_id` UUID nullable FK
+- `renda_fixa.portfolio_id` UUID nullable FK
+- `proventos.portfolio_id` UUID nullable (migration: family-portfolio-migration.sql)
+- `movimentacoes.portfolio_id` UUID nullable (migration: family-portfolio-migration.sql)
+
+### Filtro por portfolio em database.js
+- `getPositions(userId, portfolioId)` — filtra operacoes. Valor especial `'__null__'` filtra operacoes SEM portfolio
+- `getOpcoes(userId, portfolioId)` — filtra opcoes
+- `getOperacoes(userId, filters)` — `filters.portfolioId`
+- `getRendaFixa(userId, portfolioId)` — filtra RF
+- `getProventos(userId, filters)` — `filters.portfolioId`
+- `getMovimentacoes(userId, filters)` — `filters.portfolioId`
+- `deletePortfolio(id)` — nullifica portfolio_id em operacoes, opcoes, renda_fixa, proventos e movimentacoes
+
+### Telas com pills de portfolio
+| Tela | Descricao |
+|------|-----------|
+| ConfigPortfoliosScreen | Lista editavel de portfolios com Glass cards, SwipeableRow delete, editor inline com nome + cor (9 opcoes) + icone (9 opcoes) |
+| GestaoScreen | Dropdown selector "Todos (Família)" + portfolios individuais, icones Ionicons no dropdown |
+| CarteiraScreen | Aceita `portfolioId` e `portfolios` props. Filtra posicoes, RF e opcoes. Card "PORTFÓLIOS" com breakdown por portfolio (valor, ativos, %, barra de progresso) quando na visao "Todos" |
+| AddOperacaoScreen | Pills de portfolio quando usuario tem portfolios, salva `portfolio_id` |
+| AddOpcaoScreen | Pills de portfolio, salva `portfolio_id` na opcao |
+| AddRendaFixaScreen | Pills de portfolio, salva `portfolio_id` na RF |
+| AddProventoScreen | Pills de portfolio, salva `portfolio_id` no provento |
+
+### Visao Família (CarteiraScreen)
+Quando `portfolioId === null` e existem portfolios:
+- Card "PORTFÓLIOS" entre hero e mapa de calor
+- Cada portfolio mostra: icone circular, nome, valor (custo), qtd ativos, % do total, barra de progresso colorida
+- "Sem portfólio" aparece se existem ativos nao atribuidos a nenhum portfolio
+- Computado via getPositions paralelo por portfolio no load()
+
+### Arquivos criados/modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `multi-portfolio-migration.sql` | **Criado** — tabela + colunas FK |
+| `family-portfolio-migration.sql` | **Criado** — portfolio_id em proventos + movimentacoes |
+| `src/screens/mais/config/ConfigPortfoliosScreen.js` | **Criado** — gestao de portfolios |
+| `src/services/database.js` | getPortfolios, addPortfolio, updatePortfolio, deletePortfolio (com proventos+movimentacoes), filtro portfolioId em 6 funcoes, suporte '__null__' em getPositions |
+| `src/screens/gestao/GestaoScreen.js` | Dropdown "Todos (Família)" com icones, passa portfolios prop ao CarteiraScreen |
+| `src/screens/carteira/CarteiraScreen.js` | Prop portfolios, state familyBreakdown, card PORTFÓLIOS, getRendaFixa com portfolioId |
+| `src/screens/carteira/AddOperacaoScreen.js` | Pills portfolio + portfolio_id no payload |
+| `src/screens/opcoes/AddOpcaoScreen.js` | +getPortfolios, +pills portfolio, +portfolio_id no addOpcao |
+| `src/screens/rf/AddRendaFixaScreen.js` | +getPortfolios, +pills portfolio, +portfolio_id no addRendaFixa |
+| `src/screens/proventos/AddProventoScreen.js` | +getPortfolios, +pills portfolio, +portfolio_id no addProvento |
+| `src/navigation/AppNavigator.js` | +ConfigPortfolios stack screen |
+| `src/screens/mais/MaisScreen.js` | +item Portfolios em CONFIGURACOES |
+
+## Resumo IA Diario/Semanal com Push Notification (Implementado)
+
+Resumos automaticos da carteira gerados por Claude Haiku, enviados via push notification. Feature Premium-only com configuracao de frequencia (diario/semanal/desativado).
+
+### Arquitetura
+
+- **Edge Function `ai-summary`**: roda via pg_cron as 18h BRT (21h UTC) em dias uteis. Sexta-feira processa tanto daily quanto weekly
+- **Claude Haiku 4.5**: gera resumo com 3 secoes (RESUMO, ACOES URGENTES, DICA DO DIA) + teaser de 1 linha
+- **Expo Push API**: envia notificacao com teaser do resumo
+- **Tabela `ai_summaries`**: armazena resumos com campos por secao, tokens, custo, flag lido
+- **Perfil `ai_summary_frequency`**: preferencia do usuario (daily/weekly/off)
+
+### Fluxo
+
+1. pg_cron dispara Edge Function as 21h UTC (seg-sex)
+2. Edge Function busca usuarios com `ai_summary_frequency` = 'daily' ou 'weekly'
+3. Para cada usuario: busca posicoes, opcoes, proventos, RF, saldos, snapshots
+4. Busca cotacoes brapi em batch (todos tickers BR de todos usuarios)
+5. Monta prompt com dados da carteira + enrichment de precos
+6. Chama Claude Haiku → parseia resposta em 3 secoes + teaser
+7. Insere em `ai_summaries` + log em `ai_usage`
+8. Envia push notification via Expo Push API com teaser
+
+### Prompt
+
+| Secao | Conteudo |
+|-------|----------|
+| [RESUMO] | 3-5 frases da situacao. Diario: foco no dia. Semanal: comparativo inicio vs fim |
+| [ACOES URGENTES] | 1-3 acoes que precisam de atencao (opcoes vencendo, ativo caindo, meta atrasada) |
+| [DICA DO DIA] | 1 dica pratica e acionavel baseada nos dados |
+| [TEASER] | 1 linha (max 100 chars) com insight mais importante (para push notification) |
+
+### HomeScreen — Card de Resumo IA
+
+- Card expansivel entre VENCIMENTOS e FAB
+- Collapsed: icone sparkles, "Resumo IA", badge NOVO se nao lido, teaser, data
+- Expanded: 3 secoes completas (RESUMO, ACOES URGENTES, DICA DO DIA)
+- Marca como lido ao primeiro toque
+- Busca ultimo resumo no load() para usuarios Premium (fire-and-forget)
+
+### ConfigResumoIAScreen
+
+- 3 opcoes radio: Diario, Semanal, Desativado
+- Premium gate (UpgradePrompt se nao Premium)
+- Salva `ai_summary_frequency` no profile
+- Card "Como funciona" com 4 bullets informativos
+
+### MaisScreen
+
+- Item "Resumo IA" em CONFIGURACOES com gate AI_SUMMARY
+- Valor dinamico: Diario/Semanal/Desativado baseado no profile
+
+### Tabela ai_summaries
+
+| Coluna | Tipo | Descricao |
+|--------|------|-----------|
+| id | UUID | PK |
+| user_id | UUID | FK auth.users |
+| created_at | TIMESTAMPTZ | Timestamp |
+| tipo | TEXT | 'daily' ou 'weekly' |
+| resumo | TEXT | Secao RESUMO |
+| acoes_urgentes | TEXT | Secao ACOES URGENTES |
+| dica_do_dia | TEXT | Secao DICA DO DIA |
+| teaser | TEXT | Teaser para push (max 100 chars) |
+| tokens_in | INTEGER | Input tokens |
+| tokens_out | INTEGER | Output tokens |
+| custo_estimado | NUMERIC | Custo estimado USD |
+| lido | BOOLEAN | Flag de leitura |
+
+### pg_cron
+
+- Job `ai-summary-daily`: `0 21 * * 1-5` (seg-sex 18h BRT)
+- Sexta: mode=both (daily + weekly users)
+- Seg-qui: mode=daily (so daily users)
+
+### Arquivos criados/modificados
+
+| Arquivo | Mudanca |
+|---------|---------|
+| `ai-summary-migration.sql` | **Criado** — tabela ai_summaries + coluna ai_summary_frequency + pg_cron |
+| `supabase/functions/ai-summary/index.ts` | **Criado** — Edge Function batch: fetch data, brapi prices, Claude, push |
+| `src/services/database.js` | +getLatestAiSummary, getAiSummaries, markSummaryRead |
+| `src/constants/subscriptionFeatures.js` | +AI_SUMMARY feature gate |
+| `src/screens/mais/config/ConfigResumoIAScreen.js` | **Criado** — settings screen com radio options |
+| `src/screens/mais/MaisScreen.js` | +item Resumo IA com valor dinamico + gate |
+| `src/screens/home/HomeScreen.js` | +card expansivel de resumo IA com badge NOVO |
+| `src/navigation/AppNavigator.js` | +ConfigResumoIA stack screen |
+
+### Deploy
+
+```bash
+npx supabase functions deploy ai-summary --no-verify-jwt --project-ref zephynezarjsxzselozi
+```
+Aplicar `ai-summary-migration.sql` via SQL Editor do Supabase Dashboard.
+
+## Enforcement operacoes_contas por Portfolio (Implementado)
+
+Quando um portfolio tem `operacoes_contas=false`, NENHUMA movimentacao automatica e criada. Enforcement aplicado em todos os 8+ pontos de criacao automatica.
+
+### Pontos de enforcement
+
+| Tela/Servico | Acao | Guard |
+|--------------|------|-------|
+| AddOperacaoScreen | Compra/venda → saldo | `portOpContas` check antes do Alert |
+| AddOpcaoScreen | Venda opcao → creditar premio | `&& portOpContas` na condicao |
+| OpcoesScreen | Recompra opcao → debitar saldo | `canLogMov(original)` |
+| OpcoesScreen | Exercicio manual → movimentacao | `canLogMov(expOp)` |
+| OpcoesScreen | Exercicio automatico → movimentacao | `canLogMov(autoOp)` |
+| OpcoesScreen | Expirou PO → movimentacao | `canLogMov(expOp)` |
+| dividendService | Auto-sync dividendos → movimentacao | `isMovBlocked(pos)` check |
+
+### Helper canLogMov (OpcoesScreen)
+```javascript
+var canLogMov = function(opcao) {
+  if (!opcao || !opcao.portfolio_id) return true;
+  for (var pi = 0; pi < portfolios.length; pi++) {
+    if (portfolios[pi].id === opcao.portfolio_id && portfolios[pi].operacoes_contas === false) {
+      return false;
+    }
+  }
+  return true;
+};
+```
+
+### Helper isMovBlocked (dividendService)
+Busca portfolios do usuario, monta `portfolioBlockedMap` com IDs bloqueados, verifica `pos.portfolio_ids` contra o mapa.
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/carteira/AddOperacaoScreen.js` | Guard `portOpContas` no Alert de saldo |
+| `src/screens/opcoes/AddOpcaoScreen.js` | `&& portOpContas` na condicao de creditar premio |
+| `src/screens/opcoes/OpcoesScreen.js` | Helper `canLogMov`, aplicado em 4 locais (recompra, exercicio auto/manual, expirou PO) |
+| `src/services/dividendService.js` | Import getPortfolios, helper `isMovBlocked`, aplicado em BR/INT dividendos + retroativos |
+
+## Limite de 5 Portfolios + UI Condicional (Implementado)
+
+Maximo de 5 portfolios (Padrao + 4 custom). Selecao de portfolio oculta quando usuario nao tem portfolios custom. Tudo default para Padrao (null portfolio_id).
+
+### Regras
+- **Padrao** (portfolio_id NULL) sempre existe, nao conta como custom
+- Maximo 4 portfolios custom (total 5 com Padrao)
+- Secao de selecao de portfolio oculta em todas as telas Add quando `portfolios.length === 0`
+- Pill "+ Novo" oculta quando `portfolios.length >= 4`
+- ConfigPortfoliosScreen: guard no `handleAdd`, contador X/5 no header
+
+### Telas com portfolio oculto condicionalmente
+- AddOperacaoScreen: `{portfolios.length > 0 ? ... : null}`
+- AddOpcaoScreen: mesma logica
+- AddProventoScreen: mesma logica
+- AddRendaFixaScreen: mesma logica
+- AddCartaoScreen: mesma logica
+
+### ConfigPortfoliosScreen — Contador e limite
+- Header exibe `{(portfolios.length + 1) + '/5'}` com cor vermelha quando no limite
+- `handleAdd`: `if (portfolios.length >= 4) { Alert... return; }`
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/carteira/AddOperacaoScreen.js` | Portfolio section condicional + limite "+ Novo" |
+| `src/screens/opcoes/AddOpcaoScreen.js` | Portfolio section condicional + limite "+ Novo" |
+| `src/screens/proventos/AddProventoScreen.js` | Portfolio section condicional + limite "+ Novo" |
+| `src/screens/rf/AddRendaFixaScreen.js` | Portfolio section condicional + limite "+ Novo" |
+| `src/screens/gestao/AddCartaoScreen.js` | Portfolio section condicional + limite "+ Novo" |
+| `src/screens/mais/config/ConfigPortfoliosScreen.js` | Guard handleAdd, contador X/5, cor vermelha no limite |
+
+## Widgets Sempre Usam Portfolio Padrao (Implementado)
+
+Widgets iOS nao tem seletor de portfolio, entao sempre refletem dados do portfolio Padrao (null portfolio_id).
+
+### Logica (HomeScreen)
+- Se dashboard ja usa Padrao (`!dashPortfolioId || dashPortfolioId === '__null__'`): usa resultado direto
+- Se dashboard usa portfolio custom: busca Padrao separadamente via `getDashboard(user.id, '__null__')` para widgets
+
+### widgetBridge
+- `getCartoes(userId)` → `getCartoes(userId, '__null__')` para filtrar cartoes do Padrao
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `src/screens/home/HomeScreen.js` | Widget sync condicional com fallback para Padrao |
+| `src/services/widgetBridge.js` | getCartoes filtrado por portfolio Padrao |
+
+## Exclusao de Portfolio com Escolha + Backup (Implementado)
+
+Ao excluir portfolio com dados, usuario escolhe entre "Mover para Padrao" ou "Excluir tudo". Exclusao permanente faz backup automatico recuperavel por 30 dias.
+
+### Fluxo de exclusao
+1. Alert com 2 opcoes: "Mover dados para Padrao" / "Excluir portfolio e dados"
+2. **Mover**: `deletePortfolio(id, false)` — dados migram para Padrao (portfolio_id = NULL)
+3. **Excluir**: dupla confirmacao → `deletePortfolio(id, true)` — backup + delete cascade
+
+### database.js — deletePortfolio(id, deleteData)
+- `deleteData=false`: UPDATE operacoes/opcoes/renda_fixa/saldos_corretora/cartoes_credito SET portfolio_id=NULL, depois DELETE portfolio
+- `deleteData=true`: chama `backupPortfolioData(id)` primeiro, depois DELETE cascade
+
+### database.js — backupPortfolioData(portfolioId)
+- Fetch paralelo de operacoes, opcoes, renda_fixa, saldos, cartoes vinculados ao portfolio
+- Salva como JSONB na tabela `portfolio_backups` com nome, cor, icone do portfolio
+
+### database.js — restorePortfolioBackup(backupId)
+- Recria portfolio com mesmo nome/cor/icone
+- Re-insere todos dados com novo portfolio_id
+- Marca backup como expirado
+
+### ConfigPortfoliosScreen — Secao BACKUPS
+- Lista backups nao expirados via `getPortfolioBackups`
+- Botao "Restaurar" com confirmacao
+- Exibe nome do portfolio + data de exclusao + contagem de registros
+
+### Tabela portfolio_backups (portfolio-backup-migration.sql)
+```sql
+CREATE TABLE portfolio_backups (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users NOT NULL,
+  portfolio_name TEXT NOT NULL,
+  portfolio_cor TEXT,
+  portfolio_icone TEXT,
+  dados JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  expires_at TIMESTAMPTZ DEFAULT (now() + INTERVAL '30 days')
+);
+```
+pg_cron purge diario de backups expirados.
+
+### Arquivos criados/modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `portfolio-backup-migration.sql` | **Criado** — tabela portfolio_backups + pg_cron purge |
+| `src/services/database.js` | +deletePortfolio(id, deleteData), +backupPortfolioData, +getPortfolioBackups, +restorePortfolioBackup |
+| `src/screens/mais/config/ConfigPortfoliosScreen.js` | Escolha mover/excluir, dupla confirmacao, secao BACKUPS com restore |
+
+## Backup Diario Completo do Usuario (Implementado)
+
+Sistema automatico de backup diario de TODOS os dados do usuario. Snapshot JSONB com retencao de 30 dias. Tela para browsing e restauracao de qualquer data.
+
+### Arquitetura
+- **Edge Function `daily-backup`**: roda 2h BRT (5h UTC) via pg_cron, faz snapshot de 15 tabelas por usuario
+- **Tabela `user_backups`**: JSONB com dados completos, UNIQUE(user_id, backup_date)
+- **Purge automatico**: pg_cron as 3:30h UTC remove backups > 30 dias
+- **Tela BackupScreen**: lista backups disponiveis, cards expandiveis com detalhes por tabela, restauracao com dupla confirmacao
+
+### Tabelas copiadas no backup (15)
+profiles, portfolios, operacoes, opcoes, renda_fixa, proventos, movimentacoes, saldos_corretora, cartoes_credito, orcamentos, transacoes_recorrentes, alertas_config, indicators, rebalance_targets, alertas_opcoes
+
+### Edge Function daily-backup
+- Busca todos profiles, processa em batches de 5
+- Pula usuarios sem dados (0 operacoes E 0 saldos)
+- Upsert por `user_id + backup_date` (idempotente)
+- Calcula `size_bytes` e `tabelas_count` por tabela
+- Retorna JSON com stats: users_backed, users_skipped, total_size_mb
+
+### database.js — Funcoes de backup
+- `getUserBackups(userId)` — lista backups ordenados por data DESC (sem dados JSONB)
+- `restoreUserBackup(userId, backupId)` — restauracao completa:
+  1. Busca backup com dados JSONB
+  2. Deleta TODOS dados atuais do usuario (15 tabelas)
+  3. Re-insere dados do snapshot (ordem de dependencias)
+  4. Atualiza profile
+
+### BackupScreen (src/screens/mais/config/BackupScreen.js)
+- Info card: "Backup automatico diario, retencao 30 dias"
+- Lista de backups com data, dia da semana, contagem de registros, tamanho
+- Badge "HOJE" para backup do dia atual
+- Cards expandiveis com grid de registros por tabela (15 tabelas com labels traduzidos)
+- Botao "Restaurar para esta data" com dupla confirmacao
+- Warning: "Seus dados atuais serao substituidos pelos deste backup"
+- Empty state quando sem backups disponiveis
+
+### Migration SQL (user-backup-migration.sql)
+```sql
+CREATE TABLE user_backups (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users NOT NULL,
+  backup_date DATE NOT NULL,
+  dados JSONB NOT NULL,
+  tabelas_count JSONB DEFAULT '{}'::jsonb,
+  size_bytes INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(user_id, backup_date)
+);
+```
+- Index em (user_id, backup_date DESC)
+- RLS policy por user_id
+- pg_cron purge 30 dias + trigger diario Edge Function
+
+### Deploy
+```bash
+npx supabase functions deploy daily-backup --no-verify-jwt --project-ref zephynezarjsxzselozi
+```
+Aplicar `user-backup-migration.sql` via SQL Editor do Supabase Dashboard.
+
+### Arquivos criados/modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `user-backup-migration.sql` | **Criado** — tabela + index + RLS + pg_cron (purge + trigger) |
+| `supabase/functions/daily-backup/index.ts` | **Criado** — Edge Function snapshot 15 tabelas, batches de 5 |
+| `src/services/database.js` | +getUserBackups, +restoreUserBackup |
+| `src/screens/mais/config/BackupScreen.js` | **Criado** — tela completa de browsing e restauracao |
+| `src/navigation/AppNavigator.js` | +import BackupScreen, +SafeBackupScreen, +Stack.Screen Backup |
+| `src/screens/mais/MaisScreen.js` | +item "Backup" em CONFIGURACOES |
+
+## Snapshots de Patrimonio por Portfolio (Implementado)
+
+Snapshots de patrimonio agora sao salvos por portfolio, permitindo graficos de retorno semanal independentes por portfolio na CarteiraScreen.
+
+### Convencao portfolio_id nos snapshots
+| Valor | Significado |
+|-------|-------------|
+| `NULL` | Snapshot global (patrimonio total de todos portfolios) |
+| UUID de portfolio | Snapshot daquele portfolio especifico |
+| `00000000-0000-0000-0000-000000000001` | Snapshot do "Padrao" (operacoes sem portfolio_id) |
+
+### Logica de busca (getPatrimonioSnapshots)
+- `portfolioId = null/undefined` → busca global (`IS NULL`)
+- `portfolioId = '__null__'` → busca Padrao (sentinela UUID)
+- `portfolioId = UUID` → busca portfolio especifico
+
+### Logica de gravacao (upsertPatrimonioSnapshot)
+- `portfolioId = null/undefined` → salva global (`portfolio_id = NULL`)
+- `portfolioId = '__null__'` → salva Padrao (sentinela UUID)
+- `portfolioId = UUID` → salva portfolio especifico
+- Usa update+insert manual (COALESCE index nao suporta upsert nativo)
+
+### HomeScreen — Gravacao de snapshots
+- Visao "Todos" (`!dashPortfolioId`): salva global + fire-and-forget per-portfolio (cada portfolio custom + Padrao via getDashboard)
+- Visao "Padrao" (`__null__`): salva como Padrao (sentinela)
+- Visao portfolio especifico: salva per-portfolio
+
+### CarteiraScreen — Leitura de snapshots
+- `getPatrimonioSnapshots(user.id, portfolioId)` filtra conforme o portfolio selecionado
+- Grafico de retorno semanal agora reflete dados do portfolio ativo
+
+### AssetDetailScreen — Transacoes por portfolio
+- Recebe `portfolioId` via route.params
+- `getOperacoes`, `getProventos`, `getOpcoes` filtram por portfolio
+
+### Edge Function weekly-snapshot
+- Salva snapshot global (`NULL`) + per-portfolio (UUID custom ou sentinela Padrao)
+- Busca `portfolio_id` das operacoes e renda fixa para agregar por portfolio
+
+### Migration SQL (snapshot-portfolio-migration.sql)
+```sql
+ALTER TABLE patrimonio_snapshots ADD COLUMN IF NOT EXISTS portfolio_id UUID DEFAULT NULL;
+ALTER TABLE patrimonio_snapshots DROP CONSTRAINT IF EXISTS patrimonio_snapshots_user_id_data_key;
+CREATE UNIQUE INDEX idx_snapshots_user_date_portfolio ON patrimonio_snapshots (user_id, data, COALESCE(portfolio_id, '00000000-0000-0000-0000-000000000000'));
+```
+
+### Arquivos modificados
+| Arquivo | Mudanca |
+|---------|---------|
+| `snapshot-portfolio-migration.sql` | **Criado** — coluna portfolio_id + UNIQUE index com COALESCE |
+| `src/services/database.js` | getPatrimonioSnapshots e upsertPatrimonioSnapshot aceitam portfolioId, helper snapshotPortfolioId, constante PADRAO_SNAPSHOT_ID, getDashboard filtra snapshots por portfolio |
+| `src/screens/home/HomeScreen.js` | Salva snapshots global + per-portfolio fire-and-forget |
+| `src/screens/carteira/CarteiraScreen.js` | Busca snapshots com portfolioId, passa portfolioId ao navegar para AssetDetail |
+| `src/screens/carteira/AssetDetailScreen.js` | Extrai portfolioId dos route.params, filtra getOperacoes/getProventos/getOpcoes por portfolio |
+| `supabase/functions/weekly-snapshot/index.ts` | Agrega posicoes por portfolio, salva snapshots per-portfolio + global |
