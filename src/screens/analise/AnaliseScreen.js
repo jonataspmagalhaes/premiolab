@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, TextInput,
+  TouchableOpacity, TextInput, ActivityIndicator,
   Platform, Modal, Dimensions, KeyboardAvoidingView,
 } from 'react-native';
 import { animateLayout } from '../../utils/a11y';
@@ -27,12 +27,17 @@ import {
   calcHV, calcSMA, calcEMA, calcRSI, calcBeta,
   calcATR, calcBollingerBands, calcMaxDrawdown,
 } from '../../services/indicatorService';
-import { fetchPriceHistoryLong, fetchTickerProfile } from '../../services/priceService';
-import { Glass, Badge, Pill, SectionLabel } from '../../components';
+import { fetchPriceHistoryLong, fetchTickerProfile, fetchPriceHistoryRange, fetchPrices } from '../../services/priceService';
+import { fetchFundamentals } from '../../services/fundamentalService';
+import { searchTickers } from '../../services/tickerSearchService';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { Glass, Badge, Pill, SectionLabel, UpgradePrompt, AiConfirmModal } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import InteractiveChart from '../../components/InteractiveChart';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import Sensitive from '../../components/Sensitive';
+import { useSubscription } from '../../contexts/SubscriptionContext';
+var geminiService = require('../../services/geminiService');
 
 // ═══════════ CONSTANTS ═══════════
 
@@ -5587,14 +5592,21 @@ function RendaPassivaTotalChart(props) {
 
 export default function AnaliseScreen(props) {
   var navigation = props.navigation;
+  var route = props.route;
   var _auth = useAuth(); var user = _auth.user;
+  var subscription = useSubscription();
   var ps = usePrivacyStyle();
+
+  var embedded = props.embedded || false;
+  var forcedTab = props.forcedTab || null;
+  var initialTab = forcedTab || (route && route.params && route.params.initialTab ? route.params.initialTab : 'perf');
+  var _canAccessAnalysis = embedded || subscription.canAccess('ANALYSIS_TAB');
 
   var scrollRef = useRef(null);
   useScrollToTop(scrollRef);
 
   // State
-  var _sub = useState('perf'); var sub = _sub[0]; var setSub = _sub[1];
+  var _sub = useState(initialTab); var sub = forcedTab || _sub[0]; var setSub = _sub[1];
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
   var _dashboard = useState(null); var dashboard = _dashboard[0]; var setDashboard = _dashboard[1];
@@ -5654,6 +5666,24 @@ export default function AnaliseScreen(props) {
   var _catPLBarSelected = useState(-1); var catPLBarSelected = _catPLBarSelected[0]; var setCatPLBarSelected = _catPLBarSelected[1];
   var _showDrawdown = useState(false); var showDrawdown = _showDrawdown[0]; var setShowDrawdown = _showDrawdown[1];
   var _showPnlClasse = useState(false); var showPnlClasse = _showPnlClasse[0]; var setShowPnlClasse = _showPnlClasse[1];
+
+  // Comparativo states
+  var _compTickers = useState([]); var compTickers = _compTickers[0]; var setCompTickers = _compTickers[1];
+  var _compPeriod = useState('6M'); var compPeriod = _compPeriod[0]; var setCompPeriod = _compPeriod[1];
+  var _compData = useState(null); var compData = _compData[0]; var setCompData = _compData[1];
+  var _compLoading = useState(false); var compLoading = _compLoading[0]; var setCompLoading = _compLoading[1];
+  var _compTouch = useState(null); var compTouch = _compTouch[0]; var setCompTouch = _compTouch[1];
+  var _compSearch = useState(''); var compSearch = _compSearch[0]; var setCompSearch = _compSearch[1];
+  var _compSearchResults = useState([]); var compSearchResults = _compSearchResults[0]; var setCompSearchResults = _compSearchResults[1];
+  var _compSearching = useState(false); var compSearching = _compSearching[0]; var setCompSearching = _compSearching[1];
+  var _compPrices = useState({}); var compPrices = _compPrices[0]; var setCompPrices = _compPrices[1];
+  var _compFundamentals = useState({}); var compFundamentals = _compFundamentals[0]; var setCompFundamentals = _compFundamentals[1];
+  var _compFundLoading = useState(false); var compFundLoading = _compFundLoading[0]; var setCompFundLoading = _compFundLoading[1];
+  var _compAiResult = useState(null); var compAiResult = _compAiResult[0]; var setCompAiResult = _compAiResult[1];
+  var _compAiLoading = useState(false); var compAiLoading = _compAiLoading[0]; var setCompAiLoading = _compAiLoading[1];
+  var _compAiVisible = useState(false); var compAiVisible = _compAiVisible[0]; var setCompAiVisible = _compAiVisible[1];
+  var _compAiConfirmVisible = useState(false); var compAiConfirmVisible = _compAiConfirmVisible[0]; var setCompAiConfirmVisible = _compAiConfirmVisible[1];
+  var _compSearchTimer = useRef(null);
 
   // ── Data loading ──
   var load = async function() {
@@ -6567,7 +6597,7 @@ export default function AnaliseScreen(props) {
   });
 
   // ── Derived: Sankey data ──
-  var compData = buildCompData(positions, sankeyFilter, alocGrouped, totalAlocPatrimonio);
+  var sankeyCompData = buildCompData(positions, sankeyFilter, alocGrouped, totalAlocPatrimonio);
 
   // ── Derived: Proventos ──
   var now = new Date();
@@ -7296,6 +7326,14 @@ export default function AnaliseScreen(props) {
   // ── Loading state ──
   if (loading) return <LoadingScreen />;
 
+  if (!_canAccessAnalysis) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <UpgradePrompt feature="ANALYSIS_TAB" navigation={navigation} />
+      </View>
+    );
+  }
+
   // ── Render ──
   return (
     <KeyboardAvoidingView
@@ -7315,31 +7353,38 @@ export default function AnaliseScreen(props) {
       }
     >
       {/* Header */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, paddingHorizontal: SIZE.padding }}>
-        <TouchableOpacity onPress={function() { navigation.goBack(); }}
-          accessibilityLabel="Voltar" accessibilityRole="button">
-          <Text style={{ fontSize: 28, color: C.accent, fontWeight: '300' }}>{'‹'}</Text>
-        </TouchableOpacity>
-        <Text style={{ fontSize: 18, fontWeight: '800', color: C.text, fontFamily: F.display }}>Análise</Text>
-        <View style={{ width: 32 }} />
-      </View>
+      {!embedded ? (
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, paddingHorizontal: SIZE.padding }}>
+          <TouchableOpacity onPress={function() { navigation.goBack(); }}
+            accessibilityLabel="Voltar" accessibilityRole="button">
+            <Text style={{ fontSize: 28, color: C.accent, fontWeight: '300' }}>{'‹'}</Text>
+          </TouchableOpacity>
+          <Text style={{ fontSize: 18, fontWeight: '800', color: C.text, fontFamily: F.display }}>Análise</Text>
+          <View style={{ width: 32 }} />
+        </View>
+      ) : null}
 
       {/* Sub-tabs */}
-      <View style={styles.subTabs}>
-        {[
-          { k: 'perf', l: 'Performance' },
-          { k: 'aloc', l: 'Alocação' },
-          { k: 'comp', l: 'Composição' },
-          { k: 'prov', l: 'Renda Passiva' },
-        ].map(function(t) {
-          return (
-            <Pill key={t.k} active={sub === t.k} color={C.accent}
-              onPress={function() { setSub(t.k); }}>
-              {t.l}
-            </Pill>
-          );
-        })}
-      </View>
+      {!embedded ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.subTabs}>
+            {[
+              { k: 'perf', l: 'Performance' },
+              { k: 'aloc', l: 'Alocação' },
+              { k: 'comp', l: 'Composição' },
+              { k: 'compar', l: 'Comparativo' },
+              { k: 'prov', l: 'Renda Passiva' },
+            ].map(function(t) {
+              return (
+                <Pill key={t.k} active={sub === t.k} color={C.accent}
+                  onPress={function() { setSub(t.k); }}>
+                  {t.l}
+                </Pill>
+              );
+            })}
+          </View>
+        </ScrollView>
+      ) : null}
 
       {/* ═══════════ PERFORMANCE ═══════════ */}
       {sub === 'perf' && (
@@ -9223,9 +9268,9 @@ export default function AnaliseScreen(props) {
                       {'Toque em um segmento para ver detalhes'}
                     </Text>
                     <TwoLevelDonut
-                      classes={compData.classes}
-                      items={compData.items}
-                      total={compData.total}
+                      classes={sankeyCompData.classes}
+                      items={sankeyCompData.items}
+                      total={sankeyCompData.total}
                       selected={sankeyTooltip}
                       filterLabel={sankeyFilter === 'setor' ? 'Setor' : sankeyFilter === 'segmento' ? 'Segmento' : 'Ativo'}
                       onTap={function (info) {
@@ -9235,7 +9280,7 @@ export default function AnaliseScreen(props) {
                     />
                     {/* Legend — outer ring items */}
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10, justifyContent: 'center' }}>
-                      {compData.items.map(function (it, i) {
+                      {sankeyCompData.items.map(function (it, i) {
                         return (
                           <TouchableOpacity key={i}
                             onPress={function () {
@@ -9302,9 +9347,9 @@ export default function AnaliseScreen(props) {
                   ) : null}
 
                   {/* Breakdown by class — stacked bars + items */}
-                  {compData.classes.map(function (cls, ci) {
-                    var clsPct = compData.total > 0 ? (cls.value / compData.total) * 100 : 0;
-                    var clsItems = compData.items.filter(function (it) { return it.classKey === cls.key; });
+                  {sankeyCompData.classes.map(function (cls, ci) {
+                    var clsPct = sankeyCompData.total > 0 ? (cls.value / sankeyCompData.total) * 100 : 0;
+                    var clsItems = sankeyCompData.items.filter(function (it) { return it.classKey === cls.key; });
                     return (
                       <Glass key={ci} padding={0}>
                         {/* Class header */}
@@ -10431,10 +10476,1050 @@ export default function AnaliseScreen(props) {
         </>
       )}
 
+      {/* ═══════════ COMPARATIVO ═══════════ */}
+      {/* ═══════════ COMPARATIVO ═══════════ */}
+      {sub === 'compar' && (function() {
+            var COMP_PERIODS = [
+              { key: '1M', range: '1mo' },
+              { key: '3M', range: '3mo' },
+              { key: '6M', range: '6mo' },
+              { key: '1A', range: '1y' },
+            ];
+            var COMP_COLORS = [C.acoes, C.fiis, C.opcoes, C.etfs];
+
+            // Collect unique tickers from positions for quick-add
+            var tickerList = [];
+            var tickerSet = {};
+            for (var ti = 0; ti < positions.length; ti++) {
+              var tk = (positions[ti].ticker || '').toUpperCase().trim();
+              if (tk && !tickerSet[tk]) {
+                tickerSet[tk] = true;
+                tickerList.push(tk);
+              }
+            }
+
+            // Get suggestions based on first selected ticker's sector
+            var suggestions = [];
+            if (compTickers.length >= 1) {
+              var firstTk = compTickers[0];
+              var firstSector = TICKER_SECTORS[firstTk];
+              if (firstSector) {
+                var sectorKeys = Object.keys(TICKER_SECTORS);
+                for (var ski = 0; ski < sectorKeys.length; ski++) {
+                  var stk = sectorKeys[ski];
+                  if (stk === firstTk) continue;
+                  var alreadySel = false;
+                  for (var cs = 0; cs < compTickers.length; cs++) {
+                    if (compTickers[cs] === stk) { alreadySel = true; break; }
+                  }
+                  if (alreadySel) continue;
+                  if (TICKER_SECTORS[stk].setor === firstSector.setor) {
+                    suggestions.push(stk);
+                  }
+                }
+              }
+            }
+
+            // Toggle ticker selection (max 3)
+            var toggleTicker = function(ticker) {
+              var upper = ticker.toUpperCase().trim();
+              var idx = -1;
+              for (var i = 0; i < compTickers.length; i++) {
+                if (compTickers[i] === upper) { idx = i; break; }
+              }
+              var next = [];
+              if (idx >= 0) {
+                for (var r = 0; r < compTickers.length; r++) {
+                  if (r !== idx) next.push(compTickers[r]);
+                }
+              } else {
+                for (var c = 0; c < compTickers.length; c++) next.push(compTickers[c]);
+                if (next.length < 4) next.push(upper);
+              }
+              setCompTickers(next);
+              setCompData(null);
+              setCompTouch(null);
+              setCompSearch('');
+              setCompSearchResults([]);
+            };
+
+            // Search handler with debounce
+            var handleCompSearch = function(text) {
+              setCompSearch(text);
+              if (_compSearchTimer.current) clearTimeout(_compSearchTimer.current);
+              if (!text || text.length < 2) {
+                setCompSearchResults([]);
+                setCompSearching(false);
+                return;
+              }
+              setCompSearching(true);
+              _compSearchTimer.current = setTimeout(function() {
+                searchTickers(text, 'BR').then(function(results) {
+                  setCompSearchResults(results || []);
+                  setCompSearching(false);
+                }).catch(function() {
+                  setCompSearching(false);
+                });
+              }, 400);
+            };
+
+            // Fetch all data (prices, history, fundamentals)
+            var fetchAllCompData = function() {
+              if (compTickers.length < 2) return;
+              setCompLoading(true);
+              setCompTouch(null);
+              setCompFundLoading(true);
+              var rangeVal = '6mo';
+              for (var p = 0; p < COMP_PERIODS.length; p++) {
+                if (COMP_PERIODS[p].key === compPeriod) { rangeVal = COMP_PERIODS[p].range; break; }
+              }
+              // Fetch price history + current prices + fundamentals in parallel
+              Promise.all([
+                fetchPriceHistoryRange(compTickers, rangeVal),
+                fetchPrices(compTickers),
+                Promise.all(compTickers.map(function(t) {
+                  return fetchFundamentals(t, 'BR').then(function(f) {
+                    return { ticker: t, data: f };
+                  }).catch(function() { return { ticker: t, data: null }; });
+                })),
+              ]).then(function(results) {
+                setCompData(results[0]);
+                setCompPrices(results[1] || {});
+                var fundMap = {};
+                var fundArr = results[2] || [];
+                for (var fi = 0; fi < fundArr.length; fi++) {
+                  if (fundArr[fi].data) fundMap[fundArr[fi].ticker] = fundArr[fi].data;
+                }
+                setCompFundamentals(fundMap);
+                setCompLoading(false);
+                setCompFundLoading(false);
+              }).catch(function() {
+                setCompLoading(false);
+                setCompFundLoading(false);
+              });
+            };
+
+            // Normalize data: compute % return from first close
+            var normalized = {};
+            var allDates = [];
+            var dateSet = {};
+            if (compData) {
+              for (var ni = 0; ni < compTickers.length; ni++) {
+                var ntk = compTickers[ni];
+                var series = compData[ntk];
+                if (!series || series.length < 2) continue;
+                var firstClose = series[0].close;
+                if (!firstClose || firstClose <= 0) continue;
+                var normSeries = [];
+                for (var ns = 0; ns < series.length; ns++) {
+                  var dt = series[ns].date;
+                  var cl = series[ns].close;
+                  if (!dt || cl == null) continue;
+                  var pctRet = ((cl / firstClose) - 1) * 100;
+                  normSeries.push({ date: dt, pct: pctRet, close: cl });
+                  if (!dateSet[dt]) { dateSet[dt] = true; allDates.push(dt); }
+                }
+                normalized[ntk] = normSeries;
+              }
+              allDates.sort();
+            }
+
+            // Build series aligned to allDates
+            var seriesMap = {};
+            for (var si = 0; si < compTickers.length; si++) {
+              var stk2 = compTickers[si];
+              var norm = normalized[stk2];
+              if (!norm) continue;
+              var dateValMap = {};
+              for (var dv = 0; dv < norm.length; dv++) {
+                dateValMap[norm[dv].date] = norm[dv];
+              }
+              var aligned = [];
+              for (var ai = 0; ai < allDates.length; ai++) {
+                var entry = dateValMap[allDates[ai]];
+                if (entry) aligned.push(entry);
+              }
+              if (aligned.length >= 2) seriesMap[stk2] = aligned;
+            }
+
+            var hasChart = Object.keys(seriesMap).length >= 2 && allDates.length >= 2;
+
+            // Compute correlation between two series
+            var computeCorrelation = function(s1, s2) {
+              if (!s1 || !s2 || s1.length < 5 || s2.length < 5) return null;
+              // Align by date
+              var map2 = {};
+              for (var m = 0; m < s2.length; m++) { map2[s2[m].date] = s2[m].pct; }
+              var xs = []; var ys = [];
+              for (var j = 0; j < s1.length; j++) {
+                var yVal = map2[s1[j].date];
+                if (yVal != null) { xs.push(s1[j].pct); ys.push(yVal); }
+              }
+              if (xs.length < 5) return null;
+              var n2 = xs.length;
+              var sumX = 0; var sumY = 0; var sumXY = 0; var sumX2 = 0; var sumY2 = 0;
+              for (var k = 0; k < n2; k++) {
+                sumX += xs[k]; sumY += ys[k];
+                sumXY += xs[k] * ys[k];
+                sumX2 += xs[k] * xs[k]; sumY2 += ys[k] * ys[k];
+              }
+              var denom = Math.sqrt((n2 * sumX2 - sumX * sumX) * (n2 * sumY2 - sumY * sumY));
+              if (denom === 0) return 0;
+              return (n2 * sumXY - sumX * sumY) / denom;
+            };
+
+            var handleCompAi = function() {
+              if (compAiLoading) return;
+              setCompAiLoading(true);
+              setCompAiVisible(true);
+              setCompAiResult(null);
+
+              // Build ranking array
+              var rankArr = compTickers.slice().sort(function(a, b) { return (rankWins[b] || 0) - (rankWins[a] || 0); });
+              var rankData = [];
+              for (var ri2 = 0; ri2 < rankArr.length; ri2++) {
+                rankData.push({ ticker: rankArr[ri2], wins: rankWins[rankArr[ri2]] || 0 });
+              }
+
+              // Build prices obj
+              var precosObj = {};
+              for (var pi2 = 0; pi2 < compTickers.length; pi2++) {
+                var ptk = compTickers[pi2];
+                var pp = compPrices[ptk];
+                if (pp) {
+                  precosObj[ptk] = { preco: pp.regularMarketPrice || pp.price || 0, variacao: pp.regularMarketChangePercent || pp.changePercent || 0, marketCap: pp.marketCap || 0 };
+                }
+              }
+
+              // Check which tickers user owns
+              var owned = [];
+              if (positions && positions.length > 0) {
+                for (var oi = 0; oi < compTickers.length; oi++) {
+                  for (var oj = 0; oj < positions.length; oj++) {
+                    if (positions[oj].ticker === compTickers[oi]) { owned.push(compTickers[oi]); break; }
+                  }
+                }
+              }
+
+              // Correlation summary
+              var corrSummary = '';
+              if (compTickers.length === 2 && seriesMap[compTickers[0]] && seriesMap[compTickers[1]]) {
+                var cv2 = computeCorrelation(seriesMap[compTickers[0]], seriesMap[compTickers[1]]);
+                if (cv2 != null) corrSummary = compTickers[0] + ' vs ' + compTickers[1] + ': ' + cv2.toFixed(2);
+              }
+
+              geminiService.analyzeGeneral({
+                type: 'comparacao',
+                tickers: compTickers,
+                precos: precosObj,
+                fundamentais: compFundamentals,
+                ranking: rankData,
+                correlacao: corrSummary,
+                possuiNaCarteira: owned,
+              }).then(function(result) {
+                setCompAiLoading(false);
+                if (result.error) {
+                  setCompAiResult({ error: result.error });
+                } else {
+                  setCompAiResult(result);
+                }
+              }).catch(function() {
+                setCompAiLoading(false);
+                setCompAiResult({ error: 'Falha de conexão. Tente novamente.' });
+              });
+            };
+
+            // Ranking tracker: wins per ticker per section + overall
+            var rankWins = {};
+            var sectionWins = {};
+            for (var rw = 0; rw < compTickers.length; rw++) { rankWins[compTickers[rw]] = 0; }
+
+            // Helper: find best index for a row (also tracks wins)
+            var findBestIdx = function(vals, invert, sectionKey) {
+              var bestIdx = -1;
+              var bestVal = null;
+              var validCount = 0;
+              for (var bi = 0; bi < vals.length; bi++) {
+                if (vals[bi] == null) continue;
+                validCount++;
+                if (bestVal == null) { bestVal = vals[bi]; bestIdx = bi; continue; }
+                if (invert) {
+                  if (vals[bi] < bestVal) { bestVal = vals[bi]; bestIdx = bi; }
+                } else {
+                  if (vals[bi] > bestVal) { bestVal = vals[bi]; bestIdx = bi; }
+                }
+              }
+              if (validCount < 2) return -1;
+              // Track win
+              if (bestIdx >= 0) {
+                var winner = compTickers[bestIdx];
+                rankWins[winner] = (rankWins[winner] || 0) + 1;
+                if (sectionKey) {
+                  if (!sectionWins[sectionKey]) {
+                    sectionWins[sectionKey] = {};
+                    for (var sw = 0; sw < compTickers.length; sw++) { sectionWins[sectionKey][compTickers[sw]] = 0; }
+                  }
+                  sectionWins[sectionKey][winner] = (sectionWins[sectionKey][winner] || 0) + 1;
+                }
+              }
+              return bestIdx;
+            };
+
+            // Helper to render a fundamental indicator row
+            var renderFundRow = function(label, key, section, format, invert) {
+              var vals = [];
+              var hasAny = false;
+              for (var fi = 0; fi < compTickers.length; fi++) {
+                var fund = compFundamentals[compTickers[fi]];
+                var secData = fund && fund[section] ? fund[section] : null;
+                var v = secData ? secData[key] : null;
+                vals.push(v);
+                if (v != null) hasAny = true;
+              }
+              if (!hasAny) return null;
+              var bestIdx = findBestIdx(vals, invert, section);
+              return (
+                <View key={label} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
+                  <Text style={{ flex: 1.2, fontSize: 11, color: C.dim, fontFamily: F.body }}>{label}</Text>
+                  {vals.map(function(v, vi) {
+                    var isBest = vi === bestIdx;
+                    var display = v != null ? (format === 'pct' ? v.toFixed(1) + '%' : v.toFixed(2)) : '-';
+                    return (
+                      <Text key={vi} style={{
+                        flex: 1, fontSize: 12, fontFamily: F.mono, textAlign: 'center',
+                        color: isBest ? C.green : C.text,
+                        fontWeight: isBest ? '700' : '400',
+                      }}>{display}</Text>
+                    );
+                  })}
+                </View>
+              );
+            };
+
+            // Section ranking row
+            var renderSectionRanking = function(sectionKey, sectionLabel) {
+              var sw = sectionWins[sectionKey];
+              if (!sw) return null;
+              // Compute ranking order
+              var items = [];
+              for (var sr = 0; sr < compTickers.length; sr++) {
+                items.push({ ticker: compTickers[sr], wins: sw[compTickers[sr]] || 0, color: COMP_COLORS[sr] || C.accent });
+              }
+              items.sort(function(a, b) { return b.wins - a.wins; });
+              // Assign positions (1st, 2nd, etc) with ties
+              var pos = 1;
+              for (var sp = 0; sp < items.length; sp++) {
+                if (sp > 0 && items[sp].wins < items[sp - 1].wins) pos = sp + 1;
+                items[sp].pos = pos;
+              }
+              var medalColors = ['#FFD700', '#C0C0C0', '#CD7F32', C.dim];
+              return (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border }}>
+                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginRight: 4 }}>RANKING</Text>
+                  {items.map(function(it, ii) {
+                    return (
+                      <View key={ii} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                        <Text style={{ fontSize: 11, fontFamily: F.mono, fontWeight: '700', color: medalColors[it.pos - 1] || C.dim }}>{it.pos + 'º'}</Text>
+                        <Text style={{ fontSize: 10, fontFamily: F.mono, fontWeight: '700', color: it.color }}>{it.ticker}</Text>
+                        <Text style={{ fontSize: 9, fontFamily: F.mono, color: C.dim }}>{'(' + it.wins + ')'}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            };
+
+            return (
+              <>
+                {/* ── Search + Selected tickers ── */}
+                <Glass padding={14}>
+                  <Text style={styles.sectionTitle}>COMPARADOR DE ATIVOS</Text>
+                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, marginTop: 2, marginBottom: 8 }}>
+                    Busque qualquer ativo ou selecione da sua carteira (max 4)
+                  </Text>
+
+                  {/* Search input */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderRadius: 10, borderWidth: 1, borderColor: C.border, paddingHorizontal: 12, height: 42, marginBottom: 8 }}>
+                    <Ionicons name="search-outline" size={16} color={C.dim} />
+                    <TextInput
+                      style={{ flex: 1, fontSize: 14, color: C.text, fontFamily: F.body, marginLeft: 8, height: 40 }}
+                      placeholder="Buscar por ações..."
+                      placeholderTextColor={C.dim}
+                      value={compSearch}
+                      onChangeText={handleCompSearch}
+                      autoCapitalize="characters"
+                      returnKeyType="search"
+                    />
+                    {compSearching ? (
+                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>...</Text>
+                    ) : null}
+                  </View>
+
+                  {/* Search results dropdown */}
+                  {compSearchResults.length > 0 ? (
+                    <View style={{ backgroundColor: C.bg, borderRadius: 10, borderWidth: 1, borderColor: C.border, marginBottom: 8, maxHeight: 200, overflow: 'hidden' }}>
+                      <ScrollView nestedScrollEnabled>
+                        {compSearchResults.map(function(item, idx) {
+                          var alreadySel = false;
+                          for (var s = 0; s < compTickers.length; s++) {
+                            if (compTickers[s] === item.ticker) { alreadySel = true; break; }
+                          }
+                          return (
+                            <TouchableOpacity
+                              key={item.ticker + '-' + idx}
+                              style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border, opacity: alreadySel ? 0.4 : 1 }}
+                              onPress={function() { if (!alreadySel && compTickers.length < 4) toggleTicker(item.ticker); }}
+                              disabled={alreadySel || compTickers.length >= 4}
+                            >
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 13, color: C.accent, fontFamily: F.mono, fontWeight: '700' }}>{item.ticker}</Text>
+                                {item.name ? <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }} numberOfLines={1}>{item.name}</Text> : null}
+                              </View>
+                              {!alreadySel && compTickers.length < 4 ? (
+                                <Ionicons name="add-circle" size={22} color={C.accent} />
+                              ) : alreadySel ? (
+                                <Ionicons name="checkmark-circle" size={22} color={C.green} />
+                              ) : null}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    </View>
+                  ) : null}
+
+                  {/* Selected tickers pills */}
+                  {compTickers.length > 0 ? (
+                    <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                      {compTickers.map(function(ct, ci) {
+                        var cc = COMP_COLORS[ci] || C.accent;
+                        return (
+                          <TouchableOpacity key={ct}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: cc + '22', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: cc + '40' }}
+                            onPress={function() { toggleTicker(ct); }}>
+                            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: cc }} />
+                            <Text style={{ fontSize: 12, fontFamily: F.mono, fontWeight: '700', color: cc }}>{ct}</Text>
+                            <Ionicons name="close" size={14} color={cc} />
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+
+                  {/* Quick-add from portfolio */}
+                  {tickerList.length > 0 ? (
+                    <View>
+                      <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5, marginBottom: 4 }}>MINHA CARTEIRA</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <View style={{ flexDirection: 'row', gap: 5 }}>
+                          {tickerList.map(function(ptk) {
+                            var sel = false;
+                            for (var si2 = 0; si2 < compTickers.length; si2++) {
+                              if (compTickers[si2] === ptk) { sel = true; break; }
+                            }
+                            return (
+                              <Pill key={ptk} active={sel} color={sel ? COMP_COLORS[compTickers.indexOf(ptk)] || C.accent : C.dim}
+                                onPress={function() { if (!sel && compTickers.length >= 4) return; toggleTicker(ptk); }}>
+                                {ptk}
+                              </Pill>
+                            );
+                          })}
+                        </View>
+                      </ScrollView>
+                    </View>
+                  ) : null}
+
+                  {/* Suggestions based on sector */}
+                  {suggestions.length > 0 && compTickers.length < 4 ? (
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5, marginBottom: 4 }}>
+                        {'SUGESTÕES (MESMO SETOR: ' + (TICKER_SECTORS[compTickers[0]] ? TICKER_SECTORS[compTickers[0]].setor : '') + ')'}
+                      </Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <View style={{ flexDirection: 'row', gap: 5 }}>
+                          {suggestions.slice(0, 10).map(function(sg) {
+                            return (
+                              <Pill key={sg} active={false} color={C.etfs}
+                                onPress={function() { toggleTicker(sg); }}>
+                                {sg}
+                              </Pill>
+                            );
+                          })}
+                        </View>
+                      </ScrollView>
+                    </View>
+                  ) : null}
+
+                  {/* Compare button */}
+                  {compTickers.length >= 2 ? (
+                    <TouchableOpacity
+                      style={{ marginTop: 12, backgroundColor: C.accent + '20', borderRadius: 10, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: C.accent + '40' }}
+                      onPress={fetchAllCompData}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: C.accent, fontFamily: F.body }}>
+                        {compLoading ? 'Carregando...' : 'Comparar'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : compTickers.length === 1 ? (
+                    <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, marginTop: 8, textAlign: 'center' }}>
+                      Selecione pelo menos mais 1 ativo para comparar
+                    </Text>
+                  ) : null}
+                </Glass>
+
+                {/* ── Price Cards ── */}
+                {Object.keys(compPrices).length >= 2 && !compLoading ? (
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {compTickers.map(function(ptk, pi) {
+                      var pr = compPrices[ptk];
+                      var cc2 = COMP_COLORS[pi] || C.accent;
+                      if (!pr) return null;
+                      return (
+                        <Glass key={ptk} padding={12} style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: cc2 }} />
+                            <Text style={{ fontSize: 13, fontFamily: F.mono, fontWeight: '700', color: cc2 }}>{ptk}</Text>
+                          </View>
+                          <Sensitive>
+                            <Text style={{ fontSize: 18, fontFamily: F.mono, fontWeight: '800', color: C.text }}>
+                              {'R$ ' + fmt(pr.price)}
+                            </Text>
+                          </Sensitive>
+                          <Text style={{ fontSize: 11, fontFamily: F.mono, fontWeight: '700', color: pr.changePercent >= 0 ? C.green : C.red, marginTop: 2 }}>
+                            {(pr.changePercent >= 0 ? '+' : '') + pr.changePercent.toFixed(2) + '%'}
+                          </Text>
+                        </Glass>
+                      );
+                    })}
+                  </View>
+                ) : null}
+
+                {/* ── Period pills ── */}
+                {compData ? (
+                  <View style={styles.periodRow}>
+                    {COMP_PERIODS.map(function(p) {
+                      var active = compPeriod === p.key;
+                      return (
+                        <TouchableOpacity key={p.key}
+                          style={[styles.periodPill, active ? styles.periodPillActive : styles.periodPillInactive]}
+                          onPress={function() { setCompPeriod(p.key); setCompData(null); setCompTouch(null); }}>
+                          <Text style={[styles.periodPillText, { color: active ? C.accent : C.dim }]}>
+                            {p.key}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : null}
+
+                {/* ── Rentability Chart ── */}
+                {hasChart && (function() {
+                  var chartH = 200;
+                  var chartW = SCREEN_W - 2 * SIZE.padding - 24;
+                  var padL = 42;
+                  var padR = 10;
+                  var padT = 12;
+                  var padB = 24;
+                  var plotH = chartH - padT - padB;
+                  var plotW = chartW - padL - padR;
+                  var n = allDates.length;
+
+                  var maxAbs = 1;
+                  var seriesKeys = Object.keys(seriesMap);
+                  for (var ski2 = 0; ski2 < seriesKeys.length; ski2++) {
+                    var s = seriesMap[seriesKeys[ski2]];
+                    for (var sj = 0; sj < s.length; sj++) {
+                      var av = Math.abs(s[sj].pct);
+                      if (av > maxAbs) maxAbs = av;
+                    }
+                  }
+                  maxAbs = Math.ceil(maxAbs) + 1;
+                  if (maxAbs < 3) maxAbs = 3;
+
+                  var zeroY = padT + plotH / 2;
+                  var valToY = function(v) { return zeroY - (v / maxAbs) * (plotH / 2); };
+                  var idxToX = function(i) {
+                    if (n <= 1) return padL + plotW / 2;
+                    return padL + (i / (n - 1)) * plotW;
+                  };
+
+                  var dateIdx = {};
+                  for (var di = 0; di < allDates.length; di++) { dateIdx[allDates[di]] = di; }
+
+                  var svgEls = [];
+
+                  var ySteps = [maxAbs, maxAbs / 2, 0, -maxAbs / 2, -maxAbs];
+                  for (var yi = 0; yi < ySteps.length; yi++) {
+                    var yv = ySteps[yi];
+                    var yp = valToY(yv);
+                    svgEls.push(React.createElement(SvgLine, {
+                      key: 'cg-' + yi, x1: padL, y1: yp, x2: padL + plotW, y2: yp,
+                      stroke: yv === 0 ? C.sub + '50' : C.sub + '18', strokeWidth: yv === 0 ? 1 : 0.5,
+                    }));
+                    svgEls.push(React.createElement(SvgText, {
+                      key: 'cyl-' + yi, x: padL - 4, y: yp + 3,
+                      fontSize: 8, fill: C.dim, fontFamily: F.mono, textAnchor: 'end',
+                    }, (yv >= 0 ? '+' : '') + yv.toFixed(1) + '%'));
+                  }
+
+                  var xLabelStep = Math.max(1, Math.floor(n / 5));
+                  for (var xi = 0; xi < n; xi += xLabelStep) {
+                    var xDate = allDates[xi];
+                    var xLabel = xDate ? xDate.substring(5, 7) + '/' + xDate.substring(8, 10) : '';
+                    svgEls.push(React.createElement(SvgText, {
+                      key: 'cxl-' + xi, x: idxToX(xi), y: chartH - 4,
+                      fontSize: 7, fill: C.dim, fontFamily: F.mono, textAnchor: 'middle',
+                    }, xLabel));
+                  }
+
+                  for (var li = 0; li < compTickers.length; li++) {
+                    var ltk = compTickers[li];
+                    var ldata = seriesMap[ltk];
+                    if (!ldata || ldata.length < 2) continue;
+                    var lcolor = COMP_COLORS[li] || C.accent;
+
+                    var pts = [];
+                    for (var lp = 0; lp < ldata.length; lp++) {
+                      var ldIdx = dateIdx[ldata[lp].date];
+                      if (ldIdx == null) continue;
+                      pts.push({ x: idxToX(ldIdx), y: valToY(ldata[lp].pct), val: ldata[lp].pct, date: ldata[lp].date, close: ldata[lp].close });
+                    }
+
+                    if (pts.length >= 2) {
+                      var aPath = 'M' + pts[0].x + ',' + zeroY;
+                      for (var ap = 0; ap < pts.length; ap++) {
+                        aPath = aPath + ' L' + pts[ap].x + ',' + pts[ap].y;
+                      }
+                      aPath = aPath + ' L' + pts[pts.length - 1].x + ',' + zeroY + ' Z';
+                      svgEls.push(React.createElement(Path, {
+                        key: 'ca-' + li, d: aPath, fill: lcolor, opacity: 0.06,
+                      }));
+                    }
+
+                    if (pts.length >= 2) {
+                      var lPath = 'M' + pts[0].x + ',' + pts[0].y;
+                      for (var ll = 1; ll < pts.length; ll++) {
+                        lPath = lPath + ' L' + pts[ll].x + ',' + pts[ll].y;
+                      }
+                      svgEls.push(React.createElement(Path, {
+                        key: 'cl-' + li, d: lPath, stroke: lcolor, strokeWidth: 2, fill: 'none', opacity: 0.9,
+                      }));
+                    }
+
+                    if (pts.length > 0) {
+                      var lastPt = pts[pts.length - 1];
+                      svgEls.push(React.createElement(Circle, {
+                        key: 'cdg-' + li, cx: lastPt.x, cy: lastPt.y, r: 5, fill: lcolor, opacity: 0.2,
+                      }));
+                      svgEls.push(React.createElement(Circle, {
+                        key: 'cdd-' + li, cx: lastPt.x, cy: lastPt.y, r: 3, fill: lcolor, opacity: 1,
+                      }));
+                    }
+                  }
+
+                  if (compTouch) {
+                    svgEls.push(React.createElement(SvgLine, {
+                      key: 'ct-line', x1: compTouch.x, y1: padT, x2: compTouch.x, y2: padT + plotH,
+                      stroke: C.text, strokeWidth: 0.5, opacity: 0.4, strokeDasharray: '3,3',
+                    }));
+                  }
+
+                  var handleTouch = function(evt) {
+                    var touchX = evt.nativeEvent.locationX;
+                    var closestIdx = 0;
+                    var closestDist = 99999;
+                    for (var fi = 0; fi < n; fi++) {
+                      var dist = Math.abs(idxToX(fi) - touchX);
+                      if (dist < closestDist) { closestDist = dist; closestIdx = fi; }
+                    }
+                    var touchDate = allDates[closestIdx];
+                    var vals = [];
+                    for (var vi = 0; vi < compTickers.length; vi++) {
+                      var vtk = compTickers[vi];
+                      var vdata = seriesMap[vtk];
+                      if (!vdata) continue;
+                      var bestPt = null;
+                      var bestDist = 99999;
+                      for (var vj = 0; vj < vdata.length; vj++) {
+                        var vdi = dateIdx[vdata[vj].date];
+                        if (vdi == null) continue;
+                        var vd = Math.abs(vdi - closestIdx);
+                        if (vd < bestDist) { bestDist = vd; bestPt = vdata[vj]; }
+                      }
+                      if (bestPt) vals.push({ ticker: vtk, pct: bestPt.pct, close: bestPt.close, color: COMP_COLORS[vi] || C.accent });
+                    }
+                    setCompTouch({ x: idxToX(closestIdx), date: touchDate, vals: vals });
+                  };
+
+                  return (
+                    <Glass padding={12}>
+                      <Text style={styles.sectionTitle}>RENTABILIDADE COMPARADA (%)</Text>
+
+                      {compTouch ? (
+                        <View style={{ backgroundColor: C.bg, borderRadius: 8, padding: 8, marginBottom: 6, borderWidth: 1, borderColor: C.sub + '20' }}>
+                          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginBottom: 4 }}>
+                            {compTouch.date ? compTouch.date.substring(8, 10) + '/' + compTouch.date.substring(5, 7) + '/' + compTouch.date.substring(0, 4) : ''}
+                          </Text>
+                          {compTouch.vals.map(function(v, vi) {
+                            return (
+                              <View key={vi} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: v.color }} />
+                                <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, width: 50 }}>{v.ticker}</Text>
+                                <Text style={{ fontSize: 10, color: v.pct >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                                  {(v.pct >= 0 ? '+' : '') + v.pct.toFixed(2) + '%'}
+                                </Text>
+                                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>
+                                  {'R$ ' + fmt(v.close)}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      ) : null}
+
+                      <View
+                        onStartShouldSetResponder={function() { return true; }}
+                        onMoveShouldSetResponder={function() { return true; }}
+                        onResponderGrant={handleTouch}
+                        onResponderMove={handleTouch}
+                        onResponderRelease={function() {}}>
+                        <Svg width={chartW} height={chartH}>
+                          {svgEls}
+                        </Svg>
+                      </View>
+
+                      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 10 }}>
+                        {compTickers.map(function(tk2, idx) {
+                          var sd = seriesMap[tk2];
+                          var lastPct = sd && sd.length > 0 ? sd[sd.length - 1].pct : 0;
+                          var lc = COMP_COLORS[idx] || C.accent;
+                          return (
+                            <View key={tk2} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                              <View style={{ width: 12, height: 3, borderRadius: 2, backgroundColor: lc }} />
+                              <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, fontWeight: '700' }}>{tk2}</Text>
+                              <Text style={{ fontSize: 10, color: lastPct >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                                {(lastPct >= 0 ? '+' : '') + lastPct.toFixed(1) + '%'}
+                              </Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </Glass>
+                  );
+                })()}
+
+                {compData && !hasChart && !compLoading ? (
+                  <Glass padding={14}>
+                    <EmptyState
+                      ionicon="analytics-outline"
+                      title="Dados insuficientes"
+                      description="Não foi possível obter histórico para os ativos selecionados neste período"
+                      color={C.dim}
+                    />
+                  </Glass>
+                ) : null}
+
+                {/* ── Fundamental Indicators Comparison ── */}
+                {Object.keys(compFundamentals).length >= 2 && !compFundLoading ? (
+                  <>
+                    {/* Valuation */}
+                    <Glass padding={14}>
+                      <Text style={styles.sectionTitle}>VALUATION</Text>
+                      {/* Header row */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.accent + '30' }}>
+                        <Text style={{ flex: 1.2, fontSize: 9, color: C.dim, fontFamily: F.mono }}>Indicador</Text>
+                        {compTickers.map(function(ht, hi) {
+                          return (
+                            <Text key={hi} style={{ flex: 1, fontSize: 10, color: COMP_COLORS[hi] || C.accent, fontFamily: F.mono, fontWeight: '700', textAlign: 'center' }}>{ht}</Text>
+                          );
+                        })}
+                      </View>
+                      {renderFundRow('P/L', 'pl', 'valuation', 'num', true)}
+                      {renderFundRow('P/VP', 'pvp', 'valuation', 'num', true)}
+                      {renderFundRow('EV/EBITDA', 'evEbitda', 'valuation', 'num', true)}
+                      {renderFundRow('EV/EBIT', 'evEbit', 'valuation', 'num', true)}
+                      {renderFundRow('P/SR', 'psr', 'valuation', 'num', true)}
+                      {renderFundRow('PEG', 'peg', 'valuation', 'num', true)}
+                      {renderFundRow('D.Y.', 'dy', 'valuation', 'pct', false)}
+                      {renderFundRow('LPA', 'lpa', 'valuation', 'num', false)}
+                      {renderFundRow('VPA', 'vpa', 'valuation', 'num', false)}
+                      {renderSectionRanking('valuation', 'Valuation')}
+                    </Glass>
+
+                    {/* Rentabilidade */}
+                    <Glass padding={14}>
+                      <Text style={styles.sectionTitle}>RENTABILIDADE</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.accent + '30' }}>
+                        <Text style={{ flex: 1.2, fontSize: 9, color: C.dim, fontFamily: F.mono }}>Indicador</Text>
+                        {compTickers.map(function(ht, hi) {
+                          return <Text key={hi} style={{ flex: 1, fontSize: 10, color: COMP_COLORS[hi] || C.accent, fontFamily: F.mono, fontWeight: '700', textAlign: 'center' }}>{ht}</Text>;
+                        })}
+                      </View>
+                      {renderFundRow('ROE', 'roe', 'rentabilidade', 'pct', false)}
+                      {renderFundRow('ROIC', 'roic', 'rentabilidade', 'pct', false)}
+                      {renderFundRow('ROA', 'roa', 'rentabilidade', 'pct', false)}
+                      {renderFundRow('Giro Ativos', 'giroAtivos', 'rentabilidade', 'num', false)}
+                      {renderSectionRanking('rentabilidade', 'Rentabilidade')}
+                    </Glass>
+
+                    {/* Eficiencia */}
+                    <Glass padding={14}>
+                      <Text style={styles.sectionTitle}>EFICIÊNCIA</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.accent + '30' }}>
+                        <Text style={{ flex: 1.2, fontSize: 9, color: C.dim, fontFamily: F.mono }}>Indicador</Text>
+                        {compTickers.map(function(ht, hi) {
+                          return <Text key={hi} style={{ flex: 1, fontSize: 10, color: COMP_COLORS[hi] || C.accent, fontFamily: F.mono, fontWeight: '700', textAlign: 'center' }}>{ht}</Text>;
+                        })}
+                      </View>
+                      {renderFundRow('M. Bruta', 'mBruta', 'eficiencia', 'pct', false)}
+                      {renderFundRow('M. EBITDA', 'mEbitda', 'eficiencia', 'pct', false)}
+                      {renderFundRow('M. EBIT', 'mEbit', 'eficiencia', 'pct', false)}
+                      {renderFundRow('M. Líquida', 'mLiquida', 'eficiencia', 'pct', false)}
+                      {renderSectionRanking('eficiencia', 'Eficiência')}
+                    </Glass>
+
+                    {/* Endividamento */}
+                    <Glass padding={14}>
+                      <Text style={styles.sectionTitle}>ENDIVIDAMENTO</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.accent + '30' }}>
+                        <Text style={{ flex: 1.2, fontSize: 9, color: C.dim, fontFamily: F.mono }}>Indicador</Text>
+                        {compTickers.map(function(ht, hi) {
+                          return <Text key={hi} style={{ flex: 1, fontSize: 10, color: COMP_COLORS[hi] || C.accent, fontFamily: F.mono, fontWeight: '700', textAlign: 'center' }}>{ht}</Text>;
+                        })}
+                      </View>
+                      {renderFundRow('Dív.Líq/PL', 'divLiqPl', 'endividamento', 'num', true)}
+                      {renderFundRow('Dív.Líq/EBITDA', 'divLiqEbitda', 'endividamento', 'num', true)}
+                      {renderFundRow('Passivos/Ativos', 'passivosAtivos', 'endividamento', 'num', true)}
+                      {renderFundRow('PL/Ativos', 'plAtivos', 'endividamento', 'num', false)}
+                      {renderSectionRanking('endividamento', 'Endividamento')}
+                    </Glass>
+
+                    {/* Crescimento */}
+                    <Glass padding={14}>
+                      <Text style={styles.sectionTitle}>CRESCIMENTO (5 ANOS)</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.accent + '30' }}>
+                        <Text style={{ flex: 1.2, fontSize: 9, color: C.dim, fontFamily: F.mono }}>Indicador</Text>
+                        {compTickers.map(function(ht, hi) {
+                          return <Text key={hi} style={{ flex: 1, fontSize: 10, color: COMP_COLORS[hi] || C.accent, fontFamily: F.mono, fontWeight: '700', textAlign: 'center' }}>{ht}</Text>;
+                        })}
+                      </View>
+                      {renderFundRow('CAGR Receitas', 'cagrReceitas', 'crescimento', 'pct', false)}
+                      {renderFundRow('CAGR Lucros', 'cagrLucros', 'crescimento', 'pct', false)}
+                      {renderSectionRanking('crescimento', 'Crescimento')}
+                    </Glass>
+
+                    {/* ── Ranking Geral ── */}
+                    {(function() {
+                      var sorted = compTickers.slice().sort(function(a, b) { return (rankWins[b] || 0) - (rankWins[a] || 0); });
+                      var totalWins = 0;
+                      for (var tw = 0; tw < compTickers.length; tw++) { totalWins += (rankWins[compTickers[tw]] || 0); }
+                      if (totalWins === 0) return null;
+                      var medals = ['🥇', '🥈', '🥉', '4º'];
+                      return (
+                        <Glass padding={14}>
+                          <Text style={styles.sectionTitle}>RANKING GERAL</Text>
+                          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body, marginTop: 2, marginBottom: 10 }}>
+                            Baseado na quantidade de indicadores vencidos em todas as seções
+                          </Text>
+                          {sorted.map(function(tk, si) {
+                            var wins = rankWins[tk] || 0;
+                            var pct = totalWins > 0 ? Math.round(wins / totalWins * 100) : 0;
+                            var tkIdx = compTickers.indexOf(tk);
+                            var tkColor = COMP_COLORS[tkIdx] || C.accent;
+                            return (
+                              <View key={tk} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: si < sorted.length - 1 ? 1 : 0, borderBottomColor: C.border }}>
+                                <Text style={{ fontSize: 18, width: 30 }}>{medals[si] || (si + 1) + 'º'}</Text>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontSize: 14, fontFamily: F.display, color: tkColor }}>{tk}</Text>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                                    <View style={{ flex: 1, height: 6, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' }}>
+                                      <View style={{ width: pct + '%', height: 6, backgroundColor: tkColor, borderRadius: 3 }} />
+                                    </View>
+                                    <Text style={{ fontSize: 11, fontFamily: F.mono, color: tkColor, marginLeft: 8, width: 50, textAlign: 'right' }}>{wins} ({pct}%)</Text>
+                                  </View>
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </Glass>
+                      );
+                    })()}
+                  </>
+                ) : null}
+
+                {/* ── Correlation ── */}
+                {hasChart && compTickers.length >= 2 ? (function() {
+                  var corrMatrix = [];
+                  for (var ci2 = 0; ci2 < compTickers.length; ci2++) {
+                    var row = [];
+                    for (var cj = 0; cj < compTickers.length; cj++) {
+                      if (ci2 === cj) { row.push(1); continue; }
+                      var s1 = seriesMap[compTickers[ci2]];
+                      var s2 = seriesMap[compTickers[cj]];
+                      var corr = computeCorrelation(s1, s2);
+                      row.push(corr);
+                    }
+                    corrMatrix.push(row);
+                  }
+
+                  return (
+                    <Glass padding={14}>
+                      <Text style={styles.sectionTitle}>CORRELAÇÃO</Text>
+                      <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body, marginTop: 2, marginBottom: 10 }}>
+                        Baseada nos retornos diários do período selecionado
+                      </Text>
+                      {/* Matrix header */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                        <View style={{ width: 60 }} />
+                        {compTickers.map(function(ht2, hi2) {
+                          return (
+                            <View key={hi2} style={{ flex: 1, alignItems: 'center' }}>
+                              <Text style={{ fontSize: 10, color: COMP_COLORS[hi2] || C.accent, fontFamily: F.mono, fontWeight: '700' }}>{ht2}</Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                      {/* Matrix rows */}
+                      {compTickers.map(function(rt, ri) {
+                        return (
+                          <View key={ri} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}>
+                            <Text style={{ width: 60, fontSize: 10, color: COMP_COLORS[ri] || C.accent, fontFamily: F.mono, fontWeight: '700' }}>{rt}</Text>
+                            {corrMatrix[ri].map(function(cv, cvi) {
+                              if (cv == null) return (
+                                <View key={cvi} style={{ flex: 1, alignItems: 'center' }}>
+                                  <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>-</Text>
+                                </View>
+                              );
+                              var corrColor = cv >= 0.7 ? C.green : cv >= 0.3 ? C.etfs : cv >= -0.3 ? C.text : cv >= -0.7 ? C.yellow : C.red;
+                              var isDiag = ri === cvi;
+                              return (
+                                <View key={cvi} style={{ flex: 1, alignItems: 'center' }}>
+                                  <View style={{
+                                    backgroundColor: isDiag ? C.sub + '20' : (cv >= 0.5 ? C.green + '18' : cv <= -0.5 ? C.red + '18' : 'transparent'),
+                                    borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4,
+                                  }}>
+                                    <Text style={{ fontSize: 13, fontFamily: F.mono, fontWeight: isDiag ? '400' : '700', color: isDiag ? C.dim : corrColor }}>
+                                      {cv.toFixed(2)}
+                                    </Text>
+                                  </View>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        );
+                      })}
+                      {/* Legend */}
+                      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12, marginTop: 10 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                          <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: C.green }} />
+                          <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>Alta</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                          <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: C.etfs }} />
+                          <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>Moderada</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                          <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: C.red }} />
+                          <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>Inversa</Text>
+                        </View>
+                      </View>
+                    </Glass>
+                  );
+                })() : null}
+
+                {/* ── AI Analysis Button ── */}
+                {compTickers.length >= 2 && Object.keys(compFundamentals).length >= 2 ? (
+                  subscription.canAccess('AI_ANALYSIS') ? (
+                  <TouchableOpacity
+                    style={{ backgroundColor: C.accent, borderRadius: 12, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, opacity: compAiLoading ? 0.6 : 1 }}
+                    onPress={function() { setCompAiConfirmVisible(true); }}
+                    disabled={compAiLoading}
+                    activeOpacity={0.7}
+                  >
+                    {compAiLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Ionicons name="sparkles" size={18} color="#fff" />
+                    )}
+                    <Text style={{ color: '#fff', fontFamily: F.display, fontSize: 14 }}>
+                      {compAiLoading ? 'Analisando...' : 'Análise IA da Comparação'}
+                    </Text>
+                  </TouchableOpacity>
+                  ) : (
+                    <UpgradePrompt feature="AI_ANALYSIS" compact={true} navigation={navigation} message="Análise IA requer Premium" />
+                  )
+                ) : null}
+
+                {/* ── AI Result Modal ── */}
+                {compAiVisible ? (
+                  <Modal visible={compAiVisible} animationType="slide" transparent={true} onRequestClose={function() { setCompAiVisible(false); }}>
+                    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end' }}>
+                      <View style={{ backgroundColor: C.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%', padding: 20 }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Ionicons name="sparkles" size={20} color={C.accent} />
+                            <Text style={{ fontFamily: F.display, fontSize: 16, color: C.text }}>Análise IA</Text>
+                          </View>
+                          <TouchableOpacity onPress={function() { setCompAiVisible(false); }}>
+                            <Ionicons name="close" size={24} color={C.dim} />
+                          </TouchableOpacity>
+                        </View>
+                        <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 500 }}>
+                          {compAiLoading ? (
+                            <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+                              <ActivityIndicator size="large" color={C.accent} />
+                              <Text style={{ color: C.dim, fontFamily: F.body, fontSize: 12, marginTop: 12 }}>Analisando {compTickers.join(' vs ')}...</Text>
+                            </View>
+                          ) : compAiResult && compAiResult.error ? (
+                            <View style={{ alignItems: 'center', paddingVertical: 30 }}>
+                              <Ionicons name="alert-circle-outline" size={40} color={C.red} />
+                              <Text style={{ color: C.red, fontFamily: F.body, fontSize: 13, marginTop: 8, textAlign: 'center' }}>{compAiResult.error}</Text>
+                            </View>
+                          ) : compAiResult ? (
+                            <>
+                              {[
+                                { key: 'comparacao', title: 'COMPARAÇÃO', icon: 'git-compare-outline', color: C.acoes },
+                                { key: 'vencedor', title: 'VENCEDOR', icon: 'trophy-outline', color: C.etfs },
+                                { key: 'riscos', title: 'RISCOS', icon: 'warning-outline', color: C.red },
+                                { key: 'recomendacao', title: 'RECOMENDAÇÃO', icon: 'bulb-outline', color: C.green },
+                              ].map(function(sec) {
+                                var content = compAiResult[sec.key];
+                                if (!content) return null;
+                                return (
+                                  <View key={sec.key} style={{ marginBottom: 16 }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                                      <Ionicons name={sec.icon} size={16} color={sec.color} />
+                                      <Text style={{ fontFamily: F.display, fontSize: 13, color: sec.color }}>{sec.title}</Text>
+                                    </View>
+                                    <Text style={{ fontFamily: F.body, fontSize: 12, color: C.text, lineHeight: 18 }}>{content}</Text>
+                                  </View>
+                                );
+                              })}
+                              {compAiResult._usage ? (
+                                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, textAlign: 'center', marginTop: 8 }}>
+                                  Hoje: {compAiResult._usage.today || 0}/{compAiResult._usage.daily_limit || 5} | Mês: {compAiResult._usage.month || 0}/{compAiResult._usage.monthly_limit || 100}
+                                  {compAiResult._usage.credits > 0 ? ' | +' + compAiResult._usage.credits + ' extras' : ''}
+                                </Text>
+                              ) : null}
+                            </>
+                          ) : null}
+                        </ScrollView>
+                      </View>
+                    </View>
+                  </Modal>
+                ) : null}
+              </>
+            );
+          })()}
+
       {/* IR removido — movido para Mais > Calculo IR (futura implementacao) */}
 
       <View style={{ height: SIZE.tabBarHeight + 20 }} />
     </ScrollView>
+    <AiConfirmModal
+      visible={compAiConfirmVisible}
+      analysisType="Comparativo de ativos"
+      onCancel={function() { setCompAiConfirmVisible(false); }}
+      onConfirm={function() { setCompAiConfirmVisible(false); handleCompAi(); }}
+    />
     </KeyboardAvoidingView>
   );
 }

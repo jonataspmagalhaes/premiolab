@@ -16,14 +16,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa, getOpcoes, getIndicatorByTicker } from '../../services/database';
+import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa, getOpcoes, getIndicatorByTicker, addSavedAnalysis, getPatrimonioSnapshots, getProfile, getRebalanceTargets, upsertRebalanceTargets } from '../../services/database';
 import { fetchFundamentals } from '../../services/fundamentalService';
-import { enrichPositionsWithPrices, fetchPriceHistory, fetchHistoryRouted, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
+import { enrichPositionsWithPrices, fetchPriceHistory, fetchHistoryRouted, fetchPriceHistoryLong, fetchPriceHistoryRange, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
 import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/currencyService';
-import { Glass, Badge, Pill, SectionLabel, InfoTip, PressableCard, FundamentalAccordion, Fab } from '../../components';
-import { MiniLineChart } from '../../components/InteractiveChart';
+import { Glass, Badge, Pill, SectionLabel, InfoTip, PressableCard, FundamentalAccordion, Fab, UpgradePrompt, AiAnalysisModal, AiConfirmModal } from '../../components';
+import InteractiveChart, { MiniLineChart } from '../../components/InteractiveChart';
+import Toast from 'react-native-toast-message';
 import { SkeletonCarteira, EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
+import { useSubscription } from '../../contexts/SubscriptionContext';
+var geminiService = require('../../services/geminiService');
 
 // ══════════ HELPERS ══════════
 var FILTERS = [
@@ -58,6 +61,33 @@ function formatTaxa(taxa, indexador) {
   return t.toFixed(1) + '%';
 }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+var MONTH_LABELS = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+function computeWeeklyReturns(history) {
+  if (!history || history.length < 2) return [];
+  var weeks = {};
+  for (var i = 0; i < history.length; i++) {
+    var pt = history[i];
+    if (!pt || !pt.date) continue;
+    var d = new Date(pt.date + 'T12:00:00');
+    var jan1 = new Date(d.getFullYear(), 0, 1);
+    var dayOfYear = Math.floor((d - jan1) / 86400000) + 1;
+    var weekNum = Math.ceil(dayOfYear / 7);
+    var key = d.getFullYear() + '-W' + (weekNum < 10 ? '0' : '') + weekNum;
+    if (!weeks[key]) weeks[key] = { first: pt.value, last: pt.value, lastDate: pt.date };
+    weeks[key].last = pt.value;
+    weeks[key].lastDate = pt.date;
+  }
+  var keys = Object.keys(weeks).sort();
+  var returns = [];
+  for (var j = 1; j < keys.length; j++) {
+    var prev = weeks[keys[j - 1]].last;
+    var curr = weeks[keys[j]].last;
+    var ret = prev > 0 ? ((curr - prev) / prev) * 100 : 0;
+    returns.push({ week: keys[j], date: weeks[keys[j]].lastDate, pct: ret });
+  }
+  return returns;
+}
 
 // ══════════════════════════════════════════════
 // SECTION: SQUARIFIED TREEMAP
@@ -377,7 +407,17 @@ var PositionCard = React.memo(function PositionCard(props) {
   var fundLoading = props.fundLoading;
   var opcoesForTicker = props.opcoesForTicker;
   var indicatorData = props.indicator;
+  var canAccessFund = props.canAccessFund;
+  var onAiAnalysis = props.onAiAnalysis;
+  var portfoliosList = props.portfoliosList || [];
+  var showPortfolioBadge = props.showPortfolioBadge;
+  var tickerMeta = props.tickerMeta;
+  var onSetMeta = props.onSetMeta;
+  var totalPortfolio = props.totalPortfolio || 0;
+  var tickerValorTotal = props.tickerValorTotal;
   var ps = usePrivacyStyle();
+  var _metaEditing = useState(false); var metaEditing = _metaEditing[0]; var setMetaEditing = _metaEditing[1];
+  var _metaInput = useState(''); var metaInput = _metaInput[0]; var setMetaInput = _metaInput[1];
 
   var color = PRODUCT_COLORS[pos.categoria] || C.accent;
   var catLabel = CAT_LABELS[pos.categoria] || (pos.categoria || '').toUpperCase();
@@ -416,6 +456,17 @@ var PositionCard = React.memo(function PositionCard(props) {
   var sections = _sections[0];
   var setSections = _sections[1];
 
+  // Chart state for expanded card
+  var _chartData = useState(null);
+  var chartData = _chartData[0];
+  var setChartData = _chartData[1];
+  var _chartPeriod = useState('3mo');
+  var chartPeriod = _chartPeriod[0];
+  var setChartPeriod = _chartPeriod[1];
+  var _chartLoading = useState(false);
+  var chartLoading = _chartLoading[0];
+  var setChartLoading = _chartLoading[1];
+
   function toggleSection(sKey) {
     animateLayout();
     var next = {};
@@ -423,6 +474,32 @@ var PositionCard = React.memo(function PositionCard(props) {
     for (var si = 0; si < ks.length; si++) { next[ks[si]] = sections[ks[si]]; }
     next[sKey] = !next[sKey];
     setSections(next);
+    if (sKey === 'grafico' && next[sKey] && !chartData && !chartLoading) {
+      loadChart(chartPeriod);
+    }
+  }
+
+  function loadChart(period) {
+    setChartLoading(true);
+    fetchPriceHistoryRange([pos.ticker], period).then(function(result) {
+      var ohlcv = result && result[pos.ticker] ? result[pos.ticker] : [];
+      var pts = [];
+      for (var ci = 0; ci < ohlcv.length; ci++) {
+        if (ohlcv[ci] && ohlcv[ci].close != null && ohlcv[ci].date) {
+          pts.push({ value: ohlcv[ci].close, date: ohlcv[ci].date });
+        }
+      }
+      setChartData(pts);
+      setChartLoading(false);
+    }).catch(function() {
+      setChartLoading(false);
+    });
+  }
+
+  function handleChartPeriod(p) {
+    setChartPeriod(p);
+    setChartData(null);
+    loadChart(p);
   }
 
   function renderDesempenhoMetric(label, value, metricColor) {
@@ -455,6 +532,32 @@ var PositionCard = React.memo(function PositionCard(props) {
               <View style={[styles.typeBadge, { backgroundColor: C.etfs + '14' }]}>
                 <Text style={[styles.typeBadgeText, { color: C.etfs }]}>BR</Text>
               </View>
+            ) : null}
+            {onAiAnalysis ? (
+              <TouchableOpacity onPress={onAiAnalysis} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={{ marginLeft: 4 }} accessibilityRole="button" accessibilityLabel={'Análise IA de ' + pos.ticker}>
+                <Ionicons name="sparkles" size={14} color={C.accent} />
+              </TouchableOpacity>
+            ) : null}
+            {showPortfolioBadge && pos.portfolio_ids && pos.portfolio_ids.length > 0 ? (
+              pos.portfolio_ids.map(function(pid) {
+                var pfName = 'Padrão';
+                var pfColor = C.accent;
+                if (pid) {
+                  for (var pfi = 0; pfi < portfoliosList.length; pfi++) {
+                    if (portfoliosList[pfi].id === pid) {
+                      pfName = portfoliosList[pfi].nome;
+                      pfColor = portfoliosList[pfi].cor || C.accent;
+                      break;
+                    }
+                  }
+                }
+                return (
+                  <View key={pid || 'default'} style={[styles.typeBadge, { backgroundColor: pfColor + '14', marginLeft: 2 }]}>
+                    <Text style={[styles.typeBadgeText, { color: pfColor }]}>{pfName}</Text>
+                  </View>
+                );
+              })
             ) : null}
           </View>
           <View style={{ alignItems: 'flex-end' }}>
@@ -551,6 +654,61 @@ var PositionCard = React.memo(function PositionCard(props) {
                 </View>
               ) : null}
             </View>
+            {/* ▶ GRÁFICO accordion */}
+            <View>
+              <TouchableOpacity onPress={function() {
+                  toggleSection('grafico');
+                  if (!sections['grafico'] && !chartData && !chartLoading) { loadChart(chartPeriod); }
+                }}
+                activeOpacity={0.7}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                  paddingVertical: 8, paddingHorizontal: 2 }}
+                accessibilityRole="button"
+                accessibilityLabel={(sections['grafico'] ? 'Recolher ' : 'Expandir ') + 'Gráfico'}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name={sections['grafico'] ? 'chevron-down' : 'chevron-forward'} size={14} color={color} />
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: color, fontFamily: F.display }}>HISTÓRICO DE PREÇOS</Text>
+                </View>
+                {hasPrice ? (
+                  <Text style={[{ fontSize: 11, color: C.dim, fontFamily: F.mono }, ps]}>
+                    {posSymbol + ' ' + Number(pos.preco_atual).toFixed(2)}
+                  </Text>
+                ) : null}
+              </TouchableOpacity>
+              {sections['grafico'] ? (
+                <View style={{ paddingBottom: 8 }}>
+                  <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body, marginRight: 2 }}>Período</Text>
+                    {['1mo', '3mo', '6mo', '1y'].map(function(p) {
+                      var lbl = p === '1mo' ? '1M' : p === '3mo' ? '3M' : p === '6mo' ? '6M' : '1A';
+                      return (
+                        <Pill key={p} label={lbl} active={chartPeriod === p}
+                          onPress={function() { handleChartPeriod(p); }}
+                          color={color} />
+                      );
+                    })}
+                  </View>
+                  {chartLoading ? (
+                    <View style={{ height: 120, justifyContent: 'center', alignItems: 'center' }}>
+                      <ActivityIndicator color={color} size="small" />
+                    </View>
+                  ) : chartData && chartData.length >= 2 ? (
+                    <InteractiveChart
+                      data={chartData}
+                      color={color}
+                      height={120}
+                      formatValue={function(v) { return posSymbol + ' ' + Number(v).toFixed(2); }}
+                      fontFamily={F.mono}
+                    />
+                  ) : (
+                    <View style={{ height: 60, justifyContent: 'center', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body }}>Sem dados para o período</Text>
+                    </View>
+                  )}
+                </View>
+              ) : null}
+            </View>
+            {canAccessFund ? (
             <FundamentalAccordion
               fundamentals={fundData}
               fundLoading={fundLoading}
@@ -563,6 +721,9 @@ var PositionCard = React.memo(function PositionCard(props) {
               mercado={pos.mercado}
               color={color}
             />
+            ) : (
+            <UpgradePrompt feature="FUNDAMENTALS" compact navigation={navigation} />
+            )}
             <View style={styles.expandedActions}>
               <TouchableOpacity style={[styles.actionBtn, { borderColor: C.green + '30', backgroundColor: C.green + '08' }]}
                 onPress={onBuy} accessibilityRole="button" accessibilityLabel="Comprar">
@@ -585,6 +746,69 @@ var PositionCard = React.memo(function PositionCard(props) {
                 <Text style={[styles.actionBtnText, { color: C.accent }]}>Mais</Text>
               </TouchableOpacity>
             </View>
+            {/* ▶ META inline */}
+            {(function() {
+              var metaValorRef = tickerValorTotal != null ? tickerValorTotal : valorAtual;
+              var pctAtualTotal = totalPortfolio > 0 ? (metaValorRef / totalPortfolio) * 100 : 0;
+              var hasMeta = tickerMeta != null && tickerMeta !== '';
+              var metaVal = hasMeta ? parseFloat(tickerMeta) : 0;
+              var diff = hasMeta ? pctAtualTotal - metaVal : 0;
+              var diffColor = Math.abs(diff) < 0.5 ? C.green : diff > 0 ? C.etfs : C.red;
+              return (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 8 }}>
+                  <Ionicons name="flag-outline" size={13} color={C.etfs} />
+                  <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body }}>Atual</Text>
+                  <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono }}>{pctAtualTotal.toFixed(1) + '%'}</Text>
+                  <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body }}>Meta</Text>
+                  {metaEditing ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <TextInput
+                        style={{ width: 48, height: 26, borderRadius: 6, borderWidth: 1, borderColor: C.etfs + '60',
+                          backgroundColor: C.bg, color: C.text, fontSize: 12, fontFamily: F.mono, textAlign: 'center', paddingVertical: 0 }}
+                        value={metaInput}
+                        onChangeText={setMetaInput}
+                        keyboardType="decimal-pad"
+                        autoFocus
+                        maxLength={5}
+                        returnKeyType="done"
+                        onSubmitEditing={function() {
+                          var v = metaInput.replace(',', '.');
+                          if (v === '' || isNaN(parseFloat(v))) {
+                            if (onSetMeta) onSetMeta(pos.ticker, null);
+                          } else {
+                            if (onSetMeta) onSetMeta(pos.ticker, parseFloat(v));
+                          }
+                          setMetaEditing(false);
+                        }}
+                        onBlur={function() {
+                          var v = metaInput.replace(',', '.');
+                          if (v === '' || isNaN(parseFloat(v))) {
+                            if (onSetMeta) onSetMeta(pos.ticker, null);
+                          } else {
+                            if (onSetMeta) onSetMeta(pos.ticker, parseFloat(v));
+                          }
+                          setMetaEditing(false);
+                        }}
+                      />
+                      <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>%</Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity onPress={function() { setMetaInput(hasMeta ? String(metaVal) : ''); setMetaEditing(true); }}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                      <Text style={{ fontSize: 12, color: hasMeta ? C.text : C.dim, fontFamily: F.mono }}>
+                        {hasMeta ? metaVal.toFixed(1) + '%' : '–'}
+                      </Text>
+                      <Ionicons name="pencil-outline" size={11} color={C.dim} />
+                    </TouchableOpacity>
+                  )}
+                  {hasMeta && !metaEditing ? (
+                    <Text style={{ fontSize: 11, fontFamily: F.mono, color: diffColor }}>
+                      {(diff >= 0 ? '+' : '') + diff.toFixed(1) + '%'}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })()}
           </View>
         ) : null}
       </Glass>
@@ -671,8 +895,11 @@ function RFCard(props) {
 // ══════════════════════════════════════════════════════
 export default function CarteiraScreen(props) {
   var navigation = props.navigation;
+  var portfolioId = props.portfolioId || null;
+  var portfoliosList = props.portfolios || [];
   var user = useAuth().user;
   var ps = usePrivacyStyle();
+  var sub = useSubscription();
   var _navigating = useRef(false);
 
   useFocusEffect(useCallback(function() { _navigating.current = false; }, []));
@@ -687,6 +914,8 @@ export default function CarteiraScreen(props) {
   var _sal = useState([]); var saldos = _sal[0]; var setSaldos = _sal[1];
   var _fxRates = useState({ BRL: 1 }); var fxRates = _fxRates[0]; var setFxRates = _fxRates[1];
   var _fil = useState('todos'); var filter = _fil[0]; var setFilter = _fil[1];
+  var _sort = useState('valor'); var sortKey = _sort[0]; var setSortKey = _sort[1];
+  var _corrFilter = useState(null); var corrFilter = _corrFilter[0]; var setCorrFilter = _corrFilter[1];
   var _load = useState(true); var loading = _load[0]; var setLoading = _load[1];
   var _ref = useState(false); var refreshing = _ref[0]; var setRefreshing = _ref[1];
   var _rf = useState([]); var rfItems = _rf[0]; var setRfItems = _rf[1];
@@ -705,16 +934,70 @@ export default function CarteiraScreen(props) {
   var _fundL = useState({}); var fundLoading = _fundL[0]; var setFundLoading = _fundL[1];
   var _opc = useState([]); var opcoes = _opc[0]; var setOpcoes = _opc[1];
   var _indic = useState({}); var indicators = _indic[0]; var setIndicators = _indic[1];
+  var _aiModalVisible = useState(false); var aiModalVisible = _aiModalVisible[0]; var setAiModalVisible = _aiModalVisible[1];
+  var _aiResult = useState(null); var aiResult = _aiResult[0]; var setAiResult = _aiResult[1];
+  var _aiLoading = useState(false); var aiLoading = _aiLoading[0]; var setAiLoading = _aiLoading[1];
+  var _aiError = useState(null); var aiError = _aiError[0]; var setAiError = _aiError[1];
+  var _aiUsage = useState(null); var aiUsage = _aiUsage[0]; var setAiUsage = _aiUsage[1];
+  var _aiSaving = useState(false); var aiSaving = _aiSaving[0]; var setAiSaving = _aiSaving[1];
+  var _aiConfirmVisible = useState(false); var aiConfirmVisible = _aiConfirmVisible[0]; var setAiConfirmVisible = _aiConfirmVisible[1];
+  var _snapshots = useState([]); var snapshots = _snapshots[0]; var setSnapshots = _snapshots[1];
+  var _selicRate = useState(13.25); var selicRate = _selicRate[0]; var setSelicRate = _selicRate[1];
+  var _ibovHist = useState([]); var ibovHist = _ibovHist[0]; var setIbovHist = _ibovHist[1];
+  var _perfSeries = useState({ cart: true, cdi: true, ibov: true, acao: false, fii: false, etf: false, stock_int: false, rf: false });
+  var perfSeries = _perfSeries[0]; var setPerfSeries = _perfSeries[1];
+  var _showPerfChart = useState(true); var showPerfChart = _showPerfChart[0]; var setShowPerfChart = _showPerfChart[1];
+  var _familyBreakdown = useState(null); var familyBreakdown = _familyBreakdown[0]; var setFamilyBreakdown = _familyBreakdown[1];
+  var _tickerMetas = useState({}); var tickerMetas = _tickerMetas[0]; var setTickerMetas = _tickerMetas[1];
+  var _rebalTargetsRef = useRef(null);
+
+  var handleSetMeta = function(ticker, pct) {
+    var newMetas = {};
+    var mKeys = Object.keys(tickerMetas);
+    for (var mk = 0; mk < mKeys.length; mk++) { newMetas[mKeys[mk]] = tickerMetas[mKeys[mk]]; }
+    if (pct === null || pct === '' || isNaN(pct)) {
+      delete newMetas[ticker];
+    } else {
+      newMetas[ticker] = parseFloat(pct);
+    }
+    setTickerMetas(newMetas);
+    // Persist
+    var existing = _rebalTargetsRef.current || {};
+    var tt = existing.ticker_targets || {};
+    var ttCopy = {};
+    var ttKeys = Object.keys(tt);
+    for (var tk = 0; tk < ttKeys.length; tk++) { ttCopy[ttKeys[tk]] = tt[ttKeys[tk]]; }
+    ttCopy._flat = newMetas;
+    upsertRebalanceTargets(user.id, {
+      class_targets: existing.class_targets || {},
+      sector_targets: existing.sector_targets || {},
+      ticker_targets: ttCopy,
+    }).catch(function() {});
+  };
+
+  var handleSaveAiCarteira = function() {
+    if (!user || !user.id || !aiResult) return;
+    setAiSaving(true);
+    addSavedAnalysis(user.id, { type: 'carteira', title: 'Análise da Carteira', result: aiResult }).then(function(res) {
+      setAiSaving(false);
+      if (res.error) {
+        Toast.show({ type: 'error', text1: 'Erro ao salvar' });
+      } else {
+        Toast.show({ type: 'success', text1: 'Análise salva' });
+      }
+    }).catch(function() { setAiSaving(false); });
+  };
+
   var load = async function () {
     if (!user) return;
     setLoadError(false);
     var rawPos;
     try {
       var results = await Promise.all([
-        getPositions(user.id),
-        getSaldos(user.id),
-        getRendaFixa(user.id),
-        getOpcoes(user.id),
+        getPositions(user.id, portfolioId),
+        getSaldos(user.id, portfolioId),
+        getRendaFixa(user.id, portfolioId),
+        getOpcoes(user.id, portfolioId),
       ]);
       rawPos = results[0].data || [];
       setEncerradas(results[0].encerradas || []);
@@ -737,6 +1020,38 @@ export default function CarteiraScreen(props) {
         } catch (e2) { /* fallback BRL:1 */ }
       } else {
         setFxRates({ BRL: 1 });
+      }
+      // Compute family breakdown when viewing "Todos" and portfolios exist
+      if (!portfolioId && portfoliosList.length > 0) {
+        try {
+          var pfPromises = [];
+          for (var pfIdx = 0; pfIdx < portfoliosList.length; pfIdx++) {
+            pfPromises.push(getPositions(user.id, portfoliosList[pfIdx].id));
+          }
+          pfPromises.push(getPositions(user.id, '__null__'));
+          var pfResults = await Promise.all(pfPromises);
+          var breakdown = [];
+          for (var pfr = 0; pfr < portfoliosList.length; pfr++) {
+            var pfPositions = pfResults[pfr].data || [];
+            var pfTotal = 0;
+            for (var pp = 0; pp < pfPositions.length; pp++) {
+              pfTotal += pfPositions[pp].quantidade * pfPositions[pp].pm;
+            }
+            breakdown.push({ id: portfoliosList[pfr].id, nome: portfoliosList[pfr].nome, cor: portfoliosList[pfr].cor || C.accent, icone: portfoliosList[pfr].icone, valor: pfTotal, ativos: pfPositions.length });
+          }
+          // "Sem portfólio" (last result)
+          var nullPositions = pfResults[pfResults.length - 1].data || [];
+          var nullTotal = 0;
+          for (var npi = 0; npi < nullPositions.length; npi++) {
+            nullTotal += nullPositions[npi].quantidade * nullPositions[npi].pm;
+          }
+          if (nullTotal > 0) {
+            breakdown.push({ id: null, nome: 'Padrão', cor: C.accent, icone: null, valor: nullTotal, ativos: nullPositions.length });
+          }
+          setFamilyBreakdown(breakdown);
+        } catch (e3) { console.warn('Family breakdown failed:', e3); }
+      } else {
+        setFamilyBreakdown(null);
       }
     } catch (e) {
       console.warn('CarteiraScreen load failed:', e);
@@ -764,9 +1079,42 @@ export default function CarteiraScreen(props) {
       }
     } catch (e) { console.warn('Price enrichment failed:', e.message); }
     setPricesLoading(false);
+
+    // Fire-and-forget: load ticker metas
+    getRebalanceTargets(user.id).then(function(rtRes) {
+      if (rtRes.data) {
+        _rebalTargetsRef.current = rtRes.data;
+        var flat = rtRes.data.ticker_targets && rtRes.data.ticker_targets._flat ? rtRes.data.ticker_targets._flat : {};
+        setTickerMetas(flat);
+      }
+    }).catch(function() {});
+
+    // Fire-and-forget: snapshots, selic, ibov for perf chart
+    Promise.all([
+      getPatrimonioSnapshots(user.id),
+      getProfile(user.id),
+    ]).then(function(perfResults) {
+      var snaps = perfResults[0] || [];
+      setSnapshots(snaps.map(function(s) { return { date: s.data, value: s.valor }; }));
+      var profResult = perfResults[1];
+      var prof = profResult && profResult.data;
+      if (prof && prof.selic) setSelicRate(parseFloat(prof.selic) || 13.25);
+    }).catch(function() {});
+    fetchPriceHistoryLong(['^BVSP']).then(function(ibovData) {
+      if (ibovData && ibovData['^BVSP']) {
+        var closes = ibovData['^BVSP'];
+        var ibovArr = [];
+        for (var ib = 0; ib < closes.length; ib++) {
+          if (closes[ib] && closes[ib].date) {
+            ibovArr.push({ date: closes[ib].date, value: closes[ib].close || closes[ib].price || 0 });
+          }
+        }
+        setIbovHist(ibovArr);
+      }
+    }).catch(function() {});
   };
 
-  useFocusEffect(useCallback(function () { load(); }, [user]));
+  useFocusEffect(useCallback(function () { load(); }, [user, portfolioId, portfoliosList.length]));
 
   var onRefresh = async function () {
     setRefreshing(true);
@@ -781,6 +1129,21 @@ export default function CarteiraScreen(props) {
   var now = new Date();
   var rfAtivos = rfItems.filter(function (r) { return parseLocalDate(r.vencimento) > now; });
 
+  // Unique corretoras from positions
+  var allCorretoras = [];
+  for (var ci = 0; ci < positions.length; ci++) {
+    var pc = positions[ci].por_corretora;
+    if (pc) {
+      var cks = Object.keys(pc);
+      for (var ck = 0; ck < cks.length; ck++) {
+        if (pc[cks[ck]] > 0 && allCorretoras.indexOf(cks[ck]) === -1) {
+          allCorretoras.push(cks[ck]);
+        }
+      }
+    }
+  }
+  allCorretoras.sort();
+
   // Filter
   var filteredPositions;
   if (filter === 'todos') filteredPositions = positions;
@@ -789,6 +1152,43 @@ export default function CarteiraScreen(props) {
     var fd = FILTERS.find(function (f) { return f.k === filter; });
     filteredPositions = positions.filter(function (p) { return p.categoria === (fd ? fd.cat : ''); });
   }
+  // Corretora filter — adjust qty and PM to show only the selected corretora's data
+  if (corrFilter) {
+    var corrAdjusted = [];
+    for (var cfi = 0; cfi < filteredPositions.length; cfi++) {
+      var fp = filteredPositions[cfi];
+      if (!fp.por_corretora || !fp.por_corretora[corrFilter] || fp.por_corretora[corrFilter] <= 0) continue;
+      var corrQty = fp.por_corretora[corrFilter];
+      var corrCusto = fp.custo_por_corretora && fp.custo_por_corretora[corrFilter] ? fp.custo_por_corretora[corrFilter] : corrQty * fp.pm;
+      var corrPm = corrQty > 0 ? corrCusto / corrQty : fp.pm;
+      var adjPos = {};
+      var fpKeys = Object.keys(fp);
+      for (var fk = 0; fk < fpKeys.length; fk++) {
+        adjPos[fpKeys[fk]] = fp[fpKeys[fk]];
+      }
+      adjPos.quantidade = corrQty;
+      adjPos.pm = corrPm;
+      adjPos.custo_total = corrCusto;
+      adjPos._corrFiltered = true;
+      corrAdjusted.push(adjPos);
+    }
+    filteredPositions = corrAdjusted;
+  }
+  // Sort
+  var sortedPositions = filteredPositions.slice().sort(function (a, b) {
+    if (sortKey === 'nome') return (a.ticker || '').localeCompare(b.ticker || '');
+    if (sortKey === 'var') return ((b.variacao || 0) - (a.variacao || 0));
+    if (sortKey === 'pl') {
+      var plA = a.preco_atual ? (a.preco_atual - a.pm) * a.quantidade : 0;
+      var plB = b.preco_atual ? (b.preco_atual - b.pm) * b.quantidade : 0;
+      return plB - plA;
+    }
+    // default 'valor'
+    var vA = a.quantidade * (a.preco_atual || a.pm);
+    var vB = b.quantidade * (b.preco_atual || b.pm);
+    return vB - vA;
+  });
+  filteredPositions = sortedPositions;
   var showRF = filter === 'todos' || filter === 'rf';
 
   // Totals — converter INT para BRL
@@ -982,6 +1382,92 @@ export default function CarteiraScreen(props) {
     ]);
   }
 
+  // ══════════ AI CARTEIRA ══════════
+  var handleAiCarteira = function() {
+    if (!sub.canAccess('AI_ANALYSIS')) {
+      navigation.navigate('Paywall');
+      return;
+    }
+    setAiModalVisible(true);
+    setAiLoading(true);
+    setAiError(null);
+    setAiResult(null);
+
+    // Build allocation percentages
+    var alocPct = {};
+    var alocKeys = Object.keys(allocMap);
+    for (var ak = 0; ak < alocKeys.length; ak++) {
+      alocPct[alocKeys[ak]] = allocTotal > 0 ? (allocMap[alocKeys[ak]] / allocTotal) * 100 : 0;
+    }
+    alocPct.saldo = allocTotal > 0 ? (totalSaldos / (allocTotal + totalSaldos)) * 100 : 0;
+
+    // Build positions summary
+    var posResumo = positions.map(function(p) {
+      var val = p.quantidade * (p.preco_atual || p.pm);
+      var custo = p.quantidade * p.pm;
+      var plPct = custo > 0 ? ((val - custo) / custo) * 100 : 0;
+      return {
+        ticker: p.ticker,
+        categoria: p.categoria,
+        quantidade: p.quantidade,
+        pm: p.pm,
+        preco_atual: p.preco_atual || p.pm,
+        pl_pct: plPct,
+        variacao: p.change_day || 0,
+      };
+    });
+
+    // Build opcoes summary
+    var opsResumo = null;
+    var opsAtivas = opcoes.filter(function(o) { return o.status === 'ativa'; });
+    if (opsAtivas.length > 0) {
+      var premMes = 0;
+      var plOps = 0;
+      for (var oi = 0; oi < opsAtivas.length; oi++) {
+        premMes += (opsAtivas[oi].premio || 0) * (opsAtivas[oi].quantidade || 0);
+      }
+      opsResumo = { ativas: opsAtivas.length, premiosMes: premMes, plTotal: plOps };
+    }
+
+    // Build indicators summary
+    var indResumo = [];
+    var indKeys = Object.keys(indicators);
+    for (var ik = 0; ik < indKeys.length; ik++) {
+      var ind = indicators[indKeys[ik]];
+      if (ind) {
+        indResumo.push({
+          ticker: indKeys[ik],
+          hv: ind.hv_20 || null,
+          rsi: ind.rsi_14 || null,
+          beta: ind.beta || null,
+        });
+      }
+    }
+
+    var payload = {
+      type: 'carteira',
+      patrimonio: totalValue,
+      alocacao: alocPct,
+      posicoes: posResumo,
+      rendaMensal: null,
+      opcoesResumo: opsResumo,
+      rfTotal: totalRF,
+      saldoLivre: totalSaldos,
+      rentabilidade: totalPLPct,
+      indicadores: indResumo,
+    };
+
+    geminiService.analyzeGeneral(payload).then(function(result) {
+      setAiLoading(false);
+      if (result.error) {
+        setAiError(result.error);
+      } else {
+        setAiResult(result);
+        if (result._usage) setAiUsage(result._usage);
+      }
+    });
+  };
+
   if (loading) return <View style={styles.container}><SkeletonCarteira /></View>;
   if (loadError) return (
     <View style={styles.container}>
@@ -994,7 +1480,13 @@ export default function CarteiraScreen(props) {
         <EmptyState ionicon="briefcase-outline" title="Carteira vazia"
           description="Nenhum ativo na carteira. Registre compras de ações, FIIs, ETFs ou renda fixa."
           cta="Adicionar ativo" onCta={function () { nav('AddOperacao'); }} color={C.acoes} />
-        <Fab navigation={navigation} />
+        <Fab navigation={navigation} items={[
+          { label: 'Operação', icon: 'wallet-outline', color: C.acoes, screen: 'AddOperacao' },
+          { label: 'Opção', icon: 'flash-outline', color: C.opcoes, screen: 'AddOpcao' },
+          { label: 'Provento', icon: 'cash-outline', color: C.fiis, screen: 'AddProvento' },
+          { label: 'Renda Fixa', icon: 'document-text-outline', color: C.rf, screen: 'AddRendaFixa' },
+          { label: 'Portfolio', icon: 'folder-outline', color: C.etfs, screen: 'ConfigPortfolios' },
+        ]} />
       </View>
     );
   }
@@ -1115,6 +1607,45 @@ export default function CarteiraScreen(props) {
         ) : null}
       </Glass>
 
+      {/* ══════ RESUMO FAMÍLIA / PORTFÓLIOS ══════ */}
+      {familyBreakdown && familyBreakdown.length > 0 ? (
+        <Glass padding={14}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+            <Ionicons name="people-outline" size={14} color={C.accent} />
+            <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>PORTFÓLIOS</Text>
+          </View>
+          {familyBreakdown.map(function(fb) {
+            var pct = totalValue > 0 ? (fb.valor / totalValue * 100) : 0;
+            return (
+              <View key={fb.id || 'null'} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+                {fb.icone ? (
+                  <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: fb.cor + '22', alignItems: 'center', justifyContent: 'center' }}>
+                    <Ionicons name={fb.icone} size={14} color={fb.cor} />
+                  </View>
+                ) : (
+                  <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: fb.cor + '22', alignItems: 'center', justifyContent: 'center' }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: fb.cor }} />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 13, fontFamily: F.body, color: C.text }}>{fb.nome}</Text>
+                    <Text style={[{ fontSize: 13, fontFamily: F.mono, color: C.text }, ps]}>{'R$ ' + fmt(fb.valor)}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+                    <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.dim }}>{fb.ativos + ' ativos'}</Text>
+                    <Text style={{ fontSize: 10, fontFamily: F.mono, color: fb.cor }}>{pct.toFixed(1) + '%'}</Text>
+                  </View>
+                  <View style={{ height: 3, backgroundColor: C.border, borderRadius: 1.5, marginTop: 4 }}>
+                    <View style={{ height: 3, borderRadius: 1.5, backgroundColor: fb.cor, width: pct + '%' }} />
+                  </View>
+                </View>
+              </View>
+            );
+          })}
+        </Glass>
+      ) : null}
+
       {/* ══════ MAPA DE CALOR ══════ */}
       {treemapItems.length > 0 ? (
         <Glass padding={14}>
@@ -1172,6 +1703,222 @@ export default function CarteiraScreen(props) {
         </Glass>
       ) : null}
 
+      {/* ══════ PERFORMANCE CHART ══════ */}
+      {snapshots.length >= 2 ? (
+        <Glass padding={14}>
+          <TouchableOpacity activeOpacity={0.7} onPress={function() { setShowPerfChart(!showPerfChart); }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: showPerfChart ? 8 : 0 }}>
+            <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>
+              {showPerfChart ? '▾' : '▸'} RETORNO SEMANAL
+            </Text>
+            <InfoTip title="Retorno Semanal" text={"Retorno percentual semanal comparando sua carteira vs CDI vs IBOV.\n\nCarteira: variação do patrimônio entre semanas.\nCDI: retorno teórico da Selic.\nIBOV: retorno real do índice Bovespa.\n\nToggle as séries para comparar classes de ativos."} size={12} />
+          </TouchableOpacity>
+          {showPerfChart ? (function() {
+            // Compute weekly returns for carteira
+            var cartReturns = computeWeeklyReturns(snapshots);
+            if (cartReturns.length === 0) return React.createElement(Text, { style: { fontSize: 11, color: C.sub, fontFamily: F.body, textAlign: 'center', paddingVertical: 10 } }, 'Dados insuficientes para o gráfico');
+
+            // CDI weekly returns
+            var cdiAnual = (selicRate || 13.25) - 0.10;
+            var cdiSemanal = (Math.pow(1 + cdiAnual / 100, 1 / 52) - 1) * 100;
+            var cdiReturns = {};
+            for (var cwi = 0; cwi < cartReturns.length; cwi++) {
+              cdiReturns[cartReturns[cwi].week] = cdiSemanal;
+            }
+
+            // IBOV weekly returns
+            var ibovReturns = {};
+            if (ibovHist.length > 0) {
+              var ibovWR = computeWeeklyReturns(ibovHist);
+              for (var iwi = 0; iwi < ibovWR.length; iwi++) {
+                ibovReturns[ibovWR[iwi].week] = ibovWR[iwi].pct;
+              }
+            }
+
+            // Per-category weekly returns (from snapshots proportional split)
+            var catReturns = {};
+            var catKeys = ['acao', 'fii', 'etf', 'stock_int', 'rf'];
+            if (allocTotal > 0) {
+              for (var ck = 0; ck < catKeys.length; ck++) {
+                var catKey = catKeys[ck];
+                var catPct = allocMap[catKey] / allocTotal;
+                if (catPct > 0) {
+                  var catWR = {};
+                  for (var cri = 0; cri < cartReturns.length; cri++) {
+                    catWR[cartReturns[cri].week] = cartReturns[cri].pct * catPct;
+                  }
+                  catReturns[catKey] = catWR;
+                }
+              }
+            }
+
+            // Build visible series
+            var n = cartReturns.length;
+            var chartH = 150;
+            var chartW = Dimensions.get('window').width - 2 * SIZE.padding - 28 - 40;
+            var padL = 38;
+            var padR = 8;
+            var padT = 8;
+            var padB = 22;
+            var plotH = chartH - padT - padB;
+            var plotW = chartW - padL - padR;
+
+            // Compute maxAbs from all visible series
+            var maxAbs = 1;
+            for (var mi = 0; mi < n; mi++) {
+              var rKey = cartReturns[mi].week;
+              if (perfSeries.cart) {
+                var av = Math.abs(cartReturns[mi].pct);
+                if (av > maxAbs) maxAbs = av;
+              }
+              if (perfSeries.cdi) {
+                var cdv = cdiReturns[rKey];
+                if (cdv != null && Math.abs(cdv) > maxAbs) maxAbs = Math.abs(cdv);
+              }
+              if (perfSeries.ibov) {
+                var ibv = ibovReturns[rKey];
+                if (ibv != null && Math.abs(ibv) > maxAbs) maxAbs = Math.abs(ibv);
+              }
+              for (var cki2 = 0; cki2 < catKeys.length; cki2++) {
+                if (perfSeries[catKeys[cki2]] && catReturns[catKeys[cki2]]) {
+                  var crv = catReturns[catKeys[cki2]][rKey];
+                  if (crv != null && Math.abs(crv) > maxAbs) maxAbs = Math.abs(crv);
+                }
+              }
+            }
+            maxAbs = Math.ceil(maxAbs) + 1;
+            if (maxAbs < 3) maxAbs = 3;
+
+            var zeroY = padT + plotH / 2;
+            var valToY = function(v) { return zeroY - (v / maxAbs) * (plotH / 2); };
+            var idxToX = function(i) { return n === 1 ? padL + plotW / 2 : padL + (i / (n - 1)) * plotW; };
+
+            var allEls = [];
+
+            // Grid lines + Y labels
+            var ySteps = [maxAbs, maxAbs / 2, 0, -maxAbs / 2, -maxAbs];
+            for (var yi = 0; yi < ySteps.length; yi++) {
+              var yv = ySteps[yi];
+              var yp = valToY(yv);
+              allEls.push(React.createElement(SvgLine, {
+                key: 'pg-' + yi, x1: padL, y1: yp, x2: padL + plotW, y2: yp,
+                stroke: yv === 0 ? C.sub + '50' : C.sub + '18', strokeWidth: yv === 0 ? 1 : 0.5,
+              }));
+              allEls.push(React.createElement(SvgText, {
+                key: 'pyl-' + yi, x: padL - 4, y: yp + 3,
+                fontSize: 8, fill: C.dim, fontFamily: F.mono, textAnchor: 'end',
+              }, (yv >= 0 ? '+' : '') + yv.toFixed(1) + '%'));
+            }
+
+            // Helper: build points for a series
+            var buildPts = function(getVal) {
+              var pts = [];
+              for (var pi = 0; pi < n; pi++) {
+                var v = getVal(cartReturns[pi].week, pi);
+                if (v != null) pts.push({ x: idxToX(pi), y: valToY(v), val: v });
+              }
+              return pts;
+            };
+
+            // Helper: render series (line + dots)
+            var renderSer = function(pts, color, key, showArea) {
+              var els = [];
+              if (pts.length < 1) return els;
+              if (showArea && pts.length >= 2) {
+                var areaP = 'M' + pts[0].x + ',' + zeroY;
+                for (var a = 0; a < pts.length; a++) areaP = areaP + ' L' + pts[a].x + ',' + pts[a].y;
+                areaP = areaP + ' L' + pts[pts.length - 1].x + ',' + zeroY + ' Z';
+                els.push(React.createElement(Path, { key: key + '-a', d: areaP, fill: color, opacity: 0.08 }));
+              }
+              if (pts.length >= 2) {
+                var lp = 'M' + pts[0].x + ',' + pts[0].y;
+                for (var l = 1; l < pts.length; l++) lp = lp + ' L' + pts[l].x + ',' + pts[l].y;
+                els.push(React.createElement(Path, { key: key + '-l', d: lp, stroke: color, strokeWidth: 2, fill: 'none', opacity: 0.9 }));
+              }
+              for (var d = 0; d < pts.length; d++) {
+                els.push(React.createElement(SvgCircle, { key: key + '-g' + d, cx: pts[d].x, cy: pts[d].y, r: 4, fill: color, opacity: 0.15 }));
+                els.push(React.createElement(SvgCircle, { key: key + '-d' + d, cx: pts[d].x, cy: pts[d].y, r: 2.5, fill: color, opacity: 1 }));
+                els.push(React.createElement(SvgText, { key: key + '-v' + d, x: pts[d].x, y: pts[d].y - 6, fontSize: 7, fill: color, fontFamily: F.mono, textAnchor: 'middle', opacity: 0.8 },
+                  (pts[d].val >= 0 ? '+' : '') + pts[d].val.toFixed(1) + '%'));
+              }
+              return els;
+            };
+
+            // Render series in order (back to front)
+            var seriesConfig = [
+              { key: 'cdi', active: perfSeries.cdi, color: C.rf, area: false, getVal: function(wk) { return cdiReturns[wk] != null ? cdiReturns[wk] : null; } },
+              { key: 'ibov', active: perfSeries.ibov, color: C.etfs, area: false, getVal: function(wk) { return ibovReturns[wk] != null ? ibovReturns[wk] : null; } },
+              { key: 'rf', active: perfSeries.rf, color: C.rf, area: false, getVal: function(wk) { return catReturns.rf && catReturns.rf[wk] != null ? catReturns.rf[wk] : null; } },
+              { key: 'etf', active: perfSeries.etf, color: C.etfs, area: false, getVal: function(wk) { return catReturns.etf && catReturns.etf[wk] != null ? catReturns.etf[wk] : null; } },
+              { key: 'stock_int', active: perfSeries.stock_int, color: C.stock_int, area: false, getVal: function(wk) { return catReturns.stock_int && catReturns.stock_int[wk] != null ? catReturns.stock_int[wk] : null; } },
+              { key: 'fii', active: perfSeries.fii, color: C.fiis, area: false, getVal: function(wk) { return catReturns.fii && catReturns.fii[wk] != null ? catReturns.fii[wk] : null; } },
+              { key: 'acao', active: perfSeries.acao, color: C.acoes, area: false, getVal: function(wk) { return catReturns.acao && catReturns.acao[wk] != null ? catReturns.acao[wk] : null; } },
+              { key: 'cart', active: perfSeries.cart, color: C.accent, area: true, getVal: function(wk, idx) { return cartReturns[idx].pct; } },
+            ];
+
+            for (var si = 0; si < seriesConfig.length; si++) {
+              var sc = seriesConfig[si];
+              if (!sc.active) continue;
+              var pts = buildPts(sc.getVal);
+              var sEls = renderSer(pts, sc.color, 'p' + sc.key, sc.area);
+              for (var se = 0; se < sEls.length; se++) allEls.push(sEls[se]);
+            }
+
+            // X-axis labels
+            for (var xi = 0; xi < n; xi++) {
+              var showXL = n <= 12 || xi % Math.ceil(n / 8) === 0 || xi === n - 1;
+              if (showXL && cartReturns[xi].date) {
+                var dp = cartReturns[xi].date.split('-');
+                var ml = dp[2] + '/' + dp[1];
+                allEls.push(React.createElement(SvgText, {
+                  key: 'pxl-' + xi, x: idxToX(xi), y: chartH - 2,
+                  fontSize: 8, fill: C.dim, fontFamily: F.mono, textAnchor: 'middle',
+                }, ml));
+              }
+            }
+
+            // Toggle pills
+            var SERIES_PILLS = [
+              { k: 'cart', l: 'Carteira', c: C.accent },
+              { k: 'cdi', l: 'CDI', c: C.rf },
+              { k: 'ibov', l: 'IBOV', c: C.etfs },
+              { k: 'acao', l: 'Ações', c: C.acoes },
+              { k: 'fii', l: 'FIIs', c: C.fiis },
+              { k: 'etf', l: 'ETFs', c: C.etfs },
+              { k: 'stock_int', l: 'Stocks', c: C.stock_int },
+              { k: 'rf', l: 'RF', c: C.rf },
+            ];
+
+            return React.createElement(View, null,
+              React.createElement(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 10 }, contentContainerStyle: { gap: 6 } },
+                SERIES_PILLS.map(function(sp) {
+                  var isOn = perfSeries[sp.k];
+                  return React.createElement(TouchableOpacity, {
+                    key: sp.k,
+                    onPress: function() {
+                      var next = {};
+                      for (var pk in perfSeries) next[pk] = perfSeries[pk];
+                      next[sp.k] = !next[sp.k];
+                      setPerfSeries(next);
+                    },
+                    style: {
+                      paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6,
+                      borderWidth: 1, borderColor: isOn ? sp.c : C.border,
+                      backgroundColor: isOn ? sp.c + '22' : 'transparent',
+                    },
+                  },
+                    React.createElement(Text, {
+                      style: { fontSize: 9, fontFamily: F.mono, fontWeight: '600', color: isOn ? sp.c : C.dim },
+                    }, sp.l)
+                  );
+                })
+              ),
+              React.createElement(Svg, { width: chartW, height: chartH }, allEls)
+            );
+          })() : null}
+        </Glass>
+      ) : null}
+
       {/* ══════ 6. FILTER PILLS ══════ */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
         <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>POSIÇÕES</Text>
@@ -1179,24 +1926,87 @@ export default function CarteiraScreen(props) {
           <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
         </TouchableOpacity>
         <View style={{ flex: 1 }} />
+        {sub.canAccess('AI_ANALYSIS') ? (
+        <TouchableOpacity onPress={function() { setAiConfirmVisible(true); }}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2, paddingHorizontal: 6 }}
+          accessibilityRole="button" accessibilityLabel="Análise IA da carteira">
+          <Ionicons name="sparkles" size={16} color={C.accent} />
+          <Text style={{ fontSize: 11, fontFamily: F.body, color: C.accent }}>IA</Text>
+        </TouchableOpacity>
+        ) : null}
+        {sub.canAccess('SAVED_ANALYSES') ? (
+        <TouchableOpacity onPress={function() { navigation.navigate('AnalisesSalvas'); }}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2, paddingHorizontal: 6 }}
+          accessibilityRole="button" accessibilityLabel="Análises salvas">
+          <Ionicons name="bookmark-outline" size={14} color={C.accent} />
+        </TouchableOpacity>
+        ) : null}
+        {sub.canAccess('CSV_IMPORT') ? (
         <TouchableOpacity onPress={function() { navigation.navigate('ImportOperacoes'); }}
           style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2, paddingHorizontal: 6 }}
           accessibilityRole="button" accessibilityLabel="Importar operações">
           <Ionicons name="cloud-upload-outline" size={16} color={C.accent} />
           <Text style={{ fontSize: 11, fontFamily: F.body, color: C.accent }}>Importar</Text>
         </TouchableOpacity>
+        ) : (
+        <TouchableOpacity onPress={function() { navigation.navigate('Paywall'); }}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2, paddingHorizontal: 6, opacity: 0.5 }}
+          accessibilityRole="button" accessibilityLabel="Importar operações - requer PRO">
+          <Ionicons name="lock-closed" size={14} color={C.dim} />
+          <Text style={{ fontSize: 11, fontFamily: F.body, color: C.dim }}>Importar</Text>
+        </TouchableOpacity>
+        )}
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ gap: 6, paddingBottom: 2 }}>
         {FILTERS.map(function (f) {
           return (
             <Pill key={f.k} active={filter === f.k} color={f.color}
-              onPress={function () { setFilter(f.k); }}>
+              onPress={function () { setFilter(f.k); setCorrFilter(null); }}>
               {f.l} ({countCat(f.k)})
             </Pill>
           );
         })}
       </ScrollView>
+
+      <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, marginBottom: 2 }}>
+        {[
+          { k: 'valor', l: 'Valor' },
+          { k: 'nome', l: 'A-Z' },
+          { k: 'var', l: 'Variação' },
+          { k: 'pl', l: 'P&L' },
+        ].map(function (s) {
+          return (
+            <TouchableOpacity key={s.k}
+              onPress={function () { setSortKey(s.k); }}
+              style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
+                backgroundColor: sortKey === s.k ? C.accent + '22' : 'transparent' }}>
+              <Text style={{ fontSize: 11, fontFamily: F.body,
+                color: sortKey === s.k ? C.accent : C.textSecondary }}>
+                {s.l}{sortKey === s.k ? (s.k === 'nome' ? ' ↑' : ' ↓') : ''}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {allCorretoras.length > 1 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: 6, paddingBottom: 2, marginTop: 4 }}>
+          <Pill active={!corrFilter} color={C.accent}
+            onPress={function () { setCorrFilter(null); }}>
+            Todas
+          </Pill>
+          {allCorretoras.map(function (c) {
+            return (
+              <Pill key={c} active={corrFilter === c} color={C.accent}
+                onPress={function () { setCorrFilter(corrFilter === c ? null : c); }}>
+                {c}
+              </Pill>
+            );
+          })}
+        </ScrollView>
+      ) : null}
 
       {/* ══════ 10. POSITION CARDS ══════ */}
       {filteredPositions.map(function (pos, i) {
@@ -1211,11 +2021,28 @@ export default function CarteiraScreen(props) {
             fundLoading={!!fundLoading[pos.ticker]}
             opcoesForTicker={opcoesForTicker}
             indicator={indicators[pos.ticker] || null}
+            canAccessFund={sub.canAccess('FUNDAMENTALS')}
+            portfoliosList={portfoliosList}
+            showPortfolioBadge={!portfolioId && portfoliosList.length > 0}
+            onAiAnalysis={sub.canAccess('AI_ANALYSIS') ? function () { nav('AssetDetail', { ticker: pos.ticker, mercado: pos.mercado, autoAi: true }); } : null}
             onToggle={function () { toggleExpand(key, pos.ticker, pos.mercado); }}
             onBuy={function () { nav('AddOperacao', { ticker: pos.ticker, tipo: 'compra', categoria: pos.categoria }); }}
             onSell={function () { nav('AddOperacao', { ticker: pos.ticker, tipo: 'venda', categoria: pos.categoria }); }}
             onLancarOpcao={function () { nav('AddOpcao', { ativo_base: pos.ticker }); }}
-            onTransacoes={function () { nav('AssetDetail', { ticker: pos.ticker, mercado: pos.mercado }); }} />
+            onTransacoes={function () { nav('AssetDetail', { ticker: pos.ticker, mercado: pos.mercado }); }}
+            tickerMeta={tickerMetas[pos.ticker]}
+            totalPortfolio={totalValue}
+            tickerValorTotal={corrFilter ? (function() {
+              for (var opi = 0; opi < positions.length; opi++) {
+                if (positions[opi].ticker === pos.ticker) {
+                  var op = positions[opi];
+                  var opRef = op.preco_atual != null ? op.preco_atual : (op.mercado === 'INT' ? op.pm * (op.taxa_cambio || op.taxa_cambio_media || 1) : op.pm);
+                  return op.quantidade * opRef;
+                }
+              }
+              return 0;
+            })() : null}
+            onSetMeta={handleSetMeta} />
         );
       })}
 
@@ -1416,7 +2243,50 @@ export default function CarteiraScreen(props) {
         </View>
       </Modal>
     </ScrollView>
-    <Fab navigation={navigation} />
+    {sub.isAtLimit('positions', positions.length) && !sub.canAccess('POSITIONS_UNLIMITED') ? (
+    <View style={{ position: 'absolute', bottom: SIZE.tabBarHeight + 16, right: 18, left: 18, zIndex: 10 }}>
+      <UpgradePrompt feature="POSITIONS_UNLIMITED" compact navigation={navigation}
+        message={'Limite de ' + positions.length + ' posições atingido'} />
+    </View>
+    ) : (
+    <Fab navigation={navigation} items={
+      sub.canAccess('AI_ANALYSIS') ? [
+        { label: 'Análise IA', icon: 'sparkles', color: C.accent, onPress: function() { setAiConfirmVisible(true); } },
+        { label: 'Operação', icon: 'wallet-outline', color: C.acoes, screen: 'AddOperacao' },
+        { label: 'Opção', icon: 'flash-outline', color: C.opcoes, screen: 'AddOpcao' },
+        { label: 'Renda Fixa', icon: 'document-text-outline', color: C.rf, screen: 'AddRendaFixa' },
+        { label: 'Portfolio', icon: 'folder-outline', color: C.etfs, screen: 'ConfigPortfolios' },
+      ] : [
+        { label: 'Operação', icon: 'wallet-outline', color: C.acoes, screen: 'AddOperacao' },
+        { label: 'Opção', icon: 'flash-outline', color: C.opcoes, screen: 'AddOpcao' },
+        { label: 'Provento', icon: 'cash-outline', color: C.fiis, screen: 'AddProvento' },
+        { label: 'Renda Fixa', icon: 'document-text-outline', color: C.rf, screen: 'AddRendaFixa' },
+        { label: 'Portfolio', icon: 'folder-outline', color: C.etfs, screen: 'ConfigPortfolios' },
+      ]
+    } />
+    )}
+
+    {/* AI Confirm Modal */}
+    <AiConfirmModal
+      visible={aiConfirmVisible}
+      analysisType="Análise da carteira"
+      onCancel={function() { setAiConfirmVisible(false); }}
+      onConfirm={function() { setAiConfirmVisible(false); handleAiCarteira(); }}
+    />
+
+    {/* AI Modal */}
+    <AiAnalysisModal
+      visible={aiModalVisible}
+      onClose={function() { setAiModalVisible(false); }}
+      result={aiResult}
+      loading={aiLoading}
+      error={aiError}
+      type="carteira"
+      title="Análise da Carteira"
+      usage={aiUsage}
+      onSave={sub.canAccess('SAVED_ANALYSES') ? handleSaveAiCarteira : undefined}
+      saving={aiSaving}
+    />
     </View>
   );
 }

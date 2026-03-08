@@ -8,14 +8,16 @@ import Svg, { Line, Rect, Path, Text as SvgText } from 'react-native-svg';
 import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators, getProfile, updateProfile, addMovimentacaoComSaldo, addMovimentacao, getSavedAnalyses, addSavedAnalysis, deleteSavedAnalysis, updateOpcaoAlertaPL } from '../../services/database';
+import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators, getProfile, updateProfile, addMovimentacaoComSaldo, addMovimentacao, getSavedAnalyses, addSavedAnalysis, deleteSavedAnalysis, updateOpcaoAlertaPL, getAlertasOpcoes, addAlertaOpcao, deleteAlertaOpcao, markAlertaDisparado, getPortfolios } from '../../services/database';
+var notifService = require('../../services/notificationService');
 import { enrichPositionsWithPrices, clearPriceCache, fetchPrices, fetchPriceHistoryRange } from '../../services/priceService';
 import { analyzeTechnicals, buildTechnicalSummary } from '../../services/technicalAnalysisService';
 import TechnicalChart from '../../components/TechnicalChart';
 import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { supabase } from '../../config/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { Glass, Badge, Pill, SectionLabel, Fab, InfoTip, TickerInput } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, Fab, InfoTip, TickerInput, UpgradePrompt, AiAnalysisModal as SharedAiModal, AiConfirmModal } from '../../components';
+import { useSubscription } from '../../contexts/SubscriptionContext';
 import { searchTickers } from '../../services/tickerSearchService';
 import { SkeletonOpcoes, EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
@@ -23,8 +25,13 @@ import Sensitive from '../../components/Sensitive';
 import * as Haptics from 'expo-haptics';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import Toast from 'react-native-toast-message';
+var a11yUtils = require('../../utils/a11y');
+var animateLayout = a11yUtils.animateLayout;
 var geminiService = require('../../services/geminiService');
 var analyzeOption = geminiService.analyzeOption;
+var analyzeGeneral = geminiService.analyzeGeneral;
+var aiUsageService = require('../../services/aiUsageService');
+var rateLimiter = require('../../utils/rateLimiter');
 
 // Module-level: persiste entre mounts para sobreviver a background/tab switch
 var _pendingAi = null; // { data, ts, result, error, done }
@@ -77,6 +84,25 @@ function todayBr() {
   var mm = String(d.getMonth() + 1).padStart(2, '0');
   var yyyy = d.getFullYear();
   return dd + '/' + mm + '/' + yyyy;
+}
+
+function nextThirdFriday(currentVencIso) {
+  // Given an ISO date string (vencimento atual), returns the 3rd Friday of the next month as DD/MM/YYYY
+  var parts = currentVencIso.split('-');
+  var year = parseInt(parts[0]);
+  var month = parseInt(parts[1]) - 1; // 0-indexed
+  // Move to next month
+  month += 1;
+  if (month > 11) { month = 0; year += 1; }
+  // Calculate 3rd Friday of that month
+  var d = new Date(year, month, 1);
+  var dayOfWeek = d.getDay();
+  var daysToFri = (5 - dayOfWeek + 7) % 7;
+  var firstFri = 1 + daysToFri;
+  var thirdFri = firstFri + 14;
+  var dd = String(thirdFri).padStart(2, '0');
+  var mm = String(month + 1).padStart(2, '0');
+  return dd + '/' + mm + '/' + year;
 }
 
 // ═══════════════════════════════════════
@@ -642,15 +668,23 @@ var OpCard = React.memo(function OpCard(props) {
   var onEdit = props.onEdit;
   var onDelete = props.onDelete;
   var onClose = props.onClose;
+  var onRoll = props.onRoll;
   var onAlertaPLSave = props.onAlertaPLSave;
+  var hideActions = props.hideActions || false;
+  var cardStyle = props.cardStyle || null;
 
   var _showClose = useState(false); var showClose = _showClose[0]; var setShowClose = _showClose[1];
+  var _showRoll = useState(false); var showRoll = _showRoll[0]; var setShowRoll = _showRoll[1];
   var _showAlertaEditor = useState(false); var showAlertaEditor = _showAlertaEditor[0]; var setShowAlertaEditor = _showAlertaEditor[1];
   var _alertaInput = useState(op.alerta_pl != null ? String(op.alerta_pl) : ''); var alertaInput = _alertaInput[0]; var setAlertaInput = _alertaInput[1];
   var _premRecompra = useState(''); var premRecompra = _premRecompra[0]; var setPremRecompra = _premRecompra[1];
   var _dataFechamento = useState(todayBr()); var dataFechamento = _dataFechamento[0]; var setDataFechamento = _dataFechamento[1];
   var _qtyFechamento = useState(String(op.quantidade || 0)); var qtyFechamento = _qtyFechamento[0]; var setQtyFechamento = _qtyFechamento[1];
   var _showPayoff = useState(false); var showPayoff = _showPayoff[0]; var setShowPayoff = _showPayoff[1];
+  // Roll states
+  var _rollStrike = useState(String(op.strike || '')); var rollStrike = _rollStrike[0]; var setRollStrike = _rollStrike[1];
+  var defaultRollVenc = op.vencimento ? nextThirdFriday(op.vencimento) : '';
+  var _rollVenc = useState(defaultRollVenc); var rollVenc = _rollVenc[0]; var setRollVenc = _rollVenc[1];
   var dataFechamentoValid = dataFechamento.length === 10 && isValidDate(dataFechamento);
   var qtyFechamentoVal = parseInt(qtyFechamento) || 0;
   var qtyFechamentoValid = qtyFechamentoVal > 0 && qtyFechamentoVal <= (op.quantidade || 0);
@@ -794,14 +828,14 @@ var OpCard = React.memo(function OpCard(props) {
   var dayColor = daysLeft <= 7 ? C.red : daysLeft <= 21 ? C.etfs : C.opcoes;
 
   return (
-    <Glass padding={14} style={{
+    <Glass padding={14} style={[{
       backgroundColor: coberturaColor + '04',
       borderColor: coberturaColor + '12',
       borderWidth: 1,
-    }}>
+    }, cardStyle]}>
       {/* Header: ticker + type + cobertura + moneyness + qty + premium */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, flexWrap: 'wrap', rowGap: 4 }}>
           <Text style={styles.opTicker}>{op.ativo_base}</Text>
           <Badge text={tipoLabel} color={tipoLabel === 'CALL' ? C.green : C.red} />
           <Badge text={isVenda ? 'VENDA' : 'COMPRA'} color={isVenda ? C.etfs : C.rf} />
@@ -809,6 +843,7 @@ var OpCard = React.memo(function OpCard(props) {
           {moneyness ? <Badge text={moneyness.label} color={moneyness.color} /> : null}
           <Badge text={daysLeft + 'd'} color={dayColor} />
           <Badge text={(op.quantidade || 0) + 'x'} color={C.accent} />
+          {op._isGrouped ? <Badge text={'PM ' + op._groupCount + ' ops'} color={C.opcoes} /> : null}
         </View>
       </View>
       {/* Corretora */}
@@ -831,13 +866,19 @@ var OpCard = React.memo(function OpCard(props) {
         var bid = cachedOption && cachedOption.bid != null ? cachedOption.bid : null;
         var ask = cachedOption && cachedOption.ask != null ? cachedOption.ask : null;
         var close = cachedOption && cachedOption.close != null ? cachedOption.close : null;
-        var mid = null;
-        if (bid != null && ask != null && (bid > 0 || ask > 0)) {
-          mid = (bid + ask) / 2;
-        } else if (close != null && close > 0) {
-          mid = close;
+        // Preço de mercado: venda usa ask (custo de recompra), compra usa bid (preço de venda)
+        var marketPrice = null;
+        var marketLabel = '';
+        if (isVenda) {
+          if (ask != null && ask > 0) { marketPrice = ask; marketLabel = 'Ask'; }
+          else if (bid != null && bid > 0) { marketPrice = bid; marketLabel = 'Bid'; }
+          else if (close != null && close > 0) { marketPrice = close; marketLabel = 'Fech.'; }
+        } else {
+          if (bid != null && bid > 0) { marketPrice = bid; marketLabel = 'Bid'; }
+          else if (ask != null && ask > 0) { marketPrice = ask; marketLabel = 'Ask'; }
+          else if (close != null && close > 0) { marketPrice = close; marketLabel = 'Fech.'; }
         }
-        if (mid == null) {
+        if (marketPrice == null) {
           return (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>MERCADO</Text>
@@ -845,7 +886,7 @@ var OpCard = React.memo(function OpCard(props) {
             </View>
           );
         }
-        var plUnit = isVenda ? ((op.premio || 0) - mid) : (mid - (op.premio || 0));
+        var plUnit = isVenda ? ((op.premio || 0) - marketPrice) : (marketPrice - (op.premio || 0));
         var plTotal = plUnit * (op.quantidade || 0);
         var plPct = (op.premio || 0) > 0 ? (plUnit / (op.premio || 0)) * 100 : 0;
         var plColor = plTotal >= 0 ? C.green : C.red;
@@ -862,10 +903,10 @@ var OpCard = React.memo(function OpCard(props) {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                 <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>MERCADO</Text>
                 <Text style={[{ fontSize: 12, color: C.text, fontFamily: F.mono, fontWeight: '700' }, ps]}>
-                  {'R$ ' + fmt(mid)}
+                  {'R$ ' + fmt(marketPrice)}
                 </Text>
-                <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>
-                  {'(' + (bid != null ? fmt(bid) : '–') + '/' + (ask != null ? fmt(ask) : '–') + ')'}
+                <Text style={[{ fontSize: 9, color: C.dim, fontFamily: F.mono }, ps]}>
+                  {bid != null && ask != null ? 'Bid ' + fmt(bid) + ' / Ask ' + fmt(ask) : marketLabel}
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -875,7 +916,7 @@ var OpCard = React.memo(function OpCard(props) {
                 <Text style={[{ fontSize: 10, color: plColor, fontFamily: F.mono }, ps]}>
                   {plSign + plPct.toFixed(1) + '%'}
                 </Text>
-                <TouchableOpacity
+                {!hideActions ? <TouchableOpacity
                   onPress={function() { setShowAlertaEditor(!showAlertaEditor); }}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
@@ -884,10 +925,10 @@ var OpCard = React.memo(function OpCard(props) {
                     size={16}
                     color={alertaAtingido ? C.yellow : (hasAlerta ? C.accent : C.dim)}
                   />
-                </TouchableOpacity>
+                </TouchableOpacity> : null}
               </View>
             </View>
-            {alertaAtingido ? (
+            {!hideActions && alertaAtingido ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}>
                 <Badge text="ALERTA P&L" color={C.yellow} />
                 <Text style={{ fontSize: 10, color: C.yellow, fontFamily: F.mono }}>
@@ -895,7 +936,7 @@ var OpCard = React.memo(function OpCard(props) {
                 </Text>
               </View>
             ) : null}
-            {showAlertaEditor ? (
+            {!hideActions && showAlertaEditor ? (
               <View style={{ marginTop: 6, padding: 10, borderRadius: 8, backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border }}>
                 <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4 }}>ALERTA P&L (%)</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -1006,25 +1047,35 @@ var OpCard = React.memo(function OpCard(props) {
       })()}
 
       {/* Bottom: actions */}
-      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 8 }}>
-        <View style={{ flexDirection: 'row', gap: 14 }}>
-          <TouchableOpacity onPress={function() { setShowPayoff(!showPayoff); }}>
-            <Text style={[styles.actionLink, { color: C.opcoes }]}>Payoff</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={function() { setShowClose(!showClose); }}>
-            <Text style={[styles.actionLink, { color: C.yellow }]}>Encerrar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onEdit}>
-            <Text style={styles.actionLink}>Editar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onDelete}>
-            <Text style={[styles.actionLink, { color: C.red }]}>Excluir</Text>
-          </TouchableOpacity>
+      {!hideActions ? (
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 8 }}>
+          <View style={{ flexDirection: 'row', gap: 14 }}>
+            <TouchableOpacity onPress={function() { setShowPayoff(!showPayoff); }}>
+              <Text style={[styles.actionLink, { color: C.opcoes }]}>Payoff</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={function() { setShowClose(!showClose); setShowRoll(false); }}>
+              <Text style={[styles.actionLink, { color: C.yellow }]}>Encerrar</Text>
+            </TouchableOpacity>
+            {op.status === 'ativa' && onRoll ? (
+              <TouchableOpacity onPress={function() { setShowRoll(!showRoll); setShowClose(false); }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <Ionicons name="swap-horizontal-outline" size={13} color={C.rf} />
+                  <Text style={[styles.actionLink, { color: C.rf }]}>Rolar</Text>
+                </View>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity onPress={onEdit}>
+              <Text style={styles.actionLink}>Editar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={onDelete}>
+              <Text style={[styles.actionLink, { color: C.red }]}>Excluir</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      ) : null}
 
       {/* Payoff chart */}
-      {showPayoff ? (
+      {!hideActions && showPayoff ? (
         <PayoffChart
           tipo={op.tipo}
           direcao={op.direcao}
@@ -1036,7 +1087,7 @@ var OpCard = React.memo(function OpCard(props) {
       ) : null}
 
       {/* Encerramento panel */}
-      {showClose ? (
+      {!hideActions && showClose ? (
         <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
           {op.ticker_opcao ? (
             <Text style={{ fontSize: 12, color: C.opcoes, fontFamily: F.mono, marginBottom: 6 }}>{op.ticker_opcao}</Text>
@@ -1139,9 +1190,243 @@ var OpCard = React.memo(function OpCard(props) {
           </TouchableOpacity>
         </View>
       ) : null}
+
+      {/* Roll panel */}
+      {!hideActions && showRoll ? (function() {
+        var rollRecompraVal = recompraVal;
+        var rollDataValid = dataFechamentoValid;
+        var rollQtyValid = qtyFechamentoValid;
+        var rollVencValid = rollVenc.length === 10 && isValidDate(rollVenc);
+        var rollVencFuture = rollVenc.length === 10 && (function() {
+          var iso = brToIso(rollVenc);
+          if (!iso) return false;
+          var d = new Date(iso + 'T12:00:00');
+          if (isNaN(d.getTime())) return false;
+          var today = new Date(); today.setHours(0, 0, 0, 0);
+          return d >= today;
+        })();
+        var rollStrikeVal = parseFloat(rollStrike) || 0;
+        var canRoll = rollRecompraVal > 0 && rollDataValid && rollQtyValid && rollVencValid && rollVencFuture && rollStrikeVal > 0;
+        return (
+          <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.rf + '30' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <Ionicons name="swap-horizontal-outline" size={14} color={C.rf} />
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.rf, fontFamily: F.display }}>ROLAGEM DE OPÇÃO</Text>
+            </View>
+            {op.ticker_opcao ? (
+              <Text style={{ fontSize: 12, color: C.opcoes, fontFamily: F.mono, marginBottom: 6 }}>{op.ticker_opcao}</Text>
+            ) : null}
+            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4 }}>PRÊMIO RECOMPRA (R$)</Text>
+            <TextInput
+              value={premRecompra}
+              onChangeText={setPremRecompra}
+              placeholder="0.00"
+              placeholderTextColor={C.dim}
+              keyboardType="decimal-pad"
+              style={{
+                backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border,
+                borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+                fontSize: 15, color: C.text, fontFamily: F.body,
+              }}
+            />
+            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4, marginTop: 10 }}>QUANTIDADE</Text>
+            <TextInput
+              value={qtyFechamento}
+              onChangeText={function(t) { setQtyFechamento(t.replace(/\D/g, '')); }}
+              placeholder={String(op.quantidade || 0)}
+              placeholderTextColor={C.dim}
+              keyboardType="number-pad"
+              style={[
+                {
+                  backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border,
+                  borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+                  fontSize: 15, color: C.text, fontFamily: F.body,
+                },
+                qtyFechamentoValid && { borderColor: C.green },
+                qtyFechamento.length > 0 && !qtyFechamentoValid && { borderColor: C.red },
+              ]}
+            />
+            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4, marginTop: 10 }}>DATA DO ENCERRAMENTO</Text>
+            <TextInput
+              value={dataFechamento}
+              onChangeText={function(t) { setDataFechamento(maskDate(t)); }}
+              placeholder="DD/MM/AAAA"
+              placeholderTextColor={C.dim}
+              keyboardType="number-pad"
+              maxLength={10}
+              style={[
+                {
+                  backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border,
+                  borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+                  fontSize: 15, color: C.text, fontFamily: F.body,
+                },
+                dataFechamento.length === 10 && dataFechamentoValid && { borderColor: C.green },
+                dataFechamento.length === 10 && !dataFechamentoValid && { borderColor: C.red },
+              ]}
+            />
+            <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                <Ionicons name="arrow-forward-outline" size={12} color={C.rf} />
+                <Text style={{ fontSize: 11, fontWeight: '600', color: C.rf, fontFamily: F.mono }}>NOVA OPÇÃO</Text>
+              </View>
+              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4 }}>NOVO STRIKE (R$)</Text>
+              <TextInput
+                value={rollStrike}
+                onChangeText={setRollStrike}
+                placeholder={String(op.strike || '')}
+                placeholderTextColor={C.dim}
+                keyboardType="decimal-pad"
+                style={[
+                  {
+                    backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border,
+                    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+                    fontSize: 15, color: C.text, fontFamily: F.body,
+                  },
+                  rollStrikeVal > 0 && { borderColor: C.green },
+                ]}
+              />
+              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 4, marginTop: 10 }}>NOVO VENCIMENTO</Text>
+              <TextInput
+                value={rollVenc}
+                onChangeText={function(t) { setRollVenc(maskDate(t)); }}
+                placeholder="DD/MM/AAAA"
+                placeholderTextColor={C.dim}
+                keyboardType="number-pad"
+                maxLength={10}
+                style={[
+                  {
+                    backgroundColor: C.cardSolid, borderWidth: 1, borderColor: C.border,
+                    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+                    fontSize: 15, color: C.text, fontFamily: F.body,
+                  },
+                  rollVenc.length === 10 && rollVencValid && rollVencFuture && { borderColor: C.green },
+                  rollVenc.length === 10 && (!rollVencValid || !rollVencFuture) && { borderColor: C.red },
+                ]}
+              />
+              {rollVenc.length === 10 && !rollVencFuture ? (
+                <Text style={{ fontSize: 11, color: C.red, fontFamily: F.body, marginTop: 2 }}>Vencimento deve ser futuro</Text>
+              ) : null}
+            </View>
+            {rollRecompraVal > 0 && rollQtyValid ? (function() {
+              var rollPremTotal = (op.premio || 0) * qtyFechamentoVal;
+              var rollPL = isVenda ? ((op.premio || 0) - rollRecompraVal) * qtyFechamentoVal : (rollRecompraVal - (op.premio || 0)) * qtyFechamentoVal;
+              var rollPLPct = rollPremTotal > 0 ? (rollPL / rollPremTotal) * 100 : 0;
+              return (
+                <View style={{ marginTop: 8 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>P&L DO ENCERRAMENTO</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[{ fontSize: 14, fontWeight: '800', color: rollPL >= 0 ? C.green : C.red, fontFamily: F.display }, ps]}>
+                        {(rollPL >= 0 ? '+' : '') + 'R$ ' + fmt(rollPL)}
+                      </Text>
+                      <Text style={[{ fontSize: 11, fontWeight: '600', color: rollPL >= 0 ? C.green : C.red, fontFamily: F.mono }, ps]}>
+                        {'(' + (rollPLPct >= 0 ? '+' : '') + rollPLPct.toFixed(1) + '%)'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })() : null}
+            <TouchableOpacity
+              onPress={function() {
+                if (!canRoll) return;
+                if (onRoll) onRoll(op, rollRecompraVal, brToIso(dataFechamento), qtyFechamentoVal, rollStrikeVal, brToIso(rollVenc));
+              }}
+              disabled={!canRoll}
+              style={{
+                backgroundColor: canRoll ? C.rf : C.dim,
+                borderRadius: 10, paddingVertical: 12, alignItems: 'center', marginTop: 8,
+                opacity: canRoll ? 1 : 0.4,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="swap-horizontal-outline" size={15} color="#000" />
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#000', fontFamily: F.display }}>Confirmar rolagem</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        );
+      })() : null}
     </Glass>
   );
 });
+
+// ═══════════════════════════════════════
+// GROUPED OPTION CARD (posicao combinada + sub-cards)
+// ═══════════════════════════════════════
+function GroupedOpCard(props) {
+  var combined = props.combined;
+  var subOps = props.subOps;
+  var positions = props.positions;
+  var saldos = props.saldos;
+  var indicators = props.indicators;
+  var selicRate = props.selicRate;
+  var setInfoModal = props.setInfoModal;
+  var cachedOption = props.cachedOption;
+  var cachedChain = props.cachedChain;
+  var navigation = props.navigation;
+  var handleDeleteFn = props.handleDelete;
+  var handleCloseFn = props.handleClose;
+  var handleRollFn = props.handleRoll;
+  var handleAlertaPLSaveFn = props.handleAlertaPLSave;
+
+  var _expanded = useState(false); var expanded = _expanded[0]; var setExpanded = _expanded[1];
+
+  return (
+    <View>
+      {/* Card principal com posicao combinada */}
+      <OpCard op={combined} positions={positions} saldos={saldos} indicators={indicators} selicRate={selicRate} setInfoModal={setInfoModal}
+        cachedOption={cachedOption} cachedChain={cachedChain}
+        hideActions={true}
+        cardStyle={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0, marginBottom: 0 }}
+      />
+      {/* Botao para expandir operacoes individuais */}
+      <TouchableOpacity
+        onPress={function() { animateLayout(); setExpanded(!expanded); }}
+        activeOpacity={0.7}
+        style={{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+          paddingVertical: 8, marginTop: -2,
+          backgroundColor: C.card, borderWidth: 1, borderColor: C.border,
+          borderBottomLeftRadius: 12, borderBottomRightRadius: 12,
+          borderTopWidth: 0,
+        }}
+      >
+        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={C.accent} />
+        <Text style={{ fontSize: 11, color: C.accent, fontFamily: F.body, marginLeft: 4 }}>
+          {expanded ? 'Ocultar detalhes' : combined._groupCount + ' operações — ver detalhes'}
+        </Text>
+      </TouchableOpacity>
+      {/* Sub-cards individuais */}
+      {expanded ? (
+        <View style={{ marginTop: 6, marginLeft: 12, borderLeftWidth: 2, borderLeftColor: C.accent + '30', paddingLeft: 10, gap: 8 }}>
+          {subOps.map(function(subOp, si) {
+            var subCachedOp = getCachedOptionData(subOp.ativo_base, subOp.strike, subOp.tipo, subOp.vencimento);
+            var subCachedCh = getCachedChain(subOp.ativo_base);
+            return (
+              <View key={subOp.id || si}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.accent + '60', marginRight: 6 }} />
+                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                    {'Operação ' + (si + 1) + ' de ' + subOps.length + (subOp.data_abertura ? ' — ' + formatDateBR(subOp.data_abertura) : '')}
+                  </Text>
+                </View>
+                <OpCard op={subOp} positions={positions} saldos={saldos} indicators={indicators} selicRate={selicRate} setInfoModal={setInfoModal}
+                  cachedOption={subCachedOp} cachedChain={subCachedCh}
+                  onEdit={function() { navigation.navigate('EditOpcao', { opcao: subOp }); }}
+                  onDelete={function() { handleDeleteFn(subOp.id); }}
+                  onClose={handleCloseFn}
+                  onRoll={handleRollFn}
+                  onAlertaPLSave={handleAlertaPLSaveFn}
+                />
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 // ═══════════════════════════════════════
 // SIMULADOR BLACK-SCHOLES
@@ -1201,6 +1486,7 @@ function AiAnalysisModal(props) {
   var analysis = props.analysis;
   var onClose = props.onClose;
   var onSave = props.onSave;
+  var onRetry = props.onRetry;
   var aiTechOhlcv = props.techOhlcv;
   var aiTechAnalysis = props.techAnalysis;
   var aiSpot = props.spot;
@@ -1211,6 +1497,8 @@ function AiAnalysisModal(props) {
   useEffect(function() { setSaved(false); }, [analysis]);
 
   if (!analysis) return null;
+
+  var isTruncated = analysis._meta && analysis._meta.truncated;
 
   var secs = [
     { key: 'risco', label: 'AVALIAÇÃO DE RISCO', icon: 'shield-checkmark-outline', color: C.red },
@@ -1315,6 +1603,26 @@ function AiAnalysisModal(props) {
           </Glass>
         ) : null}
 
+        {isTruncated ? (
+          <Glass glow={C.yellow} padding={14}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <Ionicons name="warning-outline" size={16} color={C.yellow} />
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.yellow, fontFamily: F.display }}>Resposta parcial</Text>
+            </View>
+            <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body, lineHeight: 18, marginBottom: 10 }}>
+              A análise foi truncada por limite de tokens. Algumas seções podem estar incompletas.
+            </Text>
+            {onRetry ? (
+              <TouchableOpacity onPress={onRetry} style={{
+                backgroundColor: C.yellow + '20', borderWidth: 1, borderColor: C.yellow + '40',
+                borderRadius: 8, paddingVertical: 8, alignItems: 'center',
+              }}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: C.yellow, fontFamily: F.display }}>Tentar novamente</Text>
+              </TouchableOpacity>
+            ) : null}
+          </Glass>
+        ) : null}
+
         <View style={{ padding: 12, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: C.border }}>
           <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, textAlign: 'center', lineHeight: 17 }}>
             Análise gerada por IA. Não constitui recomendação de investimento. Use como ferramenta educacional complementar à sua própria análise.
@@ -1334,6 +1642,7 @@ function CalculadoraOpcoes(props) {
   var indicatorsMap = props.indicators || {};
   var chainSelicRate = props.selicRate || 13.25;
   var ativas = props.ativas || [];
+  var subCtx = props.subCtx;
 
   // Custom ticker entries (persisted across re-renders)
   var _customEntries = useState({}); var customEntries = _customEntries[0]; var setCustomEntries = _customEntries[1];
@@ -1621,10 +1930,13 @@ function CalculadoraOpcoes(props) {
   // AI Analysis states
   var _aiAnalysis = useState(null); var aiAnalysis = _aiAnalysis[0]; var setAiAnalysis = _aiAnalysis[1];
   var _aiLoading = useState(false); var aiLoading = _aiLoading[0]; var setAiLoading = _aiLoading[1];
+  var _aiConfirmVisible = useState(false); var aiConfirmVisible = _aiConfirmVisible[0]; var setAiConfirmVisible = _aiConfirmVisible[1];
+  var _pendingAiType = useState(''); var pendingAiType = _pendingAiType[0]; var setPendingAiType = _pendingAiType[1];
   var _aiError = useState(null); var aiError = _aiError[0]; var setAiError = _aiError[1];
   var _aiModalOpen = useState(false); var aiModalOpen = _aiModalOpen[0]; var setAiModalOpen = _aiModalOpen[1];
   var _aiObj = useState('renda'); var aiObjetivo = _aiObj[0]; var setAiObjetivo = _aiObj[1];
   var _aiCapital = useState(''); var aiCapital = _aiCapital[0]; var setAiCapital = _aiCapital[1];
+  var _aiUsage = useState(null); var aiUsage = _aiUsage[0]; var setAiUsage = _aiUsage[1];
 
   // Recuperar analise IA pendente ao voltar do background ou re-focus
   function recoverPendingAi() {
@@ -1687,6 +1999,19 @@ function CalculadoraOpcoes(props) {
   var _selectedSeries = useState(0); var selectedSeries = _selectedSeries[0]; var setSelectedSeries = _selectedSeries[1];
   var _chainLastUpdate = useState(null); var chainLastUpdate = _chainLastUpdate[0]; var setChainLastUpdate = _chainLastUpdate[1];
   var _gradeFull = useState(false); var gradeFullscreen = _gradeFull[0]; var setGradeFullscreen = _gradeFull[1];
+
+  // Price alerts states — lifted from props (owned by OpcoesScreen)
+  var priceAlerts = props.priceAlerts || [];
+  var setPriceAlerts = props.setPriceAlerts || function() {};
+  var priceAlertsFired = props.priceAlertsFired || {};
+  var setPriceAlertsFired = props.setPriceAlertsFired || function() {};
+  var _alertModal = useState(false); var alertModalVisible = _alertModal[0]; var setAlertModalVisible = _alertModal[1];
+  var _alertStrike = useState(null); var alertStrike = _alertStrike[0]; var setAlertStrike = _alertStrike[1];
+  var _alertTipo = useState('preco'); var alertTipo = _alertTipo[0]; var setAlertTipo = _alertTipo[1];
+  var _alertValor = useState(''); var alertValor = _alertValor[0]; var setAlertValor = _alertValor[1];
+  var _alertDirecao = useState('abaixo'); var alertDirecao = _alertDirecao[0]; var setAlertDirecao = _alertDirecao[1];
+  var _alertTipoOpcao = useState('call'); var alertTipoOpcao = _alertTipoOpcao[0]; var setAlertTipoOpcao = _alertTipoOpcao[1];
+  var _alertSaving = useState(false); var alertSaving = _alertSaving[0]; var setAlertSaving = _alertSaving[1];
   var _showMyStrikes = useState(true); var showMyStrikes = _showMyStrikes[0]; var setShowMyStrikes = _showMyStrikes[1];
 
   // Technical analysis states
@@ -2141,6 +2466,14 @@ function CalculadoraOpcoes(props) {
     if (aiLoading) return;
     if (spot <= 0 || fk <= 0) return;
 
+    // Rate limit AI requests (max 5/min, cooldown after failures)
+    var AI_RATE_KEY = 'ai_analysis';
+    var aiRemaining = rateLimiter.getRemainingCooldown(AI_RATE_KEY);
+    if (aiRemaining > 0) {
+      Alert.alert('Aguarde', 'Muitas análises em pouco tempo. Tente novamente em ' + rateLimiter.formatCooldown(aiRemaining) + '.');
+      return;
+    }
+
     var basePos = null;
     if (chainTicker) {
       for (var pi = 0; pi < positions.length; pi++) {
@@ -2237,12 +2570,19 @@ function CalculadoraOpcoes(props) {
       }
       setAiLoading(false);
       if (result && result.error) {
+        rateLimiter.recordFailure(AI_RATE_KEY);
         setAiError(result.error);
       } else if (result) {
+        rateLimiter.recordSuccess(AI_RATE_KEY);
         setAiAnalysis(result);
         setAiModalOpen(true);
         _pendingAi = null;
+        // Update usage from server response
+        if (result._usage) {
+          setAiUsage(result._usage);
+        }
       } else {
+        rateLimiter.recordFailure(AI_RATE_KEY);
         setAiError('Resposta vazia da IA.');
       }
     }).catch(function(err) {
@@ -2250,6 +2590,7 @@ function CalculadoraOpcoes(props) {
         _pendingAi.done = true;
         _pendingAi.error = 'Erro inesperado: ' + (err && err.message ? err.message : '');
       }
+      rateLimiter.recordFailure(AI_RATE_KEY);
       setAiLoading(false);
       setAiError('Erro inesperado: ' + (err && err.message ? err.message : ''));
     });
@@ -2361,6 +2702,16 @@ function CalculadoraOpcoes(props) {
     if (cs.vwapInput !== undefined) setVwapInput(cs.vwapInput);
     if (cs.oiInput !== undefined) setOiInput(cs.oiInput);
     // Restore AI analysis if present — open modal to show it
+    // Load saved analysis based on type
+    if (item.type === 'estrategia' && item.result) {
+      setStratResult(item.result);
+      setStratLoading(false);
+      setStratError(null);
+      setStratModalVisible(true);
+      setShowSavedDD(false);
+      Toast.show({ type: 'success', text1: 'Análise carregada', text2: item.title || 'Estratégia' });
+      return;
+    }
     if (item.ai_analysis) {
       setAiAnalysis(item.ai_analysis);
       setAiModalOpen(true);
@@ -2794,37 +3145,64 @@ function CalculadoraOpcoes(props) {
                         {callOpt && callOpt.delta != null ? callOpt.delta.toFixed(2) : '-'}
                       </Text>
                       {/* STRIKE center */}
-                      <View style={{ minWidth: 70, alignItems: 'center', paddingHorizontal: 1 }}>
+                      <View style={{ flex: 1, alignItems: 'center', overflow: 'hidden', paddingHorizontal: 1 }}>
                         <Text numberOfLines={1} style={[{ fontSize: 11, fontFamily: F.mono, fontWeight: isAtm ? '800' : '600', color: isMine ? C.accent : (isAtm ? C.yellow : C.text) }, ps]}>
                           {sk.toFixed(2)}
                         </Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 }}>
-                          <Text style={{ fontSize: 9, fontWeight: '700', color: (callOpt && callOpt.maturity_type && callOpt.maturity_type.toUpperCase() === 'EUROPEAN') ? C.rf : C.etfs, fontFamily: F.mono }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 1 }}>
+                          <Text style={{ fontSize: 8, fontWeight: '700', color: (callOpt && callOpt.maturity_type && callOpt.maturity_type.toUpperCase() === 'EUROPEAN') ? C.rf : C.etfs, fontFamily: F.mono }}>
                             {callOpt ? ((callOpt.maturity_type && callOpt.maturity_type.toUpperCase() === 'EUROPEAN') ? 'E' : 'A') : ''}
                           </Text>
-                          <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: mColor + '30' }}>
-                            <Text style={{ fontSize: 9, fontWeight: '800', color: mColor, fontFamily: F.mono, letterSpacing: 0.5 }}>
+                          <View style={{ paddingHorizontal: 3, paddingVertical: 0, borderRadius: 3, backgroundColor: mColor + '30' }}>
+                            <Text style={{ fontSize: 8, fontWeight: '800', color: mColor, fontFamily: F.mono, letterSpacing: 0.3 }}>
                               {mLabel}
                             </Text>
                           </View>
-                          <Text style={{ fontSize: 9, fontWeight: '700', color: (putOpt && putOpt.maturity_type && putOpt.maturity_type.toUpperCase() === 'EUROPEAN') ? C.rf : C.etfs, fontFamily: F.mono }}>
+                          <Text style={{ fontSize: 8, fontWeight: '700', color: (putOpt && putOpt.maturity_type && putOpt.maturity_type.toUpperCase() === 'EUROPEAN') ? C.rf : C.etfs, fontFamily: F.mono }}>
                             {putOpt ? ((putOpt.maturity_type && putOpt.maturity_type.toUpperCase() === 'EUROPEAN') ? 'E' : 'A') : ''}
                           </Text>
                         </View>
                         {isMine ? (
-                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 2, marginTop: 2 }}>
+                          <View style={{ flexDirection: 'row', flexWrap: 'nowrap', justifyContent: 'center', gap: 2, marginTop: 1, maxWidth: '100%' }}>
                             {myOpsAtStrike.map(function(mEntry, mIdx) {
                               var mBg = mEntry.tipo === 'CALL' ? C.green : C.red;
+                              var mDir = mEntry.direcao === 'VENDA' || mEntry.direcao === 'V' ? 'V' : 'C';
+                              var mTipo = mEntry.tipo === 'CALL' ? 'C' : 'P';
                               return (
-                                <View key={mIdx} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 3, paddingVertical: 1, borderRadius: 3, backgroundColor: mBg + '30' }}>
+                                <View key={mIdx} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 2, paddingVertical: 0, borderRadius: 2, backgroundColor: mBg + '30' }}>
                                   <Text style={{ fontSize: 7, fontWeight: '800', color: mBg, fontFamily: F.mono }}>
-                                    {mEntry.direcao + ' ' + mEntry.tipo + ' ' + mEntry.qty}
+                                    {mDir + mTipo + mEntry.qty}
                                   </Text>
                                 </View>
                               );
                             })}
                           </View>
                         ) : null}
+                        {/* Bell icon for price alert */}
+                        {(function() {
+                          var hasAlert = false;
+                          for (var pa = 0; pa < priceAlerts.length; pa++) {
+                            if (priceAlerts[pa].strike === sk && priceAlerts[pa].ativo_base === chainTicker && !priceAlerts[pa].disparado) {
+                              hasAlert = true;
+                              break;
+                            }
+                          }
+                          return (
+                            <TouchableOpacity
+                              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                              onPress={function() {
+                                setAlertStrike({ strike: sk, callOpt: callOpt, putOpt: putOpt, dueDate: activeSerie && activeSerie.due_date });
+                                setAlertValor('');
+                                setAlertTipo('preco');
+                                setAlertDirecao('abaixo');
+                                setAlertTipoOpcao('call');
+                                setAlertModalVisible(true);
+                              }}
+                              style={{ marginTop: 1 }}>
+                              <Ionicons name={hasAlert ? 'notifications' : 'notifications-outline'} size={10} color={hasAlert ? C.yellow : C.dim} />
+                            </TouchableOpacity>
+                          );
+                        })()}
                       </View>
                       {/* PUT side */}
                       <Text style={[{ width: 30, fontSize: 10, fontFamily: F.mono, textAlign: 'center', color: C.dim }, ps]}>
@@ -3226,19 +3604,21 @@ function CalculadoraOpcoes(props) {
           </TouchableOpacity>
           <View style={{ flex: 1 }} />
           {/* Saved analyses toggle */}
-          <TouchableOpacity activeOpacity={0.7}
-            onPress={function() { setShowSavedDD(!showSavedDD); }}
-            accessibilityRole="button" accessibilityLabel="Análises salvas"
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingVertical: 5, paddingHorizontal: 8, borderRadius: 6,
-              backgroundColor: showSavedDD ? C.accent + '25' : C.card,
-              borderWidth: 1, borderColor: showSavedDD ? C.accent : C.border }}>
-            <Ionicons name={showSavedDD ? 'bookmark' : 'bookmark-outline'} size={14} color={showSavedDD ? C.accent : C.sub} />
-            {savedList.length > 0 ? (
-              <View style={{ backgroundColor: C.accent, borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff', fontFamily: F.mono }}>{savedList.length}</Text>
-              </View>
-            ) : null}
-          </TouchableOpacity>
+          {subCtx.canAccess('SAVED_ANALYSES') ? (
+            <TouchableOpacity activeOpacity={0.7}
+              onPress={function() { setShowSavedDD(!showSavedDD); }}
+              accessibilityRole="button" accessibilityLabel="Análises salvas"
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingVertical: 5, paddingHorizontal: 8, borderRadius: 6,
+                backgroundColor: showSavedDD ? C.accent + '25' : C.card,
+                borderWidth: 1, borderColor: showSavedDD ? C.accent : C.border }}>
+              <Ionicons name={showSavedDD ? 'bookmark' : 'bookmark-outline'} size={14} color={showSavedDD ? C.accent : C.sub} />
+              {savedList.length > 0 ? (
+                <View style={{ backgroundColor: C.accent, borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff', fontFamily: F.mono }}>{savedList.length}</Text>
+                </View>
+              ) : null}
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         {/* Watchlist + Favorites panel */}
@@ -3342,7 +3722,7 @@ function CalculadoraOpcoes(props) {
       </View>
 
       {/* Saved analyses dropdown */}
-      {showSavedDD ? (
+      {showSavedDD && subCtx.canAccess('SAVED_ANALYSES') ? (
         <Glass padding={12}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
             <Ionicons name="bookmark" size={14} color={C.accent} />
@@ -3360,11 +3740,11 @@ function CalculadoraOpcoes(props) {
                     padding: 8, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: C.border }}>
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.mono }}>{item.ticker}</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.mono }}>{item.title || item.ticker || '?'}</Text>
                         {item.strike ? (
                           <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>{'@ ' + Number(item.strike).toFixed(2)}</Text>
                         ) : null}
-                        {item.ai_analysis ? (
+                        {item.ai_analysis || item.type === 'estrategia' || item.type === 'renda' || item.type === 'ativo' ? (
                           <View style={{ backgroundColor: C.accent + '25', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
                             <Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>IA</Text>
                           </View>
@@ -3476,8 +3856,208 @@ function CalculadoraOpcoes(props) {
         </View>
       </Modal>
 
+      {/* ═══ PRICE ALERT MODAL ═══ */}
+      <Modal visible={alertModalVisible} animationType="slide" transparent={true}
+        onRequestClose={function() { setAlertModalVisible(false); }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: C.card || '#151922', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: SIZE.padding, paddingBottom: 40 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="notifications-outline" size={18} color={C.yellow} />
+                <Text style={{ fontSize: 16, fontWeight: '800', color: C.text, fontFamily: F.display }}>Criar Alerta</Text>
+              </View>
+              <TouchableOpacity onPress={function() { setAlertModalVisible(false); }} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Ionicons name="close" size={22} color={C.text} />
+              </TouchableOpacity>
+            </View>
+
+            {alertStrike ? (
+              <View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <Text style={{ fontSize: 13, color: C.dim, fontFamily: F.body }}>Strike:</Text>
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, fontFamily: F.mono }}>{'R$ ' + (alertStrike.strike || 0).toFixed(2)}</Text>
+                  <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.body }}>{chainTicker || ''}</Text>
+                </View>
+
+                {/* Tipo de alerta */}
+                <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 6 }}>TIPO DE ALERTA</Text>
+                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+                  {[
+                    { key: 'preco', label: 'Preço' },
+                    { key: 'divergencia', label: 'Divergência BS' },
+                    { key: 'iv', label: 'Volatilidade (IV)' },
+                    { key: 'volume', label: 'Volume' },
+                  ].map(function(t) {
+                    return (
+                      <Pill key={t.key} label={t.label} active={alertTipo === t.key}
+                        onPress={function() { setAlertTipo(t.key); setAlertValor(''); }}
+                        color={C.yellow} />
+                    );
+                  })}
+                </View>
+
+                {/* CALL/PUT */}
+                <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 6 }}>TIPO OPÇÃO</Text>
+                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 14 }}>
+                  <Pill label="CALL" active={alertTipoOpcao === 'call'} onPress={function() { setAlertTipoOpcao('call'); }} color={C.green} />
+                  <Pill label="PUT" active={alertTipoOpcao === 'put'} onPress={function() { setAlertTipoOpcao('put'); }} color={C.red} />
+                </View>
+
+                {/* Direção */}
+                <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 6 }}>
+                  {alertTipo === 'preco' ? 'AVISAR QUANDO PREÇO' : alertTipo === 'iv' ? 'AVISAR QUANDO IV' : alertTipo === 'volume' ? 'AVISAR QUANDO VOLUME' : 'AVISAR QUANDO DIVERGÊNCIA'}
+                </Text>
+                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 14 }}>
+                  <Pill label={alertTipo === 'volume' ? 'Acima de' : 'Cair abaixo de'} active={alertDirecao === 'abaixo'} onPress={function() { setAlertDirecao('abaixo'); }} color={C.yellow} />
+                  {alertTipo !== 'volume' ? (
+                    <Pill label="Subir acima de" active={alertDirecao === 'acima'} onPress={function() { setAlertDirecao('acima'); }} color={C.yellow} />
+                  ) : null}
+                </View>
+
+                {/* Valor alvo */}
+                <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 6 }}>
+                  {alertTipo === 'preco' ? 'PREÇO ALVO (R$)' : alertTipo === 'iv' ? 'IV ALVO (%)' : alertTipo === 'volume' ? 'VOLUME MÍNIMO' : 'DIVERGÊNCIA MÍNIMA (%)'}
+                </Text>
+                <TextInput
+                  style={{ backgroundColor: C.bg, borderRadius: 10, padding: 12, fontSize: 16, color: C.text, fontFamily: F.mono, borderWidth: 1, borderColor: C.yellow + '40', marginBottom: 16 }}
+                  placeholder={alertTipo === 'preco' ? '0.00' : alertTipo === 'volume' ? '100' : '10'}
+                  placeholderTextColor={C.dim}
+                  keyboardType="decimal-pad"
+                  value={alertValor}
+                  onChangeText={setAlertValor}
+                />
+
+                {/* Current values preview */}
+                {(function() {
+                  var opt = alertTipoOpcao === 'put' ? alertStrike.putOpt : alertStrike.callOpt;
+                  if (!opt) return null;
+                  var mid = (opt.bid > 0 && opt.ask > 0) ? ((opt.bid + opt.ask) / 2).toFixed(2) : '-';
+                  var ivStr = opt.iv != null ? (opt.iv * 100).toFixed(1) + '%' : '-';
+                  var volStr = opt.volume != null ? String(opt.volume) : '-';
+                  return (
+                    <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+                      <View>
+                        <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>MID ATUAL</Text>
+                        <Text style={{ fontSize: 13, color: C.text, fontFamily: F.mono }}>{'R$ ' + mid}</Text>
+                      </View>
+                      <View>
+                        <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>IV</Text>
+                        <Text style={{ fontSize: 13, color: C.text, fontFamily: F.mono }}>{ivStr}</Text>
+                      </View>
+                      <View>
+                        <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>VOLUME</Text>
+                        <Text style={{ fontSize: 13, color: C.text, fontFamily: F.mono }}>{volStr}</Text>
+                      </View>
+                    </View>
+                  );
+                })()}
+
+                {/* Existing alerts for this strike */}
+                {(function() {
+                  var existing = [];
+                  for (var ea = 0; ea < priceAlerts.length; ea++) {
+                    var eAl = priceAlerts[ea];
+                    if (eAl.strike === alertStrike.strike && eAl.ativo_base === chainTicker && !eAl.disparado) {
+                      existing.push(eAl);
+                    }
+                  }
+                  if (existing.length === 0) return null;
+                  return (
+                    <View style={{ marginBottom: 16 }}>
+                      <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 6 }}>ALERTAS ATIVOS NESTE STRIKE</Text>
+                      {existing.map(function(eAl) {
+                        var tLabel = eAl.tipo_alerta === 'preco' ? 'Preço' : eAl.tipo_alerta === 'iv' ? 'IV' : eAl.tipo_alerta === 'volume' ? 'Volume' : 'Divergência';
+                        var dLabel = eAl.direcao === 'acima' ? '>' : '<';
+                        return (
+                          <View key={eAl.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.dim + '20' }}>
+                            <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono }}>
+                              {tLabel + ' ' + (eAl.tipo_opcao || '').toUpperCase() + ' ' + dLabel + ' ' + eAl.valor_alvo}
+                            </Text>
+                            <TouchableOpacity onPress={function() {
+                              deleteAlertaOpcao(eAl.id).then(function() {
+                                var updated = [];
+                                for (var ui = 0; ui < priceAlerts.length; ui++) {
+                                  if (priceAlerts[ui].id !== eAl.id) updated.push(priceAlerts[ui]);
+                                }
+                                setPriceAlerts(updated);
+                                Toast.show({ type: 'success', text1: 'Alerta removido' });
+                              });
+                            }}>
+                              <Ionicons name="trash-outline" size={16} color={C.red} />
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  );
+                })()}
+
+                {/* Save button */}
+                <TouchableOpacity
+                  disabled={alertSaving || !alertValor.trim()}
+                  onPress={function() {
+                    var val = parseFloat(alertValor.replace(',', '.'));
+                    if (!val || val <= 0) {
+                      Toast.show({ type: 'error', text1: 'Valor inválido' });
+                      return;
+                    }
+                    setAlertSaving(true);
+                    var callSym = alertStrike.callOpt && alertStrike.callOpt.symbol ? alertStrike.callOpt.symbol : '';
+                    var putSym = alertStrike.putOpt && alertStrike.putOpt.symbol ? alertStrike.putOpt.symbol : '';
+                    var tickerOpcao = alertTipoOpcao === 'put' ? putSym : callSym;
+                    if (!tickerOpcao) tickerOpcao = (chainTicker || '') + '_' + alertStrike.strike.toFixed(0) + '_' + alertTipoOpcao.toUpperCase();
+                    addAlertaOpcao(user.id, {
+                      ticker_opcao: tickerOpcao,
+                      ativo_base: chainTicker || '',
+                      tipo_alerta: alertTipo,
+                      valor_alvo: val,
+                      direcao: alertTipo === 'volume' ? 'acima' : alertDirecao,
+                      tipo_opcao: alertTipoOpcao,
+                      strike: alertStrike.strike,
+                      vencimento: alertStrike.dueDate || null,
+                    }).then(function(result) {
+                      setAlertSaving(false);
+                      if (result.error) {
+                        Toast.show({ type: 'error', text1: 'Erro ao criar alerta', text2: result.error.message || '' });
+                        return;
+                      }
+                      if (result.data) {
+                        var newAlerts = priceAlerts.slice();
+                        newAlerts.unshift(result.data);
+                        setPriceAlerts(newAlerts);
+                      }
+                      Toast.show({ type: 'success', text1: 'Alerta criado', text2: tickerOpcao + ' - ' + alertTipo });
+                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                      setAlertModalVisible(false);
+                    }).catch(function(e) {
+                      setAlertSaving(false);
+                      Toast.show({ type: 'error', text1: 'Erro', text2: e.message || '' });
+                    });
+                  }}
+                  style={{ backgroundColor: alertSaving || !alertValor.trim() ? C.dim : C.yellow, borderRadius: 12, padding: 14, alignItems: 'center' }}>
+                  {alertSaving ? (
+                    <ActivityIndicator size="small" color="#000" />
+                  ) : (
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#000', fontFamily: F.display }}>Criar Alerta</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
       {/* ═══ ANÁLISE TÉCNICA ═══ */}
       {chainTicker && spot > 0 ? (
+        !subCtx.canAccess('TECHNICAL_CHART') ? (
+          <Glass padding={12}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <Ionicons name="analytics-outline" size={13} color={C.opcoes} />
+              <Text style={{ fontSize: 12, color: C.opcoes, fontFamily: F.mono, fontWeight: '600', letterSpacing: 0.5 }}>ANÁLISE TÉCNICA</Text>
+            </View>
+            <UpgradePrompt feature="TECHNICAL_CHART" compact={true} />
+          </Glass>
+        ) : (
         <Glass padding={12}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
             <Ionicons name="analytics-outline" size={13} color={C.opcoes} />
@@ -3681,6 +4261,7 @@ function CalculadoraOpcoes(props) {
             </View>
           ) : null)}
         </Glass>
+        )
       ) : null}
 
       {/* ═══ ANÁLISE TÉCNICA FULLSCREEN ═══ */}
@@ -3994,29 +4575,31 @@ function CalculadoraOpcoes(props) {
           ) : null}
 
           {/* Salvar análise */}
-          <TouchableOpacity activeOpacity={0.7} disabled={savingAnalysis}
-            onPress={function() { handleSaveAnalysis(!!aiAnalysis); }}
-            accessibilityRole="button" accessibilityLabel="Salvar análise atual"
-            style={{
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-              gap: 6, paddingVertical: 10, borderRadius: SIZE.radius,
-              backgroundColor: C.card, borderWidth: 1, borderColor: C.border,
-              opacity: savingAnalysis ? 0.5 : 1,
-            }}>
-            {savingAnalysis ? (
-              <ActivityIndicator size="small" color={C.accent} />
-            ) : (
-              <Ionicons name="bookmark-outline" size={16} color={C.accent} />
-            )}
-            <Text style={{ fontSize: 13, fontWeight: '600', color: C.accent, fontFamily: F.body }}>
-              {savingAnalysis ? 'Salvando...' : 'Salvar análise'}
-            </Text>
-            {aiAnalysis ? (
-              <View style={{ backgroundColor: C.accent + '25', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>+IA</Text>
-              </View>
-            ) : null}
-          </TouchableOpacity>
+          {subCtx.canAccess('SAVED_ANALYSES') ? (
+            <TouchableOpacity activeOpacity={0.7} disabled={savingAnalysis}
+              onPress={function() { handleSaveAnalysis(!!aiAnalysis); }}
+              accessibilityRole="button" accessibilityLabel="Salvar análise atual"
+              style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                gap: 6, paddingVertical: 10, borderRadius: SIZE.radius,
+                backgroundColor: C.card, borderWidth: 1, borderColor: C.border,
+                opacity: savingAnalysis ? 0.5 : 1,
+              }}>
+              {savingAnalysis ? (
+                <ActivityIndicator size="small" color={C.accent} />
+              ) : (
+                <Ionicons name="bookmark-outline" size={16} color={C.accent} />
+              )}
+              <Text style={{ fontSize: 13, fontWeight: '600', color: C.accent, fontFamily: F.body }}>
+                {savingAnalysis ? 'Salvando...' : 'Salvar análise'}
+              </Text>
+              {aiAnalysis ? (
+                <View style={{ backgroundColor: C.accent + '25', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>+IA</Text>
+                </View>
+              ) : null}
+            </TouchableOpacity>
+          ) : null}
 
           {/* ═══ CENÁRIOS WHAT-IF ═══ */}
           <Glass glow={C.etfs} padding={12}>
@@ -4182,24 +4765,45 @@ function CalculadoraOpcoes(props) {
             ) : null}
           </Glass>
 
-          <TouchableOpacity activeOpacity={0.7} disabled={aiLoading || spot <= 0 || fk <= 0}
-            onPress={handleAiAnalysis}
-            accessibilityRole="button" accessibilityLabel="Analisar operação com inteligência artificial"
-            style={{
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-              gap: 8, paddingVertical: 14, borderRadius: SIZE.radius,
-              backgroundColor: C.accent + '18', borderWidth: 1, borderColor: C.accent + '40',
-              opacity: (aiLoading || spot <= 0 || fk <= 0) ? 0.5 : 1,
-            }}>
-            {aiLoading ? (
-              <ActivityIndicator size="small" color={C.accent} />
-            ) : (
-              <Ionicons name="sparkles-outline" size={18} color={C.accent} />
-            )}
-            <Text style={{ fontSize: 14, fontWeight: '700', color: C.accent, fontFamily: F.display }}>
-              {aiLoading ? 'Analisando...' : 'Analisar com IA'}
-            </Text>
-          </TouchableOpacity>
+          {!subCtx.canAccess('AI_ANALYSIS') ? (
+            <UpgradePrompt feature="AI_ANALYSIS" compact={true} />
+          ) : (
+            <View>
+              <TouchableOpacity activeOpacity={0.7} disabled={aiLoading || spot <= 0 || fk <= 0}
+                onPress={function() { setPendingAiType('Análise de opções'); setAiConfirmVisible(true); }}
+                accessibilityRole="button" accessibilityLabel="Analisar operação com inteligência artificial"
+                style={{
+                  flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                  gap: 8, paddingVertical: 14, borderRadius: SIZE.radius,
+                  backgroundColor: C.accent + '18', borderWidth: 1, borderColor: C.accent + '40',
+                  opacity: (aiLoading || spot <= 0 || fk <= 0) ? 0.5 : 1,
+                }}>
+                {aiLoading ? (
+                  <ActivityIndicator size="small" color={C.accent} />
+                ) : (
+                  <Ionicons name="sparkles-outline" size={18} color={C.accent} />
+                )}
+                <Text style={{ fontSize: 14, fontWeight: '700', color: C.accent, fontFamily: F.display }}>
+                  {aiLoading ? 'Analisando...' : 'Analisar com IA'}
+                </Text>
+              </TouchableOpacity>
+              {aiUsage ? (
+                <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 6 }}>
+                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                    {'Hoje: ' + aiUsage.today + '/' + aiUsage.daily_limit}
+                  </Text>
+                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
+                    {'Mês: ' + aiUsage.month + '/' + aiUsage.monthly_limit}
+                  </Text>
+                  {aiUsage.credits > 0 ? (
+                    <Text style={{ fontSize: 10, color: C.accent, fontFamily: F.mono, fontWeight: '600' }}>
+                      {'+' + aiUsage.credits + ' extras'}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          )}
 
           {aiError ? (
             <View style={{ padding: 10, borderRadius: 10, backgroundColor: C.red + '10', borderWidth: 1, borderColor: C.red + '25' }}>
@@ -4231,7 +4835,8 @@ function CalculadoraOpcoes(props) {
       <Modal visible={aiModalOpen} animationType="slide" transparent={false}
         onRequestClose={function() { setAiModalOpen(false); }}>
         <AiAnalysisModal analysis={aiAnalysis} onClose={function() { setAiModalOpen(false); }}
-          onSave={function() { handleSaveAnalysis(true); }}
+          onSave={subCtx.canAccess('SAVED_ANALYSES') ? function() { handleSaveAnalysis(true); } : undefined}
+          onRetry={function() { setAiModalOpen(false); handleAiAnalysis(); }}
           techOhlcv={techOhlcv} techAnalysis={techAnalysis} spot={spot} strikePrice={fk} />
       </Modal>
     </View>
@@ -4245,6 +4850,7 @@ export default function OpcoesScreen() {
   var ps = usePrivacyStyle();
   var navigation = useNavigation();
   var user = useAuth().user;
+  var subCtx = useSubscription();
 
   var scrollRef = useRef(null);
   useScrollToTop(scrollRef);
@@ -4266,15 +4872,152 @@ export default function OpcoesScreen() {
   var _tut = useState(-1); var tutStep = _tut[0]; var setTutStep = _tut[1];
   var _chainsReady = useState(0); var chainsReady = _chainsReady[0]; var setChainsReady = _chainsReady[1];
   var _alertsFired = useState({}); var alertsFired = _alertsFired[0]; var setAlertsFired = _alertsFired[1];
+  var _priceAlerts = useState([]); var priceAlerts = _priceAlerts[0]; var setPriceAlerts = _priceAlerts[1];
+  var _priceAlertsFired = useState({}); var priceAlertsFired = _priceAlertsFired[0]; var setPriceAlertsFired = _priceAlertsFired[1];
+  var _garantiasConfig = useState({}); var garantiasConfig = _garantiasConfig[0]; var setGarantiasConfig = _garantiasConfig[1];
+  var _garantiasDropdown = useState(false); var garantiasDropdown = _garantiasDropdown[0]; var setGarantiasDropdown = _garantiasDropdown[1];
+  var _garantiasOpen = useState({}); var garantiasOpen = _garantiasOpen[0]; var setGarantiasOpen = _garantiasOpen[1];
+
+  // Portfolio states
+  var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfolios = _portfolios[1];
+  var _selPortfolio = useState(null); var selPortfolio = _selPortfolio[0]; var setSelPortfolio = _selPortfolio[1];
+  var _defaultApplied = useState(false); var defaultApplied = _defaultApplied[0]; var setDefaultApplied = _defaultApplied[1];
+  var _showPortDD = useState(false); var showPortDD = _showPortDD[0]; var setShowPortDD = _showPortDD[1];
+
+  // Strategy AI states
+  var _stratVis = useState(false); var stratModalVisible = _stratVis[0]; var setStratModalVisible = _stratVis[1];
+  var _stratRes = useState(null); var stratResult = _stratRes[0]; var setStratResult = _stratRes[1];
+  var _stratL = useState(false); var stratLoading = _stratL[0]; var setStratLoading = _stratL[1];
+  var _stratE = useState(null); var stratError = _stratE[0]; var setStratError = _stratE[1];
+  var _stratU = useState(null); var stratUsage = _stratU[0]; var setStratUsage = _stratU[1];
+  var _stratSaving = useState(false); var stratSaving = _stratSaving[0]; var setStratSaving = _stratSaving[1];
+
+  var handleAiEstrategia = function() {
+    if (!subCtx.canAccess('AI_ANALYSIS')) { navigation.navigate('Paywall'); return; }
+    setStratModalVisible(true);
+    setStratLoading(true);
+    setStratError(null);
+    setStratResult(null);
+    setStratUsage(null);
+
+    var posPayload = [];
+    for (var pi = 0; pi < positions.length; pi++) {
+      var p = positions[pi];
+      var plPct = null;
+      if (p.preco_atual && p.preco_medio && p.preco_medio > 0) {
+        plPct = ((p.preco_atual - p.preco_medio) / p.preco_medio) * 100;
+      }
+      posPayload.push({
+        ticker: p.ticker,
+        categoria: p.categoria,
+        quantidade: p.quantidade,
+        pm: p.preco_medio,
+        preco_atual: p.preco_atual || null,
+        pl_pct: plPct,
+        mercado: p.mercado || 'BR',
+      });
+    }
+
+    var ativasPayload = [];
+    for (var ai = 0; ai < ativas.length; ai++) {
+      var op = ativas[ai];
+      ativasPayload.push({
+        ativo_base: op.ativo_base,
+        tipo: op.tipo,
+        direcao: op.direcao,
+        strike: op.strike,
+        premio: op.premio,
+        quantidade: op.quantidade,
+        vencimento: op.vencimento,
+        corretora: op.corretora,
+      });
+    }
+
+    var indPayload = {};
+    var indKeys = Object.keys(indicators);
+    for (var ik = 0; ik < indKeys.length; ik++) {
+      var tk = indKeys[ik];
+      var ind = indicators[tk];
+      if (ind) {
+        indPayload[tk] = { hv: ind.hv || null, rsi: ind.rsi || null, beta: ind.beta || null };
+      }
+    }
+
+    var indArr = [];
+    var iaKeys = Object.keys(indPayload);
+    for (var iaa = 0; iaa < iaKeys.length; iaa++) {
+      var iaObj = indPayload[iaKeys[iaa]];
+      iaObj.ticker = iaKeys[iaa];
+      indArr.push(iaObj);
+    }
+
+    var payload = {
+      type: 'estrategia',
+      posicoes: posPayload,
+      opcoesAtivas: ativasPayload,
+      selic: selicRate,
+      indicadores: indArr,
+    };
+
+    analyzeGeneral(payload).then(function(res) {
+      if (res && res._usage) setStratUsage(res._usage);
+      if (res && res.error) { setStratError(res.error); }
+      else if (res) { setStratResult(res); }
+      else { setStratError('Sem resposta da IA'); }
+      setStratLoading(false);
+    }).catch(function(e) {
+      setStratError(e && e.message ? e.message : 'Erro ao analisar');
+      setStratLoading(false);
+    });
+  };
+
+  var handleSaveStrategy = function() {
+    if (!stratResult || !user) return;
+    setStratSaving(true);
+    var payload = {
+      type: 'estrategia',
+      title: 'Sugestão de Estratégias',
+      result: stratResult,
+    };
+    addSavedAnalysis(user.id, payload).then(function(res) {
+      setStratSaving(false);
+      if (res && res.error) {
+        Toast.show({ type: 'error', text1: 'Erro ao salvar', text2: String(res.error) });
+      } else {
+        Toast.show({ type: 'success', text1: 'Análise salva!' });
+      }
+    }).catch(function() {
+      setStratSaving(false);
+      Toast.show({ type: 'error', text1: 'Erro ao salvar' });
+    });
+  };
 
   var load = async function() {
     if (!user) return;
     setLoadError(false);
+
+    // Fetch portfolios
+    var portfolioId = selPortfolio;
+    try {
+      var pfRes = await getPortfolios(user.id);
+      var pfs = pfRes.data || [];
+      setPortfolios(pfs);
+      if (!defaultApplied && pfs.length > 0) {
+        setSelPortfolio('__default__');
+        setDefaultApplied(true);
+        portfolioId = '__default__';
+      }
+    } catch (e) {}
+
+    var effectivePortfolioId = null;
+    if (portfolioId === '__default__') effectivePortfolioId = '__null__';
+    else if (portfolioId) effectivePortfolioId = portfolioId;
+
     var results;
     try {
       results = await Promise.all([
-        getOpcoes(user.id),
-        getPositions(user.id),
+        getOpcoes(user.id, effectivePortfolioId),
+        getPositions(user.id, effectivePortfolioId),
         getSaldos(user.id),
         getIndicators(user.id),
         getProfile(user.id),
@@ -4288,6 +5031,10 @@ export default function OpcoesScreen() {
 
     var prof = results[4] && results[4].data ? results[4].data : null;
     if (prof && prof.selic) setSelicRate(prof.selic);
+    // Only set from server on initial load (empty local state), don't overwrite user's pending changes
+    if (Object.keys(garantiasConfig).length === 0 && prof && prof.garantias_config) {
+      setGarantiasConfig(prof.garantias_config);
+    }
 
     // Build indicators map by ticker
     var indData = results[3].data || [];
@@ -4407,9 +5154,9 @@ export default function OpcoesScreen() {
               corretora: autoOp.corretora || 'Clear',
               data: new Date().toISOString().split('T')[0],
             });
-            // Log movimentacao no caixa
+            // Log movimentacao no caixa — so se portfolio permite
             var autoExValor = (autoOp.strike || 0) * (autoOp.quantidade || 0);
-            if (autoExValor > 0 && autoOp.corretora) {
+            if (autoExValor > 0 && autoOp.corretora && canLogMov(autoOp)) {
               addMovimentacaoComSaldo(user.id, {
                 conta: autoOp.corretora,
                 moeda: 'BRL',
@@ -4525,9 +5272,21 @@ export default function OpcoesScreen() {
         setChainsReady(Date.now());
       }).catch(function() {});
     }
+
+    // Fire-and-forget: load price alerts for options
+    getAlertasOpcoes(user.id).then(function(alertResult) {
+      setPriceAlerts(alertResult.data || []);
+    }).catch(function() {});
+
+    // Fire-and-forget: load AI usage summary for Premium users
+    if (subCtx.canAccess('AI_ANALYSIS')) {
+      aiUsageService.getAiUsageSummary(user.id).then(function(summary) {
+        setAiUsage(summary);
+      }).catch(function() {});
+    }
   };
 
-  useFocusEffect(useCallback(function() { load(); }, [user]));
+  useFocusEffect(useCallback(function() { load(); }, [user, selPortfolio]));
 
   // Check P&L alerts after chains load
   useEffect(function() {
@@ -4544,12 +5303,19 @@ export default function OpcoesScreen() {
       var bid = co.bid != null ? co.bid : null;
       var ask = co.ask != null ? co.ask : null;
       var close = co.close != null ? co.close : null;
-      var mid = null;
-      if (bid != null && ask != null && (bid > 0 || ask > 0)) { mid = (bid + ask) / 2; }
-      else if (close != null && close > 0) { mid = close; }
-      if (mid == null) continue;
       var isV = aOp.direcao === 'lancamento' || aOp.direcao === 'venda';
-      var plU = isV ? ((aOp.premio || 0) - mid) : (mid - (aOp.premio || 0));
+      var mkt = null;
+      if (isV) {
+        if (ask != null && ask > 0) mkt = ask;
+        else if (bid != null && bid > 0) mkt = bid;
+        else if (close != null && close > 0) mkt = close;
+      } else {
+        if (bid != null && bid > 0) mkt = bid;
+        else if (ask != null && ask > 0) mkt = ask;
+        else if (close != null && close > 0) mkt = close;
+      }
+      if (mkt == null) continue;
+      var plU = isV ? ((aOp.premio || 0) - mkt) : (mkt - (aOp.premio || 0));
       var plPctAlert = (aOp.premio || 0) > 0 ? (plU / (aOp.premio || 0)) * 100 : 0;
       var triggered = (aOp.alerta_pl >= 0 && plPctAlert >= aOp.alerta_pl) || (aOp.alerta_pl < 0 && plPctAlert <= aOp.alerta_pl);
       if (triggered) {
@@ -4566,12 +5332,97 @@ export default function OpcoesScreen() {
     setAlertsFired(newFired);
   }, [chainsReady]);
 
+  // Check price alerts after chains load
+  useEffect(function() {
+    if (chainsReady === 0 || priceAlerts.length === 0) return;
+    // Build chains cache map from OpLab cached data
+    var chainsMap = {};
+    for (var cai = 0; cai < priceAlerts.length; cai++) {
+      var caBase = priceAlerts[cai].ativo_base;
+      if (caBase && !chainsMap[caBase]) {
+        var cachedCh = getCachedChain(caBase);
+        if (cachedCh) chainsMap[caBase] = cachedCh;
+      }
+    }
+    var triggered = notifService.checkPriceAlerts(user && user.id, priceAlerts, chainsMap);
+    if (triggered && triggered.length > 0) {
+      for (var ti = 0; ti < triggered.length; ti++) {
+        var tAlert = triggered[ti];
+        if (priceAlertsFired[tAlert.alerta_id]) continue;
+        var newF = {};
+        var fKeys = Object.keys(priceAlertsFired);
+        for (var fk = 0; fk < fKeys.length; fk++) { newF[fKeys[fk]] = priceAlertsFired[fKeys[fk]]; }
+        newF[tAlert.alerta_id] = true;
+        setPriceAlertsFired(newF);
+        // Send local notification
+        notifService.sendLocalNotification(
+          'Alerta de opção disparado',
+          tAlert.descricao,
+          { type: 'price_alert', alertId: tAlert.alerta_id }
+        );
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        Toast.show({ type: 'info', text1: 'Alerta disparado', text2: tAlert.descricao, visibilityTime: 5000 });
+        // Mark as triggered in DB
+        markAlertaDisparado(tAlert.alerta_id).catch(function() {});
+      }
+    }
+  }, [chainsReady, priceAlerts]);
+
   var onRefresh = async function() {
     setRefreshing(true);
     clearPriceCache();
     clearOplabCache();
     await load();
     setRefreshing(false);
+  };
+
+  var handleToggleGarantia = function(corretora, ticker) {
+    var newConfig = {};
+    var keys = Object.keys(garantiasConfig);
+    for (var k = 0; k < keys.length; k++) {
+      if (keys[k] === '_visible') {
+        newConfig._visible = garantiasConfig._visible.slice();
+      } else {
+        newConfig[keys[k]] = garantiasConfig[keys[k]].slice();
+      }
+    }
+    if (!newConfig[corretora]) newConfig[corretora] = [];
+    var idx = newConfig[corretora].indexOf(ticker);
+    if (idx >= 0) {
+      newConfig[corretora].splice(idx, 1);
+    } else {
+      newConfig[corretora].push(ticker);
+    }
+    setGarantiasConfig(newConfig);
+    updateProfile(user.id, { garantias_config: newConfig }).catch(function(e) {
+      console.warn('Save garantias config failed:', e);
+    });
+  };
+
+  var handleToggleGarantiaCorretora = function(corretora, allCorretoras) {
+    var newConfig = {};
+    var keys = Object.keys(garantiasConfig);
+    for (var k = 0; k < keys.length; k++) {
+      if (keys[k] === '_visible') {
+        newConfig._visible = garantiasConfig._visible.slice();
+      } else {
+        newConfig[keys[k]] = Array.isArray(garantiasConfig[keys[k]]) ? garantiasConfig[keys[k]].slice() : garantiasConfig[keys[k]];
+      }
+    }
+    // First time: init with all corretoras, then toggle
+    if (!Array.isArray(newConfig._visible)) {
+      newConfig._visible = allCorretoras ? allCorretoras.slice() : [];
+    }
+    var idx = newConfig._visible.indexOf(corretora);
+    if (idx >= 0) {
+      newConfig._visible.splice(idx, 1);
+    } else {
+      newConfig._visible.push(corretora);
+    }
+    setGarantiasConfig(newConfig);
+    updateProfile(user.id, { garantias_config: newConfig }).catch(function(e) {
+      console.warn('Save garantias config failed:', e);
+    });
   };
 
   var handleAlertaPLSave = async function(opcaoId, valor) {
@@ -4623,6 +5474,17 @@ export default function OpcoesScreen() {
         },
       },
     ]);
+  };
+
+  // Helper: checa se portfolio da opcao permite movimentacoes de caixa
+  var canLogMov = function(opcao) {
+    if (!opcao || !opcao.portfolio_id) return true; // Padrao: permite
+    for (var pi = 0; pi < portfolios.length; pi++) {
+      if (portfolios[pi].id === opcao.portfolio_id && portfolios[pi].operacoes_contas === false) {
+        return false;
+      }
+    }
+    return true;
   };
 
   var handleClose = async function(id, premFechamento, pl, dataFech, qtyClose) {
@@ -4746,7 +5608,7 @@ export default function OpcoesScreen() {
       }
     }
 
-    if (saldoMatch) {
+    if (saldoMatch && canLogMov(original)) {
       var saldoAtual = saldoMatch.saldo || 0;
       Alert.alert(
         'Opção encerrada' + partialText,
@@ -4798,6 +5660,34 @@ export default function OpcoesScreen() {
     }
   };
 
+  var handleRoll = async function(op, premRecompra, dataFech, qtyClose, newStrike, newVenc) {
+    // Step 1: close the current option (reuses handleClose logic inline)
+    var isVenda = op.direcao === 'lancamento' || op.direcao === 'venda';
+    var closePL = isVenda ? ((op.premio || 0) - premRecompra) * qtyClose : (premRecompra - (op.premio || 0)) * qtyClose;
+    await handleClose(op.id, premRecompra, closePL, dataFech, qtyClose);
+
+    // Step 2: navigate to AddOpcao pre-filled for the new leg
+    // Convert newVenc ISO to BR format for the form
+    var vencBr = '';
+    if (newVenc) {
+      var parts = newVenc.split('-');
+      if (parts.length === 3) vencBr = parts[2] + '/' + parts[1] + '/' + parts[0];
+    }
+    navigation.navigate('AddOpcao', {
+      ativo_base: op.ativo_base || '',
+      tipo: op.tipo || 'call',
+      direcao: op.direcao || 'venda',
+      corretora: op.corretora || '',
+      quantidade: String(qtyClose || ''),
+      strike: String(newStrike || ''),
+      vencimento: vencBr,
+      fromRolagem: true,
+      tickerAnterior: op.ticker_opcao || '',
+      strikeAnterior: String(op.strike || ''),
+      vencAnterior: op.vencimento || '',
+    });
+  };
+
   var handleExpiredPo = async function(id) {
     var result = await supabase
       .from('opcoes')
@@ -4820,8 +5710,8 @@ export default function OpcoesScreen() {
       cp.status = 'expirou_po';
       setOpcoes(opcoes.concat([cp]));
     }
-    // Log movimentacao informativa (prêmio mantido)
-    if (expOp) {
+    // Log movimentacao informativa (prêmio mantido) — so se portfolio permite
+    if (expOp && canLogMov(expOp)) {
       var premTotal = (expOp.premio || 0) * (expOp.quantidade || 0);
       if (premTotal > 0 && expOp.corretora) {
         addMovimentacao(user.id, {
@@ -4877,9 +5767,9 @@ export default function OpcoesScreen() {
           if (opResult.error) {
             Alert.alert('Aviso', 'Opção marcada como exercida, mas falha ao criar operação: ' + opResult.error.message);
           } else {
-            // Log movimentacao do exercício
+            // Log movimentacao do exercício — so se portfolio permite
             var exValor = (expOp.strike || 0) * (expOp.quantidade || 0);
-            if (exValor > 0 && expOp.corretora) {
+            if (exValor > 0 && expOp.corretora && canLogMov(expOp)) {
               addMovimentacaoComSaldo(user.id, {
                 conta: expOp.corretora,
                 moeda: 'BRL',
@@ -4908,6 +5798,50 @@ export default function OpcoesScreen() {
 
   var ativas = opcoes.filter(function(o) { return o.status === 'ativa'; });
   var historico = opcoes.filter(function(o) { return o.status !== 'ativa'; });
+
+  // Agrupar ativas por chave (ativo_base + strike + tipo + direcao + vencimento + corretora)
+  var ativasGrouped = (function() {
+    var groups = {};
+    var order = [];
+    for (var gi = 0; gi < ativas.length; gi++) {
+      var op = ativas[gi];
+      var key = (op.ativo_base || '').toUpperCase() + '|' + (op.strike || 0) + '|' + (op.tipo || '') + '|' + (op.direcao || '') + '|' + (op.vencimento || '').substring(0, 10) + '|' + (op.corretora || '');
+      if (!groups[key]) {
+        groups[key] = [];
+        order.push(key);
+      }
+      groups[key].push(op);
+    }
+    var result = [];
+    for (var oi = 0; oi < order.length; oi++) {
+      var ops = groups[order[oi]];
+      if (ops.length === 1) {
+        result.push({ type: 'single', op: ops[0] });
+      } else {
+        // Calcular PM e totais
+        var totalQty = 0;
+        var totalPremio = 0;
+        for (var pi = 0; pi < ops.length; pi++) {
+          var q = ops[pi].quantidade || 0;
+          totalQty = totalQty + q;
+          totalPremio = totalPremio + ((ops[pi].premio || 0) * q);
+        }
+        var premioMedio = totalQty > 0 ? totalPremio / totalQty : 0;
+        // Criar opcao virtual combinada (usa dados da primeira como base)
+        var combined = {};
+        var baseOp = ops[0];
+        var baseKeys = Object.keys(baseOp);
+        for (var bk = 0; bk < baseKeys.length; bk++) { combined[baseKeys[bk]] = baseOp[baseKeys[bk]]; }
+        combined.quantidade = totalQty;
+        combined.premio = Math.round(premioMedio * 100) / 100;
+        combined._isGrouped = true;
+        combined._groupOps = ops;
+        combined._groupCount = ops.length;
+        result.push({ type: 'group', combined: combined, ops: ops });
+      }
+    }
+    return result;
+  })();
 
   // Totals - premio recebido no mes (D+1 da data_abertura)
   var now = new Date();
@@ -4965,6 +5899,7 @@ export default function OpcoesScreen() {
   }
 
   // P&L total das ativas com preco de mercado disponivel
+  // Venda usa ask (custo de recompra), Compra usa bid (preço de venda)
   var plTotalAtivas = 0;
   var plTotalCount = 0;
   for (var pli = 0; pli < ativas.length; pli++) {
@@ -4974,12 +5909,19 @@ export default function OpcoesScreen() {
     var plBid = plCached.bid != null ? plCached.bid : null;
     var plAsk = plCached.ask != null ? plCached.ask : null;
     var plClose = plCached.close != null ? plCached.close : null;
-    var plMid = null;
-    if (plBid != null && plAsk != null && (plBid > 0 || plAsk > 0)) { plMid = (plBid + plAsk) / 2; }
-    else if (plClose != null && plClose > 0) { plMid = plClose; }
-    if (plMid == null) continue;
     var plIsVenda = plOp.direcao === 'lancamento' || plOp.direcao === 'venda';
-    var plUnit = plIsVenda ? ((plOp.premio || 0) - plMid) : (plMid - (plOp.premio || 0));
+    var plMarket = null;
+    if (plIsVenda) {
+      if (plAsk != null && plAsk > 0) plMarket = plAsk;
+      else if (plBid != null && plBid > 0) plMarket = plBid;
+      else if (plClose != null && plClose > 0) plMarket = plClose;
+    } else {
+      if (plBid != null && plBid > 0) plMarket = plBid;
+      else if (plAsk != null && plAsk > 0) plMarket = plAsk;
+      else if (plClose != null && plClose > 0) plMarket = plClose;
+    }
+    if (plMarket == null) continue;
+    var plUnit = plIsVenda ? ((plOp.premio || 0) - plMarket) : (plMarket - (plOp.premio || 0));
     plTotalAtivas += plUnit * (plOp.quantidade || 0);
     plTotalCount++;
   }
@@ -5006,7 +5948,7 @@ export default function OpcoesScreen() {
       {/* SUB TABS — topo da página */}
       <View style={styles.subTabs}>
         {[
-          { k: 'ativas', l: 'Ativas (' + ativas.length + ')', c: C.opcoes },
+          { k: 'ativas', l: 'Ativos (' + ativas.length + ')', c: C.opcoes },
           { k: 'pendentes', l: 'Pend. (' + expired.length + ')', c: C.yellow },
           { k: 'sim', l: 'Calc.', c: C.opcoes },
           { k: 'hist', l: 'Hist. (' + historico.length + ')', c: C.opcoes },
@@ -5016,6 +5958,82 @@ export default function OpcoesScreen() {
           );
         })}
       </View>
+
+      {/* Portfolio selector */}
+      {portfolios.length > 0 ? (
+        <View style={{ paddingHorizontal: SIZE.padding, paddingBottom: 6, zIndex: 10 }}>
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.card + '80', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: C.border, alignSelf: 'flex-start' }}
+            onPress={function() { setShowPortDD(!showPortDD); }}
+            activeOpacity={0.7}
+          >
+            {(function() {
+              var pLabel = 'Todos';
+              var pColor = C.accent;
+              var pIcon = 'people-outline';
+              if (selPortfolio === '__default__') {
+                pLabel = 'Padrão';
+                pIcon = 'briefcase-outline';
+              } else if (selPortfolio) {
+                for (var pi = 0; pi < portfolios.length; pi++) {
+                  if (portfolios[pi].id === selPortfolio) {
+                    pLabel = portfolios[pi].nome;
+                    pColor = portfolios[pi].cor || C.accent;
+                    pIcon = portfolios[pi].icone || null;
+                    break;
+                  }
+                }
+              }
+              return (
+                <>
+                  {pIcon ? (
+                    <Ionicons name={pIcon} size={14} color={pColor} />
+                  ) : (
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: pColor }} />
+                  )}
+                  <Text style={{ fontSize: 12, fontFamily: F.body, color: C.text, maxWidth: 160 }} numberOfLines={1}>{pLabel}</Text>
+                  <Ionicons name={showPortDD ? 'chevron-up' : 'chevron-down'} size={14} color={C.dim} />
+                </>
+              );
+            })()}
+          </TouchableOpacity>
+          {showPortDD ? (
+            <View style={{ backgroundColor: C.bg, borderRadius: 10, borderWidth: 1, borderColor: C.border, marginTop: 4, overflow: 'hidden' }}>
+              <TouchableOpacity
+                style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border }, !selPortfolio && { backgroundColor: C.accent + '11' }]}
+                onPress={function() { setSelPortfolio(null); setShowPortDD(false); }}
+              >
+                <Ionicons name="people-outline" size={14} color={!selPortfolio ? C.accent : C.dim} />
+                <Text style={{ fontSize: 13, fontFamily: F.body, color: !selPortfolio ? C.accent : C.text }}>Todos</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border }, selPortfolio === '__default__' && { backgroundColor: C.accent + '11' }]}
+                onPress={function() { setSelPortfolio('__default__'); setShowPortDD(false); }}
+              >
+                <Ionicons name="briefcase-outline" size={14} color={selPortfolio === '__default__' ? C.accent : C.dim} />
+                <Text style={{ fontSize: 13, fontFamily: F.body, color: selPortfolio === '__default__' ? C.accent : C.text }}>Padrão</Text>
+              </TouchableOpacity>
+              {portfolios.map(function(p) {
+                var isActive = selPortfolio === p.id;
+                return (
+                  <TouchableOpacity
+                    key={p.id}
+                    style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border }, isActive && { backgroundColor: C.accent + '11' }]}
+                    onPress={function() { setSelPortfolio(p.id); setShowPortDD(false); }}
+                  >
+                    {p.icone ? (
+                      <Ionicons name={p.icone} size={14} color={isActive ? (p.cor || C.accent) : C.dim} />
+                    ) : (
+                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.cor || C.accent }} />
+                    )}
+                    <Text style={{ fontSize: 13, fontFamily: F.body, color: isActive ? (p.cor || C.accent) : C.text }}>{p.nome}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       {/* PENDENTES TAB */}
       {sub === 'pendentes' && (
@@ -5092,12 +6110,18 @@ export default function OpcoesScreen() {
       {sub === 'ativas' && (
         <View style={{ gap: SIZE.gap }}>
           {ativas.length === 0 ? (
-            <EmptyState
-              ionicon="trending-up-outline" title="Nenhuma opção ativa"
-              description="Lance opções para começar a receber prêmios."
-              cta="Nova opção" onCta={function() { navigation.navigate('AddOpcao'); }}
-              color={C.opcoes}
-            />
+            <View>
+              <EmptyState
+                ionicon="trending-up-outline" title="Nenhuma opção ativa"
+                description="Lance opções para começar a receber prêmios."
+                cta={subCtx.isAtLimit('options', ativas.length) && !subCtx.canAccess('OPTIONS_UNLIMITED') ? undefined : 'Nova opção'}
+                onCta={subCtx.isAtLimit('options', ativas.length) && !subCtx.canAccess('OPTIONS_UNLIMITED') ? undefined : function() { navigation.navigate('AddOpcao'); }}
+                color={C.opcoes}
+              />
+              {subCtx.isAtLimit('options', ativas.length) && !subCtx.canAccess('OPTIONS_UNLIMITED') ? (
+                <UpgradePrompt feature="OPTIONS_UNLIMITED" compact={true} />
+              ) : null}
+            </View>
           ) : (
             <>
               {/* Header stats */}
@@ -5136,6 +6160,18 @@ export default function OpcoesScreen() {
                 ) : null}
               </Glass>
 
+              {/* Strategy AI button */}
+              {subCtx.canAccess('AI_ANALYSIS') && positions.length > 0 ? (
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={function() { setPendingAiType('Sugestão de estratégias'); setAiConfirmVisible(true); }}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: C.accent + '40', backgroundColor: C.accent + '08' }}
+                >
+                  <Ionicons name="sparkles" size={16} color={C.accent} />
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: C.accent, fontFamily: F.display }}>Sugestão de Estratégias IA</Text>
+                </TouchableOpacity>
+              ) : null}
+
               {/* BANNER: gregas usando PM */}
               {!pricesAvailable && positions.length > 0 ? (
                 <View style={{ padding: 8, borderRadius: 8, backgroundColor: 'rgba(245,158,11,0.08)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.15)' }}>
@@ -5145,17 +6181,336 @@ export default function OpcoesScreen() {
                 </View>
               ) : null}
 
-              {/* Option cards */}
-              {ativas.map(function(op, i) {
-                var cachedOp = getCachedOptionData(op.ativo_base, op.strike, op.tipo, op.vencimento);
-                var cachedCh = getCachedChain(op.ativo_base);
+              {/* GARANTIAS POR CORRETORA/BANCO */}
+              {(function() {
+                var HAIRCUT_MAP_G = { acao: 0.80, fii: 0.70, etf: 0.85, stock_int: 0.75, rf: 0.95 };
+                // Coletar todas corretoras com saldo ou ativos
+                var garantiasMap = {};
+                for (var gi = 0; gi < saldos.length; gi++) {
+                  var sc = saldos[gi];
+                  var scName = sc.corretora || sc.name;
+                  if (!scName) continue;
+                  if (!garantiasMap[scName]) garantiasMap[scName] = { caixa: 0, ativos: [], emUsoPut: 0, putsCount: 0, callMap: {} };
+                  garantiasMap[scName].caixa += (sc.saldo || 0);
+                }
+                for (var gpi = 0; gpi < positions.length; gpi++) {
+                  var gp = positions[gpi];
+                  if (!gp.por_corretora) continue;
+                  var gpCors = Object.keys(gp.por_corretora);
+                  for (var gpci = 0; gpci < gpCors.length; gpci++) {
+                    var gpCorName = gpCors[gpci];
+                    var gpQty = gp.por_corretora[gpCorName] || 0;
+                    if (gpQty <= 0) continue;
+                    if (!garantiasMap[gpCorName]) garantiasMap[gpCorName] = { caixa: 0, ativos: [], emUsoPut: 0, putsCount: 0, callMap: {} };
+                    var gpPreco = gp.preco_atual || gp.pm || 0;
+                    var gpHaircut = HAIRCUT_MAP_G[gp.categoria] || 0.70;
+                    var gpVal = gpQty * gpPreco * gpHaircut;
+                    if (gpVal > 0) {
+                      garantiasMap[gpCorName].ativos.push({
+                        ticker: gp.ticker,
+                        qty: gpQty,
+                        preco: gpPreco,
+                        haircut: gpHaircut,
+                        valor: gpVal,
+                      });
+                    }
+                    // Track ações para seção CALL
+                    if (!garantiasMap[gpCorName].callMap[gp.ticker]) garantiasMap[gpCorName].callMap[gp.ticker] = { totalAcoes: 0, callsVendidas: 0 };
+                    garantiasMap[gpCorName].callMap[gp.ticker].totalAcoes += gpQty;
+                  }
+                }
+                // Calcular em uso por PUTs vendidas ativas + CALLs vendidas
+                for (var gui = 0; gui < ativas.length; gui++) {
+                  var gu = ativas[gui];
+                  var guIsVenda = gu.direcao === 'lancamento' || gu.direcao === 'venda';
+                  if (!guIsVenda) continue;
+                  var guCor = gu.corretora || '';
+                  if (!guCor) continue;
+                  var guTipo = (gu.tipo || '').toLowerCase();
+                  if (!garantiasMap[guCor]) garantiasMap[guCor] = { caixa: 0, ativos: [], emUsoPut: 0, putsCount: 0, callMap: {} };
+                  if (guTipo === 'put') {
+                    garantiasMap[guCor].emUsoPut += (gu.strike || 0) * (gu.quantidade || 0);
+                    garantiasMap[guCor].putsCount += 1;
+                  } else if (guTipo === 'call') {
+                    var guBase = (gu.ativo_base || '').toUpperCase().trim();
+                    if (guBase) {
+                      if (!garantiasMap[guCor].callMap[guBase]) garantiasMap[guCor].callMap[guBase] = { totalAcoes: 0, callsVendidas: 0 };
+                      garantiasMap[guCor].callMap[guBase].callsVendidas += (gu.quantidade || 0);
+                    }
+                  }
+                }
+                var gKeys = Object.keys(garantiasMap);
+                if (gKeys.length === 0) return null;
+                gKeys.sort(function(a, b) {
+                  var tA = garantiasMap[a].caixa;
+                  for (var ai = 0; ai < garantiasMap[a].ativos.length; ai++) tA += garantiasMap[a].ativos[ai].valor;
+                  var tB = garantiasMap[b].caixa;
+                  for (var bi = 0; bi < garantiasMap[b].ativos.length; bi++) tB += garantiasMap[b].ativos[bi].valor;
+                  return tB - tA;
+                });
+                // Filter by visible corretoras
+                // _visible === null/undefined → never configured → show all
+                // _visible === [] → user explicitly unchecked all → show none
+                var visibleList = garantiasConfig ? garantiasConfig._visible : undefined;
+                var hasVisConfig = Array.isArray(visibleList);
+                var gKeysFiltered = [];
+                if (hasVisConfig) {
+                  for (var vf = 0; vf < gKeys.length; vf++) {
+                    if (visibleList.indexOf(gKeys[vf]) >= 0) gKeysFiltered.push(gKeys[vf]);
+                  }
+                } else {
+                  gKeysFiltered = gKeys;
+                }
+                var visCount = gKeysFiltered.length;
                 return (
-                  <OpCard key={op.id || i} op={op} positions={positions} saldos={saldos} indicators={indicators} selicRate={selicRate} setInfoModal={setInfoModal}
-                    cachedOption={cachedOp} cachedChain={cachedCh}
-                    onEdit={function() { navigation.navigate('EditOpcao', { opcao: op }); }}
-                    onDelete={function() { handleDelete(op.id); }}
-                    onClose={handleClose}
-                    onAlertaPLSave={handleAlertaPLSave}
+                  <Glass padding={14}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                        <Ionicons name="shield-checkmark-outline" size={14} color={C.accent} />
+                        <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, fontWeight: '600' }}>GARANTIAS POR CORRETORA/BANCO</Text>
+                        <InfoTip text={"Garantias por corretora para PUT (CSP) e CALL (Cobertura).\n\nPUT: Caixa + ativos com haircut. Toque no escudo para marcar como garantia principal.\nCALL: Ações disponíveis para covered call por ativo."} size={13} />
+                      </View>
+                      <TouchableOpacity onPress={function() { setGarantiasDropdown(!garantiasDropdown); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.05)' }}>
+                        <Ionicons name="funnel-outline" size={12} color={C.dim} />
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{visCount + '/' + gKeys.length}</Text>
+                        <Ionicons name={garantiasDropdown ? 'chevron-up' : 'chevron-down'} size={11} color={C.dim} />
+                      </TouchableOpacity>
+                    </View>
+                    {/* Dropdown de corretoras */}
+                    {garantiasDropdown ? (
+                      <View style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+                        <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 8 }}>EXIBIR CORRETORAS</Text>
+                        {gKeys.map(function(gkPill) {
+                          var isVis = !hasVisConfig || visibleList.indexOf(gkPill) >= 0;
+                          return (
+                            <TouchableOpacity key={'gpill_' + gkPill} onPress={function() { handleToggleGarantiaCorretora(gkPill, gKeys); }}
+                              style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)' }}>
+                              <Ionicons name={isVis ? 'checkbox' : 'square-outline'} size={16} color={isVis ? C.accent : C.dim} />
+                              <Text style={{ fontSize: 12, color: isVis ? C.text : C.dim, fontFamily: F.body, flex: 1 }}>{gkPill}</Text>
+                              <Ionicons name={isVis ? 'eye' : 'eye-off-outline'} size={13} color={isVis ? C.accent : 'rgba(255,255,255,0.15)' } />
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ) : null}
+                    {gKeysFiltered.length === 0 ? (
+                      <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body, textAlign: 'center', paddingVertical: 12 }}>Nenhuma corretora selecionada</Text>
+                    ) : null}
+                    {gKeysFiltered.map(function(gk, gIdx) {
+                      var gData = garantiasMap[gk];
+                      var corConfig = garantiasConfig[gk] || [];
+                      var isOpen = !!garantiasOpen[gk];
+                      // Separar ativos em principal e secundária
+                      var principal = [];
+                      var secundaria = [];
+                      for (var ga2 = 0; ga2 < gData.ativos.length; ga2++) {
+                        var at = gData.ativos[ga2];
+                        if (corConfig.indexOf(at.ticker) >= 0) {
+                          principal.push(at);
+                        } else {
+                          secundaria.push(at);
+                        }
+                      }
+                      var totalPrincipal = gData.caixa;
+                      for (var tp = 0; tp < principal.length; tp++) totalPrincipal += principal[tp].valor;
+                      var totalSecundaria = 0;
+                      for (var ts = 0; ts < secundaria.length; ts++) totalSecundaria += secundaria[ts].valor;
+                      var gTotal = totalPrincipal + totalSecundaria;
+                      var gLivrePut = gTotal - gData.emUsoPut;
+                      var livrePutColor = gLivrePut > 0 ? C.green : gLivrePut < 0 ? C.red : C.text;
+                      // CALL data
+                      var callKeys = Object.keys(gData.callMap);
+                      var callRows = [];
+                      for (var ck = 0; ck < callKeys.length; ck++) {
+                        var cd = gData.callMap[callKeys[ck]];
+                        if (cd.totalAcoes > 0) {
+                          callRows.push({ ticker: callKeys[ck], total: cd.totalAcoes, vendidas: cd.callsVendidas, livres: cd.totalAcoes - cd.callsVendidas });
+                        }
+                      }
+                      return (
+                        <View key={gk} style={gIdx > 0 ? { marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' } : {}}>
+                          {/* Header — toque para expandir/colapsar */}
+                          <TouchableOpacity onPress={function() { var n = {}; var ok = Object.keys(garantiasOpen); for (var oi = 0; oi < ok.length; oi++) n[ok[oi]] = garantiasOpen[ok[oi]]; n[gk] = !isOpen; setGarantiasOpen(n); }}
+                            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                              <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.display }}>{gk}</Text>
+                              {gData.putsCount > 0 ? (
+                                <View style={{ backgroundColor: 'rgba(245,158,11,0.15)', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                                  <Text style={{ fontSize: 9, color: C.yellow, fontFamily: F.mono, fontWeight: '600' }}>{gData.putsCount + 'P'}</Text>
+                                </View>
+                              ) : null}
+                              {callRows.length > 0 ? (
+                                <View style={{ backgroundColor: 'rgba(59,130,246,0.15)', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                                  <Text style={{ fontSize: 9, color: C.acoes, fontFamily: F.mono, fontWeight: '600' }}>{callRows.length + 'C'}</Text>
+                                </View>
+                              ) : null}
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                              <Sensitive><Text style={{ fontSize: 11, color: livrePutColor, fontFamily: F.mono, fontWeight: '600' }}>{'R$ ' + fmt(gLivrePut)}</Text></Sensitive>
+                              <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={14} color={C.dim} />
+                            </View>
+                          </TouchableOpacity>
+
+                          {/* Conteúdo expandido */}
+                          {isOpen ? (
+                            <View style={{ marginTop: 4 }}>
+                              {/* ── PUT (Cash-Secured) ── */}
+                              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                                <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.08)' }} />
+                                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 1, marginHorizontal: 8 }}>PUT (Cash-Secured)</Text>
+                                <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.08)' }} />
+                              </View>
+
+                              {gData.caixa > 0 ? (
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
+                                  <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>Caixa</Text>
+                                  <Sensitive><Text style={{ fontSize: 11, color: C.text, fontFamily: F.mono }}>{'R$ ' + fmt(gData.caixa)}</Text></Sensitive>
+                                </View>
+                              ) : null}
+
+                              {/* Principal */}
+                              {principal.map(function(ga, gaIdx) {
+                                var haircutPct = Math.round(ga.haircut * 100);
+                                return (
+                                  <TouchableOpacity key={'p_' + ga.ticker + '_' + gaIdx} onPress={function() { handleToggleGarantia(gk, ga.ticker); }} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 3 }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                      <Ionicons name="shield-checkmark" size={13} color={C.accent} />
+                                      <Text style={{ fontSize: 11, color: C.accent, fontFamily: F.mono, fontWeight: '600' }}>{ga.ticker}</Text>
+                                    </View>
+                                    <Sensitive><Text style={{ fontSize: 11, color: C.text, fontFamily: F.mono }}>{'R$ ' + fmt(ga.valor) + '  (' + ga.qty + '×R$' + fmt(ga.preco) + '×' + haircutPct + '%)'}</Text></Sensitive>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                              {(principal.length > 0 || gData.caixa > 0) ? (
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2, marginTop: 2 }}>
+                                  <Text style={{ fontSize: 10, color: C.accent, fontFamily: F.mono, fontWeight: '600' }}>Principal</Text>
+                                  <Sensitive><Text style={{ fontSize: 10, color: C.accent, fontFamily: F.mono, fontWeight: '600' }}>{'R$ ' + fmt(totalPrincipal)}</Text></Sensitive>
+                                </View>
+                              ) : null}
+
+                              {/* Secundária */}
+                              {secundaria.length > 0 ? secundaria.map(function(ga, gaIdx) {
+                                var haircutPct = Math.round(ga.haircut * 100);
+                                return (
+                                  <TouchableOpacity key={'s_' + ga.ticker + '_' + gaIdx} onPress={function() { handleToggleGarantia(gk, ga.ticker); }} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 3 }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                      <Ionicons name="shield-outline" size={13} color={C.dim} />
+                                      <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>{ga.ticker}</Text>
+                                    </View>
+                                    <Sensitive><Text style={{ fontSize: 11, color: C.text, fontFamily: F.mono }}>{'R$ ' + fmt(ga.valor) + '  (' + ga.qty + '×R$' + fmt(ga.preco) + '×' + haircutPct + '%)'}</Text></Sensitive>
+                                  </TouchableOpacity>
+                                );
+                              }) : null}
+                              {secundaria.length > 0 ? (
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2, marginTop: 2 }}>
+                                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>Secundária</Text>
+                                  <Sensitive><Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{'R$ ' + fmt(totalSecundaria)}</Text></Sensitive>
+                                </View>
+                              ) : null}
+
+                              <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.04)', marginVertical: 6 }} />
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
+                                <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, fontWeight: '600' }}>Total</Text>
+                                <Sensitive><Text style={{ fontSize: 11, color: C.text, fontFamily: F.mono, fontWeight: '600' }}>{'R$ ' + fmt(gTotal)}</Text></Sensitive>
+                              </View>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
+                                <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{'Em uso' + (gData.putsCount > 0 ? '  (' + gData.putsCount + ' PUT' + (gData.putsCount > 1 ? 's' : '') + ')' : '')}</Text>
+                                <Sensitive><Text style={{ fontSize: 11, color: gData.emUsoPut > 0 ? C.yellow : C.dim, fontFamily: F.mono }}>{'R$ ' + fmt(gData.emUsoPut)}</Text></Sensitive>
+                              </View>
+                              {/* Detalhamento: em uso vs principal e secundária */}
+                              {gData.emUsoPut > 0 ? (function() {
+                                var usoPrincipal = Math.min(gData.emUsoPut, totalPrincipal);
+                                var usoSecundaria = gData.emUsoPut > totalPrincipal ? gData.emUsoPut - totalPrincipal : 0;
+                                var pctPrincipal = totalPrincipal > 0 ? Math.round((usoPrincipal / totalPrincipal) * 100) : 0;
+                                var pctSecundaria = totalSecundaria > 0 ? Math.round((usoSecundaria / totalSecundaria) * 100) : 0;
+                                var livrePrincipal = totalPrincipal - usoPrincipal;
+                                var principalColor = pctPrincipal >= 100 ? C.red : pctPrincipal >= 80 ? C.yellow : C.dim;
+                                var livrePrincipalColor = livrePrincipal > 0 ? C.green : C.red;
+                                return (
+                                  <View style={{ marginLeft: 8, marginTop: 2 }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 1 }}>
+                                      <Text style={{ fontSize: 11, color: principalColor, fontFamily: F.mono }}>{'  Principal (' + pctPrincipal + '%)'}</Text>
+                                      <Sensitive><Text style={{ fontSize: 11, color: principalColor, fontFamily: F.mono }}>{'R$ ' + fmt(usoPrincipal) + ' de R$ ' + fmt(totalPrincipal)}</Text></Sensitive>
+                                    </View>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 1 }}>
+                                      <Text style={{ fontSize: 11, color: livrePrincipalColor, fontFamily: F.mono, fontWeight: '600' }}>{'  Livre princ.'}</Text>
+                                      <Sensitive><Text style={{ fontSize: 11, color: livrePrincipalColor, fontFamily: F.mono, fontWeight: '600' }}>{'R$ ' + fmt(livrePrincipal)}</Text></Sensitive>
+                                    </View>
+                                    {usoSecundaria > 0 ? (
+                                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 1 }}>
+                                        <Text style={{ fontSize: 11, color: C.red, fontFamily: F.mono }}>{'  Secundária (' + pctSecundaria + '%)'}</Text>
+                                        <Sensitive><Text style={{ fontSize: 11, color: C.red, fontFamily: F.mono }}>{'R$ ' + fmt(usoSecundaria) + ' de R$ ' + fmt(totalSecundaria)}</Text></Sensitive>
+                                      </View>
+                                    ) : null}
+                                  </View>
+                                );
+                              })() : null}
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
+                                <Text style={{ fontSize: 11, color: livrePutColor, fontFamily: F.mono, fontWeight: '700' }}>Livre total</Text>
+                                <Sensitive><Text style={{ fontSize: 11, color: livrePutColor, fontFamily: F.mono, fontWeight: '700' }}>{'R$ ' + fmt(gLivrePut) + (gLivrePut > 0 ? '  ✓' : '')}</Text></Sensitive>
+                              </View>
+
+                              {/* ── CALL (Cobertura) ── */}
+                              {callRows.length > 0 ? (
+                                <View style={{ marginTop: 10 }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                                    <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.08)' }} />
+                                    <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 1, marginHorizontal: 8 }}>CALL (Cobertura)</Text>
+                                    <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.08)' }} />
+                                  </View>
+                                  {callRows.map(function(cr) {
+                                    var crLivreColor = cr.livres > 0 ? C.green : cr.livres === 0 ? C.yellow : C.red;
+                                    return (
+                                      <View key={'call_' + cr.ticker} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 3 }}>
+                                        <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono, width: 58 }}>{cr.ticker}</Text>
+                                        <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, flex: 1, textAlign: 'center' }}>{cr.total + ' ações'}</Text>
+                                        <Text style={{ fontSize: 11, color: cr.vendidas > 0 ? C.yellow : C.dim, fontFamily: F.mono, flex: 1, textAlign: 'center' }}>{cr.vendidas > 0 ? cr.vendidas + ' vend.' : '—'}</Text>
+                                        <Text style={{ fontSize: 11, color: crLivreColor, fontFamily: F.mono, fontWeight: '600', textAlign: 'right', width: 62 }}>{cr.livres + ' livres'}</Text>
+                                      </View>
+                                    );
+                                  })}
+                                </View>
+                              ) : null}
+                            </View>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </Glass>
+                );
+              })()}
+
+              {/* Option cards (grouped) */}
+              {ativasGrouped.map(function(group, gi) {
+                if (group.type === 'single') {
+                  var op = group.op;
+                  var cachedOp = getCachedOptionData(op.ativo_base, op.strike, op.tipo, op.vencimento);
+                  var cachedCh = getCachedChain(op.ativo_base);
+                  return (
+                    <OpCard key={op.id || gi} op={op} positions={positions} saldos={saldos} indicators={indicators} selicRate={selicRate} setInfoModal={setInfoModal}
+                      cachedOption={cachedOp} cachedChain={cachedCh}
+                      onEdit={function() { navigation.navigate('EditOpcao', { opcao: op }); }}
+                      onDelete={function() { handleDelete(op.id); }}
+                      onClose={handleClose}
+                      onRoll={handleRoll}
+                      onAlertaPLSave={handleAlertaPLSave}
+                    />
+                  );
+                }
+                // Grouped card
+                var combined = group.combined;
+                var subOps = group.ops;
+                var cachedOp2 = getCachedOptionData(combined.ativo_base, combined.strike, combined.tipo, combined.vencimento);
+                var cachedCh2 = getCachedChain(combined.ativo_base);
+                return (
+                  <GroupedOpCard key={'g' + gi} combined={combined} subOps={subOps} positions={positions} saldos={saldos} indicators={indicators} selicRate={selicRate} setInfoModal={setInfoModal}
+                    cachedOption={cachedOp2} cachedChain={cachedCh2}
+                    navigation={navigation}
+                    handleDelete={handleDelete}
+                    handleClose={handleClose}
+                    handleRoll={handleRoll}
+                    handleAlertaPLSave={handleAlertaPLSave}
                   />
                 );
               })}
@@ -5195,12 +6550,16 @@ export default function OpcoesScreen() {
               )}
 
               {/* Add button */}
-              <TouchableOpacity
-                activeOpacity={0.8} style={styles.addBtn}
-                onPress={function() { navigation.navigate('AddOpcao'); }}
-              >
-                <Text style={styles.addBtnText}>+ Nova Opcao</Text>
-              </TouchableOpacity>
+              {subCtx.isAtLimit('options', ativas.length) && !subCtx.canAccess('OPTIONS_UNLIMITED') ? (
+                <UpgradePrompt feature="OPTIONS_UNLIMITED" compact={true} />
+              ) : (
+                <TouchableOpacity
+                  activeOpacity={0.8} style={styles.addBtn}
+                  onPress={function() { navigation.navigate('AddOpcao'); }}
+                >
+                  <Text style={styles.addBtnText}>+ Nova Opcao</Text>
+                </TouchableOpacity>
+              )}
             </>
           )}
         </View>
@@ -5210,7 +6569,8 @@ export default function OpcoesScreen() {
       {sub === 'sim' && (
         <View style={{ gap: SIZE.gap }}>
           <SectionLabel>CALCULADORA DE OPÇÕES</SectionLabel>
-          <CalculadoraOpcoes positions={positions} indicators={indicators} selicRate={selicRate} ativas={ativas} />
+          <CalculadoraOpcoes positions={positions} indicators={indicators} selicRate={selicRate} ativas={ativas} subCtx={subCtx}
+            priceAlerts={priceAlerts} setPriceAlerts={setPriceAlerts} priceAlertsFired={priceAlertsFired} setPriceAlertsFired={setPriceAlertsFired} />
         </View>
       )}
 
@@ -5469,6 +6829,36 @@ export default function OpcoesScreen() {
         </View>
       </View>
     </Modal>
+
+    {/* Strategy AI Modal */}
+    <SharedAiModal
+      visible={stratModalVisible}
+      onClose={function() { setStratModalVisible(false); }}
+      result={stratResult}
+      loading={stratLoading}
+      error={stratError}
+      type="estrategia"
+      title="Sugestão de Estratégias"
+      usage={stratUsage}
+      onSave={handleSaveStrategy}
+      saving={stratSaving}
+    />
+
+    {/* AI Confirm Modal */}
+    <AiConfirmModal
+      visible={aiConfirmVisible}
+      analysisType={pendingAiType}
+      onCancel={function() { setAiConfirmVisible(false); setPendingAiType(''); }}
+      onConfirm={function() {
+        setAiConfirmVisible(false);
+        if (pendingAiType === 'Sugestão de estratégias') {
+          handleAiEstrategia();
+        } else {
+          handleAiAnalysis();
+        }
+        setPendingAiType('');
+      }}
+    />
 
     <Fab navigation={navigation} />
     </KeyboardAvoidingView>

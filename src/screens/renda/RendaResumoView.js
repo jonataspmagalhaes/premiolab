@@ -1,17 +1,22 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity,
+  TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getDashboard } from '../../services/database';
-import { Glass, Badge, InfoTip } from '../../components';
+import { getDashboard, addSavedAnalysis } from '../../services/database';
+import { Glass, Badge, InfoTip, AiAnalysisModal, AiConfirmModal } from '../../components';
 import { EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import Sensitive from '../../components/Sensitive';
+import { useSubscription } from '../../contexts/SubscriptionContext';
+import Toast from 'react-native-toast-message';
+var geminiService = require('../../services/geminiService');
+var analyzeGeneral = geminiService.analyzeGeneral;
 
 var P = {
   acao: { color: PRODUCT_COLORS.acao || C.acoes },
@@ -95,17 +100,29 @@ function aggregateOpcoes(detalhe) {
 
 export default function RendaResumoView(props) {
   var navigation = props.navigation;
+  var portfolioId = props.portfolioId || null;
   var _auth = useAuth(); var user = _auth.user;
   var ps = usePrivacyStyle();
+
+  var subCtx = useSubscription();
 
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
   var _data = useState(null); var data = _data[0]; var setData = _data[1];
 
+  // Renda AI states
+  var _aiVis = useState(false); var aiModalVisible = _aiVis[0]; var setAiModalVisible = _aiVis[1];
+  var _aiRes = useState(null); var aiResult = _aiRes[0]; var setAiResult = _aiRes[1];
+  var _aiL = useState(false); var aiLoading = _aiL[0]; var setAiLoading = _aiL[1];
+  var _aiE = useState(null); var aiError = _aiE[0]; var setAiError = _aiE[1];
+  var _aiU = useState(null); var aiUsage = _aiU[0]; var setAiUsage = _aiU[1];
+  var _aiSaving = useState(false); var aiSaving = _aiSaving[0]; var setAiSaving = _aiSaving[1];
+  var _aiConfirmVisible = useState(false); var aiConfirmVisible = _aiConfirmVisible[0]; var setAiConfirmVisible = _aiConfirmVisible[1];
+
   var load = async function() {
     if (!user) return;
     try {
-      var result = await getDashboard(user.id);
+      var result = await getDashboard(user.id, portfolioId);
       setData(result);
     } catch (e) {
       console.warn('RendaResumo load:', e);
@@ -116,7 +133,7 @@ export default function RendaResumoView(props) {
   useFocusEffect(useCallback(function() {
     setLoading(true);
     load();
-  }, [user && user.id]));
+  }, [user && user.id, portfolioId]));
 
   var onRefresh = async function() {
     setRefreshing(true);
@@ -171,7 +188,8 @@ export default function RendaResumoView(props) {
 
   var hasDetalhe = provAgrupados.length > 0 || premAgrupados.length > 0 || recAgrupados.length > 0 || rfRendaMensal > 0;
 
-  // ── Ticker → corretora(s) map from positions ──
+  // ── Ticker → por_corretora qty map from positions ──
+  var tickerQtyByCorretora = {};
   var tickerCorretoras = {};
   for (var pi = 0; pi < positions.length; pi++) {
     var posTk = (positions[pi].ticker || '').toUpperCase().trim();
@@ -180,6 +198,7 @@ export default function RendaResumoView(props) {
       var corKeys = Object.keys(porCor);
       if (corKeys.length > 0) {
         tickerCorretoras[posTk] = corKeys;
+        tickerQtyByCorretora[posTk] = porCor;
       }
     }
   }
@@ -191,26 +210,50 @@ export default function RendaResumoView(props) {
     return null;
   }
 
-  // ── Proventos por corretora (só dividendos/JCP/rendimentos, sem opções) ──
+  // ── Proventos por corretora (proporcional pela quantidade de ações) ──
   var rendaPorCorretora = {};
   for (var rci = 0; rci < proventosMesDetalhe.length; rci++) {
     var rcItem = proventosMesDetalhe[rci];
     var rcTk = (rcItem.ticker || '').toUpperCase().trim();
-    var rcCors = tickerCorretoras[rcTk];
-    if (rcCors && rcCors.length > 0) {
-      var rcShare = rcItem.valor / rcCors.length;
-      for (var rcc = 0; rcc < rcCors.length; rcc++) {
-        var rcName = rcCors[rcc];
-        if (!rendaPorCorretora[rcName]) rendaPorCorretora[rcName] = { recebido: 0, aReceber: 0, items: [] };
-        if (rcItem.recebido) {
-          rendaPorCorretora[rcName].recebido += rcShare;
-        } else {
-          rendaPorCorretora[rcName].aReceber += rcShare;
+    var rcQtyMap = tickerQtyByCorretora[rcTk];
+    if (rcQtyMap) {
+      var rcCors = Object.keys(rcQtyMap);
+      var totalQty = 0;
+      for (var rq = 0; rq < rcCors.length; rq++) totalQty += (rcQtyMap[rcCors[rq]] || 0);
+      if (totalQty > 0) {
+        for (var rcc = 0; rcc < rcCors.length; rcc++) {
+          var rcName = rcCors[rcc];
+          var proportion = (rcQtyMap[rcName] || 0) / totalQty;
+          var rcShare = rcItem.valor * proportion;
+          var rcQtyAtBroker = rcQtyMap[rcName] || 0;
+          if (!rendaPorCorretora[rcName]) rendaPorCorretora[rcName] = { recebido: 0, aReceber: 0, items: [] };
+          if (rcItem.recebido) {
+            rendaPorCorretora[rcName].recebido += rcShare;
+          } else {
+            rendaPorCorretora[rcName].aReceber += rcShare;
+          }
+          rendaPorCorretora[rcName].items.push({
+            ticker: rcTk, valor: rcShare,
+            tipoLabel: rcItem.tipo || 'dividendo',
+            recebido: rcItem.recebido,
+            qtyAtBroker: rcQtyAtBroker,
+            valor_por_cota: rcItem.valor_por_cota || 0,
+          });
         }
-        rendaPorCorretora[rcName].items.push({
-          ticker: rcTk, valor: rcShare,
+      } else {
+        // totalQty = 0 (posicao zerada), fallback
+        if (!rendaPorCorretora['Sem corretora']) rendaPorCorretora['Sem corretora'] = { recebido: 0, aReceber: 0, items: [] };
+        if (rcItem.recebido) {
+          rendaPorCorretora['Sem corretora'].recebido += rcItem.valor;
+        } else {
+          rendaPorCorretora['Sem corretora'].aReceber += rcItem.valor;
+        }
+        rendaPorCorretora['Sem corretora'].items.push({
+          ticker: rcTk, valor: rcItem.valor,
           tipoLabel: rcItem.tipo || 'dividendo',
           recebido: rcItem.recebido,
+          qtyAtBroker: 0,
+          valor_por_cota: rcItem.valor_por_cota || 0,
         });
       }
     } else {
@@ -225,6 +268,8 @@ export default function RendaResumoView(props) {
         ticker: rcTk, valor: rcItem.valor,
         tipoLabel: rcItem.tipo || 'dividendo',
         recebido: rcItem.recebido,
+        qtyAtBroker: 0,
+        valor_por_cota: rcItem.valor_por_cota || 0,
       });
     }
   }
@@ -236,6 +281,63 @@ export default function RendaResumoView(props) {
     return totalB - totalA;
   });
   var hasRendaCorretora = corretoraKeys.length > 0;
+
+  var handleAiRenda = function() {
+    if (!subCtx.canAccess('AI_ANALYSIS')) { navigation.navigate('Paywall'); return; }
+    setAiModalVisible(true);
+    setAiLoading(true);
+    setAiError(null);
+    setAiResult(null);
+    setAiUsage(null);
+
+    var payload = {
+      type: 'renda',
+      rendaMensal: rendaTotalMes,
+      metaMensal: meta,
+      rendaTotalMesAnterior: rendaTotalMesAnterior,
+      rendaMediaAnual: rendaMediaAnual,
+      dyCarteira: dyCarteira,
+      breakdown: {
+        dividendos: dividendosCatMes.acao + dividendosCatMes.etf,
+        rendimentoFii: dividendosCatMes.fii,
+        dividendosStocks: dividendosCatMes.stock_int,
+        plOpcoes: plMes,
+        rendaFixa: rfRendaMensal,
+      },
+    };
+
+    analyzeGeneral(payload).then(function(res) {
+      if (res && res._usage) setAiUsage(res._usage);
+      if (res && res.error) { setAiError(res.error); }
+      else if (res) { setAiResult(res); }
+      else { setAiError('Sem resposta da IA'); }
+      setAiLoading(false);
+    }).catch(function(e) {
+      setAiError(e && e.message ? e.message : 'Erro ao analisar');
+      setAiLoading(false);
+    });
+  };
+
+  var handleSaveRenda = function() {
+    if (!aiResult || !user) return;
+    setAiSaving(true);
+    var payload = {
+      type: 'renda',
+      title: 'Análise de Renda Passiva',
+      result: aiResult,
+    };
+    addSavedAnalysis(user.id, payload).then(function(res) {
+      setAiSaving(false);
+      if (res && res.error) {
+        Toast.show({ type: 'error', text1: 'Erro ao salvar', text2: String(res.error) });
+      } else {
+        Toast.show({ type: 'success', text1: 'Análise salva!' });
+      }
+    }).catch(function() {
+      setAiSaving(false);
+      Toast.show({ type: 'error', text1: 'Erro ao salvar' });
+    });
+  };
 
   var metaPct = meta > 0 ? Math.min((rendaTotalMes / meta) * 100, 150) : 0;
 
@@ -428,7 +530,7 @@ export default function RendaResumoView(props) {
                 for (var ci = 0; ci < corItems.length; ci++) {
                   var cit = corItems[ci];
                   var citKey = cit.ticker;
-                  if (!byTk[citKey]) byTk[citKey] = { ticker: citKey, valor: 0, tipoLabel: cit.tipoLabel, recebido: true };
+                  if (!byTk[citKey]) byTk[citKey] = { ticker: citKey, valor: 0, tipoLabel: cit.tipoLabel, recebido: true, qtyAtBroker: cit.qtyAtBroker || 0, valor_por_cota: cit.valor_por_cota || 0 };
                   byTk[citKey].valor += cit.valor;
                   if (!cit.recebido) byTk[citKey].recebido = false;
                 }
@@ -464,22 +566,32 @@ export default function RendaResumoView(props) {
                         : tkItem.tipoLabel === 'RECOMPRA' ? '#ef4444'
                         : P.acao.color;
                       var isNeg = tkItem.valor < 0;
+                      var hasQtyDetail = tkItem.qtyAtBroker > 0 && tkItem.valor_por_cota > 0;
                       return (
-                        <View key={tkItem.ticker + '_' + tkIdx} style={[st.detalheRow, { paddingLeft: 32 }, tkIdx > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.03)' }]}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                            <Text style={[st.detalheTicker, { fontSize: 12 }]}>{tkItem.ticker}</Text>
-                            <Badge text={tipoLabel} color={tipoColor} />
-                            {!tkItem.recebido ? (
-                              <View style={{ backgroundColor: C.yellow + '18', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 }}>
-                                <Text style={{ fontSize: 9, color: C.yellow, fontFamily: F.mono, fontWeight: '700' }}>PENDENTE</Text>
-                              </View>
-                            ) : null}
+                        <View key={tkItem.ticker + '_' + tkIdx} style={[{ paddingLeft: 32 }, tkIdx > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.03)' }]}>
+                          <View style={[st.detalheRow]}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                              <Text style={[st.detalheTicker, { fontSize: 12 }]}>{tkItem.ticker}</Text>
+                              <Badge text={tipoLabel} color={tipoColor} />
+                              {!tkItem.recebido ? (
+                                <View style={{ backgroundColor: C.yellow + '18', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 }}>
+                                  <Text style={{ fontSize: 9, color: C.yellow, fontFamily: F.mono, fontWeight: '700' }}>PENDENTE</Text>
+                                </View>
+                              ) : null}
+                            </View>
+                            <Sensitive>
+                              <Text maxFontSizeMultiplier={1.5} style={[st.detalheVal, { color: isNeg ? '#ef4444' : '#22c55e' }]}>
+                                {(isNeg ? '-' : '+') + 'R$ ' + fmtShort(Math.abs(tkItem.valor))}
+                              </Text>
+                            </Sensitive>
                           </View>
-                          <Sensitive>
-                            <Text maxFontSizeMultiplier={1.5} style={[st.detalheVal, { color: isNeg ? '#ef4444' : '#22c55e' }]}>
-                              {(isNeg ? '-' : '+') + 'R$ ' + fmtShort(Math.abs(tkItem.valor))}
-                            </Text>
-                          </Sensitive>
+                          {hasQtyDetail ? (
+                            <Sensitive>
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, paddingBottom: 6 }}>
+                                {tkItem.qtyAtBroker + ' ações x R$ ' + fmtShort(tkItem.valor_por_cota)}
+                              </Text>
+                            </Sensitive>
+                          ) : null}
                         </View>
                       );
                     })}
@@ -676,7 +788,48 @@ export default function RendaResumoView(props) {
         </View>
       </Glass>
 
+      {/* AI Renda button */}
+      {subCtx.canAccess('AI_ANALYSIS') && rendaTotalMes !== 0 ? (
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={function() { setAiConfirmVisible(true); }}
+          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: C.accent + '40', backgroundColor: C.accent + '08' }}
+        >
+          <Ionicons name="sparkles" size={16} color={C.accent} />
+          <Text style={{ fontSize: 13, fontWeight: '700', color: C.accent, fontFamily: F.display }}>Análise de Renda IA</Text>
+        </TouchableOpacity>
+      ) : null}
+      {subCtx.canAccess('SAVED_ANALYSES') ? (
+        <TouchableOpacity activeOpacity={0.7} onPress={function() { navigation.navigate('AnalisesSalvas'); }}
+          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', backgroundColor: 'rgba(255,255,255,0.03)', marginTop: 8 }}>
+          <Ionicons name="bookmark-outline" size={14} color={C.dim} />
+          <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.body }}>Ver análises salvas</Text>
+        </TouchableOpacity>
+      ) : null}
+
       <View style={{ height: SIZE.tabBarHeight + 20 }} />
+
+      {/* AI Confirm Modal */}
+      <AiConfirmModal
+        visible={aiConfirmVisible}
+        analysisType="Análise de renda"
+        onCancel={function() { setAiConfirmVisible(false); }}
+        onConfirm={function() { setAiConfirmVisible(false); handleAiRenda(); }}
+      />
+
+      {/* AI Renda Modal */}
+      <AiAnalysisModal
+        visible={aiModalVisible}
+        onClose={function() { setAiModalVisible(false); }}
+        result={aiResult}
+        loading={aiLoading}
+        error={aiError}
+        type="renda"
+        title="Análise de Renda Passiva"
+        usage={aiUsage}
+        onSave={handleSaveRenda}
+        saving={aiSaving}
+      />
     </ScrollView>
   );
 }

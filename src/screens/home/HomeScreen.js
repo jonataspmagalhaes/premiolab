@@ -7,16 +7,24 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getDashboard, getIndicators, getProfile, upsertPatrimonioSnapshot, processRecorrentes, getCartoes, getFatura } from '../../services/database';
+import { getDashboard, getIndicators, getProfile, upsertPatrimonioSnapshot, processRecorrentes, getCartoes, getFatura, addSavedAnalysis, getLatestAiSummary, markSummaryRead, getPortfolios } from '../../services/database';
 import { getSymbol } from '../../services/currencyService';
 import { clearPriceCache } from '../../services/priceService';
 import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
 import { runDividendSync, shouldSyncDividends } from '../../services/dividendService';
-import { Badge, InfoTip, Fab } from '../../components';
+var notifService = require('../../services/notificationService');
+import widgetBridge from '../../services/widgetBridge';
+import * as database from '../../services/database';
+import * as currencyService from '../../services/currencyService';
+import { Ionicons } from '@expo/vector-icons';
+import Toast from 'react-native-toast-message';
+import { Badge, InfoTip, Fab, AiAnalysisModal, AiConfirmModal } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
+import { useSubscription } from '../../contexts/SubscriptionContext';
 import InteractiveChart from '../../components/InteractiveChart';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import Sensitive from '../../components/Sensitive';
+var geminiService = require('../../services/geminiService');
 
 var W = Dimensions.get('window').width;
 var PAD = 16;
@@ -159,6 +167,7 @@ function SLabel({ children, right }) {
 // ══════════ MAIN ══════════
 export default function HomeScreen({ navigation }) {
   var { user } = useAuth();
+  var sub = useSubscription();
   var [data, setData] = useState(null);
   var [loading, setLoading] = useState(true);
   var [refreshing, setRefreshing] = useState(false);
@@ -170,26 +179,73 @@ export default function HomeScreen({ navigation }) {
   var _alertsExpanded = useState(false); var alertsExpanded = _alertsExpanded[0]; var setAlertsExpanded = _alertsExpanded[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
   var _faturaAlerts = useState([]); var faturaAlerts = _faturaAlerts[0]; var setFaturaAlerts = _faturaAlerts[1];
+  var _aiModalVisible = useState(false); var aiModalVisible = _aiModalVisible[0]; var setAiModalVisible = _aiModalVisible[1];
+  var _aiResult = useState(null); var aiResult = _aiResult[0]; var setAiResult = _aiResult[1];
+  var _aiLoading = useState(false); var aiLoading = _aiLoading[0]; var setAiLoading = _aiLoading[1];
+  var _aiError = useState(null); var aiError = _aiError[0]; var setAiError = _aiError[1];
+  var _aiConfirmVisible = useState(false); var aiConfirmVisible = _aiConfirmVisible[0]; var setAiConfirmVisible = _aiConfirmVisible[1];
+  var _aiUsage = useState(null); var aiUsage = _aiUsage[0]; var setAiUsage = _aiUsage[1];
+  var _aiSaving = useState(false); var aiSaving = _aiSaving[0]; var setAiSaving = _aiSaving[1];
+  var _autoSummary = useState(null); var autoSummary = _autoSummary[0]; var setAutoSummary = _autoSummary[1];
+  var _summaryExpanded = useState(false); var summaryExpanded = _summaryExpanded[0]; var setSummaryExpanded = _summaryExpanded[1];
+  var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfolios = _portfolios[1];
+  var _selPortfolio = useState(null); var selPortfolio = _selPortfolio[0]; var setSelPortfolio = _selPortfolio[1];
+  var _showPortDD = useState(false); var showPortDD = _showPortDD[0]; var setShowPortDD = _showPortDD[1];
+  var _defaultApplied = useState(false); var defaultApplied = _defaultApplied[0]; var setDefaultApplied = _defaultApplied[1];
+
+  var handleSaveAiResumo = function() {
+    if (!user || !user.id || !aiResult) return;
+    setAiSaving(true);
+    addSavedAnalysis(user.id, { type: 'resumo', title: 'Resumo Inteligente', result: aiResult }).then(function(res) {
+      setAiSaving(false);
+      if (res.error) {
+        Toast.show({ type: 'error', text1: 'Erro ao salvar' });
+      } else {
+        Toast.show({ type: 'success', text1: 'Análise salva' });
+      }
+    }).catch(function() { setAiSaving(false); });
+  };
+
   var ps = usePrivacyStyle();
 
   var load = async function () {
     if (!user) return;
     setLoadError(false);
 
-    // Sync dividendos ANTES do dashboard para numeros atualizados
+    // Fetch portfolios and set default
+    var effectivePortfolio = selPortfolio;
     try {
-      var profResult = await getProfile(user.id);
-      var profile = profResult.data;
-      var lastSync = profile && profile.last_dividend_sync ? profile.last_dividend_sync : null;
-      if (shouldSyncDividends(lastSync)) {
-        await runDividendSync(user.id);
+      var pfRes = await getPortfolios(user.id);
+      var pfs = pfRes.data || [];
+      setPortfolios(pfs);
+      if (!defaultApplied && pfs.length > 0) {
+        setSelPortfolio('__default__');
+        setDefaultApplied(true);
+        effectivePortfolio = '__default__';
       }
-    } catch (e) {
-      console.warn('Home dividend sync failed:', e);
+    } catch (e) { /* ignore */ }
+
+    // Sync dividendos ANTES do dashboard para numeros atualizados
+    if (sub.canAccess('AUTO_SYNC_DIVIDENDS')) {
+      try {
+        var profResult = await getProfile(user.id);
+        var profile = profResult.data;
+        var lastSync = profile && profile.last_dividend_sync ? profile.last_dividend_sync : null;
+        if (shouldSyncDividends(lastSync)) {
+          await runDividendSync(user.id);
+        }
+      } catch (e) {
+        console.warn('Home dividend sync failed:', e);
+      }
     }
 
+    // Map portfolio selection to getDashboard param
+    var dashPortfolioId = null;
+    if (effectivePortfolio === '__default__') dashPortfolioId = '__null__';
+    else if (effectivePortfolio) dashPortfolioId = effectivePortfolio;
+
     try {
-      var result = await getDashboard(user.id);
+      var result = await getDashboard(user.id, dashPortfolioId);
       setData(result);
     } catch (e) {
       console.warn('Home dashboard load failed:', e);
@@ -197,31 +253,91 @@ export default function HomeScreen({ navigation }) {
     }
     setLoading(false);
 
-    // Save patrimonio snapshot (real market value) for chart history
-    if (result && result.patrimonio > 0) {
+    // Save patrimonio snapshot (real market value) for chart history — only for unfiltered view
+    // Guard: skip if value dropped >40% vs last snapshot (likely incomplete price data)
+    if (result && result.patrimonio > 0 && !dashPortfolioId) {
       var todayISO = new Date().toISOString().substring(0, 10);
-      upsertPatrimonioSnapshot(user.id, todayISO, result.patrimonio).catch(function (e) {
-        console.warn('Snapshot save failed:', e);
-      });
+      var history = result.patrimonioHistory || [];
+      var lastSnap = history.length > 0 ? history[history.length - 1] : null;
+      var lastVal = lastSnap && lastSnap.value ? lastSnap.value : 0;
+      var shouldSave = true;
+      if (lastVal > 0 && result.patrimonio < lastVal * 0.75) {
+        console.warn('Snapshot skipped: value ' + result.patrimonio + ' is >40% drop from last ' + lastVal);
+        shouldSave = false;
+      }
+      if (shouldSave) {
+        upsertPatrimonioSnapshot(user.id, todayISO, result.patrimonio).catch(function (e) {
+          console.warn('Snapshot save failed:', e);
+        });
+      }
     }
 
     // Fire-and-forget: trigger indicator calculation if stale
-    getIndicators(user.id).then(function(indResult) {
-      var indData = indResult.data || [];
-      var lastCalc = indData.length > 0 ? indData[0].data_calculo : null;
-      if (shouldCalculateToday(lastCalc)) {
-        runDailyCalculation(user.id).catch(function(e) {
-          console.warn('Home indicator calc failed:', e);
-        });
-      }
-    }).catch(function(e) {
-      console.warn('Home indicator check failed:', e);
-    });
+    if (sub.canAccess('INDICATORS')) {
+      getIndicators(user.id).then(function(indResult) {
+        var indData = indResult.data || [];
+        var lastCalc = indData.length > 0 ? indData[0].data_calculo : null;
+        if (shouldCalculateToday(lastCalc)) {
+          runDailyCalculation(user.id).catch(function(e) {
+            console.warn('Home indicator calc failed:', e);
+          });
+        }
+      }).catch(function(e) {
+        console.warn('Home indicator check failed:', e);
+      });
+    }
 
     // Fire-and-forget: process recurring transactions due today
     processRecorrentes(user.id).catch(function(e) {
       console.warn('Home processRecorrentes failed:', e);
     });
+
+    // Fire-and-forget: fetch latest AI summary for Premium users
+    if (sub.canAccess('AI_SUMMARY')) {
+      getLatestAiSummary(user.id).then(function(res) {
+        if (res.data) setAutoSummary(res.data);
+      }).catch(function() {});
+    }
+
+    // Fire-and-forget: sync all widget data — sempre usa portfolio Padrão
+    if (result && (!dashPortfolioId || dashPortfolioId === '__null__')) {
+      // Ja esta no Padrao ou sem filtro — usa result direto
+      widgetBridge.updateAllWidgetsFromDashboard(user.id, result, database, currencyService).catch(function(e) {
+        console.warn('Home widget sync failed:', e);
+      });
+    } else if (result) {
+      // Outro portfolio selecionado — busca Padrao separado para widgets
+      getDashboard(user.id, '__null__').then(function(defaultResult) {
+        if (defaultResult) {
+          widgetBridge.updateAllWidgetsFromDashboard(user.id, defaultResult, database, currencyService).catch(function(e) {
+            console.warn('Home widget sync failed:', e);
+          });
+        }
+      }).catch(function(e) {
+        console.warn('Home widget default dash failed:', e);
+      });
+    }
+
+    // Fire-and-forget: register push token + schedule expiry notifications
+    notifService.registerForPushNotifications().then(function(token) {
+      if (token) {
+        notifService.savePushToken(user.id, token, 'ios').catch(function() {});
+      }
+    }).catch(function() {});
+    if (result) {
+      var opsAtivas = result.opsAtivasData || [];
+      if (opsAtivas.length > 0) {
+        notifService.scheduleOptionExpiryNotifications(opsAtivas).catch(function(e) {
+          console.warn('Home notif schedule failed:', e);
+        });
+      }
+      var rfData = result.rendaFixa || [];
+      if (rfData.length > 0) {
+        notifService.scheduleRFExpiryNotifications(rfData).catch(function(e) {
+          console.warn('Home RF notif schedule failed:', e);
+        });
+      }
+    }
 
     // Fire-and-forget: load fatura alerts from credit cards
     getCartoes(user.id).then(function(cartoesRes) {
@@ -297,7 +413,7 @@ export default function HomeScreen({ navigation }) {
     });
   };
 
-  useFocusEffect(useCallback(function () { load(); }, [user]));
+  useFocusEffect(useCallback(function () { load(); }, [user, selPortfolio]));
 
   var onRefresh = async function () {
     setRefreshing(true);
@@ -511,6 +627,23 @@ export default function HomeScreen({ navigation }) {
     alerts.push(faturaAlerts[fai]);
   }
 
+  // Trial expiration warning
+  if (sub.trialInfo && sub.trialInfo.daysLeft <= 2 && sub.trialInfo.daysLeft > 0) {
+    alerts.unshift({
+      type: 'warning',
+      title: 'Seu trial Premium expira em ' + sub.trialInfo.daysLeft + (sub.trialInfo.daysLeft === 1 ? ' dia' : ' dias'),
+      desc: 'Assine agora para manter acesso completo.',
+      badge: 'TRIAL',
+    });
+  } else if (sub.trialInfo && sub.trialInfo.daysLeft <= 0) {
+    alerts.unshift({
+      type: 'critico',
+      title: 'Seu trial Premium expirou',
+      desc: 'Assine para continuar usando todos os recursos.',
+      badge: 'EXPIRADO',
+    });
+  }
+
   // Sort: critical/warning first, then rest
   alerts.sort(function(a, b) {
     var aCrit = (a.type === 'critico' || a.type === 'warning') ? 1 : 0;
@@ -532,6 +665,88 @@ export default function HomeScreen({ navigation }) {
   }
   var rendaBetter = rendaTotalMes >= rendaTotalMesAnterior;
 
+  // ══════════ AI RESUMO ══════════
+
+  var handleAiResumo = function() {
+    if (!sub.canAccess('AI_ANALYSIS')) {
+      navigation.navigate('Paywall');
+      return;
+    }
+    setAiModalVisible(true);
+    setAiLoading(true);
+    setAiError(null);
+    setAiResult(null);
+
+    // Build alerts text
+    var alertTexts = [];
+    for (var ai = 0; ai < alerts.length; ai++) {
+      alertTexts.push(alerts[ai].title + ': ' + alerts[ai].desc);
+    }
+
+    // Build events text
+    var eventoTexts = [];
+    for (var ei = 0; ei < eventos.length; ei++) {
+      eventoTexts.push(eventos[ei].titulo + ' - ' + eventos[ei].detalhe);
+    }
+
+    // Build top movers
+    var destaques = [];
+    for (var di = 0; di < positions.length; di++) {
+      var dpos = positions[di];
+      if (dpos.variacao != null) {
+        destaques.push({ ticker: dpos.ticker || '?', variacao: dpos.variacao || 0 });
+      }
+    }
+    destaques.sort(function(a, b) { return Math.abs(b.variacao) - Math.abs(a.variacao); });
+    destaques = destaques.slice(0, 5);
+
+    // Build opcoes vencendo
+    var opsVencData = (data.opsAtivasData || []).filter(function(op) {
+      if (!op.vencimento) return false;
+      var vd = new Date(op.vencimento + 'T00:00:00');
+      var now = new Date();
+      var diff = Math.ceil((vd - now) / (1000 * 60 * 60 * 24));
+      return diff >= 0 && diff <= 7;
+    }).map(function(op) {
+      var vd = new Date(op.vencimento + 'T00:00:00');
+      var now = new Date();
+      var dte = Math.ceil((vd - now) / (1000 * 60 * 60 * 24));
+      return { ticker: op.ticker_opcao || op.ativo_base, tipo: op.tipo, strike: op.strike, dte: dte };
+    });
+
+    // Allocation percentages
+    var alocPct = {};
+    PKEYS.forEach(function(k) {
+      alocPct[k] = totalAlloc > 0 ? (alloc[k] / totalAlloc) * 100 : 0;
+    });
+    alocPct.saldo = totalAlloc > 0 ? (saldoTotal / totalAlloc) * 100 : 0;
+
+    var payload = {
+      type: 'resumo',
+      patrimonio: patrimonio,
+      rentabilidade: rentabilidadeMes,
+      rendaMensal: rendaTotalMes,
+      metaMensal: meta,
+      rendaMesAnterior: rendaTotalMesAnterior,
+      alocacao: alocPct,
+      posicoes: positions.length,
+      alertas: alertTexts,
+      eventos: eventoTexts,
+      destaques: destaques,
+      opcoesVencendo: opsVencData,
+    };
+
+    geminiService.analyzeGeneral(payload).then(function(result) {
+      setAiLoading(false);
+      if (result.error) {
+        setAiError(result.error);
+      } else {
+        setAiResult(result);
+        if (result._usage) setAiUsage(result._usage);
+      }
+    });
+  };
+
   // ══════════ RENDER ══════════
   return (
     <View style={st.container}>
@@ -546,7 +761,7 @@ export default function HomeScreen({ navigation }) {
         <View style={st.header}>
           <Image
             source={require('../../../assets/logo-header.png')}
-            style={{ height: 52, width: 52 * (400 / 95) }}
+            style={{ height: 38, width: 38 * (400 / 95) }}
             resizeMode="contain"
           />
           <View style={st.syncBadge}>
@@ -555,6 +770,73 @@ export default function HomeScreen({ navigation }) {
             </Text>
           </View>
         </View>
+
+        {/* PORTFOLIO SELECTOR */}
+        {portfolios.length > 0 ? (
+          <View style={{ paddingHorizontal: 0, marginBottom: 8, zIndex: 10 }}>
+            <TouchableOpacity
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', alignSelf: 'flex-start' }}
+              onPress={function() { setShowPortDD(!showPortDD); }}
+              activeOpacity={0.7}
+            >
+              {(function() {
+                var lbl = 'Todos';
+                var clr = C.accent;
+                var ico = 'people-outline';
+                if (selPortfolio === '__default__') { lbl = 'Padrão'; ico = 'briefcase-outline'; }
+                else if (selPortfolio) {
+                  for (var pi2 = 0; pi2 < portfolios.length; pi2++) {
+                    if (portfolios[pi2].id === selPortfolio) {
+                      lbl = portfolios[pi2].nome; clr = portfolios[pi2].cor || C.accent; ico = portfolios[pi2].icone || null;
+                      break;
+                    }
+                  }
+                }
+                return (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    {ico ? <Ionicons name={ico} size={14} color={clr} /> : <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: clr }} />}
+                    <Text style={{ fontSize: 12, fontFamily: F.body, color: C.text }}>{lbl}</Text>
+                    <Ionicons name={showPortDD ? 'chevron-up' : 'chevron-down'} size={14} color='rgba(255,255,255,0.3)' />
+                  </View>
+                );
+              })()}
+            </TouchableOpacity>
+            {showPortDD ? (
+              <View style={{ backgroundColor: C.bg, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', marginTop: 4, overflow: 'hidden' }}>
+                <TouchableOpacity
+                  style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' }, !selPortfolio && { backgroundColor: C.accent + '11' }]}
+                  onPress={function() { setSelPortfolio(null); setShowPortDD(false); }}
+                >
+                  <Ionicons name="people-outline" size={14} color={!selPortfolio ? C.accent : 'rgba(255,255,255,0.3)'} />
+                  <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, !selPortfolio && { color: C.accent }]}>Todos</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' }, selPortfolio === '__default__' && { backgroundColor: C.accent + '11' }]}
+                  onPress={function() { setSelPortfolio('__default__'); setShowPortDD(false); }}
+                >
+                  <Ionicons name="briefcase-outline" size={14} color={selPortfolio === '__default__' ? C.accent : 'rgba(255,255,255,0.3)'} />
+                  <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, selPortfolio === '__default__' && { color: C.accent }]}>Padrão</Text>
+                </TouchableOpacity>
+                {portfolios.map(function(p) {
+                  var isAct = selPortfolio === p.id;
+                  return (
+                    <TouchableOpacity key={p.id}
+                      style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' }, isAct && { backgroundColor: C.accent + '11' }]}
+                      onPress={function() { setSelPortfolio(p.id); setShowPortDD(false); }}
+                    >
+                      {p.icone ? (
+                        <Ionicons name={p.icone} size={14} color={isAct ? (p.cor || C.accent) : 'rgba(255,255,255,0.3)'} />
+                      ) : (
+                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.cor || C.accent }} />
+                      )}
+                      <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, isAct && { color: p.cor || C.accent }]}>{p.nome}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         {/* PATRIMÔNIO HERO */}
         <GlassCard pad={0} glow="rgba(14,165,233,0.12)">
@@ -943,11 +1225,134 @@ export default function HomeScreen({ navigation }) {
           </GlassCard>
         ) : null}
 
+        {/* RESUMO IA AUTOMÁTICO */}
+        {autoSummary ? (
+          <TouchableOpacity activeOpacity={0.8} onPress={function() {
+            if (!autoSummary.lido) {
+              markSummaryRead(autoSummary.id).catch(function() {});
+              var updated = {};
+              var sKeys = Object.keys(autoSummary);
+              for (var sk = 0; sk < sKeys.length; sk++) { updated[sKeys[sk]] = autoSummary[sKeys[sk]]; }
+              updated.lido = true;
+              setAutoSummary(updated);
+            }
+            setSummaryExpanded(!summaryExpanded);
+          }}>
+            <GlassCard glow="rgba(108,92,231,0.08)">
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: summaryExpanded ? 12 : 0 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name="sparkles" size={16} color={C.accent} />
+                  <Text style={{ fontSize: 13, fontFamily: F.display, color: C.accent, marginLeft: 6 }}>Resumo IA</Text>
+                  {!autoSummary.lido ? (
+                    <View style={{ backgroundColor: C.accent, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1, marginLeft: 8 }}>
+                      <Text style={{ fontSize: 9, fontFamily: F.display, color: '#fff' }}>NOVO</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.dim, marginRight: 4 }}>
+                    {autoSummary.created_at ? new Date(autoSummary.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''}
+                  </Text>
+                  <Ionicons name={summaryExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={C.dim} />
+                </View>
+              </View>
+              {!summaryExpanded && autoSummary.teaser ? (
+                <Text style={{ fontSize: 12, fontFamily: F.body, color: C.textSecondary, marginTop: 4 }} numberOfLines={2}>
+                  {autoSummary.teaser}
+                </Text>
+              ) : null}
+              {summaryExpanded ? (
+                <View>
+                  {autoSummary.resumo ? (
+                    <View style={{ marginBottom: 12 }}>
+                      <Text style={{ fontSize: 11, fontFamily: F.mono, color: C.dim, letterSpacing: 0.8, marginBottom: 4 }}>RESUMO</Text>
+                      <Text style={{ fontSize: 13, fontFamily: F.body, color: C.text, lineHeight: 20 }}>{autoSummary.resumo}</Text>
+                    </View>
+                  ) : null}
+                  {autoSummary.acoes_urgentes ? (
+                    <View style={{ marginBottom: 12 }}>
+                      <Text style={{ fontSize: 11, fontFamily: F.mono, color: C.yellow, letterSpacing: 0.8, marginBottom: 4 }}>AÇÕES URGENTES</Text>
+                      <Text style={{ fontSize: 13, fontFamily: F.body, color: C.text, lineHeight: 20 }}>{autoSummary.acoes_urgentes}</Text>
+                    </View>
+                  ) : null}
+                  {autoSummary.dica_do_dia ? (
+                    <View>
+                      <Text style={{ fontSize: 11, fontFamily: F.mono, color: C.green, letterSpacing: 0.8, marginBottom: 4 }}>DICA DO DIA</Text>
+                      <Text style={{ fontSize: 13, fontFamily: F.body, color: C.text, lineHeight: 20 }}>{autoSummary.dica_do_dia}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+            </GlassCard>
+          </TouchableOpacity>
+        ) : null}
+
+        {/* RESUMO IA */}
+        {sub.canAccess('AI_ANALYSIS') ? (
+          <TouchableOpacity activeOpacity={0.7} onPress={function() { setAiConfirmVisible(true); }}
+            style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+              paddingVertical: 14, paddingHorizontal: 20, borderRadius: 14,
+              backgroundColor: 'rgba(108,92,231,0.08)', borderWidth: 1,
+              borderColor: 'rgba(108,92,231,0.2)', marginTop: 4,
+            }}>
+            <Ionicons name="sparkles" size={16} color={C.accent} />
+            <Text style={{ fontSize: 13, fontWeight: '700', color: C.accent, fontFamily: F.display }}>
+              Resumo IA
+            </Text>
+            <Text style={{ fontSize: 10, color: 'rgba(108,92,231,0.6)', fontFamily: F.body }}>
+              Análise inteligente da sua carteira
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+        {sub.canAccess('SAVED_ANALYSES') ? (
+          <TouchableOpacity activeOpacity={0.7} onPress={function() { navigation.navigate('AnalisesSalvas'); }}
+            style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+              paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10,
+              backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.06)', marginTop: 8,
+            }}>
+            <Ionicons name="bookmark-outline" size={14} color={C.dim} />
+            <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.body }}>
+              Ver análises salvas
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
         <View style={{ height: SIZE.tabBarHeight + 80 }} />
       </ScrollView>
 
       {/* FAB */}
-      <Fab navigation={navigation} />
+      <Fab navigation={navigation} items={[
+        { label: 'Operação', icon: 'wallet-outline', color: C.acoes, screen: 'AddOperacao' },
+        { label: 'Opção', icon: 'flash-outline', color: C.opcoes, screen: 'AddOpcao' },
+        { label: 'Provento', icon: 'cash-outline', color: C.fiis, screen: 'AddProvento' },
+        { label: 'Renda Fixa', icon: 'document-text-outline', color: C.rf, screen: 'AddRendaFixa' },
+        { label: 'Portfolio', icon: 'folder-outline', color: C.etfs, screen: 'ConfigPortfolios' },
+      ]} />
+
+      {/* AI Confirm Modal */}
+      <AiConfirmModal
+        visible={aiConfirmVisible}
+        analysisType="Resumo da carteira"
+        onCancel={function() { setAiConfirmVisible(false); }}
+        onConfirm={function() { setAiConfirmVisible(false); handleAiResumo(); }}
+      />
+
+      {/* AI Modal */}
+      <AiAnalysisModal
+        visible={aiModalVisible}
+        onClose={function() { setAiModalVisible(false); }}
+        result={aiResult}
+        loading={aiLoading}
+        error={aiError}
+        type="resumo"
+        title="Resumo Inteligente"
+        usage={aiUsage}
+        onSave={sub.canAccess('SAVED_ANALYSES') ? handleSaveAiResumo : undefined}
+        saving={aiSaving}
+      />
 
       <Modal visible={infoModal !== null} animationType="fade" transparent={true}
         onRequestClose={function() { setInfoModal(null); }}>

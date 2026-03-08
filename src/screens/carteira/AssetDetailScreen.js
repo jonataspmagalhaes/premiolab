@@ -10,14 +10,18 @@ var formatDateBR = dateUtils.formatDateBR;
 
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOperacoes, getProventos, deleteOperacao, deleteOperacaoComMovimentacoes, getIndicatorByTicker, getOpcoes } from '../../services/database';
+import { getOperacoes, getProventos, deleteOperacao, deleteOperacaoComMovimentacoes, getIndicatorByTicker, getOpcoes, addSavedAnalysis } from '../../services/database';
+import Toast from 'react-native-toast-message';
 import { fetchPrices, fetchPriceHistory, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
 import { fetchYahooPrices, fetchYahooHistory } from '../../services/yahooService';
-import { Glass, Badge, Pill, SectionLabel } from '../../components';
+import { Ionicons } from '@expo/vector-icons';
+import { Glass, Badge, Pill, SectionLabel, AiAnalysisModal, AiConfirmModal } from '../../components';
 import * as Haptics from 'expo-haptics';
 import InteractiveChart from '../../components/InteractiveChart';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import Sensitive from '../../components/Sensitive';
+import { useSubscription } from '../../contexts/SubscriptionContext';
+var geminiService = require('../../services/geminiService');
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -184,6 +188,7 @@ export default function AssetDetailScreen(props) {
   var route = props.route;
   var ticker = route.params.ticker;
   var mercado = route.params.mercado || 'BR';
+  var autoAi = route.params.autoAi || false;
   var isINT = mercado === 'INT';
   var currPrefix = isINT ? 'US$ ' : 'R$ ';
   var user = useAuth().user;
@@ -203,10 +208,38 @@ export default function AssetDetailScreen(props) {
   var s12 = useState(''); var dataFim = s12[0]; var setDataFim = s12[1];
   var s13 = useState({}); var expandedCorretora = s13[0]; var setExpandedCorretora = s13[1];
   var s14 = useState([]); var opcoes = s14[0]; var setOpcoes = s14[1];
+  var _aiVis = useState(false); var aiModalVisible = _aiVis[0]; var setAiModalVisible = _aiVis[1];
+  var _aiRes = useState(null); var aiResult = _aiRes[0]; var setAiResult = _aiRes[1];
+  var _aiL = useState(false); var aiLoading = _aiL[0]; var setAiLoading = _aiL[1];
+  var _aiE = useState(null); var aiError = _aiE[0]; var setAiError = _aiE[1];
+  var _aiU = useState(null); var aiUsage = _aiU[0]; var setAiUsage = _aiU[1];
+  var _aiSaving = useState(false); var aiSaving = _aiSaving[0]; var setAiSaving = _aiSaving[1];
+  var _aiConfirmVisible = useState(false); var aiConfirmVisible = _aiConfirmVisible[0]; var setAiConfirmVisible = _aiConfirmVisible[1];
 
+  var handleSaveAiAtivo = function() {
+    if (!user || !user.id || !aiResult) return;
+    setAiSaving(true);
+    addSavedAnalysis(user.id, { type: 'ativo', title: 'Análise ' + ticker, result: aiResult }).then(function(res) {
+      setAiSaving(false);
+      if (res.error) {
+        Toast.show({ type: 'error', text1: 'Erro ao salvar' });
+      } else {
+        Toast.show({ type: 'success', text1: 'Análise salva' });
+      }
+    }).catch(function() { setAiSaving(false); });
+  };
+
+  var sub = useSubscription();
   var ps = usePrivacyStyle();
 
+  var _autoAiFired = useState(false); var autoAiFired = _autoAiFired[0]; var setAutoAiFired = _autoAiFired[1];
   useEffect(function() { loadData(); }, []);
+  useEffect(function() {
+    if (autoAi && !autoAiFired && !loading) {
+      setAutoAiFired(true);
+      handleAiAtivo();
+    }
+  }, [autoAi, autoAiFired, loading]);
 
   var loadData = async function() {
     if (!user) return;
@@ -588,6 +621,96 @@ export default function AssetDetailScreen(props) {
     );
   };
 
+  var handleAiAtivo = async function() {
+    if (!sub.canAccess('AI_ANALYSIS')) {
+      navigation.navigate('Paywall');
+      return;
+    }
+    setAiModalVisible(true);
+    setAiLoading(true);
+    setAiError(null);
+    setAiResult(null);
+    setAiUsage(null);
+    try {
+      var categoria = '';
+      if (txns.length > 0) categoria = txns[0].categoria || '';
+
+      var posArr = [];
+      posArr.push({
+        ticker: ticker,
+        categoria: categoria,
+        quantidade: position.qty,
+        pm: pm,
+        preco_atual: precoAtual,
+        pl_pct: plPct,
+        variacao: priceData ? priceData.changePercent : null,
+        valor_atual: valorAtual,
+      });
+
+      var indObj = null;
+      if (indicator) {
+        indObj = {
+          hv_20: indicator.hv_20,
+          rsi_14: indicator.rsi_14,
+          beta: indicator.beta,
+          max_drawdown: indicator.max_drawdown,
+          sma_20: indicator.sma_20,
+          sma_50: indicator.sma_50,
+        };
+      }
+
+      var opResumo = [];
+      for (var ori = 0; ori < opcoesAtivas.length; ori++) {
+        var orop = opcoesAtivas[ori];
+        opResumo.push({
+          tipo: orop.tipo,
+          direcao: orop.direcao,
+          strike: orop.strike,
+          premio: orop.premio,
+          quantidade: orop.quantidade,
+          vencimento: orop.vencimento,
+          status: orop.status,
+        });
+      }
+
+      var provTotal = totalProvs;
+      var provCount = provs.length;
+
+      var pesoCarteira = null;
+      if (valorAtual != null && valorAtual > 0) {
+        pesoCarteira = 'valor R$ ' + fmt(valorAtual);
+      }
+
+      var payload = {
+        type: 'ativo',
+        ticker: ticker,
+        mercado: mercado,
+        categoria: categoria,
+        posicao: posArr[0],
+        indicadores: indObj,
+        opcoes: opResumo,
+        proventos: { total: provTotal, count: provCount, yieldOnCost: yieldOnCost },
+        cobertura: coberturaLabel,
+        ivMedia: ivMedia,
+        hv20: hv20,
+        pesoCarteira: pesoCarteira,
+      };
+
+      var res = await geminiService.analyzeGeneral(payload);
+      if (res && res._usage) setAiUsage(res._usage);
+      if (res && res.error) {
+        setAiError(res.error);
+      } else if (res) {
+        setAiResult(res);
+      } else {
+        setAiError('Sem resposta da IA');
+      }
+    } catch (e) {
+      setAiError(e.message || 'Erro ao analisar');
+    }
+    setAiLoading(false);
+  };
+
   var renderProvItem = function(p, idx) {
     var valProv = (p.valor_por_cota || 0) * (p.quantidade || 0);
     return (
@@ -877,6 +1000,37 @@ export default function AssetDetailScreen(props) {
           <Text style={styles.buyBtnText}>Comprar / Vender</Text>
         </TouchableOpacity>
 
+        {sub.canAccess('AI_ANALYSIS') ? (
+          <TouchableOpacity
+            activeOpacity={0.8}
+            style={styles.aiBtn}
+            onPress={function() { setAiConfirmVisible(true); }}
+          >
+            <Ionicons name="sparkles" size={16} color={C.accent} />
+            <Text style={styles.aiBtnText}>Análise IA</Text>
+          </TouchableOpacity>
+        ) : null}
+
+        <AiConfirmModal
+          visible={aiConfirmVisible}
+          analysisType={'Análise do ativo'}
+          onCancel={function() { setAiConfirmVisible(false); }}
+          onConfirm={function() { setAiConfirmVisible(false); handleAiAtivo(); }}
+        />
+
+        <AiAnalysisModal
+          visible={aiModalVisible}
+          onClose={function() { setAiModalVisible(false); }}
+          result={aiResult}
+          loading={aiLoading}
+          error={aiError}
+          type="ativo"
+          title={'Análise IA — ' + ticker}
+          usage={aiUsage}
+          onSave={sub.canAccess('SAVED_ANALYSES') ? handleSaveAiAtivo : undefined}
+          saving={aiSaving}
+        />
+
         <View style={{ height: 40 }} />
       </ScrollView>
   );
@@ -935,6 +1089,8 @@ var styles = StyleSheet.create({
   actionLink: { fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '600' },
   buyBtn: { backgroundColor: C.accent, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 8 },
   buyBtnText: { fontSize: 14, fontWeight: '700', color: 'white', fontFamily: F.display },
+  aiBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: C.accent + '40', borderRadius: 14, paddingVertical: 14, marginTop: 8, backgroundColor: C.accent + '08' },
+  aiBtnText: { fontSize: 14, fontWeight: '700', color: C.accent, fontFamily: F.display },
   provDivider: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
   provDividerLine: { flex: 1, height: 1, backgroundColor: C.fiis + '30' },
   provDividerText: { fontSize: 10, fontWeight: '700', color: C.fiis, fontFamily: F.mono, letterSpacing: 0.5 },

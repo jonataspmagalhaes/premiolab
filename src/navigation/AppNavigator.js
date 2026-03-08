@@ -1,15 +1,18 @@
 import React from 'react';
-import { View, Text, StyleSheet, StatusBar, Platform } from 'react-native';
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import { View, Text, StyleSheet, StatusBar, Platform, Linking } from 'react-native';
+import { NavigationContainer, DefaultTheme, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Toast from 'react-native-toast-message';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import * as Haptics from 'expo-haptics';
 import { useAuth } from '../contexts/AuthContext';
 import { C, F, SIZE } from '../theme';
 import toastConfig from '../components/ToastConfig';
+import { getGastosRapidos, executeGastoRapido } from '../services/database';
+import widgetBridge from '../services/widgetBridge';
 
 // Lock app to portrait globally (landscape only in specific modals)
 ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(function() {});
@@ -23,6 +26,7 @@ import AssetDetailScreen from '../screens/carteira/AssetDetailScreen';
 import AddOperacaoScreen from '../screens/carteira/AddOperacaoScreen';
 import OpcoesScreen from '../screens/opcoes/OpcoesScreen';
 import AnaliseScreen from '../screens/analise/AnaliseScreen';
+import AnalisesSalvasScreen from '../screens/mais/AnalisesSalvasScreen';
 import RendaScreen from '../screens/renda/RendaScreen';
 import MaisScreen from '../screens/mais/MaisScreen';
 import ConfigMetaScreen from '../screens/mais/config/ConfigMetaScreen';
@@ -53,6 +57,13 @@ import AddCartaoScreen from '../screens/gestao/AddCartaoScreen';
 import FaturaScreen from '../screens/gestao/FaturaScreen';
 import ConfigGastosRapidosScreen from '../screens/gestao/ConfigGastosRapidosScreen';
 import AddGastoRapidoScreen from '../screens/gestao/AddGastoRapidoScreen';
+import RecuperarSenhaScreen from '../screens/auth/RecuperarSenhaScreen';
+import ProfileScreen from '../screens/mais/ProfileScreen';
+import PaywallScreen from '../screens/mais/PaywallScreen';
+import ConfigPortfoliosScreen from '../screens/mais/config/ConfigPortfoliosScreen';
+import ConfigResumoIAScreen from '../screens/mais/config/ConfigResumoIAScreen';
+import ConfigPerfilInvestidorScreen from '../screens/mais/config/ConfigPerfilInvestidorScreen';
+import BackupScreen from '../screens/mais/config/BackupScreen';
 
 // SafeArea HOC — protege telas stack contra notch/camera/relogio/home indicator
 function withSafeArea(Screen) {
@@ -102,6 +113,13 @@ var SafeAddCartaoScreen = withSafeArea(AddCartaoScreen);
 var SafeFaturaScreen = withSafeArea(FaturaScreen);
 var SafeConfigGastosRapidosScreen = withSafeArea(ConfigGastosRapidosScreen);
 var SafeAddGastoRapidoScreen = withSafeArea(AddGastoRapidoScreen);
+var SafeRecuperarSenhaScreen = withSafeArea(RecuperarSenhaScreen);
+var SafeProfileScreen = withSafeArea(ProfileScreen);
+var SafePaywallScreen = withSafeArea(PaywallScreen);
+var SafeConfigPortfoliosScreen = withSafeArea(ConfigPortfoliosScreen);
+var SafeBackupScreen = withSafeArea(BackupScreen);
+var SafeConfigResumoIAScreen = withSafeArea(ConfigResumoIAScreen);
+var SafeConfigPerfilInvestidorScreen = withSafeArea(ConfigPerfilInvestidorScreen);
 
 // Dark Theme
 var PremioLabTheme = Object.assign({}, DefaultTheme, {
@@ -203,16 +221,127 @@ function MainTabs() {
 // Stack Navigator
 var Stack = createNativeStackNavigator();
 
+var navigationRef = createNavigationContainerRef();
+
 var screenOptions = {
   headerShown: false,
   contentStyle: { backgroundColor: C.bg },
   animation: 'slide_from_right',
 };
 
+// Deep linking config
+var linkingConfig = {
+  prefixes: ['premiolab://'],
+  config: {
+    screens: {
+      // Tab navigation via deep links (premiolab://tab/home etc)
+      MainTabs: {
+        path: 'tab',
+        screens: {
+          Home: 'home',
+          Carteira: 'carteira',
+          Opcoes: 'opcoes',
+          Renda: 'renda',
+          Mais: 'mais',
+        },
+      },
+      // Routes handled by the root Stack.Navigator (AppStack)
+      // React Navigation matches these screen names directly
+      AddMovimentacao: 'add-gasto',
+      ConfigGastosRapidos: 'config-gastos',
+      Fatura: {
+        path: 'fatura/:cartaoId',
+      },
+    },
+  },
+  // Custom handler: intercept gasto-rapido URLs before React Navigation
+  subscribe: function(listener) {
+    var linkingSub = Linking.addEventListener('url', function(event) {
+      var url = event.url || '';
+      if (url.indexOf('premiolab://gasto-rapido/') === 0) {
+        handleGastoRapidoDeepLink(url);
+        return; // don't pass to React Navigation
+      }
+      if (url.indexOf('premiolab://widget-select-card/') === 0) {
+        handleWidgetSelectCard(url);
+        return;
+      }
+      listener(url);
+    });
+    return function() {
+      linkingSub.remove();
+    };
+  },
+  getInitialURL: async function() {
+    var url = await Linking.getInitialURL();
+    if (url && url.indexOf('premiolab://gasto-rapido/') === 0) {
+      // Delay to let app initialize, then handle
+      setTimeout(function() { handleGastoRapidoDeepLink(url); }, 1500);
+      return null; // don't let React Navigation handle it
+    }
+    if (url && url.indexOf('premiolab://widget-select-card/') === 0) {
+      setTimeout(function() { handleWidgetSelectCard(url); }, 500);
+      return null;
+    }
+    return url;
+  },
+};
+
+// Handle gasto-rapido deep link: execute preset + show toast
+function handleGastoRapidoDeepLink(url) {
+  var presetId = url.replace('premiolab://gasto-rapido/', '');
+  if (!presetId) return;
+
+  // Need userId — get from auth context via global ref
+  var userId = _deepLinkUserId;
+  if (!userId) return;
+
+  getGastosRapidos(userId).then(function(res) {
+    var presets = (res && res.data) || [];
+    var preset = null;
+    for (var i = 0; i < presets.length; i++) {
+      if (presets[i].id === presetId) {
+        preset = presets[i];
+        break;
+      }
+    }
+    if (!preset) {
+      Toast.show({ type: 'error', text1: 'Gasto nao encontrado' });
+      return;
+    }
+    executeGastoRapido(userId, preset).then(function(result) {
+      if (result && result.error) {
+        Toast.show({ type: 'error', text1: 'Erro ao registrar gasto' });
+      } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(function() {});
+        var meio = preset.meio_pagamento || 'credito';
+        var meioLabel = meio === 'pix' ? ' via PIX' : meio === 'debito' ? ' via Débito' : '';
+        Toast.show({
+          type: 'success',
+          text1: preset.label + ' registrado' + meioLabel,
+          text2: 'R$ ' + (preset.valor || 0).toFixed(2).replace('.', ','),
+        });
+      }
+    }).catch(function() {
+      Toast.show({ type: 'error', text1: 'Erro ao registrar gasto' });
+    });
+  }).catch(function() {});
+}
+
+// Handle widget card selection deep link: save selectedCardId + reload widget
+function handleWidgetSelectCard(url) {
+  var cardId = url.replace('premiolab://widget-select-card/', '');
+  if (!cardId) return;
+  widgetBridge.saveToAppGroup('selectedCardId', cardId).catch(function() {});
+}
+
+var _deepLinkUserId = null;
+
 function AuthStack() {
   return (
     <Stack.Navigator screenOptions={screenOptions}>
       <Stack.Screen name="Login" component={SafeLoginScreen} />
+      <Stack.Screen name="RecuperarSenha" component={SafeRecuperarSenhaScreen} />
     </Stack.Navigator>
   );
 }
@@ -240,6 +369,7 @@ function AppStack() {
       <Stack.Screen name="EditProvento" component={SafeEditProventoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="AddSaldo" component={SafeAddSaldoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="Analise" component={SafeAnaliseScreen} />
+      <Stack.Screen name="AnalisesSalvas" component={AnalisesSalvasScreen} />
       <Stack.Screen name="AddMovimentacao" component={SafeAddMovimentacaoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="EditMovimentacao" component={SafeEditMovimentacaoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="Extrato" component={SafeExtratoScreen} />
@@ -252,6 +382,12 @@ function AppStack() {
       <Stack.Screen name="Fatura" component={SafeFaturaScreen} />
       <Stack.Screen name="ConfigGastosRapidos" component={SafeConfigGastosRapidosScreen} />
       <Stack.Screen name="AddGastoRapido" component={SafeAddGastoRapidoScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="Profile" component={SafeProfileScreen} />
+      <Stack.Screen name="Paywall" component={SafePaywallScreen} />
+      <Stack.Screen name="ConfigPortfolios" component={SafeConfigPortfoliosScreen} />
+      <Stack.Screen name="Backup" component={SafeBackupScreen} />
+      <Stack.Screen name="ConfigResumoIA" component={SafeConfigResumoIAScreen} />
+      <Stack.Screen name="ConfigPerfilInvestidor" component={SafeConfigPerfilInvestidorScreen} />
     </Stack.Navigator>
   );
 }
@@ -263,6 +399,9 @@ export default function AppNavigator() {
   var loading = auth.loading;
   var onboarded = auth.onboarded;
 
+  // Keep userId available for deep link handler
+  _deepLinkUserId = (user && user.id) || null;
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -273,7 +412,7 @@ export default function AppNavigator() {
 
   return (
     <View style={{ flex: 1 }}>
-      <NavigationContainer theme={PremioLabTheme}>
+      <NavigationContainer theme={PremioLabTheme} ref={navigationRef} linking={linkingConfig}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         {!user ? (
           <AuthStack />

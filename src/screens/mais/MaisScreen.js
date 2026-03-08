@@ -2,7 +2,9 @@ import React, { useState, useCallback } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Share, Switch, Image } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSubscription } from '../../contexts/SubscriptionContext';
 import { getOperacoes, getProventos, getOpcoes, getAlertasConfig, updateAlertasConfig, getProfile } from '../../services/database';
 import { Glass, Badge } from '../../components';
 
@@ -15,12 +17,17 @@ var SECTIONS = [
       { icon: '🔔', label: 'Alertas', value: 'Ativados', color: C.green, route: 'ConfigAlertas' },
       { icon: '🎯', label: 'Meta Mensal', value: 'Configurar', color: C.yellow, route: 'ConfigMeta' },
       { icon: '⚡', label: 'Gastos Rápidos', value: 'Atalhos de despesas', color: C.etfs, route: 'ConfigGastosRapidos' },
+      { icon: '📂', label: 'Portfolios', value: 'Separar investimentos', color: C.fiis, route: 'ConfigPortfolios' },
+      { icon: '🤖', label: 'Resumo IA', value: '_resumo_ia_', color: C.accent, route: 'ConfigResumoIA', gate: 'AI_SUMMARY' },
+      { icon: '🧠', label: 'Perfil Investidor', value: 'Personalizar IA', color: C.opcoes, route: 'ConfigPerfilInvestidor' },
+      { icon: '💾', label: 'Backup', value: 'Restaurar dados', color: C.rf, route: 'Backup' },
     ],
   },
   {
     title: 'ANÁLISE',
     items: [
-      { icon: '📈', label: 'Análise Completa', value: 'Performance, Alocação, Indicadores', color: C.accent, route: 'Analise' },
+      { icon: '📈', label: 'Análise Completa', value: 'Performance, Alocação, Indicadores', color: C.accent, route: 'Analise', gate: 'ANALYSIS_TAB' },
+      { icon: '✨', label: 'Análises IA Salvas', value: 'Histórico de análises', color: C.accent, route: 'AnalisesSalvas', gate: 'SAVED_ANALYSES' },
     ],
   },
   {
@@ -28,7 +35,7 @@ var SECTIONS = [
     items: [
       { icon: '📋', label: 'Histórico Completo', value: '', color: C.acoes, route: 'Historico' },
       { icon: '🏦', label: 'Renda Fixa', value: 'Gerenciar', color: C.rf, route: 'RendaFixa' },
-      { icon: '📥', label: 'Importar Operações', value: 'CSV / B3', color: C.fiis, route: 'ImportOperacoes' },
+      { icon: '📥', label: 'Importar Operações', value: 'CSV / B3', color: C.fiis, route: 'ImportOperacoes', gate: 'CSV_IMPORT' },
       { icon: '📤', label: 'Exportar CSV', value: '', color: C.sub, action: 'export_csv' },
     ],
   },
@@ -54,9 +61,12 @@ export default function MaisScreen(props) {
   var _auth = useAuth();
   var signOut = _auth.signOut;
   var user = _auth.user;
+  var sub = useSubscription();
 
   var _exAuto = useState(false); var exAuto = _exAuto[0]; var setExAuto = _exAuto[1];
   var _selicVal = useState(null); var selicVal = _selicVal[0]; var setSelicVal = _selicVal[1];
+  var _sumFreq = useState('off'); var sumFreq = _sumFreq[0]; var setSumFreq = _sumFreq[1];
+  var _profileNome = useState(''); var profileNome = _profileNome[0]; var setProfileNome = _profileNome[1];
 
   useFocusEffect(useCallback(function() {
     if (!user) return;
@@ -66,8 +76,10 @@ export default function MaisScreen(props) {
       }
     });
     getProfile(user.id).then(function(result) {
-      if (result.data && result.data.selic != null) {
-        setSelicVal(result.data.selic);
+      if (result.data) {
+        if (result.data.selic != null) setSelicVal(result.data.selic);
+        if (result.data.nome) setProfileNome(result.data.nome);
+        if (result.data.ai_summary_frequency) setSumFreq(result.data.ai_summary_frequency);
       }
     });
   }, [user]));
@@ -124,6 +136,11 @@ export default function MaisScreen(props) {
       await handleExportCSV();
       return;
     }
+    // Gate: locked features redirect to Paywall
+    if (item.gate && !sub.canAccess(item.gate)) {
+      navigation.navigate('Paywall');
+      return;
+    }
     if (item.route) {
       navigation.navigate(item.route, item.params || {});
     }
@@ -136,19 +153,50 @@ export default function MaisScreen(props) {
       showsVerticalScrollIndicator={false}
     >
       {/* Profile card */}
-      <Glass glow={C.accent} padding={14}>
-        <View style={styles.profileRow}>
-          <Image
-            source={require('../../../assets/logo.png')}
-            style={styles.avatar}
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.profileName}>Investidor</Text>
-            <Text style={styles.profileEmail}>{user ? (user.email || '') : ''}</Text>
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={function() { navigation.navigate('Profile'); }}
+        accessibilityLabel="Editar perfil"
+        accessibilityRole="button"
+      >
+        <Glass glow={C.accent} padding={14}>
+          <View style={styles.profileRow}>
+            <Image
+              source={require('../../../assets/logo.png')}
+              style={styles.avatar}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.profileName}>{profileNome || 'Investidor'}</Text>
+              <Text style={styles.profileEmail}>{user ? (user.email || '') : ''}</Text>
+            </View>
+            <Badge text={sub.tierLabel} color={sub.tierColor} />
+            <Text style={styles.profileChevron}>{'›'}</Text>
           </View>
-          <Badge text="PRO" color={C.accent} />
-        </View>
-      </Glass>
+        </Glass>
+      </TouchableOpacity>
+
+      {/* Assinatura */}
+      <View>
+        <Text style={styles.sectionLabel}>ASSINATURA</Text>
+        <Glass padding={0}>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={function() { navigation.navigate('Paywall'); }}
+            style={styles.menuRow}
+          >
+            <View style={styles.menuLeft}>
+              <Ionicons name="star" size={20} color={sub.tierColor} />
+              <Text style={styles.menuLabel}>{'Plano: ' + sub.tierLabel}</Text>
+            </View>
+            <View style={styles.menuRight}>
+              <Text style={styles.menuValue}>
+                {sub.isAdmin ? 'Admin' : sub.isVip ? 'VIP' : sub.trialInfo ? ('Até ' + (function() { var p = (sub.trialInfo.endDate || '').split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : ''; })()) : sub.tier === 'free' ? 'Fazer upgrade' : 'Gerenciar'}
+              </Text>
+              <Text style={styles.menuChevron}>{'›'}</Text>
+            </View>
+          </TouchableOpacity>
+        </Glass>
+      </View>
 
       {/* Sections */}
       {SECTIONS.map(function(sec, si) {
@@ -174,8 +222,11 @@ export default function MaisScreen(props) {
                       </Text>
                     </View>
                     <View style={styles.menuRight}>
+                      {item.gate && !sub.canAccess(item.gate) ? (
+                        <Ionicons name="lock-closed" size={14} color={C.dim} style={{ marginRight: 4 }} />
+                      ) : null}
                       {item.value ? (
-                        <Text style={styles.menuValue}>{item.value === '_selic_' ? (selicVal != null ? selicVal + '%' : '13.25%') : item.value}</Text>
+                        <Text style={styles.menuValue}>{item.value === '_selic_' ? (selicVal != null ? selicVal + '%' : '13.25%') : item.value === '_resumo_ia_' ? (sumFreq === 'daily' ? 'Diário' : sumFreq === 'weekly' ? 'Semanal' : 'Desativado') : item.value}</Text>
                       ) : null}
                       <Text style={styles.menuChevron}>{'›'}</Text>
                     </View>
@@ -217,10 +268,11 @@ var styles = StyleSheet.create({
 
   profileRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatar: {
-    width: 52, height: 52, borderRadius: 14,
+    width: 64, height: 64, borderRadius: 16,
   },
   profileName: { fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.display },
   profileEmail: { fontSize: 10, color: C.sub, fontFamily: F.body },
+  profileChevron: { fontSize: 20, color: C.dim, marginLeft: 4 },
 
   sectionLabel: {
     fontSize: 10, color: C.dim, fontFamily: F.mono,

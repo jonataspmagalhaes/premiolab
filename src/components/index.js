@@ -16,3 +16,6 @@ export { default as PeriodFilter } from './PeriodFilter';
 export { default as Sensitive, usePrivacyStyle } from './Sensitive';
 export { default as TechnicalChart } from './TechnicalChart';
 export { default as CurrencyPicker } from './CurrencyPicker';
+export { default as UpgradePrompt } from './UpgradePrompt';
+export { default as AiAnalysisModal } from './AiAnalysisModal';
+export { default as AiConfirmModal } from './AiConfirmModal';
