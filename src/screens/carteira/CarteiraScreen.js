@@ -34,11 +34,14 @@ var FILTERS = [
   { k: 'acoes', l: 'Ações', cat: 'acao', color: C.acoes },
   { k: 'fiis', l: 'FIIs', cat: 'fii', color: C.fiis },
   { k: 'etfs', l: 'ETFs', cat: 'etf', color: C.etfs },
+  { k: 'bdrs', l: 'BDRs', cat: 'bdr', color: C.bdr },
   { k: 'stocks_int', l: 'Stocks', cat: 'stock_int', color: C.stock_int },
+  { k: 'adrs', l: 'ADRs', cat: 'adr', color: C.adr },
+  { k: 'reits', l: 'REITs', cat: 'reit', color: C.reit },
   { k: 'rf', l: 'RF', color: C.rf },
 ];
-var CAT_LABELS = { acao: 'Ação', fii: 'FII', etf: 'ETF', opcao: 'Opção', stock_int: 'Stock' };
-var CAT_NAMES = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs', stock_int: 'Stocks', rf: 'RF' };
+var CAT_LABELS = { acao: 'Ação', fii: 'FII', etf: 'ETF', opcao: 'Opção', stock_int: 'Stock', bdr: 'BDR', adr: 'ADR', reit: 'REIT' };
+var CAT_NAMES = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs', stock_int: 'Stocks', bdr: 'BDRs', adr: 'ADRs', reit: 'REITs', rf: 'RF' };
 var TIPO_LABELS = {
   cdb: 'CDB', lci_lca: 'LCI/LCA', tesouro_selic: 'Tesouro Selic',
   tesouro_ipca: 'Tesouro IPCA+', tesouro_pre: 'Tesouro Pré', debenture: 'Debênture',
@@ -620,6 +623,91 @@ var PositionCard = React.memo(function PositionCard(props) {
           </View>
         </View>
 
+        {/* ▶ META BAR — visível sempre (colapsado e expandido) */}
+        {(function() {
+          var metaValorRef2 = tickerValorTotal != null ? tickerValorTotal : valorAtual;
+          var pctAtual2 = totalPortfolio > 0 ? (metaValorRef2 / totalPortfolio) * 100 : 0;
+          var hasMeta2 = tickerMeta != null && tickerMeta !== '';
+          var metaVal2 = hasMeta2 ? parseFloat(tickerMeta) : 0;
+          var diff2 = hasMeta2 ? pctAtual2 - metaVal2 : 0;
+          var diffColor2 = Math.abs(diff2) < 0.5 ? C.green : diff2 > 0 ? C.etfs : C.red;
+          var barPct = hasMeta2 && metaVal2 > 0 ? Math.min(100, (pctAtual2 / metaVal2) * 100) : 0;
+          // Colapsado: só mostrar se tem meta definida. Expandido: sempre mostrar.
+          if (!expanded && !hasMeta2) return null;
+          return (
+            <View style={{ marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: C.border + '30' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="flag" size={12} color={C.etfs} />
+                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>Alocação</Text>
+                  <Text style={{ fontSize: 11, color: C.text, fontFamily: F.mono, fontWeight: '600' }}>{pctAtual2.toFixed(1) + '%'}</Text>
+                  {metaEditing ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                      <Ionicons name="arrow-forward" size={9} color={C.dim} />
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                        <TextInput
+                          style={{ width: 42, height: 22, borderRadius: 5, borderWidth: 1, borderColor: C.etfs + '60',
+                            backgroundColor: C.bg, color: C.text, fontSize: 11, fontFamily: F.mono, textAlign: 'center', paddingVertical: 0 }}
+                          value={metaInput}
+                          onChangeText={setMetaInput}
+                          keyboardType="decimal-pad"
+                          autoFocus
+                          maxLength={5}
+                          returnKeyType="done"
+                          onSubmitEditing={function() {
+                            var v = metaInput.replace(',', '.');
+                            if (v === '' || isNaN(parseFloat(v))) {
+                              if (onSetMeta) onSetMeta(pos.ticker, null);
+                            } else {
+                              if (onSetMeta) onSetMeta(pos.ticker, parseFloat(v));
+                            }
+                            setMetaEditing(false);
+                          }}
+                          onBlur={function() {
+                            var v = metaInput.replace(',', '.');
+                            if (v === '' || isNaN(parseFloat(v))) {
+                              if (onSetMeta) onSetMeta(pos.ticker, null);
+                            } else {
+                              if (onSetMeta) onSetMeta(pos.ticker, parseFloat(v));
+                            }
+                            setMetaEditing(false);
+                          }}
+                        />
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>%</Text>
+                      </View>
+                    </View>
+                  ) : hasMeta2 ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                      <Ionicons name="arrow-forward" size={9} color={C.dim} />
+                      <TouchableOpacity onPress={function() { setMetaInput(String(metaVal2)); setMetaEditing(true); }}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                        <Text style={{ fontSize: 11, color: C.etfs, fontFamily: F.mono, fontWeight: '600' }}>{metaVal2.toFixed(1) + '%'}</Text>
+                        <Ionicons name="pencil-outline" size={9} color={C.dim} />
+                      </TouchableOpacity>
+                    </View>
+                  ) : expanded ? (
+                    <TouchableOpacity onPress={function() { setMetaInput(''); setMetaEditing(true); }}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                      <Ionicons name="add-circle-outline" size={12} color={C.dim} />
+                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>Definir meta</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+                {hasMeta2 && !metaEditing ? (
+                  <Text style={{ fontSize: 11, fontFamily: F.mono, fontWeight: '600', color: diffColor2 }}>
+                    {(diff2 >= 0 ? '+' : '') + diff2.toFixed(1) + '%'}
+                  </Text>
+                ) : null}
+              </View>
+              {hasMeta2 && metaVal2 > 0 ? (
+                <View style={{ height: 3, backgroundColor: C.border + '40', borderRadius: 2, marginTop: 4, overflow: 'hidden' }}>
+                  <View style={{ height: 3, borderRadius: 2, backgroundColor: diffColor2, width: barPct + '%' }} />
+                </View>
+              ) : null}
+            </View>
+          );
+        })()}
+
         {/* EXPANDED */}
         {expanded ? (
           <View style={styles.expandedWrap}>
@@ -746,69 +834,6 @@ var PositionCard = React.memo(function PositionCard(props) {
                 <Text style={[styles.actionBtnText, { color: C.accent }]}>Mais</Text>
               </TouchableOpacity>
             </View>
-            {/* ▶ META inline */}
-            {(function() {
-              var metaValorRef = tickerValorTotal != null ? tickerValorTotal : valorAtual;
-              var pctAtualTotal = totalPortfolio > 0 ? (metaValorRef / totalPortfolio) * 100 : 0;
-              var hasMeta = tickerMeta != null && tickerMeta !== '';
-              var metaVal = hasMeta ? parseFloat(tickerMeta) : 0;
-              var diff = hasMeta ? pctAtualTotal - metaVal : 0;
-              var diffColor = Math.abs(diff) < 0.5 ? C.green : diff > 0 ? C.etfs : C.red;
-              return (
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 8 }}>
-                  <Ionicons name="flag-outline" size={13} color={C.etfs} />
-                  <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body }}>Atual</Text>
-                  <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono }}>{pctAtualTotal.toFixed(1) + '%'}</Text>
-                  <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body }}>Meta</Text>
-                  {metaEditing ? (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <TextInput
-                        style={{ width: 48, height: 26, borderRadius: 6, borderWidth: 1, borderColor: C.etfs + '60',
-                          backgroundColor: C.bg, color: C.text, fontSize: 12, fontFamily: F.mono, textAlign: 'center', paddingVertical: 0 }}
-                        value={metaInput}
-                        onChangeText={setMetaInput}
-                        keyboardType="decimal-pad"
-                        autoFocus
-                        maxLength={5}
-                        returnKeyType="done"
-                        onSubmitEditing={function() {
-                          var v = metaInput.replace(',', '.');
-                          if (v === '' || isNaN(parseFloat(v))) {
-                            if (onSetMeta) onSetMeta(pos.ticker, null);
-                          } else {
-                            if (onSetMeta) onSetMeta(pos.ticker, parseFloat(v));
-                          }
-                          setMetaEditing(false);
-                        }}
-                        onBlur={function() {
-                          var v = metaInput.replace(',', '.');
-                          if (v === '' || isNaN(parseFloat(v))) {
-                            if (onSetMeta) onSetMeta(pos.ticker, null);
-                          } else {
-                            if (onSetMeta) onSetMeta(pos.ticker, parseFloat(v));
-                          }
-                          setMetaEditing(false);
-                        }}
-                      />
-                      <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>%</Text>
-                    </View>
-                  ) : (
-                    <TouchableOpacity onPress={function() { setMetaInput(hasMeta ? String(metaVal) : ''); setMetaEditing(true); }}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                      <Text style={{ fontSize: 12, color: hasMeta ? C.text : C.dim, fontFamily: F.mono }}>
-                        {hasMeta ? metaVal.toFixed(1) + '%' : '–'}
-                      </Text>
-                      <Ionicons name="pencil-outline" size={11} color={C.dim} />
-                    </TouchableOpacity>
-                  )}
-                  {hasMeta && !metaEditing ? (
-                    <Text style={{ fontSize: 11, fontFamily: F.mono, color: diffColor }}>
-                      {(diff >= 0 ? '+' : '') + diff.toFixed(1) + '%'}
-                    </Text>
-                  ) : null}
-                </View>
-              );
-            })()}
           </View>
         ) : null}
       </Glass>
@@ -941,6 +966,7 @@ export default function CarteiraScreen(props) {
   var _aiUsage = useState(null); var aiUsage = _aiUsage[0]; var setAiUsage = _aiUsage[1];
   var _aiSaving = useState(false); var aiSaving = _aiSaving[0]; var setAiSaving = _aiSaving[1];
   var _aiConfirmVisible = useState(false); var aiConfirmVisible = _aiConfirmVisible[0]; var setAiConfirmVisible = _aiConfirmVisible[1];
+  var _pendingAiCard = useState(null); var pendingAiCard = _pendingAiCard[0]; var setPendingAiCard = _pendingAiCard[1];
   var _snapshots = useState([]); var snapshots = _snapshots[0]; var setSnapshots = _snapshots[1];
   var _selicRate = useState(13.25); var selicRate = _selicRate[0]; var setSelicRate = _selicRate[1];
   var _ibovHist = useState([]); var ibovHist = _ibovHist[0]; var setIbovHist = _ibovHist[1];
@@ -1090,12 +1116,21 @@ export default function CarteiraScreen(props) {
     }).catch(function() {});
 
     // Fire-and-forget: snapshots, selic, ibov for perf chart
+    var snapshotPfId = portfolioId || null;
     Promise.all([
-      getPatrimonioSnapshots(user.id),
+      getPatrimonioSnapshots(user.id, snapshotPfId),
       getProfile(user.id),
     ]).then(function(perfResults) {
       var snaps = perfResults[0] || [];
-      setSnapshots(snaps.map(function(s) { return { date: s.data, value: s.valor }; }));
+      if (snaps.length < 2 && snapshotPfId) {
+        // Fallback: per-portfolio sem dados suficientes, usar snapshots globais
+        getPatrimonioSnapshots(user.id, null).then(function(globalSnaps) {
+          var gs = globalSnaps || [];
+          setSnapshots(gs.map(function(s) { return { date: s.data, value: s.valor }; }));
+        }).catch(function() {});
+      } else {
+        setSnapshots(snaps.map(function(s) { return { date: s.data, value: s.valor }; }));
+      }
       var profResult = perfResults[1];
       var prof = profResult && profResult.data;
       if (prof && prof.selic) setSelicRate(parseFloat(prof.selic) || 13.25);
@@ -1231,7 +1266,7 @@ export default function CarteiraScreen(props) {
   var isPosRealizado = plRealizado >= 0;
 
   // Allocation by class
-  var allocMap = { acao: 0, fii: 0, etf: 0, stock_int: 0, rf: totalRF };
+  var allocMap = { acao: 0, fii: 0, etf: 0, bdr: 0, stock_int: 0, adr: 0, reit: 0, rf: totalRF };
   positions.forEach(function (p) {
     var cat = p.categoria || '';
     if (allocMap[cat] !== undefined) allocMap[cat] += p.quantidade * (p.preco_atual || p.pm);
@@ -1737,7 +1772,7 @@ export default function CarteiraScreen(props) {
 
             // Per-category weekly returns (from snapshots proportional split)
             var catReturns = {};
-            var catKeys = ['acao', 'fii', 'etf', 'stock_int', 'rf'];
+            var catKeys = ['acao', 'fii', 'etf', 'bdr', 'stock_int', 'adr', 'reit', 'rf'];
             if (allocTotal > 0) {
               for (var ck = 0; ck < catKeys.length; ck++) {
                 var catKey = catKeys[ck];
@@ -2024,12 +2059,12 @@ export default function CarteiraScreen(props) {
             canAccessFund={sub.canAccess('FUNDAMENTALS')}
             portfoliosList={portfoliosList}
             showPortfolioBadge={!portfolioId && portfoliosList.length > 0}
-            onAiAnalysis={sub.canAccess('AI_ANALYSIS') ? function () { nav('AssetDetail', { ticker: pos.ticker, mercado: pos.mercado, autoAi: true }); } : null}
+            onAiAnalysis={sub.canAccess('AI_ANALYSIS') ? function () { setPendingAiCard({ ticker: pos.ticker, mercado: pos.mercado }); setAiConfirmVisible(true); } : null}
             onToggle={function () { toggleExpand(key, pos.ticker, pos.mercado); }}
             onBuy={function () { nav('AddOperacao', { ticker: pos.ticker, tipo: 'compra', categoria: pos.categoria }); }}
             onSell={function () { nav('AddOperacao', { ticker: pos.ticker, tipo: 'venda', categoria: pos.categoria }); }}
             onLancarOpcao={function () { nav('AddOpcao', { ativo_base: pos.ticker }); }}
-            onTransacoes={function () { nav('AssetDetail', { ticker: pos.ticker, mercado: pos.mercado }); }}
+            onTransacoes={function () { nav('AssetDetail', { ticker: pos.ticker, mercado: pos.mercado, portfolioId: portfolioId }); }}
             tickerMeta={tickerMetas[pos.ticker]}
             totalPortfolio={totalValue}
             tickerValorTotal={corrFilter ? (function() {
@@ -2094,7 +2129,7 @@ export default function CarteiraScreen(props) {
                 var plColor = e.pl_realizado >= 0 ? C.green : C.red;
                 var plIcon = e.pl_realizado >= 0 ? '▲' : '▼';
                 var plLabel = e.pl_realizado >= 0 ? 'LUCRO' : 'PREJUÍZO';
-                var catColor = e.categoria === 'acao' ? C.acoes : e.categoria === 'fii' ? C.fiis : e.categoria === 'etf' ? C.etfs : e.categoria === 'stock_int' ? C.stock_int : C.accent;
+                var catColor = e.categoria === 'acao' ? C.acoes : e.categoria === 'fii' ? C.fiis : e.categoria === 'etf' ? C.etfs : e.categoria === 'bdr' ? C.bdr : e.categoria === 'stock_int' ? C.stock_int : e.categoria === 'adr' ? C.adr : e.categoria === 'reit' ? C.reit : C.accent;
                 var eIsInt = e.mercado === 'INT';
                 var eSymbol = eIsInt ? 'US$' : 'R$';
                 var pmCompra = e.total_comprado > 0 ? e.custo_compras / e.total_comprado : 0;
@@ -2269,9 +2304,20 @@ export default function CarteiraScreen(props) {
     {/* AI Confirm Modal */}
     <AiConfirmModal
       visible={aiConfirmVisible}
-      analysisType="Análise da carteira"
-      onCancel={function() { setAiConfirmVisible(false); }}
-      onConfirm={function() { setAiConfirmVisible(false); handleAiCarteira(); }}
+      navigation={navigation}
+      analysisType={pendingAiCard ? ('Análise IA de ' + pendingAiCard.ticker) : 'Análise da carteira'}
+      onCancel={function() { setAiConfirmVisible(false); setPendingAiCard(null); }}
+      onConfirm={function() {
+        setAiConfirmVisible(false);
+        if (pendingAiCard) {
+          var t = pendingAiCard.ticker;
+          var m = pendingAiCard.mercado;
+          setPendingAiCard(null);
+          nav('AssetDetail', { ticker: t, mercado: m, autoAi: true, portfolioId: portfolioId });
+        } else {
+          handleAiCarteira();
+        }
+      }}
     />
 
     {/* AI Modal */}
