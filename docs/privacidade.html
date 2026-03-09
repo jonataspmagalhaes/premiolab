@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Política de Privacidade — PremioLab</title>
+  <meta name="description" content="Política de Privacidade do PremioLab. Saiba como coletamos, usamos e protegemos seus dados.">
+  <meta name="theme-color" content="#070a11">
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #070a11; --card: #111827; --accent: #6C5CE7; --accent-light: #8B7BFF;
+      --text: #f1f1f4; --text-sec: #8888aa; --text-ter: #666688; --radius: 16px;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.7;
+    }
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: rgba(7, 10, 17, 0.9); backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(108, 92, 231, 0.15); padding: 0 24px;
+    }
+    .nav-inner {
+      max-width: 800px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between; height: 64px;
+    }
+    .nav-logo { display: flex; align-items: center; text-decoration: none; }
+    .nav-logo img { height: 32px; width: auto; }
+    .nav-back {
+      color: var(--text-sec); text-decoration: none; font-size: 14px; font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-back:hover { color: var(--text); }
+
+    .content {
+      max-width: 800px; margin: 0 auto; padding: 100px 24px 60px;
+    }
+    h1 {
+      font-size: 32px; font-weight: 700; margin-bottom: 8px;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent-light) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .date { font-size: 14px; color: var(--text-ter); margin-bottom: 40px; }
+    h2 { font-size: 20px; font-weight: 600; margin: 36px 0 12px; color: var(--accent-light); }
+    p, li { font-size: 15px; color: var(--text-sec); margin-bottom: 12px; }
+    ul { padding-left: 20px; }
+    li { margin-bottom: 8px; }
+    a { color: var(--accent-light); }
+    strong { color: var(--text); font-weight: 600; }
+
+    footer {
+      border-top: 1px solid rgba(255,255,255,0.06); padding: 32px 24px;
+      text-align: center;
+    }
+    .footer-links { display: flex; gap: 24px; justify-content: center; }
+    .footer-links a { color: var(--text-ter); text-decoration: none; font-size: 13px; }
+    .footer-links a:hover { color: var(--text-sec); }
+    .footer-copy { font-size: 13px; color: var(--text-ter); margin-top: 12px; }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <div class="nav-inner">
+      <a href="/" class="nav-logo"><img src="logo-header.png" alt="PremioLab"></a>
+      <a href="/" class="nav-back">&larr; Voltar ao site</a>
+    </div>
+  </nav>
+
+  <div class="content">
+    <h1>Política de Privacidade</h1>
+    <p class="date">Última atualização: 9 de março de 2026</p>
+
+    <p>O PremioLab ("nós", "nosso" ou "app") respeita sua privacidade. Esta política explica quais dados coletamos, como os usamos e como os protegemos.</p>
+
+    <h2>1. Dados que Coletamos</h2>
+    <p><strong>Dados de conta:</strong> ao se registrar, coletamos nome, e-mail, senha (hash criptográfico), país, cidade, data de nascimento e sexo. Esses dados são necessários para criar e gerenciar sua conta.</p>
+    <p><strong>Dados financeiros:</strong> operações de compra e venda, posições em opções, renda fixa, proventos, saldos de corretora, cartões de crédito, movimentações financeiras, orçamentos e transações recorrentes. Todos esses dados são inseridos voluntariamente por você e armazenados de forma segura.</p>
+    <p><strong>Dados de uso:</strong> informações sobre como você interage com o app, incluindo telas visitadas, features utilizadas e timestamps de acesso. Não rastreamos sua localização.</p>
+    <p><strong>Dados de dispositivo:</strong> identificador único de instalação (UUID anônimo), plataforma (iOS/Android), token de push notification. Usados para funcionalidades do app e prevenção de fraude.</p>
+
+    <h2>2. Como Usamos seus Dados</h2>
+    <ul>
+      <li><strong>Funcionalidades do app:</strong> exibir sua carteira, calcular indicadores, gerar relatórios, sincronizar proventos automaticamente.</li>
+      <li><strong>Inteligência Artificial:</strong> quando você solicita uma análise IA, seus dados de portfólio são enviados de forma segura para o modelo Claude (Anthropic) via nossa Edge Function. Nenhum dado é armazenado pela Anthropic.</li>
+      <li><strong>Notificações:</strong> enviamos push notifications sobre vencimentos de opções, alertas de preço e resumos da carteira, conforme suas preferências.</li>
+      <li><strong>Backup:</strong> realizamos backups automáticos diários dos seus dados com retenção de 30 dias para proteção contra perda acidental.</li>
+      <li><strong>Melhoria do serviço:</strong> dados agregados e anonimizados podem ser usados para melhorar o app.</li>
+    </ul>
+
+    <h2>3. Compartilhamento de Dados</h2>
+    <p>Não vendemos, alugamos ou compartilhamos seus dados pessoais com terceiros para fins de marketing. Seus dados podem ser compartilhados apenas com:</p>
+    <ul>
+      <li><strong>Supabase:</strong> nosso provedor de banco de dados e autenticação (PostgreSQL com Row Level Security).</li>
+      <li><strong>Anthropic (Claude):</strong> quando você solicita análises IA, dados do portfólio são processados via API segura.</li>
+      <li><strong>brapi.dev:</strong> consultamos cotações de ativos brasileiros. Apenas tickers são enviados, sem dados pessoais.</li>
+      <li><strong>Yahoo Finance:</strong> consultamos cotações de ativos internacionais. Apenas tickers são enviados.</li>
+      <li><strong>OpLab:</strong> consultamos cadeias de opções da B3. Apenas tickers são enviados.</li>
+      <li><strong>RevenueCat:</strong> gerenciamento de assinaturas in-app (quando ativado).</li>
+      <li><strong>Expo (Expo Push API):</strong> envio de notificações push.</li>
+    </ul>
+
+    <h2>4. Segurança</h2>
+    <p>Adotamos medidas de segurança para proteger seus dados:</p>
+    <ul>
+      <li>Autenticação via Supabase Auth com senhas em hash criptográfico (bcrypt).</li>
+      <li>Row Level Security (RLS) em todas as tabelas — cada usuário só acessa seus próprios dados.</li>
+      <li>Comunicação via HTTPS/TLS em todas as requisições.</li>
+      <li>Chaves de API armazenadas como secrets no servidor (nunca expostas ao client).</li>
+      <li>Backups criptografados com retenção limitada (30 dias).</li>
+    </ul>
+
+    <h2>5. Seus Direitos</h2>
+    <p>Você pode, a qualquer momento:</p>
+    <ul>
+      <li><strong>Acessar</strong> seus dados através do app (tela de perfil, backup).</li>
+      <li><strong>Corrigir</strong> seus dados pessoais na tela de perfil.</li>
+      <li><strong>Exportar</strong> seus dados em formato CSV através dos relatórios.</li>
+      <li><strong>Excluir</strong> sua conta e todos os dados associados entrando em contato conosco.</li>
+    </ul>
+    <p>Para exercer qualquer desses direitos, entre em contato pelo e-mail <a href="mailto:jonataspmagalhaes@gmail.com">jonataspmagalhaes@gmail.com</a>.</p>
+
+    <h2>6. Retenção de Dados</h2>
+    <p>Seus dados são mantidos enquanto sua conta estiver ativa. Ao solicitar a exclusão da conta, todos os dados são removidos permanentemente em até 30 dias.</p>
+    <p>Backups automáticos são retidos por no máximo 30 dias e apagados automaticamente após esse período.</p>
+
+    <h2>7. Cookies e Rastreamento</h2>
+    <p>O PremioLab é um aplicativo móvel nativo e <strong>não utiliza cookies</strong>. Não integramos ferramentas de rastreamento de terceiros (como Google Analytics ou Facebook Pixel) no app.</p>
+
+    <h2>8. Menores de Idade</h2>
+    <p>O PremioLab não é direcionado a menores de 18 anos. Não coletamos intencionalmente dados de menores. Se tomarmos conhecimento de que coletamos dados de um menor, eles serão excluídos imediatamente.</p>
+
+    <h2>9. Alterações nesta Política</h2>
+    <p>Podemos atualizar esta política periodicamente. Alterações significativas serão comunicadas via notificação no app ou e-mail. A data da última atualização está indicada no topo desta página.</p>
+
+    <h2>10. Contato</h2>
+    <p>Para dúvidas sobre esta política ou sobre seus dados, entre em contato:</p>
+    <p><strong>E-mail:</strong> <a href="mailto:jonataspmagalhaes@gmail.com">jonataspmagalhaes@gmail.com</a></p>
+  </div>
+
+  <footer>
+    <div class="footer-links">
+      <a href="/">Início</a>
+      <a href="termos.html">Termos de Uso</a>
+      <a href="mailto:jonataspmagalhaes@gmail.com">Contato</a>
+    </div>
+    <div class="footer-copy">&copy; 2025 PremioLab. Todos os direitos reservados.</div>
+  </footer>
+
+</body>
+</html>
