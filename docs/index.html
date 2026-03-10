@@ -4,13 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PremioLab — Sua carteira de investimentos completa</title>
-  <meta name="description" content="PremioLab: app de investimentos para o mercado brasileiro. Carteira, opções com Black-Scholes, proventos, renda fixa, análise técnica e IA. Tudo em um só lugar.">
+  <meta name="description" content="PremioLab: app completo para investidores. Ações, FIIs, ETFs, opções, renda fixa, stocks internacionais, proventos e finanças pessoais. Análise técnica e IA.">
   <meta name="theme-color" content="#070a11">
   <link rel="icon" type="image/png" href="icon-192.png">
 
   <!-- Open Graph -->
   <meta property="og:title" content="PremioLab — Sua carteira de investimentos completa">
-  <meta property="og:description" content="Acompanhe ações, FIIs, ETFs, opções, renda fixa e proventos. Análise técnica, IA e muito mais.">
+  <meta property="og:description" content="8 tipos de ativos, análise técnica, IA, proventos automáticos, finanças pessoais e muito mais. Tudo em um só app.">
   <meta property="og:image" content="https://premiolab.com.br/og-image.png">
   <meta property="og:url" content="https://premiolab.com.br/">
   <meta property="og:type" content="website">
@@ -103,7 +103,7 @@
       pointer-events: none;
     }
     .hero-inner {
-      max-width: 800px; text-align: center; position: relative; z-index: 1;
+      max-width: 840px; text-align: center; position: relative; z-index: 1;
     }
     .hero-badge {
       display: inline-flex; align-items: center; gap: 8px;
@@ -113,14 +113,14 @@
     }
     .hero-badge .dot { width: 6px; height: 6px; background: var(--green); border-radius: 50%; }
     h1 {
-      font-size: clamp(36px, 6vw, 60px); font-weight: 700;
+      font-size: clamp(36px, 6vw, 56px); font-weight: 700;
       line-height: 1.1; margin-bottom: 20px;
       background: linear-gradient(135deg, var(--text) 0%, var(--accent-light) 100%);
       -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       background-clip: text;
     }
     .hero p {
-      font-size: 18px; color: var(--text-sec); max-width: 560px; margin: 0 auto 36px;
+      font-size: 18px; color: var(--text-sec); max-width: 600px; margin: 0 auto 36px;
       line-height: 1.7;
     }
     .hero-buttons { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
@@ -135,7 +135,7 @@
     .btn-outline:hover { border-color: var(--accent); color: var(--accent-light); }
     .btn svg { width: 20px; height: 20px; }
 
-    /* ---- FEATURES ---- */
+    /* ---- SECTIONS ---- */
     .section { padding: 80px 24px; }
     .section-inner { max-width: 1100px; margin: 0 auto; }
     .section-label {
@@ -148,9 +148,25 @@
     }
     .section-sub {
       font-size: 16px; color: var(--text-sec); text-align: center;
-      max-width: 560px; margin: 0 auto 48px;
+      max-width: 600px; margin: 0 auto 48px;
     }
 
+    /* ---- ASSET TYPES STRIP ---- */
+    .assets-strip {
+      display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;
+      margin-bottom: 56px;
+    }
+    .asset-chip {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--card); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px; padding: 10px 18px;
+      font-size: 14px; font-weight: 600; color: var(--text);
+      transition: border-color 0.3s, transform 0.3s;
+    }
+    .asset-chip:hover { border-color: rgba(108,92,231,0.3); transform: translateY(-2px); }
+    .asset-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ---- FEATURES GRID ---- */
     .features-grid {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
       gap: 20px;
@@ -182,6 +198,9 @@
     .icon-int { background: rgba(232, 121, 249, 0.15); }
     .icon-fin { background: rgba(34, 197, 94, 0.15); }
     .icon-widget { background: rgba(6, 182, 212, 0.15); }
+    .icon-import { background: rgba(59, 130, 246, 0.15); }
+    .icon-report { background: rgba(245, 158, 11, 0.15); }
+    .icon-backup { background: rgba(139, 92, 246, 0.15); }
 
     /* ---- HIGHLIGHT SECTION ---- */
     .highlight {
@@ -200,38 +219,74 @@
     }
     .stat-label { font-size: 14px; color: var(--text-sec); margin-top: 4px; }
 
-    /* ---- OPCOES DETAIL ---- */
+    /* ---- DETAIL GRID (2 cols) ---- */
     .detail-grid {
       display: grid; grid-template-columns: 1fr 1fr; gap: 40px;
-      align-items: center;
+      align-items: center; margin-bottom: 64px;
     }
-    .detail-text h3 { font-size: 28px; font-weight: 700; margin-bottom: 16px; }
-    .detail-text p { color: var(--text-sec); margin-bottom: 20px; line-height: 1.7; }
+    .detail-grid:last-child { margin-bottom: 0; }
+    .detail-grid.reverse { direction: rtl; }
+    .detail-grid.reverse > * { direction: ltr; }
+    .detail-text h3 { font-size: 26px; font-weight: 700; margin-bottom: 14px; }
+    .detail-text p { color: var(--text-sec); margin-bottom: 18px; line-height: 1.7; font-size: 15px; }
     .detail-list { list-style: none; }
     .detail-list li {
       display: flex; align-items: flex-start; gap: 10px;
-      padding: 8px 0; font-size: 15px; color: var(--text-sec);
+      padding: 6px 0; font-size: 14px; color: var(--text-sec);
     }
-    .detail-list .check { color: var(--green); font-size: 18px; flex-shrink: 0; }
+    .detail-list .check { color: var(--green); font-size: 16px; flex-shrink: 0; }
     .detail-visual {
       background: var(--card);
       border: 1px solid rgba(255,255,255,0.06);
-      border-radius: var(--radius); padding: 32px;
+      border-radius: var(--radius); padding: 12px;
       text-align: center;
+      display: flex; align-items: center; justify-content: center;
     }
-    .detail-visual .mock-label {
-      font-size: 13px; color: var(--text-ter); text-transform: uppercase;
-      letter-spacing: 1px; margin-bottom: 16px;
+    .detail-visual img {
+      width: 100%; max-width: 320px; border-radius: 12px;
+      object-fit: contain;
     }
-    .greeks-grid {
-      display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;
+    .detail-visual .img-placeholder {
+      width: 100%; max-width: 320px; aspect-ratio: 9/16;
+      border-radius: 12px; background: rgba(108, 92, 231, 0.08);
+      border: 2px dashed rgba(108, 92, 231, 0.2);
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 8px;
     }
-    .greek-item {
-      background: rgba(108, 92, 231, 0.08);
-      border-radius: var(--radius-sm); padding: 14px;
+    .img-placeholder .ph-icon { font-size: 36px; opacity: 0.4; }
+    .img-placeholder .ph-text { font-size: 12px; color: var(--text-ter); }
+
+    /* ---- SCREENSHOTS GALLERY ---- */
+    .screenshots-gallery {
+      display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;
+      margin-top: 56px;
     }
-    .greek-item .label { font-size: 11px; color: var(--text-ter); text-transform: uppercase; letter-spacing: 1px; }
-    .greek-item .value { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 600; color: var(--accent-light); margin-top: 4px; }
+    .screenshot-card {
+      background: var(--card);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: var(--radius); padding: 10px;
+      text-align: center; width: 180px;
+      transition: border-color 0.3s, transform 0.3s;
+    }
+    .screenshot-card:hover {
+      border-color: rgba(108, 92, 231, 0.3);
+      transform: translateY(-4px);
+    }
+    .screenshot-card img {
+      width: 100%; border-radius: 10px; object-fit: contain;
+    }
+    .screenshot-card .img-placeholder {
+      width: 100%; aspect-ratio: 9/16;
+      border-radius: 10px; background: rgba(108, 92, 231, 0.08);
+      border: 2px dashed rgba(108, 92, 231, 0.2);
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 6px;
+    }
+    .screenshot-card .ph-icon { font-size: 28px; opacity: 0.4; }
+    .screenshot-card .ph-text { font-size: 10px; color: var(--text-ter); }
+    .screenshot-card .sc-label {
+      font-size: 12px; color: var(--text-sec); margin-top: 8px; font-weight: 600;
+    }
 
     /* ---- TIERS ---- */
     .tiers-grid {
@@ -299,18 +354,28 @@
     /* ---- RESPONSIVE ---- */
     @media (max-width: 768px) {
       .nav-links { display: none; }
-      .detail-grid { grid-template-columns: 1fr; }
+      .detail-grid, .detail-grid.reverse { grid-template-columns: 1fr; direction: ltr; }
       .stats-row { gap: 32px; }
       .stat-value { font-size: 28px; }
       .hero { padding: 100px 20px 40px; }
+      .assets-strip { gap: 10px; }
+      .asset-chip { padding: 8px 14px; font-size: 13px; }
     }
 
     /* ---- ANIMATIONS ---- */
     @media (prefers-reduced-motion: no-preference) {
-      .feature-card, .tier-card, .detail-visual {
+      .feature-card, .tier-card, .detail-visual, .asset-chip {
         opacity: 0; transform: translateY(20px);
         animation: fadeUp 0.6s ease forwards;
       }
+      .asset-chip:nth-child(1) { animation-delay: 0.02s; }
+      .asset-chip:nth-child(2) { animation-delay: 0.06s; }
+      .asset-chip:nth-child(3) { animation-delay: 0.10s; }
+      .asset-chip:nth-child(4) { animation-delay: 0.14s; }
+      .asset-chip:nth-child(5) { animation-delay: 0.18s; }
+      .asset-chip:nth-child(6) { animation-delay: 0.22s; }
+      .asset-chip:nth-child(7) { animation-delay: 0.26s; }
+      .asset-chip:nth-child(8) { animation-delay: 0.30s; }
       .feature-card:nth-child(1) { animation-delay: 0.05s; }
       .feature-card:nth-child(2) { animation-delay: 0.1s; }
       .feature-card:nth-child(3) { animation-delay: 0.15s; }
@@ -320,6 +385,9 @@
       .feature-card:nth-child(7) { animation-delay: 0.35s; }
       .feature-card:nth-child(8) { animation-delay: 0.4s; }
       .feature-card:nth-child(9) { animation-delay: 0.45s; }
+      .feature-card:nth-child(10) { animation-delay: 0.5s; }
+      .feature-card:nth-child(11) { animation-delay: 0.55s; }
+      .feature-card:nth-child(12) { animation-delay: 0.6s; }
       @keyframes fadeUp {
         to { opacity: 1; transform: translateY(0); }
       }
@@ -335,8 +403,9 @@
         <img src="logo-header.png" alt="PremioLab" class="nav-logo-img">
       </a>
       <div class="nav-links">
+        <a href="#ativos">Ativos</a>
         <a href="#features">Features</a>
-        <a href="#opcoes">Opções</a>
+        <a href="#destaques">Destaques</a>
         <a href="#planos">Planos</a>
         <a href="#" class="nav-cta">Baixar App</a>
       </div>
@@ -350,14 +419,14 @@
         <span class="dot"></span>
         Disponível na App Store
       </div>
-      <h1>Seus investimentos. Suas opções. Um só app.</h1>
-      <p>Acompanhe carteira, opções com Black-Scholes, proventos, renda fixa e análise técnica com inteligência artificial. Feito para o investidor brasileiro.</p>
+      <h1>Todos os seus investimentos. Um só app.</h1>
+      <p>Ações, FIIs, opções, renda fixa, stocks internacionais, proventos e finanças pessoais. Análise técnica, IA e relatórios completos para o investidor brasileiro.</p>
       <div class="hero-buttons">
         <a href="#" class="btn btn-primary">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
           App Store
         </a>
-        <a href="#features" class="btn btn-outline">Conhecer features</a>
+        <a href="#ativos" class="btn btn-outline">Conhecer o app</a>
       </div>
     </div>
   </section>
@@ -367,15 +436,15 @@
     <div class="section-inner">
       <div class="stats-row">
         <div class="stat">
-          <div class="stat-value">5</div>
-          <div class="stat-label">Classes de ativos</div>
+          <div class="stat-value">8</div>
+          <div class="stat-label">Tipos de ativos</div>
         </div>
         <div class="stat">
           <div class="stat-value">15+</div>
           <div class="stat-label">Indicadores técnicos</div>
         </div>
         <div class="stat">
-          <div class="stat-value">B3 + NYSE</div>
+          <div class="stat-value">Global</div>
           <div class="stat-label">Mercados suportados</div>
         </div>
         <div class="stat">
@@ -386,8 +455,46 @@
     </div>
   </section>
 
+  <!-- 8 TIPOS DE ATIVOS -->
+  <section class="section" id="ativos">
+    <div class="section-inner">
+      <div class="section-label">Ativos suportados</div>
+      <h2 class="section-title">8 tipos de ativos em um só lugar</h2>
+      <p class="section-sub">Cadastre e acompanhe todos os seus investimentos, do Brasil ao mundo.</p>
+
+      <div class="assets-strip">
+        <div class="asset-chip"><span class="asset-dot" style="background: var(--blue)"></span> Ações BR</div>
+        <div class="asset-chip"><span class="asset-dot" style="background: var(--fii)"></span> FIIs</div>
+        <div class="asset-chip"><span class="asset-dot" style="background: var(--etf)"></span> ETFs BR</div>
+        <div class="asset-chip"><span class="asset-dot" style="background: var(--opcoes)"></span> Opções</div>
+        <div class="asset-chip"><span class="asset-dot" style="background: var(--fuchsia)"></span> Stocks Internacionais</div>
+        <div class="asset-chip"><span class="asset-dot" style="background: var(--fuchsia)"></span> ETFs Internacionais</div>
+        <div class="asset-chip"><span class="asset-dot" style="background: var(--cyan)"></span> Renda Fixa</div>
+        <div class="asset-chip"><span class="asset-dot" style="background: var(--fii)"></span> Proventos</div>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon icon-carteira">📊</div>
+          <h3>Ações e FIIs</h3>
+          <p>Preço médio multi-corretora, treemap de calor com variação diária, alocação por classe, benchmark vs CDI e indicadores fundamentalistas.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon icon-int">🌎</div>
+          <h3>Stocks e ETFs Internacionais</h3>
+          <p>Cotações em tempo real, conversão USD/BRL automática, cálculo de IR separado e beta vs S&P 500. Qualquer bolsa global.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon icon-rf">🏦</div>
+          <h3>Renda Fixa</h3>
+          <p>CDB, LCI/LCA, Tesouro Direto e debêntures. Indexadores CDI, IPCA, Selic e prefixado com contagem regressiva de vencimento.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- FEATURES -->
-  <section class="section" id="features">
+  <section class="section highlight" id="features">
     <div class="section-inner">
       <div class="section-label">Features</div>
       <h2 class="section-title">Tudo que você precisa para investir melhor</h2>
@@ -395,107 +502,195 @@
 
       <div class="features-grid">
         <div class="feature-card">
-          <div class="feature-icon icon-carteira">📊</div>
+          <div class="feature-icon icon-carteira">💼</div>
           <h3>Carteira Completa</h3>
-          <p>Ações, FIIs, ETFs e stocks internacionais. Treemap de calor, alocação por classe, preço médio multi-corretora e benchmark vs CDI.</p>
+          <p>Patrimônio total, treemap heatmap, donut de alocação, cards expandíveis com indicadores fundamentalistas, multi-corretora e multi-portfolio.</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon icon-opcoes">📈</div>
           <h3>Opções com Gregas</h3>
-          <p>Black-Scholes completo, cadeia real da B3 via OpLab, payoff chart multi-leg, cobertura inteligente e simulador de cenários.</p>
+          <p>Black-Scholes, cadeia real da B3, payoff chart multi-leg, cobertura inteligente, simulador de cenários e presets de estratégias.</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon icon-renda">💰</div>
-          <h3>Proventos e Renda</h3>
-          <p>Auto-sync de dividendos, JCP e rendimentos de FIIs. Relatórios por tipo, por ativo e por corretora com evolução mensal.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon icon-rf">🏦</div>
-          <h3>Renda Fixa</h3>
-          <p>CDB, LCI/LCA, Tesouro Direto e debêntures. Indexadores CDI, IPCA, Selic e prefixado com contagem regressiva de vencimento.</p>
+          <h3>Proventos Automáticos</h3>
+          <p>Auto-sync de dividendos, JCP e rendimentos via múltiplas fontes. Relatórios por tipo, por ativo e por corretora com evolução mensal.</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon icon-analise">📉</div>
           <h3>Análise Técnica</h3>
-          <p>Gráfico SVG anotado com suportes, resistências, Bollinger, RSI, volume e movimento esperado. 15+ indicadores por ativo.</p>
+          <p>Gráfico SVG anotado com suportes, resistências, Bollinger, RSI, volume e movimento esperado. Comparativo entre ativos.</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon icon-ia">🤖</div>
           <h3>Inteligência Artificial</h3>
-          <p>Claude Haiku analisa suas opções com contexto do portfólio. Estratégias com sizing, regras B3, cobertura e cenários de saída.</p>
-        </div>
-        <div class="feature-card">
-          <div class="feature-icon icon-int">🌎</div>
-          <h3>Ativos Internacionais</h3>
-          <p>Stocks e ETFs de NYSE/NASDAQ com cotações via Yahoo Finance. Conversão USD/BRL automática e cálculo de IR separado.</p>
+          <p>Análise de opções e carteira com Claude. Resumo diário automático, estratégias com sizing, regras B3 e cenários de saída.</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon icon-fin">💳</div>
           <h3>Finanças Pessoais</h3>
-          <p>Orçamentos por categoria, transações recorrentes, cartões de crédito com cashback, gastos rápidos, PIX e parcelamento.</p>
+          <p>Orçamentos por categoria, transações recorrentes, cartões de crédito com cashback/pontos, PIX, parcelamento e gastos rápidos.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon icon-report">📋</div>
+          <h3>Relatórios e IR</h3>
+          <p>4 relatórios detalhados: dividendos, opções, operações e IR. Cálculo automático de DARF com isenção e prejuízo acumulado.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon icon-import">📥</div>
+          <h3>Importação de Dados</h3>
+          <p>Importe operações via CSV do CEI, Excel da B3, nota de corretagem ou CSV genérico. Detecção automática de formato e deduplicação.</p>
         </div>
         <div class="feature-card">
           <div class="feature-icon icon-widget">📱</div>
           <h3>Widgets e Notificações</h3>
-          <p>5 widgets iOS nativos (patrimônio, heatmap, vencimentos, renda, gastos). Push notifications para vencimentos e alertas de preço.</p>
+          <p>5 widgets iOS nativos: patrimônio, heatmap, vencimentos, renda e gastos. Push notifications para vencimentos e alertas de preço.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" style="background: rgba(59,130,246,0.15)">🔄</div>
+          <h3>Multi-Portfolio</h3>
+          <p>Até 5 portfólios para separar investimentos por pessoa ou objetivo: "Meu", "Esposa", "Previdência". Visão família com breakdown por portfolio.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" style="background: rgba(245,158,11,0.15)">📊</div>
+          <h3>Rebalanceamento</h3>
+          <p>Metas por classe, setor, market cap e ticker. Perfis pré-configurados (conservador, moderado, arrojado). Persistência no Supabase.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon icon-backup">💾</div>
+          <h3>Backup Automático</h3>
+          <p>Backup diário completo de todos os dados com retenção de 30 dias. Restaure qualquer data com um toque.</p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- OPCOES DETAIL -->
-  <section class="section highlight" id="opcoes">
+  <!-- DESTAQUES: 3 seções detalhadas lado a lado -->
+  <section class="section" id="destaques">
     <div class="section-inner">
+      <div class="section-label">Destaques</div>
+      <h2 class="section-title">Funcionalidades que fazem a diferença</h2>
+      <p class="section-sub">Cada detalhe pensado para quem leva investimentos a sério.</p>
+
+      <!-- Carteira -->
       <div class="detail-grid">
         <div class="detail-text">
-          <div class="section-label" style="text-align:left">Para quem opera opções</div>
-          <h3>Venda coberta, CSP e Wheel Strategy com confiança</h3>
-          <p>O PremioLab foi feito para quem vende opções e quer controlar prêmios, cobertura e gregas sem depender de planilhas.</p>
+          <h3 style="color: var(--blue)">Carteira inteligente</h3>
+          <p>Visualize seu patrimônio de forma profissional. Multi-corretora, multi-moeda, indicadores fundamentalistas e gráfico de evolução com snapshots reais.</p>
           <ul class="detail-list">
-            <li><span class="check">✓</span> Cadeia de opções real da B3 com bid/ask e volume</li>
-            <li><span class="check">✓</span> Gregas BS: Delta, Gamma, Theta, Vega e IV implícita</li>
-            <li><span class="check">✓</span> Cobertura inteligente por corretora (coberta, parcial, descoberta)</li>
-            <li><span class="check">✓</span> Payoff chart multi-leg com presets (spreads, iron condor, butterfly)</li>
-            <li><span class="check">✓</span> Simulador de cenários what-if com re-pricing em tempo real</li>
-            <li><span class="check">✓</span> Alertas de P&L e vencimento com push notifications</li>
-            <li><span class="check">✓</span> Análise IA com regras de cobertura, sizing e saída</li>
+            <li><span class="check">✓</span> Treemap heatmap com variação diária por ativo</li>
+            <li><span class="check">✓</span> Indicadores: P/L, P/VP, ROE, ROIC, D.Y. e mais</li>
+            <li><span class="check">✓</span> Sparkline de preços por ativo no card expandido</li>
+            <li><span class="check">✓</span> Benchmark vs CDI com retorno acumulado</li>
+            <li><span class="check">✓</span> Até 5 portfólios com visão família</li>
           </ul>
         </div>
         <div class="detail-visual">
-          <div class="mock-label">Gregas em tempo real</div>
-          <div class="greeks-grid">
-            <div class="greek-item">
-              <div class="label">Delta</div>
-              <div class="value">-0.32</div>
-            </div>
-            <div class="greek-item">
-              <div class="label">Gamma</div>
-              <div class="value">0.045</div>
-            </div>
-            <div class="greek-item">
-              <div class="label">Theta</div>
-              <div class="value">-R$ 12</div>
-            </div>
-            <div class="greek-item">
-              <div class="label">Vega</div>
-              <div class="value">0.18</div>
-            </div>
-            <div class="greek-item">
-              <div class="label">IV</div>
-              <div class="value" style="color: var(--yellow)">42.3%</div>
-            </div>
-            <div class="greek-item">
-              <div class="label">HV 20d</div>
-              <div class="value" style="color: var(--cyan)">35.1%</div>
-            </div>
+          <!-- Trocar por: <img src="screenshot-carteira.png" alt="Carteira PremioLab"> -->
+          <div class="img-placeholder">
+            <div class="ph-icon">💼</div>
+            <div class="ph-text">screenshot-carteira.png</div>
           </div>
         </div>
       </div>
+
+      <!-- Opções -->
+      <div class="detail-grid reverse">
+        <div class="detail-text">
+          <h3 style="color: var(--opcoes)">Opções com dados reais</h3>
+          <p>Cadeia de opções real da B3, gregas Black-Scholes, simulador multi-leg e análise IA. Feito para quem opera venda coberta, CSP e wheel strategy.</p>
+          <ul class="detail-list">
+            <li><span class="check">✓</span> Cadeia real com bid/ask, volume e IV</li>
+            <li><span class="check">✓</span> Gregas: Delta, Gamma, Theta, Vega</li>
+            <li><span class="check">✓</span> Payoff multi-leg com presets de estratégia</li>
+            <li><span class="check">✓</span> Cobertura inteligente por corretora</li>
+            <li><span class="check">✓</span> Alertas de preço e vencimento com push</li>
+            <li><span class="check">✓</span> Análise IA com sizing e regras B3</li>
+          </ul>
+        </div>
+        <div class="detail-visual">
+          <!-- Trocar por: <img src="screenshot-opcoes.png" alt="Opções PremioLab"> -->
+          <div class="img-placeholder">
+            <div class="ph-icon">📈</div>
+            <div class="ph-text">screenshot-opcoes.png</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- IA + Finanças -->
+      <div class="detail-grid">
+        <div class="detail-text">
+          <h3 style="color: var(--fuchsia)">IA e finanças pessoais</h3>
+          <p>Resumo diário automático da carteira com Claude. Controle completo de gastos, orçamentos, cartões de crédito e transações recorrentes.</p>
+          <ul class="detail-list">
+            <li><span class="check">✓</span> Resumo IA diário com ações urgentes e dicas</li>
+            <li><span class="check">✓</span> Análise sob demanda de carteira e opções</li>
+            <li><span class="check">✓</span> Orçamentos com alerta de estouro</li>
+            <li><span class="check">✓</span> Cartões de crédito com cashback e pontos</li>
+            <li><span class="check">✓</span> Gastos rápidos com widget na home screen</li>
+            <li><span class="check">✓</span> PIX, débito e parcelamento em até 12x</li>
+          </ul>
+        </div>
+        <div class="detail-visual">
+          <!-- Trocar por: <img src="screenshot-caixa.png" alt="Caixa PremioLab"> -->
+          <div class="img-placeholder">
+            <div class="ph-icon">💳</div>
+            <div class="ph-text">screenshot-caixa.png</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gallery -->
+      <div class="section-label" style="margin-top: 64px">Screenshots</div>
+      <h2 class="section-title">Veja o app em ação</h2>
+      <div class="screenshots-gallery">
+        <div class="screenshot-card">
+          <!-- Trocar por: <img src="screenshot-carteira.png" alt="Carteira"> -->
+          <div class="img-placeholder">
+            <div class="ph-icon">💼</div>
+            <div class="ph-text">carteira.png</div>
+          </div>
+          <div class="sc-label">Carteira</div>
+        </div>
+        <div class="screenshot-card">
+          <!-- Trocar por: <img src="screenshot-opcoes.png" alt="Opções"> -->
+          <div class="img-placeholder">
+            <div class="ph-icon">📈</div>
+            <div class="ph-text">opcoes.png</div>
+          </div>
+          <div class="sc-label">Opções Ativas</div>
+        </div>
+        <div class="screenshot-card">
+          <!-- Trocar por: <img src="screenshot-grade.png" alt="Grade de Opções"> -->
+          <div class="img-placeholder">
+            <div class="ph-icon">📊</div>
+            <div class="ph-text">grade.png</div>
+          </div>
+          <div class="sc-label">Grade de Opções</div>
+        </div>
+        <div class="screenshot-card">
+          <!-- Trocar por: <img src="screenshot-tecnica.png" alt="Análise Técnica"> -->
+          <div class="img-placeholder">
+            <div class="ph-icon">📉</div>
+            <div class="ph-text">tecnica.png</div>
+          </div>
+          <div class="sc-label">Análise Técnica</div>
+        </div>
+        <div class="screenshot-card">
+          <!-- Trocar por: <img src="screenshot-caixa.png" alt="Caixa"> -->
+          <div class="img-placeholder">
+            <div class="ph-icon">💳</div>
+            <div class="ph-text">caixa.png</div>
+          </div>
+          <div class="sc-label">Caixa</div>
+        </div>
+      </div>
+
     </div>
   </section>
 
   <!-- PLANOS -->
-  <section class="section" id="planos">
+  <section class="section highlight" id="planos">
     <div class="section-inner">
       <div class="section-label">Planos</div>
       <h2 class="section-title">Comece grátis, evolua quando quiser</h2>
@@ -522,9 +717,10 @@
             <li><span class="yes">✓</span> Posições ilimitadas</li>
             <li><span class="yes">✓</span> Opções ilimitadas</li>
             <li><span class="yes">✓</span> Gráfico técnico anotado</li>
-            <li><span class="yes">✓</span> Indicadores técnicos e fundamentalistas</li>
-            <li><span class="yes">✓</span> Relatórios e import CSV</li>
-            <li><span class="yes">✓</span> Finanças pessoais</li>
+            <li><span class="yes">✓</span> Indicadores fundamentalistas</li>
+            <li><span class="yes">✓</span> Relatórios, IR e import CSV</li>
+            <li><span class="yes">✓</span> Finanças pessoais completas</li>
+            <li><span class="yes">✓</span> Até 5 portfólios</li>
             <li><span class="no">✗</span> Análise IA Claude</li>
           </ul>
         </div>
@@ -534,11 +730,11 @@
           <ul class="tier-features">
             <li><span class="yes">✓</span> Tudo do PRO</li>
             <li><span class="yes">✓</span> Análise IA com Claude</li>
+            <li><span class="yes">✓</span> Resumo IA diário automático</li>
             <li><span class="yes">✓</span> Análises salvas</li>
-            <li><span class="yes">✓</span> Resumo IA diário/semanal</li>
+            <li><span class="yes">✓</span> Push notifications IA</li>
             <li><span class="yes">✓</span> Créditos extras de IA</li>
             <li><span class="yes">✓</span> Suporte prioritário</li>
-            <li><span class="yes">✓</span> Push notifications IA</li>
           </ul>
         </div>
       </div>
@@ -548,7 +744,7 @@
   <!-- CTA -->
   <section class="cta-section">
     <h2>Pronto para controlar seus investimentos?</h2>
-    <p>Baixe o PremioLab e comece a acompanhar sua carteira, opções e renda passiva hoje.</p>
+    <p>Baixe o PremioLab e acompanhe carteira, opções, proventos e finanças em um só lugar.</p>
     <a href="#" class="btn btn-primary" style="font-size: 18px; padding: 16px 36px;">
       <svg viewBox="0 0 24 24" fill="currentColor" style="width:22px;height:22px"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
       Baixar na App Store
