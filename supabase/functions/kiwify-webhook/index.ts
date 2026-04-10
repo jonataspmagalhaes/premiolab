@@ -123,27 +123,75 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Validacao do segredo (Kiwify envia token via query param ou header)
+    // Validacao do segredo (Kiwify envia token via query param ?token=)
     const url = new URL(req.url);
     const token = url.searchParams.get("token") || req.headers.get("x-kiwify-token") || "";
     if (webhookSecret && token !== webhookSecret) {
-      console.warn("kiwify-webhook: invalid token");
+      console.warn("kiwify-webhook: invalid token. got:", token, "expected length:", webhookSecret.length);
       return new Response(JSON.stringify({ error: "unauthorized" }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    const body: KiwifyOrder = await req.json();
-    const eventType = body.webhook_event_type || body.order_status || "unknown";
-    const email = body.Customer?.email || "";
-    const externalId = body.order_id || body.Subscription?.id || "";
-    const frequency = body.Subscription?.plan?.frequency;
+    // Pega body raw e tenta parsear como JSON
+    const rawBody = await req.text();
+    let body: any = {};
+    try {
+      body = JSON.parse(rawBody);
+    } catch (parseErr) {
+      console.warn("kiwify-webhook: invalid json body", rawBody.substring(0, 200));
+      return new Response(JSON.stringify({ error: "invalid json" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
-    console.log("kiwify-webhook event:", eventType, "email:", email);
+    // Log completo do payload (so na primeira semana, tirar depois) para debug do formato
+    console.log("kiwify-webhook RAW:", JSON.stringify(body));
+
+    // Kiwify pode enviar o evento em multiplos campos/idiomas
+    const eventType: string = (
+      body.webhook_event_type ||
+      body.event ||
+      body.order_status ||
+      body.status ||
+      body.Subscription?.status ||
+      "unknown"
+    ).toString();
+
+    // Email pode estar em varios lugares
+    const email: string = (
+      body.Customer?.email ||
+      body.customer?.email ||
+      body.email ||
+      body.Customer?.Email ||
+      ""
+    ).toString().toLowerCase().trim();
+
+    // ID externo
+    const externalId: string = (
+      body.order_id ||
+      body.Subscription?.id ||
+      body.subscription_id ||
+      body.id ||
+      ""
+    ).toString();
+
+    // Frequencia (mensal/anual) — varios lugares possiveis
+    const frequency: string =
+      body.Subscription?.plan?.frequency ||
+      body.subscription?.plan?.frequency ||
+      body.plan?.frequency ||
+      body.frequency ||
+      body.product_name ||
+      "";
+
+    console.log("kiwify-webhook parsed:", { eventType, email, externalId, frequency });
 
     if (!email) {
-      return new Response(JSON.stringify({ error: "missing email" }), {
+      console.warn("kiwify-webhook: missing email in payload");
+      return new Response(JSON.stringify({ error: "missing email", received: Object.keys(body) }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
@@ -158,39 +206,47 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Mapeamento de eventos
-    const lower = eventType.toLowerCase();
+    // Normalizar evento — Kiwify pode enviar em pt-br ou en
+    const lower = eventType.toLowerCase().trim();
 
-    if (
-      lower === "order_approved" ||
-      lower === "approved" ||
-      lower === "subscription_renewed" ||
-      lower === "renewed"
-    ) {
+    // ─── Eventos que ATIVAM PRO ───
+    const grantEvents = [
+      "order_approved", "approved", "compra_aprovada", "compra aprovada",
+      "subscription_renewed", "renewed", "assinatura_renovada", "assinatura renovada",
+      "paid", "pago", "completed", "concluido",
+    ];
+
+    // ─── Eventos que REVOGAM PRO ───
+    const revokeEvents = [
+      "order_refunded", "refunded", "reembolso", "reembolsado",
+      "chargeback",
+      "subscription_canceled", "canceled", "cancelled", "assinatura_cancelada", "assinatura cancelada",
+      "subscription_late", "assinatura_atrasada", "assinatura atrasada", // atrasada = revoga (pode dar grace period futuramente)
+    ];
+
+    if (grantEvents.indexOf(lower) !== -1) {
       const expiresAt = calcExpiresAt(frequency);
       await grantPro(userId, expiresAt, externalId, "active");
+      console.log("kiwify-webhook: granted PRO to", email, "until", expiresAt);
       return new Response(
-        JSON.stringify({ ok: true, action: "grant_pro", user_id: userId, expires_at: expiresAt }),
+        JSON.stringify({ ok: true, action: "grant_pro", user_id: userId, email, expires_at: expiresAt }),
         { headers: { "Content-Type": "application/json" } }
       );
     }
 
-    if (
-      lower === "order_refunded" ||
-      lower === "refunded" ||
-      lower === "chargeback" ||
-      lower === "subscription_canceled" ||
-      lower === "canceled"
-    ) {
+    if (revokeEvents.indexOf(lower) !== -1) {
       await revokePro(userId, lower);
+      console.log("kiwify-webhook: revoked PRO from", email, "reason", lower);
       return new Response(
-        JSON.stringify({ ok: true, action: "revoke_pro", user_id: userId, reason: lower }),
+        JSON.stringify({ ok: true, action: "revoke_pro", user_id: userId, email, reason: lower }),
         { headers: { "Content-Type": "application/json" } }
       );
     }
 
+    // Evento nao reconhecido — apenas registra (nao falha)
+    console.log("kiwify-webhook: event not handled:", lower);
     return new Response(
-      JSON.stringify({ ok: true, action: "noop", event: lower }),
+      JSON.stringify({ ok: true, action: "noop", event: lower, message: "event not handled but webhook received" }),
       { headers: { "Content-Type": "application/json" } }
     );
   } catch (e) {
