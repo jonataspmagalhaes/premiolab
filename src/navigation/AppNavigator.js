@@ -65,6 +65,7 @@ import SimuladorFIIScreen from '../screens/simulador-fii/SimuladorFIIScreen';
 import CalendarioRendaScreen from '../screens/renda/CalendarioRendaScreen';
 import GeradorRendaScreen from '../screens/renda/GeradorRendaScreen';
 import AcoesScreen from '../screens/acoes/AcoesScreen';
+import RendaHomeScreen from '../screens/renda/RendaHomeScreen';
 import ConfigPortfoliosScreen from '../screens/mais/config/ConfigPortfoliosScreen';
 import ConfigPerfilInvestidorScreen from '../screens/mais/config/ConfigPerfilInvestidorScreen';
 import BackupScreen from '../screens/mais/config/BackupScreen';
@@ -176,12 +177,13 @@ function MainTabs() {
           tabBarShowLabel: false,
         }}
       >
+        {/* Tab 1 — Renda (ex-Home) — Fase E reescrita */}
         <Tab.Screen
           name="Home"
-          component={HomeScreen}
+          component={RendaHomeScreen}
           options={{
             tabBarIcon: function(p) {
-              return <TabIcon iconFocused="home" iconDefault="home-outline" label="Home" focused={p.focused} />;
+              return <TabIcon iconFocused="cash" iconDefault="cash-outline" label="Renda" focused={p.focused} />;
             },
           }}
         />
@@ -200,15 +202,6 @@ function MainTabs() {
           options={{
             tabBarIcon: function(p) {
               return <TabIcon iconFocused="trending-up" iconDefault="trending-up-outline" label="Opções" focused={p.focused} />;
-            },
-          }}
-        />
-        <Tab.Screen
-          name="Renda"
-          component={RendaScreen}
-          options={{
-            tabBarIcon: function(p) {
-              return <TabIcon iconFocused="cash" iconDefault="cash-outline" label="Renda" focused={p.focused} />;
             },
           }}
         />
