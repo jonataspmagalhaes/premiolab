@@ -1303,8 +1303,12 @@ export default function RendaHomeScreen(props) {
     });
   }
 
-  // Derivados
-  var patrimonio = computePatrimonio(positions, rf, saldos);
+  // Derivados — prefere patrimonio do getDashboard (ja aplica a regra
+  // 'saldos globais so entram em Todos' e faz FX pra posicoes INT).
+  // Fallback local enquanto dashData carrega.
+  var patrimonio = (dashData && typeof dashData.patrimonio === 'number')
+    ? dashData.patrimonio
+    : computePatrimonio(positions, rf, saldos);
   var rendaMedia = (forecast && forecast.summary && forecast.summary.mediaProjetada) || 0;
   var meta = (profile && profile.meta_mensal) || 0;
   var eventos7d = computeProximos7Dias(proventosList, opcoes);
