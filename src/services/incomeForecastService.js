@@ -209,7 +209,10 @@ function buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiC
     }
   }
 
-  // 2) Opcoes ativas — premio travado ate vencimento (conta no mes do vencimento)
+  // 2) Opcoes ativas — premio ratiado linearmente pelos meses ate o
+  // vencimento (theta decay simplificado). Antes: prejudicava a leitura
+  // de "renda mensal estavel" ao concentrar o valor inteiro num so mes.
+  // Agora: distribui igual pelos meses restantes (incluindo o corrente).
   for (var oi = 0; oi < opcoesAtivas.length; oi++) {
     var op = opcoesAtivas[oi];
     if (op.status !== 'ativa') continue;
@@ -220,9 +223,14 @@ function buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiC
     if (monthsAhead < 0 || monthsAhead >= 12) continue;
     var premioTotal = (op.premio || 0) * (op.qty || 0);
     if (premioTotal <= 0) continue;
-    projecao[monthsAhead].total += premioTotal;
-    projecao[monthsAhead].opcao += premioTotal;
-    projecao[monthsAhead].items.push({ tipo: 'opcao', ticker: op.ticker_opcao, valor: premioTotal });
+    // Mes corrente conta como 1 parcela, proximo mes = 2 parcelas, etc.
+    var parcelas = monthsAhead + 1;
+    var parcelaMes = premioTotal / parcelas;
+    for (var mi = 0; mi <= monthsAhead; mi++) {
+      projecao[mi].total += parcelaMes;
+      projecao[mi].opcao += parcelaMes;
+      projecao[mi].items.push({ tipo: 'opcao', ticker: op.ticker_opcao, valor: parcelaMes });
+    }
   }
 
   // 3) RF — rendimento mensal estimado (todos os meses)
