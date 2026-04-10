@@ -64,6 +64,7 @@ import PaywallScreen from '../screens/mais/PaywallScreen';
 import SimuladorFIIScreen from '../screens/simulador-fii/SimuladorFIIScreen';
 import CalendarioRendaScreen from '../screens/renda/CalendarioRendaScreen';
 import GeradorRendaScreen from '../screens/renda/GeradorRendaScreen';
+import AcoesScreen from '../screens/acoes/AcoesScreen';
 import ConfigPortfoliosScreen from '../screens/mais/config/ConfigPortfoliosScreen';
 import ConfigPerfilInvestidorScreen from '../screens/mais/config/ConfigPerfilInvestidorScreen';
 import BackupScreen from '../screens/mais/config/BackupScreen';
@@ -126,6 +127,7 @@ var SafeConfigPerfilInvestidorScreen = withSafeArea(ConfigPerfilInvestidorScreen
 var SafeSimuladorFIIScreen = withSafeArea(SimuladorFIIScreen);
 var SafeCalendarioRendaScreen = withSafeArea(CalendarioRendaScreen);
 var SafeGeradorRendaScreen = withSafeArea(GeradorRendaScreen);
+var SafeAcoesScreen = withSafeArea(AcoesScreen);
 
 // Dark Theme
 var PremioLabTheme = Object.assign({}, DefaultTheme, {
@@ -207,6 +209,15 @@ function MainTabs() {
           options={{
             tabBarIcon: function(p) {
               return <TabIcon iconFocused="cash" iconDefault="cash-outline" label="Renda" focused={p.focused} />;
+            },
+          }}
+        />
+        <Tab.Screen
+          name="Acoes"
+          component={AcoesScreen}
+          options={{
+            tabBarIcon: function(p) {
+              return <TabIcon iconFocused="rocket" iconDefault="rocket-outline" label="Ações" focused={p.focused} />;
             },
           }}
         />
