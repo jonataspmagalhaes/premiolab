@@ -11,7 +11,7 @@ import * as Haptics from 'expo-haptics';
 import { useAuth } from '../contexts/AuthContext';
 import { C, F, SIZE } from '../theme';
 import toastConfig from '../components/ToastConfig';
-import { getGastosRapidos, executeGastoRapido } from '../services/database';
+import { getGastosRapidos, executeGastoRapido, getCartoes } from '../services/database';
 import widgetBridge from '../services/widgetBridge';
 
 // Lock app to portrait globally (landscape only in specific modals)
@@ -34,6 +34,7 @@ import ConfigCorretorasScreen from '../screens/mais/config/ConfigCorretorasScree
 import ConfigAlertasScreen from '../screens/mais/config/ConfigAlertasScreen';
 import ConfigSelicScreen from '../screens/mais/config/ConfigSelicScreen';
 import AddOpcaoScreen from '../screens/opcoes/AddOpcaoScreen';
+import AddAlertaPrecoScreen from '../screens/carteira/AddAlertaPrecoScreen';
 import EditOperacaoScreen from '../screens/carteira/EditOperacaoScreen';
 import EditOpcaoScreen from '../screens/opcoes/EditOpcaoScreen';
 import AddRendaFixaScreen from '../screens/rf/AddRendaFixaScreen';
@@ -60,8 +61,9 @@ import AddGastoRapidoScreen from '../screens/gestao/AddGastoRapidoScreen';
 import RecuperarSenhaScreen from '../screens/auth/RecuperarSenhaScreen';
 import ProfileScreen from '../screens/mais/ProfileScreen';
 import PaywallScreen from '../screens/mais/PaywallScreen';
+import SimuladorFIIScreen from '../screens/simulador-fii/SimuladorFIIScreen';
+import CalendarioRendaScreen from '../screens/renda/CalendarioRendaScreen';
 import ConfigPortfoliosScreen from '../screens/mais/config/ConfigPortfoliosScreen';
-import ConfigResumoIAScreen from '../screens/mais/config/ConfigResumoIAScreen';
 import ConfigPerfilInvestidorScreen from '../screens/mais/config/ConfigPerfilInvestidorScreen';
 import BackupScreen from '../screens/mais/config/BackupScreen';
 
@@ -89,6 +91,7 @@ var SafeConfigCorretorasScreen = withSafeArea(ConfigCorretorasScreen);
 var SafeConfigAlertasScreen = withSafeArea(ConfigAlertasScreen);
 var SafeConfigSelicScreen = withSafeArea(ConfigSelicScreen);
 var SafeAddOpcaoScreen = withSafeArea(AddOpcaoScreen);
+var SafeAddAlertaPrecoScreen = withSafeArea(AddAlertaPrecoScreen);
 var SafeEditOperacaoScreen = withSafeArea(EditOperacaoScreen);
 var SafeEditOpcaoScreen = withSafeArea(EditOpcaoScreen);
 var SafeAddRendaFixaScreen = withSafeArea(AddRendaFixaScreen);
@@ -118,8 +121,9 @@ var SafeProfileScreen = withSafeArea(ProfileScreen);
 var SafePaywallScreen = withSafeArea(PaywallScreen);
 var SafeConfigPortfoliosScreen = withSafeArea(ConfigPortfoliosScreen);
 var SafeBackupScreen = withSafeArea(BackupScreen);
-var SafeConfigResumoIAScreen = withSafeArea(ConfigResumoIAScreen);
 var SafeConfigPerfilInvestidorScreen = withSafeArea(ConfigPerfilInvestidorScreen);
+var SafeSimuladorFIIScreen = withSafeArea(SimuladorFIIScreen);
+var SafeCalendarioRendaScreen = withSafeArea(CalendarioRendaScreen);
 
 // Dark Theme
 var PremioLabTheme = Object.assign({}, DefaultTheme, {
@@ -266,6 +270,14 @@ var linkingConfig = {
         handleWidgetSelectCard(url);
         return;
       }
+      // For widget screens (fatura, add-gasto, config-gastos): navigate manually
+      // to ensure MainTabs is in the stack (so back button + tab bar work)
+      if (url.indexOf('premiolab://fatura/') === 0 ||
+          url === 'premiolab://add-gasto' ||
+          url === 'premiolab://config-gastos') {
+        handleWidgetScreenDeepLink(url);
+        return;
+      }
       listener(url);
     });
     return function() {
@@ -281,6 +293,13 @@ var linkingConfig = {
     }
     if (url && url.indexOf('premiolab://widget-select-card/') === 0) {
       setTimeout(function() { handleWidgetSelectCard(url); }, 500);
+      return null;
+    }
+    // For widget screens: navigate manually after app initializes
+    if (url && (url.indexOf('premiolab://fatura/') === 0 ||
+        url === 'premiolab://add-gasto' ||
+        url === 'premiolab://config-gastos')) {
+      setTimeout(function() { handleWidgetScreenDeepLink(url); }, 1500);
       return null;
     }
     return url;
@@ -306,33 +325,91 @@ function handleGastoRapidoDeepLink(url) {
       }
     }
     if (!preset) {
-      Toast.show({ type: 'error', text1: 'Gasto nao encontrado' });
+      Toast.show({ type: 'error', text1: 'Gasto não encontrado' });
       return;
     }
-    executeGastoRapido(userId, preset).then(function(result) {
-      if (result && result.error) {
-        Toast.show({ type: 'error', text1: 'Erro ao registrar gasto' });
-      } else {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(function() {});
-        var meio = preset.meio_pagamento || 'credito';
-        var meioLabel = meio === 'pix' ? ' via PIX' : meio === 'debito' ? ' via Débito' : '';
-        Toast.show({
-          type: 'success',
-          text1: preset.label + ' registrado' + meioLabel,
-          text2: 'R$ ' + (preset.valor || 0).toFixed(2).replace('.', ','),
-        });
-      }
-    }).catch(function() {
-      Toast.show({ type: 'error', text1: 'Erro ao registrar gasto' });
-    });
+    // Validate cartão exists for credit presets
+    var meio = preset.meio_pagamento || 'credito';
+    if (meio === 'credito' && preset.cartao_id) {
+      getCartoes(userId).then(function(cartoesRes) {
+        var cards = (cartoesRes && cartoesRes.data) || [];
+        var cardExists = false;
+        for (var ci = 0; ci < cards.length; ci++) {
+          if (cards[ci].id === preset.cartao_id) { cardExists = true; break; }
+        }
+        if (!cardExists) {
+          Toast.show({ type: 'error', text1: 'Cartão não encontrado', text2: 'Edite o gasto rápido e selecione outro cartão' });
+          return;
+        }
+        doExecuteGasto(userId, preset);
+      }).catch(function() { doExecuteGasto(userId, preset); });
+      return;
+    }
+    doExecuteGasto(userId, preset);
   }).catch(function() {});
+}
+
+function doExecuteGasto(userId, preset) {
+  executeGastoRapido(userId, preset).then(function(result) {
+    if (result && result.error) {
+      Toast.show({ type: 'error', text1: result.error.message || 'Erro ao registrar gasto' });
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(function() {});
+      var meio = preset.meio_pagamento || 'credito';
+      var meioLabel = meio === 'pix' ? ' via PIX' : meio === 'debito' ? ' via Débito' : '';
+      Toast.show({
+        type: 'success',
+        text1: preset.label + ' registrado' + meioLabel,
+        text2: 'R$ ' + (preset.valor || 0).toFixed(2).replace('.', ','),
+      });
+    }
+  }).catch(function() {
+    Toast.show({ type: 'error', text1: 'Erro ao registrar gasto' });
+  });
 }
 
 // Handle widget card selection deep link: save selectedCardId + reload widget
 function handleWidgetSelectCard(url) {
   var cardId = url.replace('premiolab://widget-select-card/', '');
   if (!cardId) return;
-  widgetBridge.saveToAppGroup('selectedCardId', cardId).catch(function() {});
+  widgetBridge.saveToAppGroup('selectedCardId', cardId).then(function() {
+    // Trigger iOS widget timeline reload so pill updates without waiting
+    if (Platform.OS === 'ios') {
+      try {
+        var ExtensionStorage = require('expo-modules-core').requireNativeModule('ExtensionStorage');
+        if (ExtensionStorage && ExtensionStorage.reloadWidget) {
+          ExtensionStorage.reloadWidget('QuickExpenseWidget');
+        }
+      } catch (e) { /* not available */ }
+    }
+  }).catch(function() {});
+}
+
+// Handle deep links to screens that need MainTabs underneath (back + tab bar)
+function handleWidgetScreenDeepLink(url) {
+  if (!navigationRef.isReady()) {
+    // Retry after a short delay if nav not ready
+    setTimeout(function() { handleWidgetScreenDeepLink(url); }, 500);
+    return;
+  }
+  // Ensure MainTabs is the base, then push the target screen on top
+  var nav = navigationRef;
+  var state = nav.getState();
+  var hasMainTabs = state && state.routes && state.routes.length > 0 && state.routes[0].name === 'MainTabs';
+  if (!hasMainTabs) {
+    nav.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+  }
+  // Navigate after a tick to ensure MainTabs is rendered
+  setTimeout(function() {
+    if (url.indexOf('premiolab://fatura/') === 0) {
+      var cartaoId = url.replace('premiolab://fatura/', '');
+      nav.navigate('Fatura', { cartaoId: cartaoId });
+    } else if (url === 'premiolab://add-gasto') {
+      nav.navigate('AddMovimentacao');
+    } else if (url === 'premiolab://config-gastos') {
+      nav.navigate('ConfigGastosRapidos');
+    }
+  }, hasMainTabs ? 0 : 300);
 }
 
 var _deepLinkUserId = null;
@@ -357,6 +434,7 @@ function AppStack() {
       <Stack.Screen name="ConfigAlertas" component={SafeConfigAlertasScreen} />
       <Stack.Screen name="ConfigSelic" component={SafeConfigSelicScreen} />
       <Stack.Screen name="AddOpcao" component={SafeAddOpcaoScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="AddAlertaPreco" component={SafeAddAlertaPrecoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="EditOperacao" component={SafeEditOperacaoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="EditOpcao" component={SafeEditOpcaoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="AddRendaFixa" component={SafeAddRendaFixaScreen} options={{ animation: 'slide_from_bottom' }} />
@@ -386,8 +464,9 @@ function AppStack() {
       <Stack.Screen name="Paywall" component={SafePaywallScreen} />
       <Stack.Screen name="ConfigPortfolios" component={SafeConfigPortfoliosScreen} />
       <Stack.Screen name="Backup" component={SafeBackupScreen} />
-      <Stack.Screen name="ConfigResumoIA" component={SafeConfigResumoIAScreen} />
       <Stack.Screen name="ConfigPerfilInvestidor" component={SafeConfigPerfilInvestidorScreen} />
+      <Stack.Screen name="SimuladorFII" component={SafeSimuladorFIIScreen} />
+      <Stack.Screen name="CalendarioRenda" component={SafeCalendarioRendaScreen} />
     </Stack.Navigator>
   );
 }

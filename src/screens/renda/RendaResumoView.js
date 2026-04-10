@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, ActivityIndicator,
@@ -24,6 +24,9 @@ var P = {
   etf: { color: PRODUCT_COLORS.etf || C.etfs },
   opcao: { color: PRODUCT_COLORS.opcao || C.opcoes },
   stock_int: { color: PRODUCT_COLORS.stock_int || '#E879F9' },
+  bdr: { color: PRODUCT_COLORS.bdr || '#FB923C' },
+  adr: { color: PRODUCT_COLORS.adr || '#F472B6' },
+  reit: { color: PRODUCT_COLORS.reit || '#34D399' },
   rf: { color: C.rf },
 };
 
@@ -51,6 +54,26 @@ function fmtShort(v) {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Taxa por cota com precisao adaptativa (2-4 decimais conforme necessario)
+function fmtRate(v) {
+  if (v == null || isNaN(v)) return '0,00';
+  var n = Number(v);
+  // Se tem mais de 2 decimais significativos, mostrar ate 4
+  var rounded2 = Math.round(n * 100) / 100;
+  if (Math.abs(n - rounded2) > 0.001) {
+    return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  }
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtDate(d) {
+  if (!d) return '';
+  var s = String(d).substring(0, 10);
+  var parts = s.split('-');
+  if (parts.length !== 3) return s;
+  return parts[2] + '/' + parts[1] + '/' + parts[0];
+}
+
 // Aggregate proventos by ticker
 function aggregateProventos(detalhe) {
   var byTicker = {};
@@ -58,7 +81,7 @@ function aggregateProventos(detalhe) {
     var item = detalhe[i];
     var tk = item.ticker || '?';
     if (!byTicker[tk]) {
-      byTicker[tk] = { ticker: tk, valor: 0, tipo: item.tipo, count: 0, recebido: 0, aReceber: 0 };
+      byTicker[tk] = { ticker: tk, valor: 0, tipo: item.tipo, count: 0, recebido: 0, aReceber: 0, data_com: item.data_com || null, data_pagamento: item.data_pagamento || item.data || null };
     }
     byTicker[tk].valor += item.valor;
     byTicker[tk].count += 1;
@@ -67,6 +90,9 @@ function aggregateProventos(detalhe) {
     } else {
       byTicker[tk].aReceber += item.valor;
     }
+    if (item.data_com && (!byTicker[tk].data_com || item.data_com > byTicker[tk].data_com)) byTicker[tk].data_com = item.data_com;
+    var itemPgto = item.data_pagamento || item.data || null;
+    if (itemPgto && (!byTicker[tk].data_pagamento || itemPgto > byTicker[tk].data_pagamento)) byTicker[tk].data_pagamento = itemPgto;
   }
   var result = [];
   var keys = Object.keys(byTicker);
@@ -119,12 +145,17 @@ export default function RendaResumoView(props) {
   var _aiSaving = useState(false); var aiSaving = _aiSaving[0]; var setAiSaving = _aiSaving[1];
   var _aiConfirmVisible = useState(false); var aiConfirmVisible = _aiConfirmVisible[0]; var setAiConfirmVisible = _aiConfirmVisible[1];
 
+  var loadIdRef = useRef(0);
+
   var load = async function() {
     if (!user) return;
+    var thisLoadId = ++loadIdRef.current;
     try {
       var result = await getDashboard(user.id, portfolioId);
+      if (loadIdRef.current !== thisLoadId) return;
       setData(result);
     } catch (e) {
+      if (loadIdRef.current !== thisLoadId) return;
       console.warn('RendaResumo load:', e);
     }
     setLoading(false);
@@ -164,10 +195,13 @@ export default function RendaResumoView(props) {
   var plMes = data.plMes || 0;
   var plMedia3m = data.plMedia3m || 0;
   var dividendosMes = data.dividendosMes || 0;
-  var dividendosCatMes = data.dividendosCatMes || { acao: 0, fii: 0, etf: 0, stock_int: 0 };
+  var dividendosCatMes = data.dividendosCatMes || { acao: 0, fii: 0, etf: 0, stock_int: 0, bdr: 0, adr: 0, reit: 0 };
   var dividendosRecebidosMes = data.dividendosRecebidosMes || 0;
   var dividendosAReceberMes = data.dividendosAReceberMes || 0;
   var rfRendaMensal = data.rfRendaMensal || 0;
+  var dividendosMesAnterior = data.dividendosMesAnterior || 0;
+  var dividendosMedia3m = data.dividendosMedia3m || 0;
+  var plMesAnterior = data.plMesAnterior || 0;
   var meta = data.meta || 6000;
   var rendaMediaAnual = data.rendaMediaAnual || 0;
   var rentabilidadeMes = data.rentabilidadeMes || 0;
@@ -210,11 +244,56 @@ export default function RendaResumoView(props) {
     return null;
   }
 
-  // ── Proventos por corretora (proporcional pela quantidade de ações) ──
+  // ── Proventos por corretora ──
+  // Usa por_corretora HISTORICO salvo no provento (calculado na data-com pelo sync)
+  // Fallback para posicao atual (proporcionamento) para proventos antigos sem por_corretora
   var rendaPorCorretora = {};
   for (var rci = 0; rci < proventosMesDetalhe.length; rci++) {
     var rcItem = proventosMesDetalhe[rci];
     var rcTk = (rcItem.ticker || '').toUpperCase().trim();
+    var rcProvQty = rcItem.quantidade || 0;
+    var rcRate = rcItem.valor_por_cota || 0;
+
+    // Prioridade 1: por_corretora historico salvo no provento
+    // Calcula valor diretamente: qty × taxa × fator_IR (sem proporcionar)
+    var rcHistorico = rcItem.por_corretora;
+    var rcTipo = (rcItem.tipo || 'dividendo').toLowerCase();
+    var rcIrFactor = rcTipo === 'jcp' ? 0.85 : 1.0;
+    if (rcHistorico && Object.keys(rcHistorico).length > 0) {
+      var hKeys = Object.keys(rcHistorico);
+      var hHasAny = false;
+      for (var hi = 0; hi < hKeys.length; hi++) {
+        if ((rcHistorico[hKeys[hi]] || 0) > 0) { hHasAny = true; break; }
+      }
+      if (hHasAny) {
+        for (var hc = 0; hc < hKeys.length; hc++) {
+          var hName = hKeys[hc];
+          var hQty = rcHistorico[hName] || 0;
+          if (hQty <= 0) continue;
+          // Valor direto: qty × taxa × IR (bate com a linha detalhe)
+          var hShare = hQty * rcRate * rcIrFactor;
+          if (!rendaPorCorretora[hName]) rendaPorCorretora[hName] = { recebido: 0, aReceber: 0, items: [] };
+          if (rcItem.recebido) {
+            rendaPorCorretora[hName].recebido += hShare;
+          } else {
+            rendaPorCorretora[hName].aReceber += hShare;
+          }
+          rendaPorCorretora[hName].items.push({
+            ticker: rcTk, valor: hShare,
+            tipoLabel: rcItem.tipo || 'dividendo',
+            recebido: rcItem.recebido,
+            qtyAtBroker: hQty,
+            valor_por_cota: rcRate,
+            data_com: rcItem.data_com || null,
+            data_pagamento: rcItem.data_pagamento || rcItem.data || null,
+          });
+        }
+        continue;
+      }
+    }
+
+    // Prioridade 2: fallback para posicao ATUAL (proventos antigos sem por_corretora)
+    // Calcula valor direto: qty_corretora × taxa × IR (mesmo approach do por_corretora)
     var rcQtyMap = tickerQtyByCorretora[rcTk];
     if (rcQtyMap) {
       var rcCors = Object.keys(rcQtyMap);
@@ -223,9 +302,10 @@ export default function RendaResumoView(props) {
       if (totalQty > 0) {
         for (var rcc = 0; rcc < rcCors.length; rcc++) {
           var rcName = rcCors[rcc];
-          var proportion = (rcQtyMap[rcName] || 0) / totalQty;
-          var rcShare = rcItem.valor * proportion;
-          var rcQtyAtBroker = rcQtyMap[rcName] || 0;
+          var rcBrokerQty = rcQtyMap[rcName] || 0;
+          if (rcBrokerQty <= 0) continue;
+          // Valor direto: qty × taxa × IR
+          var rcShare = rcBrokerQty * rcRate * rcIrFactor;
           if (!rendaPorCorretora[rcName]) rendaPorCorretora[rcName] = { recebido: 0, aReceber: 0, items: [] };
           if (rcItem.recebido) {
             rendaPorCorretora[rcName].recebido += rcShare;
@@ -236,12 +316,13 @@ export default function RendaResumoView(props) {
             ticker: rcTk, valor: rcShare,
             tipoLabel: rcItem.tipo || 'dividendo',
             recebido: rcItem.recebido,
-            qtyAtBroker: rcQtyAtBroker,
-            valor_por_cota: rcItem.valor_por_cota || 0,
+            qtyAtBroker: rcBrokerQty,
+            valor_por_cota: rcRate,
+            data_com: rcItem.data_com || null,
+            data_pagamento: rcItem.data_pagamento || rcItem.data || null,
           });
         }
       } else {
-        // totalQty = 0 (posicao zerada), fallback
         if (!rendaPorCorretora['Sem corretora']) rendaPorCorretora['Sem corretora'] = { recebido: 0, aReceber: 0, items: [] };
         if (rcItem.recebido) {
           rendaPorCorretora['Sem corretora'].recebido += rcItem.valor;
@@ -253,7 +334,9 @@ export default function RendaResumoView(props) {
           tipoLabel: rcItem.tipo || 'dividendo',
           recebido: rcItem.recebido,
           qtyAtBroker: 0,
-          valor_por_cota: rcItem.valor_por_cota || 0,
+          valor_por_cota: rcRate,
+          data_com: rcItem.data_com || null,
+          data_pagamento: rcItem.data_pagamento || rcItem.data || null,
         });
       }
     } else {
@@ -269,7 +352,9 @@ export default function RendaResumoView(props) {
         tipoLabel: rcItem.tipo || 'dividendo',
         recebido: rcItem.recebido,
         qtyAtBroker: 0,
-        valor_por_cota: rcItem.valor_por_cota || 0,
+        valor_por_cota: rcRate,
+        data_com: rcItem.data_com || null,
+        data_pagamento: rcItem.data_pagamento || rcItem.data || null,
       });
     }
   }
@@ -301,6 +386,9 @@ export default function RendaResumoView(props) {
         dividendos: dividendosCatMes.acao + dividendosCatMes.etf,
         rendimentoFii: dividendosCatMes.fii,
         dividendosStocks: dividendosCatMes.stock_int,
+        dividendosBDR: dividendosCatMes.bdr,
+        dividendosADR: dividendosCatMes.adr,
+        dividendosREIT: dividendosCatMes.reit,
         plOpcoes: plMes,
         rendaFixa: rfRendaMensal,
       },
@@ -348,6 +436,21 @@ export default function RendaResumoView(props) {
   }
   var rendaBetter = rendaTotalMes >= rendaTotalMesAnterior;
 
+  // Comparações individuais
+  var divCompare = '';
+  if (dividendosMesAnterior > 0) {
+    var divChangePct = ((dividendosMes - dividendosMesAnterior) / Math.abs(dividendosMesAnterior)) * 100;
+    divCompare = (divChangePct > 0 ? '+' : '') + divChangePct.toFixed(0) + '%';
+  }
+  var divBetter = dividendosMes >= dividendosMesAnterior;
+
+  var plCompare = '';
+  if (Math.abs(plMesAnterior) > 0) {
+    var plChangePct = ((plMes - plMesAnterior) / Math.abs(plMesAnterior)) * 100;
+    plCompare = (plChangePct > 0 ? '+' : '') + plChangePct.toFixed(0) + '%';
+  }
+  var plBetter = plMes >= plMesAnterior;
+
   return (
     <ScrollView
       style={st.container}
@@ -355,6 +458,21 @@ export default function RendaResumoView(props) {
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} colors={[C.accent]} />}
     >
+      {/* Botao Calendario de Renda */}
+      <TouchableOpacity activeOpacity={0.8} onPress={function() { navigation.navigate('CalendarioRenda'); }}
+        style={{ marginBottom: 12, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(34,197,94,0.25)', backgroundColor: 'rgba(34,197,94,0.08)' }}>
+        <View style={{ padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: 'rgba(34,197,94,0.18)', alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="calendar-outline" size={20} color="#22c55e" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 14, color: C.text, fontFamily: F.display, fontWeight: '700' }}>Calendario de Renda</Text>
+            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body }}>Veja cada centavo entrando, dia a dia</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={C.dim} />
+        </View>
+      </TouchableOpacity>
+
       {/* RENDA DO MÊS */}
       <Glass glow="rgba(108,92,231,0.10)" padding={SIZE.padding}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}>
@@ -384,67 +502,166 @@ export default function RendaResumoView(props) {
           ) : null}
         </View>
 
-        {/* Breakdown por tipo */}
-        <View style={{ gap: 8, marginBottom: 14 }}>
-          <View style={st.bRow}>
-            <View style={st.bLabel}>
-              <View style={[st.dot, { backgroundColor: P.opcao.color }]} />
-              <Text style={st.bText}>P&L Opções</Text>
+        {/* ══ DIVIDENDOS ══ */}
+        <View style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="cash-outline" size={16} color={C.fiis} />
+              <Text style={{ fontSize: 13, fontFamily: F.display, color: C.text, fontWeight: '700' }}>Dividendos</Text>
             </View>
-            <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: plMes >= 0 ? '#22c55e' : '#ef4444' }, ps]}>
+            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 18, fontWeight: '800', fontFamily: F.mono, color: dividendosMes > 0 ? '#22c55e' : C.dim }, ps]}>
+              {fmt(dividendosMes)}
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            {divCompare ? (
+              <View style={{ backgroundColor: (divBetter ? '#22c55e' : '#ef4444') + '15', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                <Text style={[{ fontSize: 10, fontWeight: '700', color: divBetter ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
+                  {divCompare + ' vs ant.'}
+                </Text>
+              </View>
+            ) : null}
+            {dividendosMedia3m > 0 ? (
+              <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>
+                {'Média 3M: ' + fmt(dividendosMedia3m)}
+              </Text>
+            ) : null}
+          </View>
+          <View style={{ gap: 4 }}>
+            <View style={st.bRow}>
+              <View style={st.bLabel}><View style={[st.dot, { backgroundColor: P.acao.color }]} /><Text style={st.bText}>Ações</Text></View>
+              <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: dividendosCatMes.acao > 0 ? '#22c55e' : C.dim }, ps]}>{fmt(dividendosCatMes.acao)}</Text>
+            </View>
+            {dividendosCatMes.fii > 0 ? (
+              <View style={st.bRow}>
+                <View style={st.bLabel}><View style={[st.dot, { backgroundColor: P.fii.color }]} /><Text style={st.bText}>FIIs</Text></View>
+                <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#22c55e' }, ps]}>{fmt(dividendosCatMes.fii)}</Text>
+              </View>
+            ) : null}
+            {dividendosCatMes.etf > 0 ? (
+              <View style={st.bRow}>
+                <View style={st.bLabel}><View style={[st.dot, { backgroundColor: P.etf.color }]} /><Text style={st.bText}>ETFs</Text></View>
+                <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#22c55e' }, ps]}>{fmt(dividendosCatMes.etf)}</Text>
+              </View>
+            ) : null}
+            {dividendosCatMes.stock_int > 0 ? (
+              <View style={st.bRow}>
+                <View style={st.bLabel}><View style={[st.dot, { backgroundColor: P.stock_int.color }]} /><Text style={st.bText}>Stocks</Text></View>
+                <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#22c55e' }, ps]}>{fmt(dividendosCatMes.stock_int)}</Text>
+              </View>
+            ) : null}
+            {dividendosCatMes.bdr > 0 ? (
+              <View style={st.bRow}>
+                <View style={st.bLabel}><View style={[st.dot, { backgroundColor: P.bdr.color }]} /><Text style={st.bText}>BDRs</Text></View>
+                <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#22c55e' }, ps]}>{fmt(dividendosCatMes.bdr)}</Text>
+              </View>
+            ) : null}
+            {dividendosCatMes.adr > 0 ? (
+              <View style={st.bRow}>
+                <View style={st.bLabel}><View style={[st.dot, { backgroundColor: P.adr.color }]} /><Text style={st.bText}>ADRs</Text></View>
+                <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#22c55e' }, ps]}>{fmt(dividendosCatMes.adr)}</Text>
+              </View>
+            ) : null}
+            {dividendosCatMes.reit > 0 ? (
+              <View style={st.bRow}>
+                <View style={st.bLabel}><View style={[st.dot, { backgroundColor: P.reit.color }]} /><Text style={st.bText}>REITs</Text></View>
+                <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#22c55e' }, ps]}>{fmt(dividendosCatMes.reit)}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        {/* ══ PRÊMIOS DE OPÇÕES ══ */}
+        <View style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="trending-up" size={16} color={C.opcoes} />
+              <Text style={{ fontSize: 13, fontFamily: F.display, color: C.text, fontWeight: '700' }}>Prêmios de Opções</Text>
+            </View>
+            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 18, fontWeight: '800', fontFamily: F.mono, color: plMes >= 0 ? '#22c55e' : '#ef4444' }, ps]}>
               {fmt(plMes)}
             </Text>
           </View>
-          <View style={st.bRow}>
-            <View style={st.bLabel}>
-              <View style={[st.dot, { backgroundColor: P.acao.color }]} />
-              <Text style={st.bText}>Dividendos Ações</Text>
-            </View>
-            <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: dividendosCatMes.acao > 0 ? '#22c55e' : C.dim }, ps]}>
-              {fmt(dividendosCatMes.acao)}
-            </Text>
-          </View>
-          <View style={st.bRow}>
-            <View style={st.bLabel}>
-              <View style={[st.dot, { backgroundColor: P.fii.color }]} />
-              <Text style={st.bText}>Rendimentos FIIs</Text>
-            </View>
-            <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: dividendosCatMes.fii > 0 ? '#22c55e' : C.dim }, ps]}>
-              {fmt(dividendosCatMes.fii)}
-            </Text>
-          </View>
-          {dividendosCatMes.etf > 0 ? (
-            <View style={st.bRow}>
-              <View style={st.bLabel}>
-                <View style={[st.dot, { backgroundColor: P.etf.color }]} />
-                <Text style={st.bText}>Dividendos ETFs</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            {plCompare ? (
+              <View style={{ backgroundColor: (plBetter ? '#22c55e' : '#ef4444') + '15', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                <Text style={[{ fontSize: 10, fontWeight: '700', color: plBetter ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
+                  {plCompare + ' vs ant.'}
+                </Text>
               </View>
-              <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#22c55e' }, ps]}>
-                {fmt(dividendosCatMes.etf)}
+            ) : null}
+            {plMedia3m !== 0 ? (
+              <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>
+                {'Média 3M: ' + fmt(plMedia3m)}
               </Text>
-            </View>
-          ) : null}
-          {dividendosCatMes.stock_int > 0 ? (
+            ) : null}
+          </View>
+          <View style={{ gap: 4 }}>
             <View style={st.bRow}>
-              <View style={st.bLabel}>
-                <View style={[st.dot, { backgroundColor: P.stock_int.color }]} />
-                <Text style={st.bText}>Dividendos Stocks</Text>
+              <View style={st.bLabel}><View style={[st.dot, { backgroundColor: '#22c55e' }]} /><Text style={st.bText}>Prêmios recebidos</Text></View>
+              <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: premiosMes > 0 ? '#22c55e' : C.dim }, ps]}>{fmt(premiosMes)}</Text>
+            </View>
+            {recompraMes > 0 ? (
+              <View style={st.bRow}>
+                <View style={st.bLabel}><View style={[st.dot, { backgroundColor: '#ef4444' }]} /><Text style={st.bText}>Recompras</Text></View>
+                <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#ef4444' }, ps]}>{'-' + fmt(recompraMes)}</Text>
               </View>
-              <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: '#22c55e' }, ps]}>
-                {fmt(dividendosCatMes.stock_int)}
-              </Text>
+            ) : null}
+          </View>
+        </View>
+
+        {/* ══ RENDA FIXA ══ */}
+        <View style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 10, padding: 12, marginBottom: 14 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name="wallet-outline" size={16} color={C.rf} />
+              <Text style={{ fontSize: 13, fontFamily: F.display, color: C.text, fontWeight: '700' }}>Renda Fixa</Text>
             </View>
-          ) : null}
-          <View style={st.bRow}>
-            <View style={st.bLabel}>
-              <View style={[st.dot, { backgroundColor: C.rf }]} />
-              <Text style={st.bText}>Renda Fixa</Text>
-            </View>
-            <Text maxFontSizeMultiplier={1.5} style={[st.bVal, { color: rfRendaMensal > 0 ? '#22c55e' : C.dim }, ps]}>
+            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 18, fontWeight: '800', fontFamily: F.mono, color: rfRendaMensal > 0 ? '#22c55e' : C.dim }, ps]}>
               {fmt(rfRendaMensal)}
             </Text>
           </View>
         </View>
+
+        {/* ══ COMBINADO (Dividendos + Prêmios) ══ */}
+        {(dividendosMes > 0 || plMes !== 0) ? (
+          <View style={{ backgroundColor: C.accent + '10', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: C.accent + '20', marginBottom: 14 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="stats-chart" size={16} color={C.accent} />
+                <Text style={{ fontSize: 13, fontFamily: F.display, color: C.accent, fontWeight: '700' }}>Dividendos + Opções</Text>
+              </View>
+              <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 20, fontWeight: '800', fontFamily: F.mono, color: (dividendosMes + plMes) >= 0 ? '#22c55e' : '#ef4444' }, ps]}>
+                {fmt(dividendosMes + plMes)}
+              </Text>
+            </View>
+            {dividendosMesAnterior > 0 || Math.abs(plMesAnterior) > 0 ? (function() {
+              var combAnt = dividendosMesAnterior + plMesAnterior;
+              var combAtual = dividendosMes + plMes;
+              var combPct = Math.abs(combAnt) > 0 ? ((combAtual - combAnt) / Math.abs(combAnt)) * 100 : 0;
+              var combUp = combAtual >= combAnt;
+              return (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {combPct !== 0 ? (
+                    <View style={{ backgroundColor: (combUp ? '#22c55e' : '#ef4444') + '15', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                      <Text style={[{ fontSize: 10, fontWeight: '700', color: combUp ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
+                        {(combPct > 0 ? '+' : '') + combPct.toFixed(0) + '% vs ant.'}
+                      </Text>
+                    </View>
+                  ) : null}
+                  <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>
+                    {'Ant: ' + fmt(combAnt)}
+                  </Text>
+                  {(dividendosMedia3m > 0 || plMedia3m !== 0) ? (
+                    <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>
+                      {'Média 3M: ' + fmt(dividendosMedia3m + plMedia3m)}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })() : null}
+          </View>
+        ) : null}
 
         {/* Divider */}
         <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginBottom: 14 }} />
@@ -503,40 +720,71 @@ export default function RendaResumoView(props) {
       {/* DETALHAMENTO DO MÊS */}
       {hasDetalhe ? (
         <Glass padding={SIZE.padding}>
-          <Text style={[st.sectionTitle, { marginBottom: 14 }]}>DETALHAMENTO DO MÊS</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}>
+            <Text style={st.sectionTitle}>DETALHAMENTO DO MÊS</Text>
+            <InfoTip
+              title="Datas e Sincronização"
+              text="As datas Data-com e Pagamento são preenchidas automaticamente pela sincronização de proventos. Para atualizar, vá em Renda > Proventos e toque no botão de sincronização (ícone de refresh)."
+            />
+          </View>
 
           {/* PROVENTOS por corretora */}
           {hasRendaCorretora ? (
             <View style={{ marginBottom: premAgrupados.length > 0 || recAgrupados.length > 0 || rfRendaMensal > 0 ? 16 : 0 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <View style={{ marginBottom: 12 }}>
                 <Text style={st.subTitle}>PROVENTOS</Text>
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <Text style={[{ fontSize: 12, color: '#22c55e', fontFamily: F.mono, fontWeight: '600' }, ps]}>
-                    {'Receb. ' + fmt(dividendosRecebidosMes)}
-                  </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 6 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e' }} />
+                    <Text style={[{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontFamily: F.body }]}>Recebido</Text>
+                    <Sensitive>
+                      <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 12, color: '#22c55e', fontFamily: F.mono, fontWeight: '700' }]}>
+                        {fmt(dividendosRecebidosMes)}
+                      </Text>
+                    </Sensitive>
+                  </View>
                   {dividendosAReceberMes > 0 ? (
-                    <Text style={[{ fontSize: 12, color: C.yellow, fontFamily: F.mono, fontWeight: '600' }, ps]}>
-                      {'A receber ' + fmt(dividendosAReceberMes)}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.yellow }} />
+                      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontFamily: F.body }}>A receber</Text>
+                      <Sensitive>
+                        <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 12, color: C.yellow, fontFamily: F.mono, fontWeight: '700' }]}>
+                          {fmt(dividendosAReceberMes)}
+                        </Text>
+                      </Sensitive>
+                    </View>
                   ) : null}
                 </View>
               </View>
               {corretoraKeys.map(function(corName, cIdx) {
                 var corData = rendaPorCorretora[corName];
                 var corTotal = corData.recebido + corData.aReceber;
+                if (Math.abs(corTotal) < 0.01) return null;
                 var corItems = corData.items;
                 // Agrupar items por ticker dentro da corretora
                 var byTk = {};
                 for (var ci = 0; ci < corItems.length; ci++) {
                   var cit = corItems[ci];
                   var citKey = cit.ticker;
-                  if (!byTk[citKey]) byTk[citKey] = { ticker: citKey, valor: 0, tipoLabel: cit.tipoLabel, recebido: true, qtyAtBroker: cit.qtyAtBroker || 0, valor_por_cota: cit.valor_por_cota || 0 };
+                  if (!byTk[citKey]) byTk[citKey] = { ticker: citKey, valor: 0, tipoLabel: cit.tipoLabel, recebido: true, qtyAtBroker: 0, valor_por_cota: cit.valor_por_cota || 0, count: 0, rates: [], data_com: cit.data_com || null, data_pagamento: cit.data_pagamento || null };
                   byTk[citKey].valor += cit.valor;
+                  // Qty e a posicao na corretora, nao acumula entre pagamentos (usar max)
+                  if ((cit.qtyAtBroker || 0) > byTk[citKey].qtyAtBroker) byTk[citKey].qtyAtBroker = cit.qtyAtBroker;
+                  byTk[citKey].count += 1;
+                  if (cit.valor_por_cota > 0) byTk[citKey].rates.push(cit.valor_por_cota);
                   if (!cit.recebido) byTk[citKey].recebido = false;
+                  // Manter a data mais recente quando ha multiplos pagamentos
+                  if (cit.data_com && (!byTk[citKey].data_com || cit.data_com > byTk[citKey].data_com)) byTk[citKey].data_com = cit.data_com;
+                  if (cit.data_pagamento && (!byTk[citKey].data_pagamento || cit.data_pagamento > byTk[citKey].data_pagamento)) byTk[citKey].data_pagamento = cit.data_pagamento;
                 }
                 var tkItems = [];
                 var tkKeys = Object.keys(byTk);
-                for (var ti = 0; ti < tkKeys.length; ti++) { tkItems.push(byTk[tkKeys[ti]]); }
+                for (var ti = 0; ti < tkKeys.length; ti++) {
+                  // Ocultar entries com valor zero (corretora sem posicao)
+                  if (Math.abs(byTk[tkKeys[ti]].valor) >= 0.01) {
+                    tkItems.push(byTk[tkKeys[ti]]);
+                  }
+                }
                 tkItems.sort(function(a, b) { return Math.abs(b.valor) - Math.abs(a.valor); });
 
                 return (
@@ -566,7 +814,14 @@ export default function RendaResumoView(props) {
                         : tkItem.tipoLabel === 'RECOMPRA' ? '#ef4444'
                         : P.acao.color;
                       var isNeg = tkItem.valor < 0;
-                      var hasQtyDetail = tkItem.qtyAtBroker > 0 && tkItem.valor_por_cota > 0;
+                      // Mostrar qty quando temos dados historicos por corretora (qtyAtBroker > 0)
+                      var hasRateDetail = tkItem.valor_por_cota > 0;
+                      var showQty = tkItem.qtyAtBroker > 0;
+                      // JCP: mostrar taxa bruta + sufixo (-15% IR) para transparencia
+                      var isJcp = tkItem.tipoLabel === 'jcp';
+                      var displayRates = tkItem.rates.map(function(r) { return fmtRate(r); });
+                      var displayRate = fmtRate(tkItem.valor_por_cota);
+                      var irSuffix = isJcp ? ' (-15% IR)' : '';
                       return (
                         <View key={tkItem.ticker + '_' + tkIdx} style={[{ paddingLeft: 32 }, tkIdx > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.03)' }]}>
                           <View style={[st.detalheRow]}>
@@ -585,12 +840,21 @@ export default function RendaResumoView(props) {
                               </Text>
                             </Sensitive>
                           </View>
-                          {hasQtyDetail ? (
+                          {hasRateDetail ? (
                             <Sensitive>
-                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, paddingBottom: 6 }}>
-                                {tkItem.qtyAtBroker + ' ações x R$ ' + fmtShort(tkItem.valor_por_cota)}
+                              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, paddingBottom: tkItem.data_com || tkItem.data_pagamento ? 2 : 6 }}>
+                                {tkItem.count > 1
+                                  ? (showQty ? tkItem.qtyAtBroker + ' ações · ' : '') + tkItem.count + ' pagamentos (R$ ' + displayRates.join(' + ') + ')' + irSuffix
+                                  : showQty
+                                    ? tkItem.qtyAtBroker + ' ações x R$ ' + displayRate + irSuffix
+                                    : 'R$ ' + displayRate + ' /cota' + irSuffix}
                               </Text>
                             </Sensitive>
+                          ) : null}
+                          {tkItem.data_com || tkItem.data_pagamento ? (
+                            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, paddingBottom: 6 }}>
+                              {(tkItem.data_com ? 'Data-com ' + fmtDate(tkItem.data_com) : '') + (tkItem.data_com && tkItem.data_pagamento ? '  ·  ' : '') + (tkItem.data_pagamento ? 'Pagamento ' + fmtDate(tkItem.data_pagamento) : '')}
+                            </Text>
                           ) : null}
                         </View>
                       );
@@ -601,16 +865,28 @@ export default function RendaResumoView(props) {
             </View>
           ) : provAgrupados.length > 0 ? (
             <View style={{ marginBottom: premAgrupados.length > 0 || recAgrupados.length > 0 || rfRendaMensal > 0 ? 16 : 0 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <View style={{ marginBottom: 12 }}>
                 <Text style={st.subTitle}>PROVENTOS</Text>
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <Text style={[{ fontSize: 12, color: '#22c55e', fontFamily: F.mono, fontWeight: '600' }, ps]}>
-                    {'Receb. ' + fmt(dividendosRecebidosMes)}
-                  </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 6 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e' }} />
+                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontFamily: F.body }}>Recebido</Text>
+                    <Sensitive>
+                      <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 12, color: '#22c55e', fontFamily: F.mono, fontWeight: '700' }]}>
+                        {fmt(dividendosRecebidosMes)}
+                      </Text>
+                    </Sensitive>
+                  </View>
                   {dividendosAReceberMes > 0 ? (
-                    <Text style={[{ fontSize: 12, color: C.yellow, fontFamily: F.mono, fontWeight: '600' }, ps]}>
-                      {'A receber ' + fmt(dividendosAReceberMes)}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.yellow }} />
+                      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontFamily: F.body }}>A receber</Text>
+                      <Sensitive>
+                        <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 12, color: C.yellow, fontFamily: F.mono, fontWeight: '700' }]}>
+                          {fmt(dividendosAReceberMes)}
+                        </Text>
+                      </Sensitive>
+                    </View>
                   ) : null}
                 </View>
               </View>
@@ -620,25 +896,33 @@ export default function RendaResumoView(props) {
                   : item.tipo === 'jcp' ? P.acao.color
                   : item.tipo === 'dividendo' ? P.acao.color
                   : C.accent;
+                var hasDateInfo = item.data_com || item.data_pagamento;
                 return (
-                  <View key={item.ticker + '_' + idx} style={[st.detalheRow, idx > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.04)' }]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                      <Text style={st.detalheTicker}>{item.ticker}</Text>
-                      <Badge text={tipoLabel} color={tipoColor} />
-                      {item.count > 1 ? (
-                        <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>{'x' + item.count}</Text>
-                      ) : null}
-                      {item.aReceber > 0 ? (
-                        <View style={{ backgroundColor: C.yellow + '18', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 }}>
-                          <Text style={{ fontSize: 9, color: C.yellow, fontFamily: F.mono, fontWeight: '700' }}>PENDENTE</Text>
-                        </View>
-                      ) : null}
+                  <View key={item.ticker + '_' + idx} style={[{ paddingVertical: 8 }, idx > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.04)' }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                        <Text style={st.detalheTicker}>{item.ticker}</Text>
+                        <Badge text={tipoLabel} color={tipoColor} />
+                        {item.count > 1 ? (
+                          <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>{'x' + item.count}</Text>
+                        ) : null}
+                        {item.aReceber > 0 ? (
+                          <View style={{ backgroundColor: C.yellow + '18', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 }}>
+                            <Text style={{ fontSize: 9, color: C.yellow, fontFamily: F.mono, fontWeight: '700' }}>PENDENTE</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Sensitive>
+                        <Text maxFontSizeMultiplier={1.5} style={[st.detalheVal, { color: '#22c55e' }]}>
+                          {'+R$ ' + fmtShort(item.valor)}
+                        </Text>
+                      </Sensitive>
                     </View>
-                    <Sensitive>
-                      <Text maxFontSizeMultiplier={1.5} style={[st.detalheVal, { color: '#22c55e' }]}>
-                        {'+R$ ' + fmtShort(item.valor)}
+                    {hasDateInfo ? (
+                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 3 }}>
+                        {(item.data_com ? 'Data-com ' + fmtDate(item.data_com) : '') + (item.data_com && item.data_pagamento ? '  ·  ' : '') + (item.data_pagamento ? 'Pagamento ' + fmtDate(item.data_pagamento) : '')}
                       </Text>
-                    </Sensitive>
+                    ) : null}
                   </View>
                 );
               })}
@@ -812,6 +1096,7 @@ export default function RendaResumoView(props) {
       {/* AI Confirm Modal */}
       <AiConfirmModal
         visible={aiConfirmVisible}
+        navigation={navigation}
         analysisType="Análise de renda"
         onCancel={function() { setAiConfirmVisible(false); }}
         onConfirm={function() { setAiConfirmVisible(false); handleAiRenda(); }}
