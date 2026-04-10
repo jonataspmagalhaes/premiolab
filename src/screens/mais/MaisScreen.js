@@ -32,6 +32,7 @@ var SECTIONS = [
     items: [
       { icon: '🧠', label: 'Perfil Investidor', value: 'Selic + preferencias', color: C.opcoes, route: 'ConfigPerfilInvestidor' },
       { icon: '📥', label: 'Importar Operações', value: 'CSV / B3 / nota', color: C.fiis, route: 'ImportOperacoes', gate: 'CSV_IMPORT' },
+      { icon: '📄', label: 'Relatórios Mensais', value: 'Histórico de renda', color: C.green, route: 'RelatoriosMensais' },
       { icon: '💾', label: 'Backup', value: 'Exportar / Restaurar', color: C.rf, route: 'Backup' },
       { icon: 'ℹ️', label: 'Sobre', value: 'v4.0.0', color: C.dim, route: 'Sobre' },
       { icon: '🚪', label: 'Sair', value: '', color: C.red, action: 'logout' },

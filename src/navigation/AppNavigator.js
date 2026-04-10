@@ -62,6 +62,7 @@ import CalendarioRendaScreen from '../screens/renda/CalendarioRendaScreen';
 import GeradorRendaScreen from '../screens/renda/GeradorRendaScreen';
 import AcoesScreen from '../screens/acoes/AcoesScreen';
 import RendaHomeScreen from '../screens/renda/RendaHomeScreen';
+import RelatoriosMensaisScreen from '../screens/mais/RelatoriosMensaisScreen';
 import ConfigPortfoliosScreen from '../screens/mais/config/ConfigPortfoliosScreen';
 import ConfigPerfilInvestidorScreen from '../screens/mais/config/ConfigPerfilInvestidorScreen';
 import BackupScreen from '../screens/mais/config/BackupScreen';
@@ -124,6 +125,7 @@ var SafeSimuladorFIIScreen = withSafeArea(SimuladorFIIScreen);
 var SafeCalendarioRendaScreen = withSafeArea(CalendarioRendaScreen);
 var SafeGeradorRendaScreen = withSafeArea(GeradorRendaScreen);
 var SafeAcoesScreen = withSafeArea(AcoesScreen);
+var SafeRelatoriosMensaisScreen = withSafeArea(RelatoriosMensaisScreen);
 
 // Dark Theme
 var PremioLabTheme = Object.assign({}, DefaultTheme, {
@@ -467,6 +469,7 @@ function AppStack() {
       <Stack.Screen name="SimuladorFII" component={SafeSimuladorFIIScreen} />
       <Stack.Screen name="CalendarioRenda" component={SafeCalendarioRendaScreen} />
       <Stack.Screen name="GeradorRenda" component={SafeGeradorRendaScreen} />
+      <Stack.Screen name="RelatoriosMensais" component={SafeRelatoriosMensaisScreen} />
     </Stack.Navigator>
   );
 }
