@@ -9,7 +9,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getDashboard, addSavedAnalysis } from '../../services/database';
-import { Glass, Badge, InfoTip, AiAnalysisModal, AiConfirmModal, YoCCard } from '../../components';
+import { Glass, Badge, InfoTip, AiAnalysisModal, AiConfirmModal, YoCCard, SnowballCard } from '../../components';
 import { EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import Sensitive from '../../components/Sensitive';
@@ -460,6 +460,9 @@ export default function RendaResumoView(props) {
     >
       {/* Yield on Cost + crescimento da renda */}
       <YoCCard userId={user && user.id} />
+
+      {/* Snowball — reinvestimento gamificado */}
+      <SnowballCard userId={user && user.id} rendaAtual={rendaTotalMes} />
 
       {/* Botoes — Calendario + Gerador de Renda */}
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
