@@ -1,43 +1,52 @@
 import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, Dimensions, Modal, Image,
+  TouchableOpacity, Dimensions, Modal, Image, Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getDashboard, getIndicators, getProfile, upsertPatrimonioSnapshot, processRecorrentes, getCartoes, getFatura, addSavedAnalysis, getLatestAiSummary, markSummaryRead, getPortfolios } from '../../services/database';
+import { getDashboard, getIndicators, upsertPatrimonioSnapshot, getPatrimonioSnapshots, processRecorrentes, getCartoes, getFatura, addSavedAnalysis, getLatestAiSummary, getAiSummaries, markSummaryRead, getPortfolios, getPortfolioPatrimonios, getFinancasSummary, getProfile } from '../../services/database';
 import { getSymbol } from '../../services/currencyService';
 import { clearPriceCache } from '../../services/priceService';
 import { runDailyCalculation, shouldCalculateToday } from '../../services/indicatorService';
-import { runDividendSync, shouldSyncDividends } from '../../services/dividendService';
+import { runDividendSync, shouldSyncDividends, saveCorretoraAlias } from '../../services/dividendService';
 var notifService = require('../../services/notificationService');
+var financasHelpers = require('../gestao/financeiro/helpers');
+var getCurrentFaturaMesAno = financasHelpers.getCurrentFaturaMesAno;
 import widgetBridge from '../../services/widgetBridge';
 import * as database from '../../services/database';
 import * as currencyService from '../../services/currencyService';
 import { Ionicons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
-import { Badge, InfoTip, Fab, AiAnalysisModal, AiConfirmModal } from '../../components';
+import { Badge, InfoTip, Fab, AiAnalysisModal, AiConfirmModal, RendaHero } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import { useSubscription } from '../../contexts/SubscriptionContext';
 import InteractiveChart from '../../components/InteractiveChart';
 import { usePrivacyStyle } from '../../components/Sensitive';
+import { animateLayout } from '../../utils/a11y';
 import Sensitive from '../../components/Sensitive';
+import ShareCard from '../../components/ShareCard';
 var geminiService = require('../../services/geminiService');
+var finCats = require('../../constants/financeCategories');
 
 var W = Dimensions.get('window').width;
 var PAD = 16;
 
 var P = {
-  acao:      { label: 'Ações',  short: 'Ações', color: '#22c55e' },
-  fii:       { label: 'FIIs',   short: 'FII', color: '#a855f7' },
-  opcao:     { label: 'Opções', short: 'OP', color: '#0ea5e9' },
-  etf:       { label: 'ETFs',   short: 'ETF', color: '#f59e0b' },
-  stock_int: { label: 'Stocks', short: 'INT', color: '#E879F9' },
-  rf:        { label: 'RF',     short: 'RF', color: '#ec4899' },
+  acao:      { label: 'Ações',    short: 'Ações', color: '#22c55e' },
+  fii:       { label: 'FIIs',     short: 'FII', color: '#a855f7' },
+  opcao:     { label: 'Opções',   short: 'OP', color: '#0ea5e9' },
+  etf:       { label: 'ETFs BR',  short: 'ETF', color: '#f59e0b' },
+  etf_int:   { label: 'ETFs INT', short: 'ETF INT', color: '#FBBF24' },
+  bdr:       { label: 'BDRs',     short: 'BDR', color: '#FB923C' },
+  stock_int: { label: 'Stocks',   short: 'Stock', color: '#E879F9' },
+  adr:       { label: 'ADRs',     short: 'ADR', color: '#F472B6' },
+  reit:      { label: 'REITs',    short: 'REIT', color: '#34D399' },
+  rf:        { label: 'RF',       short: 'RF', color: '#ec4899' },
 };
-var PKEYS = ['acao', 'fii', 'opcao', 'etf', 'stock_int', 'rf'];
+var PKEYS = ['acao', 'fii', 'opcao', 'etf', 'etf_int', 'bdr', 'stock_int', 'adr', 'reit', 'rf'];
 
 function fmt(v) {
   if (v == null || isNaN(v)) return 'R$ 0,00';
@@ -126,7 +135,7 @@ function AlertRow(props) {
 }
 
 function CalItem({ dia, diaSemana, titulo, detalhe, tipo, last }) {
-  var c = tipo === 'opcao' ? P.opcao.color : tipo === 'rf' ? P.rf.color : P.acao.color;
+  var c = tipo === 'opcao' ? P.opcao.color : tipo === 'rf' ? P.rf.color : tipo === 'dividendo' ? C.green : P.acao.color;
   return (
     <View style={{
       flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 10,
@@ -176,7 +185,10 @@ export default function HomeScreen({ navigation }) {
   var scrollRef = useRef(null);
   useScrollToTop(scrollRef);
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
+  var _showShare = useState(false); var showShare = _showShare[0]; var setShowShare = _showShare[1];
+  var _expandedRendaCat = useState(null); var expandedRendaCat = _expandedRendaCat[0]; var setExpandedRendaCat = _expandedRendaCat[1];
   var _alertsExpanded = useState(false); var alertsExpanded = _alertsExpanded[0]; var setAlertsExpanded = _alertsExpanded[1];
+  var _rentAnoExpanded = useState(false); var rentAnoExpanded = _rentAnoExpanded[0]; var setRentAnoExpanded = _rentAnoExpanded[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
   var _faturaAlerts = useState([]); var faturaAlerts = _faturaAlerts[0]; var setFaturaAlerts = _faturaAlerts[1];
   var _aiModalVisible = useState(false); var aiModalVisible = _aiModalVisible[0]; var setAiModalVisible = _aiModalVisible[1];
@@ -188,10 +200,25 @@ export default function HomeScreen({ navigation }) {
   var _aiSaving = useState(false); var aiSaving = _aiSaving[0]; var setAiSaving = _aiSaving[1];
   var _autoSummary = useState(null); var autoSummary = _autoSummary[0]; var setAutoSummary = _autoSummary[1];
   var _summaryExpanded = useState(false); var summaryExpanded = _summaryExpanded[0]; var setSummaryExpanded = _summaryExpanded[1];
+  var _pastSummaries = useState([]); var pastSummaries = _pastSummaries[0]; var setPastSummaries = _pastSummaries[1];
+  var _showPastSummaries = useState(false); var showPastSummaries = _showPastSummaries[0]; var setShowPastSummaries = _showPastSummaries[1];
+  var _expandedPastId = useState(null); var expandedPastId = _expandedPastId[0]; var setExpandedPastId = _expandedPastId[1];
   var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfolios = _portfolios[1];
   var _selPortfolio = useState(null); var selPortfolio = _selPortfolio[0]; var setSelPortfolio = _selPortfolio[1];
   var _showPortDD = useState(false); var showPortDD = _showPortDD[0]; var setShowPortDD = _showPortDD[1];
   var _defaultApplied = useState(false); var defaultApplied = _defaultApplied[0]; var setDefaultApplied = _defaultApplied[1];
+  var _financasSummary = useState(null); var financasSummary = _financasSummary[0]; var setFinancasSummary = _financasSummary[1];
+  var _financasCartao = useState(null); var financasCartao = _financasCartao[0]; var setFinancasCartao = _financasCartao[1];
+  var _pfHistories = useState({}); var pfHistories = _pfHistories[0]; var setPfHistories = _pfHistories[1];
+  var _visiblePfLines = useState({}); var visiblePfLines = _visiblePfLines[0]; var setVisiblePfLines = _visiblePfLines[1];
+
+  // Performance: throttle load to avoid re-fetching on every tab switch
+  var lastLoadRef = useRef(0);
+  var lastPortfolioRef = useRef(null);
+  // Session-level flags: avoid re-running expensive background tasks
+  var divSyncDoneRef = useRef(false);
+  var indicatorsDoneRef = useRef(false);
+  var notifRegisteredRef = useRef(false);
 
   var handleSaveAiResumo = function() {
     if (!user || !user.id || !aiResult) return;
@@ -208,8 +235,16 @@ export default function HomeScreen({ navigation }) {
 
   var ps = usePrivacyStyle();
 
-  var load = async function () {
+  var load = async function (forceRefresh) {
     if (!user) return;
+
+    // P0: Throttle — skip reload if <60s since last load (unless forced or portfolio changed)
+    var now = Date.now();
+    var portfolioChanged = selPortfolio !== lastPortfolioRef.current;
+    if (!forceRefresh && !portfolioChanged && !loading && data && (now - lastLoadRef.current) < 60000) return;
+    lastLoadRef.current = now;
+    lastPortfolioRef.current = selPortfolio;
+
     setLoadError(false);
 
     // Fetch portfolios and set default
@@ -225,27 +260,15 @@ export default function HomeScreen({ navigation }) {
       }
     } catch (e) { /* ignore */ }
 
-    // Sync dividendos ANTES do dashboard para numeros atualizados
-    if (sub.canAccess('AUTO_SYNC_DIVIDENDS')) {
-      try {
-        var profResult = await getProfile(user.id);
-        var profile = profResult.data;
-        var lastSync = profile && profile.last_dividend_sync ? profile.last_dividend_sync : null;
-        if (shouldSyncDividends(lastSync)) {
-          await runDividendSync(user.id);
-        }
-      } catch (e) {
-        console.warn('Home dividend sync failed:', e);
-      }
-    }
-
     // Map portfolio selection to getDashboard param
     var dashPortfolioId = null;
     if (effectivePortfolio === '__default__') dashPortfolioId = '__null__';
     else if (effectivePortfolio) dashPortfolioId = effectivePortfolio;
 
+    // P0: Dashboard first — no more blocking on dividend sync or getProfile
+    var result = null;
     try {
-      var result = await getDashboard(user.id, dashPortfolioId);
+      result = await getDashboard(user.id, dashPortfolioId);
       setData(result);
     } catch (e) {
       console.warn('Home dashboard load failed:', e);
@@ -253,27 +276,185 @@ export default function HomeScreen({ navigation }) {
     }
     setLoading(false);
 
-    // Save patrimonio snapshot (real market value) for chart history — only for unfiltered view
-    // Guard: skip if value dropped >40% vs last snapshot (likely incomplete price data)
-    if (result && result.patrimonio > 0 && !dashPortfolioId) {
+    // ── All below is fire-and-forget (non-blocking) ──
+
+    // P0: Dividend sync — now fire-and-forget using lastDividendSync from dashboard
+    if (sub.canAccess('AUTO_SYNC_DIVIDENDS') && !divSyncDoneRef.current) {
+      var lastSync = result && result.lastDividendSync ? result.lastDividendSync : null;
+      if (shouldSyncDividends(lastSync)) {
+        divSyncDoneRef.current = true;
+        runDividendSync(user.id).then(function(syncResult) {
+          if (syncResult && syncResult.missingContas && syncResult.missingContas.length > 0) {
+            // Buscar contas existentes para oferecer como opcoes
+            database.getSaldos(user.id).then(function(saldosRes) {
+              var contas = (saldosRes.data || []).filter(function(s) { return s.corretora && s.moeda === 'BRL'; });
+              var idx = 0;
+              function showNextMissing() {
+                if (idx >= syncResult.missingContas.length) return;
+                var missing = syncResult.missingContas[idx];
+                idx++;
+                var fmtValor = 'R$ ' + missing.valor.toFixed(2).replace('.', ',');
+                var buttons = [];
+                for (var ci = 0; ci < contas.length; ci++) {
+                  (function(conta) {
+                    buttons.push({
+                      text: conta.corretora,
+                      onPress: function() {
+                        // Salvar alias e creditar
+                        saveCorretoraAlias(missing.name, conta.corretora);
+                        database.upsertSaldo(user.id, {
+                          name: conta.corretora,
+                          saldo: (conta.saldo || 0) + missing.valor,
+                        });
+                        Toast.show({ type: 'success', text1: fmtValor + ' creditado em ' + conta.corretora });
+                        showNextMissing();
+                      },
+                    });
+                  })(contas[ci]);
+                }
+                buttons.push({
+                  text: 'Criar nova conta',
+                  onPress: function() {
+                    navigation.navigate('CarteiraTab', { screen: 'Carteira', params: { initialGestaoTab: 'caixa' } });
+                  },
+                });
+                buttons.push({ text: 'Ignorar', style: 'cancel', onPress: function() { showNextMissing(); } });
+                Alert.alert(
+                  'Conta "' + missing.name + '" nao encontrada',
+                  'Dividendo de ' + fmtValor + ' precisa ser creditado.\nEscolha a conta correspondente:',
+                  buttons
+                );
+              }
+              showNextMissing();
+            });
+          }
+        }).catch(function(e) {
+          console.warn('Home dividend sync failed:', e);
+          divSyncDoneRef.current = false;
+        });
+      } else {
+        divSyncDoneRef.current = true;
+      }
+    }
+
+    // P0.5: Fetch per-portfolio snapshot histories for chart overlays (only for "Todos" view)
+    if (!dashPortfolioId && portfolios.length > 0) {
+      var pfIds2 = [];
+      for (var pfi2 = 0; pfi2 < portfolios.length; pfi2++) {
+        pfIds2.push(portfolios[pfi2].id);
+      }
+      pfIds2.push('__null__');
+      var pfHistPromises = [];
+      for (var phi = 0; phi < pfIds2.length; phi++) {
+        (function(pfId) {
+          pfHistPromises.push(
+            getPatrimonioSnapshots(user.id, pfId).then(function(snaps) {
+              var pts = [];
+              for (var si2 = 0; si2 < snaps.length; si2++) {
+                if (snaps[si2].data && snaps[si2].valor > 0) {
+                  pts.push({ date: snaps[si2].data, value: snaps[si2].valor });
+                }
+              }
+              return { pfId: pfId, data: pts };
+            }).catch(function() { return { pfId: pfId, data: [] }; })
+          );
+        })(pfIds2[phi]);
+      }
+      Promise.all(pfHistPromises).then(function(results2) {
+        var hist = {};
+        for (var ri = 0; ri < results2.length; ri++) {
+          if (results2[ri].data.length > 1) {
+            hist[results2[ri].pfId] = results2[ri].data;
+          }
+        }
+        setPfHistories(hist);
+      }).catch(function() {});
+    } else {
+      setPfHistories({});
+    }
+
+    // P1: Snapshots — save current + per-portfolio using lightweight query
+    if (result && result.patrimonio > 0) {
       var todayISO = new Date().toISOString().substring(0, 10);
       var history = result.patrimonioHistory || [];
       var lastSnap = history.length > 0 ? history[history.length - 1] : null;
       var lastVal = lastSnap && lastSnap.value ? lastSnap.value : 0;
+
+      // Guard: verifica se enriquecimento de precos funcionou
+      // Se >30% dos tickers nao tem preco_atual, skip snapshot
+      var posArr = result.positions || [];
+      var totalPos = posArr.length;
+      var withPrice = 0;
+      for (var pci2 = 0; pci2 < posArr.length; pci2++) {
+        if (posArr[pci2].preco_atual && posArr[pci2].preco_atual > 0) withPrice++;
+      }
+      var priceRatio = totalPos > 0 ? withPrice / totalPos : 1;
+
       var shouldSave = true;
-      if (lastVal > 0 && result.patrimonio < lastVal * 0.75) {
-        console.warn('Snapshot skipped: value ' + result.patrimonio + ' is >40% drop from last ' + lastVal);
+      if (priceRatio < 0.7) {
+        console.warn('Snapshot skipped: only ' + withPrice + '/' + totalPos + ' positions have prices');
         shouldSave = false;
+      } else if (lastVal > 0) {
+        var changePct = Math.abs(result.patrimonio - lastVal) / lastVal;
+        if (changePct > 0.30) {
+          console.warn('Snapshot skipped: value ' + result.patrimonio + ' deviates ' + (changePct * 100).toFixed(0) + '% from last ' + lastVal);
+          shouldSave = false;
+        }
       }
       if (shouldSave) {
-        upsertPatrimonioSnapshot(user.id, todayISO, result.patrimonio).catch(function (e) {
-          console.warn('Snapshot save failed:', e);
-        });
+        if (!dashPortfolioId) {
+          // Global snapshot
+          upsertPatrimonioSnapshot(user.id, todayISO, result.patrimonio).catch(function(e) {
+            console.warn('Snapshot save failed:', e);
+          });
+          // Per-portfolio snapshots using lightweight function
+          if (portfolios.length > 0) {
+            var priceMap = {};
+            for (var pmi = 0; pmi < posArr.length; pmi++) {
+              var t = (posArr[pmi].ticker || '').toUpperCase().trim();
+              if (posArr[pmi].preco_atual) priceMap[t] = posArr[pmi].preco_atual;
+            }
+            var pfIds = [];
+            for (var pfi = 0; pfi < portfolios.length; pfi++) {
+              pfIds.push(portfolios[pfi].id);
+            }
+            pfIds.push('__null__');
+            getPortfolioPatrimonios(user.id, pfIds, priceMap).then(function(patrimonios) {
+              var keys = Object.keys(patrimonios);
+              // Fetch last snapshot for each portfolio to apply guard
+              var guardPromises = [];
+              for (var ki = 0; ki < keys.length; ki++) {
+                (function(pfKey, pfVal) {
+                  if (pfVal <= 0) return;
+                  var gp = getPatrimonioSnapshots(user.id, pfKey).then(function(snaps) {
+                    if (!snaps) snaps = [];
+                    var lastPfVal = snaps.length > 0 ? snaps[snaps.length - 1].valor : 0;
+                    if (lastPfVal > 0) {
+                      var pfChangePct = Math.abs(pfVal - lastPfVal) / lastPfVal;
+                      if (pfChangePct > 0.30) {
+                        console.warn('Portfolio snapshot skipped (' + pfKey + '): ' + pfVal + ' deviates ' + (pfChangePct * 100).toFixed(0) + '% from last ' + lastPfVal);
+                        return;
+                      }
+                    }
+                    upsertPatrimonioSnapshot(user.id, todayISO, pfVal, pfKey).catch(function() {});
+                  }).catch(function() {});
+                  guardPromises.push(gp);
+                })(keys[ki], patrimonios[keys[ki]]);
+              }
+              return Promise.all(guardPromises);
+            }).catch(function() {});
+          }
+        } else if (dashPortfolioId === '__null__') {
+          upsertPatrimonioSnapshot(user.id, todayISO, result.patrimonio, '__null__').catch(function() {});
+        } else {
+          upsertPatrimonioSnapshot(user.id, todayISO, result.patrimonio, dashPortfolioId).catch(function() {});
+        }
       }
     }
 
-    // Fire-and-forget: trigger indicator calculation if stale
-    if (sub.canAccess('INDICATORS')) {
+    // P3: Indicators — session flag to avoid re-running
+    if (sub.canAccess('INDICATORS') && !indicatorsDoneRef.current) {
+      indicatorsDoneRef.current = true;
       getIndicators(user.id).then(function(indResult) {
         var indData = indResult.data || [];
         var lastCalc = indData.length > 0 ? indData[0].data_calculo : null;
@@ -284,77 +465,114 @@ export default function HomeScreen({ navigation }) {
         }
       }).catch(function(e) {
         console.warn('Home indicator check failed:', e);
+        indicatorsDoneRef.current = false;
       });
     }
 
-    // Fire-and-forget: process recurring transactions due today
+    // Process recurring transactions
     processRecorrentes(user.id).catch(function(e) {
       console.warn('Home processRecorrentes failed:', e);
     });
 
-    // Fire-and-forget: fetch latest AI summary for Premium users
+    // P2: Finanças do mês — fire-and-forget
+    var agora = new Date();
+    var mesAtual = agora.getMonth() + 1;
+    var anoAtual = agora.getFullYear();
+    getFinancasSummary(user.id, mesAtual, anoAtual).then(function(summ) {
+      if (summ && summ.total > 0) {
+        setFinancasSummary(summ);
+      }
+    }).catch(function() {});
+
+    // Cartão principal — fatura do mês
+    getProfile(user.id).then(function(profRes) {
+      if (profRes.data && profRes.data.cartao_principal) {
+        var cpId = profRes.data.cartao_principal;
+        getCartoes(user.id).then(function(cartoesRes) {
+          var cards = cartoesRes.data || [];
+          var card = null;
+          for (var fi = 0; fi < cards.length; fi++) {
+            if (cards[fi].id === cpId) { card = cards[fi]; break; }
+          }
+          if (card) {
+            var fma = getCurrentFaturaMesAno(card.dia_fechamento || 1, card.dia_vencimento || 1);
+            getFatura(user.id, card.id, fma.mes, fma.ano).then(function(fatRes) {
+              if (fatRes.data) {
+                setFinancasCartao({
+                  nome: card.apelido || ((card.bandeira || '').toUpperCase() + ' ••' + (card.ultimos_digitos || '')),
+                  faturaTotal: fatRes.data.total || 0,
+                  vencimento: fatRes.data.dueDate || null,
+                });
+              }
+            }).catch(function() {});
+          }
+        }).catch(function() {});
+      }
+    }).catch(function() {});
+
+    // Fetch AI summaries for PRO+ users
     if (sub.canAccess('AI_SUMMARY')) {
-      getLatestAiSummary(user.id).then(function(res) {
-        if (res.data) setAutoSummary(res.data);
+      getAiSummaries(user.id, 5, 0).then(function(res) {
+        var items = res.data || [];
+        if (items.length > 0) {
+          setAutoSummary(items[0]);
+          setPastSummaries(items.slice(1));
+        }
       }).catch(function() {});
     }
 
-    // Fire-and-forget: sync all widget data — sempre usa portfolio Padrão
+    // Widget sync — sempre usa portfolio Padrao
     if (result && (!dashPortfolioId || dashPortfolioId === '__null__')) {
-      // Ja esta no Padrao ou sem filtro — usa result direto
       widgetBridge.updateAllWidgetsFromDashboard(user.id, result, database, currencyService).catch(function(e) {
         console.warn('Home widget sync failed:', e);
       });
     } else if (result) {
-      // Outro portfolio selecionado — busca Padrao separado para widgets
       getDashboard(user.id, '__null__').then(function(defaultResult) {
         if (defaultResult) {
           widgetBridge.updateAllWidgetsFromDashboard(user.id, defaultResult, database, currencyService).catch(function(e) {
             console.warn('Home widget sync failed:', e);
           });
         }
-      }).catch(function(e) {
-        console.warn('Home widget default dash failed:', e);
-      });
+      }).catch(function() {});
     }
 
-    // Fire-and-forget: register push token + schedule expiry notifications
-    notifService.registerForPushNotifications().then(function(token) {
-      if (token) {
-        notifService.savePushToken(user.id, token, 'ios').catch(function() {});
-      }
-    }).catch(function() {});
+    // P3: Push token — register once per session
+    if (!notifRegisteredRef.current) {
+      notifRegisteredRef.current = true;
+      notifService.registerForPushNotifications().then(function(token) {
+        if (token) {
+          notifService.savePushToken(user.id, token, 'ios').catch(function() {});
+        }
+      }).catch(function() {});
+    }
     if (result) {
       var opsAtivas = result.opsAtivasData || [];
       if (opsAtivas.length > 0) {
-        notifService.scheduleOptionExpiryNotifications(opsAtivas).catch(function(e) {
-          console.warn('Home notif schedule failed:', e);
-        });
+        notifService.scheduleOptionExpiryNotifications(opsAtivas).catch(function() {});
       }
       var rfData = result.rendaFixa || [];
       if (rfData.length > 0) {
-        notifService.scheduleRFExpiryNotifications(rfData).catch(function(e) {
-          console.warn('Home RF notif schedule failed:', e);
-        });
+        notifService.scheduleRFExpiryNotifications(rfData).catch(function() {});
       }
     }
 
-    // Fire-and-forget: load fatura alerts from credit cards
+    // P2: Fatura alerts — parallel getFatura calls
     getCartoes(user.id).then(function(cartoesRes) {
       if (!cartoesRes.data || cartoesRes.data.length === 0) {
         setFaturaAlerts([]);
         return;
       }
       var cards = cartoesRes.data;
-      var now = new Date();
-      var curMes = now.getMonth() + 1;
-      var curAno = now.getFullYear();
+      var nowDate = new Date();
+      var curMes = nowDate.getMonth() + 1;
+      var curAno = nowDate.getFullYear();
       var fatAlerts = [];
       var promises = [];
 
       for (var ci = 0; ci < cards.length; ci++) {
         (function(card) {
-          var p = getFatura(user.id, card.id, curMes, curAno).then(function(fRes) {
+          var fmaAlert = getCurrentFaturaMesAno(card.dia_fechamento || 1, card.dia_vencimento || 1);
+          var p = getFatura(user.id, card.id, fmaAlert.mes, fmaAlert.ano).then(function(fRes) {
             var fData = fRes && fRes.data ? fRes.data : null;
             if (!fData || fRes.error || !fData.total || fData.total <= 0) return;
             if (fData.pago) return;
@@ -364,14 +582,14 @@ export default function HomeScreen({ navigation }) {
             var valorStr = sym + ' ' + fData.total.toFixed(2).replace('.', ',');
 
             var dueDate = new Date(fData.dueDate + 'T12:00:00');
-            var todayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+            var todayMs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
             var dueMs = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate()).getTime();
             var diffDays = Math.round((dueMs - todayMs) / 86400000);
 
             var dueDateStr = String(dueDate.getDate()).padStart(2, '0') + '/' + String(dueDate.getMonth() + 1).padStart(2, '0');
 
             var cycleEndDate = new Date(fData.cycleEnd + 'T12:00:00');
-            var isClosed = now > cycleEndDate;
+            var isClosed = nowDate > cycleEndDate;
 
             if (diffDays < 0) {
               fatAlerts.push({
@@ -413,12 +631,15 @@ export default function HomeScreen({ navigation }) {
     });
   };
 
-  useFocusEffect(useCallback(function () { load(); }, [user, selPortfolio]));
+  useFocusEffect(useCallback(function () { load(false); }, [user, selPortfolio]));
 
   var onRefresh = async function () {
     setRefreshing(true);
     clearPriceCache();
-    await load();
+    // Reset session flags so background tasks re-run on manual refresh
+    divSyncDoneRef.current = false;
+    indicatorsDoneRef.current = false;
+    await load(true);
     setRefreshing(false);
   };
 
@@ -458,6 +679,7 @@ export default function HomeScreen({ navigation }) {
   var rfRendaMensal = data.rfRendaMensal || 0;
   var dividendosMes = data.dividendosMes || 0;
   var premiosMes = data.premiosMes || 0;
+  var recompraMes = data.recompraMes || 0;
   var rendaTotalMes = data.rendaTotalMes || 0;
   var rentabilidadeMes = data.rentabilidadeMes || 0;
   var opsAtivas = data.opsAtivas || 0;
@@ -476,30 +698,59 @@ export default function HomeScreen({ navigation }) {
   var dividendosMesAnterior = data.dividendosMesAnterior || 0;
   var premiosMesAnterior = data.premiosMesAnterior || 0;
   var rendaTotalMesAnterior = data.rendaTotalMesAnterior || 0;
-  var dividendosCatMes = data.dividendosCatMes || { acao: 0, fii: 0, etf: 0, stock_int: 0 };
-  var dividendosCatMesAnt = data.dividendosCatMesAnt || { acao: 0, fii: 0, etf: 0, stock_int: 0 };
+  var dividendosCatMes = data.dividendosCatMes || { acao: 0, fii: 0, etf: 0, bdr: 0, stock_int: 0, adr: 0, reit: 0 };
+  var dividendosCatMesAnt = data.dividendosCatMesAnt || { acao: 0, fii: 0, etf: 0, bdr: 0, stock_int: 0, adr: 0, reit: 0 };
   var dividendosRecebidosMes = data.dividendosRecebidosMes || 0;
   var dividendosAReceberMes = data.dividendosAReceberMes || 0;
   var plMes = data.plMes || 0;
   var plMesAnterior = data.plMesAnterior || 0;
   var plMedia3m = data.plMedia3m || 0;
   var rendaMediaAnual = data.rendaMediaAnual || 0;
+  var proventosMesDetalhe = data.proventosMesDetalhe || [];
+  var premiosMesDetalhe = data.premiosMesDetalhe || [];
+
+  // Helper: filtrar proventos por categoria de ativo
+  function getProvsByCat(cat) {
+    var cats = Array.isArray(cat) ? cat : [cat];
+    var result = [];
+    for (var i = 0; i < proventosMesDetalhe.length; i++) {
+      var p = proventosMesDetalhe[i];
+      if (cats.indexOf(p.categoria) !== -1) result.push(p);
+    }
+    return result;
+  }
+
+  function isoToBr(iso) {
+    if (!iso) return '';
+    var parts = (iso || '').substring(0, 10).split('-');
+    if (parts.length !== 3) return iso;
+    return parts[2] + '/' + parts[1];
+  }
 
   var metaPct = meta > 0 ? Math.min((rendaTotalMes / meta) * 100, 150) : 0;
 
   // Categorias com posições ativas (para mostrar rows relevantes na renda)
-  var hasCat = { acao: false, fii: false, etf: false, stock_int: false };
+  var hasCat = { acao: false, fii: false, etf: false, etf_int: false, bdr: false, stock_int: false, adr: false, reit: false };
   for (var hci = 0; hci < positions.length; hci++) {
     var hcCat = positions[hci].categoria || 'acao';
-    if (hasCat[hcCat] !== undefined) hasCat[hcCat] = true;
+    if (hcCat === 'etf' && positions[hci].mercado === 'INT') {
+      hasCat.etf_int = true;
+    } else if (hasCat[hcCat] !== undefined) {
+      hasCat[hcCat] = true;
+    }
   }
 
-  // Allocation
+  // Allocation (usa preco_atual em BRL quando disponivel, senao PM convertido)
   var alloc = {};
   PKEYS.forEach(function (k) { alloc[k] = 0; });
   positions.forEach(function (p) {
     var t = p.categoria || 'acao';
-    alloc[t] = (alloc[t] || 0) + (p.quantidade || 0) * (p.pm || 0);
+    var val = (p.quantidade || 0) * (p.preco_atual || (p.mercado === 'INT' ? (p.pm || 0) * (p.taxa_cambio || p.taxa_cambio_media || 1) : (p.pm || 0)));
+    if (t === 'etf' && p.mercado === 'INT') {
+      alloc.etf_int += val;
+    } else {
+      alloc[t] = (alloc[t] || 0) + val;
+    }
   });
   alloc.rf = rfTotalAplicado;
   var totalAlloc = 0;
@@ -529,6 +780,90 @@ export default function HomeScreen({ navigation }) {
     }
   }
   var hasRealChart = filteredChartData.length >= 2;
+
+  // Compute rentability from patrimonioHistory
+  var rentSemanal = 0;
+  var rentMensal = rentabilidadeMes;
+  var rentAno = 0;
+  var rentTotal = 0;
+  if (patrimonioHistory.length >= 2) {
+    var lastPt = patrimonioHistory[patrimonioHistory.length - 1];
+    var lastVal = lastPt.value;
+    // Helper: find closest point at or before a cutoff date
+    var findValAt = function(daysAgo) {
+      var d = new Date();
+      d.setDate(d.getDate() - daysAgo);
+      var cutStr = d.toISOString().substring(0, 10);
+      var best = null;
+      for (var hi = 0; hi < patrimonioHistory.length; hi++) {
+        if (patrimonioHistory[hi].date <= cutStr) best = patrimonioHistory[hi];
+      }
+      return best ? best.value : 0;
+    };
+    var firstVal = patrimonioHistory[0].value;
+    // Semanal
+    var val7 = findValAt(7);
+    if (val7 > 0) rentSemanal = ((lastVal - val7) / val7) * 100;
+    // Mensal (use computed or fallback from history)
+    var val30 = findValAt(30);
+    if (val30 > 0 && rentMensal === 0) rentMensal = ((lastVal - val30) / val30) * 100;
+    // Ano (YTD)
+    var yearStart = new Date().getFullYear() + '-01-01';
+    var valYtd = 0;
+    for (var yi = 0; yi < patrimonioHistory.length; yi++) {
+      if (patrimonioHistory[yi].date >= yearStart) { valYtd = patrimonioHistory[yi].value; break; }
+    }
+    if (valYtd > 0) rentAno = ((lastVal - valYtd) / valYtd) * 100;
+    // Total — usa custo investido (PM * qty) vs patrimonio atual
+    // Evita distorcao quando primeiro snapshot e muito antigo/pequeno
+    var custoInvestido = 0;
+    for (var ci = 0; ci < positions.length; ci++) {
+      var cPos = positions[ci];
+      var cQty = cPos.quantidade || 0;
+      var cPm = cPos.pm || 0;
+      if (cPos.mercado === 'INT') {
+        custoInvestido += cQty * cPm * (cPos.taxa_cambio || cPos.taxa_cambio_media || 1);
+      } else {
+        custoInvestido += cQty * cPm;
+      }
+    }
+    custoInvestido += rfTotalAplicado;
+    if (custoInvestido > 0) rentTotal = ((patrimonio - custoInvestido) / custoInvestido) * 100;
+  }
+
+  // Rentabilidade mês a mês do ano atual
+  var MONTH_NAMES_SHORT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  var rentMeses = [];
+  if (patrimonioHistory.length >= 2) {
+    var currentYear = new Date().getFullYear();
+    var currentMonth = new Date().getMonth(); // 0-based
+    for (var mi = 0; mi <= currentMonth; mi++) {
+      var mesStr = currentYear + '-' + (mi + 1 < 10 ? '0' : '') + (mi + 1);
+      // Valor no início do mês (último ponto antes ou no dia 1)
+      var inicioMes = mesStr + '-01';
+      var valInicio = 0;
+      for (var hi2 = 0; hi2 < patrimonioHistory.length; hi2++) {
+        if (patrimonioHistory[hi2].date < inicioMes) valInicio = patrimonioHistory[hi2].value;
+      }
+      // Se é janeiro e não tem ponto anterior, usar o primeiro ponto do ano
+      if (valInicio === 0 && mi === 0) {
+        for (var hi3 = 0; hi3 < patrimonioHistory.length; hi3++) {
+          if (patrimonioHistory[hi3].date >= inicioMes) { valInicio = patrimonioHistory[hi3].value; break; }
+        }
+      }
+      // Valor no fim do mês (último ponto do mês)
+      var proxMes = mi < 11 ? (currentYear + '-' + (mi + 2 < 10 ? '0' : '') + (mi + 2) + '-01') : ((currentYear + 1) + '-01-01');
+      var valFim = 0;
+      for (var hi4 = 0; hi4 < patrimonioHistory.length; hi4++) {
+        if (patrimonioHistory[hi4].date >= inicioMes && patrimonioHistory[hi4].date < proxMes) {
+          valFim = patrimonioHistory[hi4].value;
+        }
+      }
+      var rentMi = 0;
+      if (valInicio > 0 && valFim > 0) rentMi = ((valFim - valInicio) / valInicio) * 100;
+      rentMeses.push({ mes: MONTH_NAMES_SHORT[mi], pct: rentMi, valInicio: valInicio, valFim: valFim });
+    }
+  }
 
   // Proventos pagos hoje
   var proventosHoje = data.proventosHoje || [];
@@ -620,7 +955,7 @@ export default function HomeScreen({ navigation }) {
   if (metaPct >= 100) {
     alerts.push({ type: 'ok', title: 'Meta mensal atingida!', desc: fmt(rendaTotalMes) + ' de renda no mês.', badge: 'OK' });
   } else if (rendaTotalMes > 0 && metaPct >= 50) {
-    alerts.push({ type: 'info', title: 'Meta a ' + metaPct.toFixed(0) + '%', desc: 'Faltam ' + fmt(meta - rendaTotalMes) + ' para bater a meta.', badge: 'INFO' });
+    alerts.push({ type: 'info', title: 'Meta de renda a ' + metaPct.toFixed(0) + '%', desc: 'Faltam ' + fmt(meta - rendaTotalMes) + ' para atingir a meta mensal de ' + fmt(meta) + '.', badge: 'INFO' });
   }
   // Merge fatura alerts
   for (var fai = 0; fai < faturaAlerts.length; fai++) {
@@ -764,10 +1099,15 @@ export default function HomeScreen({ navigation }) {
             style={{ height: 38, width: 38 * (400 / 95) }}
             resizeMode="contain"
           />
-          <View style={st.syncBadge}>
-            <Text style={{ fontSize: 10, color: '#22c55e', fontWeight: '600', fontFamily: F.mono }}>
-              ● SYNC {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-            </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={st.syncBadge}>
+              <Text style={{ fontSize: 10, color: '#22c55e', fontWeight: '600', fontFamily: F.mono }}>
+                ● SYNC {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={function() { setShowShare(true); }} style={{ padding: 4 }} accessibilityLabel="Compartilhar">
+              <Ionicons name="share-outline" size={20} color="rgba(255,255,255,0.5)" />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -838,6 +1178,9 @@ export default function HomeScreen({ navigation }) {
           </View>
         ) : null}
 
+        {/* RENDA HERO — foco principal do app */}
+        <RendaHero userId={user && user.id} portfolioId={selPortfolio} metaMensal={meta} />
+
         {/* PATRIMÔNIO HERO */}
         <GlassCard pad={0} glow="rgba(14,165,233,0.12)">
           <LinearGradient
@@ -853,10 +1196,24 @@ export default function HomeScreen({ navigation }) {
                   <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
                 </TouchableOpacity>
               </View>
-              {rentabilidadeMes > 0 ? (
-                <Text style={[{ fontSize: 12, color: '#22c55e', fontFamily: F.mono, fontWeight: '600' }, ps]}>
-                  +{rentabilidadeMes.toFixed(2)}% /mês
-                </Text>
+              {patrimonioHistory.length >= 2 ? (
+                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', flex: 1, marginLeft: 8 }}>
+                  {[[rentSemanal, '7D'], [rentMensal, '1M'], [rentAno, 'YTD'], [rentTotal, 'Total']].map(function(item) {
+                    var val = item[0];
+                    var label = item[1];
+                    if (val === 0) return null;
+                    var cor = val > 0 ? C.green : C.red;
+                    var sinal = val > 0 ? '+' : '';
+                    return (
+                      <View key={label} style={{ alignItems: 'center' }}>
+                        <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 11, color: cor, fontFamily: F.mono, fontWeight: '700' }, ps]}>
+                          {sinal + val.toFixed(1) + '%'}
+                        </Text>
+                        <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>{label}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
               ) : null}
             </View>
 
@@ -904,6 +1261,56 @@ export default function HomeScreen({ navigation }) {
                 </View>
               ) : null}
 
+              {/* Portfolio overlay toggle chips (only in "Todos" view) */}
+              {!selPortfolio && Object.keys(pfHistories).length > 0 ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                  {(function() {
+                    var chips = [];
+                    var pfKeys = Object.keys(pfHistories);
+                    for (var ci = 0; ci < pfKeys.length; ci++) {
+                      (function(pfKey) {
+                        var isVisible = visiblePfLines[pfKey] === true;
+                        var chipLabel = 'Padrão';
+                        var chipColor = C.accent;
+                        if (pfKey !== '__null__') {
+                          for (var pi3 = 0; pi3 < portfolios.length; pi3++) {
+                            if (portfolios[pi3].id === pfKey) {
+                              chipLabel = portfolios[pi3].nome;
+                              chipColor = portfolios[pi3].cor || C.accent;
+                              break;
+                            }
+                          }
+                        }
+                        chips.push(
+                          <TouchableOpacity key={pfKey}
+                            onPress={function() {
+                              setVisiblePfLines(function(prev) {
+                                var next = {};
+                                var keys = Object.keys(prev);
+                                for (var ki2 = 0; ki2 < keys.length; ki2++) next[keys[ki2]] = prev[keys[ki2]];
+                                next[pfKey] = !prev[pfKey];
+                                return next;
+                              });
+                            }}
+                            style={{
+                              flexDirection: 'row', alignItems: 'center', gap: 4,
+                              paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6,
+                              backgroundColor: isVisible ? chipColor + '20' : 'rgba(255,255,255,0.03)',
+                              borderWidth: 1,
+                              borderColor: isVisible ? chipColor + '50' : 'rgba(255,255,255,0.06)',
+                            }}
+                          >
+                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: chipColor, opacity: isVisible ? 1 : 0.3 }} />
+                            <Text style={{ fontSize: 9, fontFamily: F.mono, color: isVisible ? chipColor : 'rgba(255,255,255,0.3)' }}>{chipLabel}</Text>
+                          </TouchableOpacity>
+                        );
+                      })(pfKeys[ci]);
+                    }
+                    return chips;
+                  })()}
+                </View>
+              ) : null}
+
               {/* Chart or placeholder */}
               {hasRealChart ? (
                 <View style={{ marginHorizontal: -6 }}>
@@ -915,6 +1322,40 @@ export default function HomeScreen({ navigation }) {
                       fontFamily={F.mono}
                       label="Evolução do patrimônio"
                       onTouchStateChange={setChartTouching}
+                      overlays={(function() {
+                        var ovs = [];
+                        var pfKeys = Object.keys(pfHistories);
+                        for (var ovi2 = 0; ovi2 < pfKeys.length; ovi2++) {
+                          var pfKey2 = pfKeys[ovi2];
+                          if (!visiblePfLines[pfKey2]) continue;
+                          var ovColor = C.accent;
+                          var ovLabel = 'Padrão';
+                          if (pfKey2 !== '__null__') {
+                            for (var pi4 = 0; pi4 < portfolios.length; pi4++) {
+                              if (portfolios[pi4].id === pfKey2) {
+                                ovLabel = portfolios[pi4].nome;
+                                ovColor = portfolios[pi4].cor || C.accent;
+                                break;
+                              }
+                            }
+                          }
+                          // Filter overlay data by chart period
+                          var ovData = pfHistories[pfKey2];
+                          if (chartPeriod !== 'ALL' && ovData.length > 0) {
+                            var periodDef2 = PERIODS.find(function(p2) { return p2.key === chartPeriod; });
+                            if (periodDef2 && periodDef2.days > 0) {
+                              var cutoff2 = new Date();
+                              cutoff2.setDate(cutoff2.getDate() - periodDef2.days);
+                              var cutoffStr2 = cutoff2.toISOString().substring(0, 10);
+                              ovData = ovData.filter(function(pt2) { return pt2.date >= cutoffStr2; });
+                            }
+                          }
+                          if (ovData.length >= 2) {
+                            ovs.push({ data: ovData, color: ovColor, label: ovLabel });
+                          }
+                        }
+                        return ovs;
+                      })()}
                     />
                   </Sensitive>
                 </View>
@@ -967,13 +1408,17 @@ export default function HomeScreen({ navigation }) {
         </GlassCard>
 
         {/* KPI BAR — resumo compacto horizontal */}
-        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 14 }}>
-          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
-            <Text style={{ fontSize: 10, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>RENT. MÊS</Text>
-            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 15, fontWeight: '800', color: rentabilidadeMes > 1 ? C.green : C.yellow, fontFamily: F.mono, marginTop: 2 }, ps]}>
-              {rentabilidadeMes.toFixed(2) + '%'}
+        <View style={{ flexDirection: 'row', gap: 6, marginBottom: rentAnoExpanded ? 0 : 14 }}>
+          <TouchableOpacity activeOpacity={0.7} onPress={function() { animateLayout(); setRentAnoExpanded(!rentAnoExpanded); }}
+            style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: rentAnoExpanded ? C.accent + '40' : 'rgba(255,255,255,0.06)' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={{ fontSize: 10, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>RENTAB. ANO</Text>
+              <Ionicons name={rentAnoExpanded ? 'chevron-up' : 'chevron-down'} size={12} color={C.dim} />
+            </View>
+            <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 15, fontWeight: '800', color: rentAno > 0 ? C.green : (rentAno < 0 ? C.red : C.yellow), fontFamily: F.mono, marginTop: 2 }, ps]}>
+              {(rentAno > 0 ? '+' : '') + rentAno.toFixed(2) + '%'}
             </Text>
-          </View>
+          </TouchableOpacity>
           <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
             <Text style={{ fontSize: 10, color: C.textSecondary, fontFamily: F.mono, letterSpacing: 0.5 }}>POSIÇÕES</Text>
             <Text style={{ fontSize: 15, fontWeight: '800', color: C.text, fontFamily: F.mono, marginTop: 2 }}>
@@ -987,11 +1432,46 @@ export default function HomeScreen({ navigation }) {
             </Text>
             {opsVenc7d > 0 ? (
               <Text style={{ fontSize: 10, color: C.red, fontFamily: F.mono }}>
-                {opsVenc7d + ' venc. 7d'}
+                {opsVenc7d + ' vence em 7d'}
               </Text>
             ) : null}
           </View>
         </View>
+
+        {/* RENT. ANO — breakdown mensal expandido */}
+        {rentAnoExpanded && rentMeses.length > 0 ? (
+          <View style={{ backgroundColor: 'rgba(255,255,255,0.025)', borderRadius: 12, padding: 12, marginBottom: 14, borderWidth: 1, borderColor: C.accent + '20' }}>
+            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 10 }}>
+              {'RENTABILIDADE ' + new Date().getFullYear() + ' — MÊS A MÊS'}
+            </Text>
+            {rentMeses.map(function(rm, idx) {
+              var barWidth = Math.min(Math.abs(rm.pct) * 3, 100);
+              var barColor = rm.pct > 0 ? C.green : (rm.pct < 0 ? C.red : C.dim);
+              var isCurrent = idx === rentMeses.length - 1;
+              return (
+                <View key={rm.mes} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <Text style={{ width: 32, fontSize: 11, color: isCurrent ? C.text : C.textSecondary, fontFamily: F.mono, fontWeight: isCurrent ? '700' : '400' }}>
+                    {rm.mes}
+                  </Text>
+                  <View style={{ flex: 1, height: 14, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 4, overflow: 'hidden', marginHorizontal: 8 }}>
+                    {rm.pct !== 0 ? (
+                      <View style={{ width: barWidth + '%', height: 14, backgroundColor: barColor + '50', borderRadius: 4 }} />
+                    ) : null}
+                  </View>
+                  <Text maxFontSizeMultiplier={1.5} style={[{ width: 56, textAlign: 'right', fontSize: 12, fontWeight: '700', color: barColor, fontFamily: F.mono }, ps]}>
+                    {(rm.pct > 0 ? '+' : '') + rm.pct.toFixed(2) + '%'}
+                  </Text>
+                </View>
+              );
+            })}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
+              <Text style={{ fontSize: 11, color: C.textSecondary, fontFamily: F.mono, fontWeight: '600' }}>ACUMULADO YTD</Text>
+              <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 13, fontWeight: '800', color: rentAno > 0 ? C.green : (rentAno < 0 ? C.red : C.yellow), fontFamily: F.mono }, ps]}>
+                {(rentAno > 0 ? '+' : '') + rentAno.toFixed(2) + '%'}
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         {/* RENDA DO MÊS — simplificado */}
         <GlassCard glow="rgba(108,92,231,0.10)">
@@ -1027,75 +1507,207 @@ export default function HomeScreen({ navigation }) {
             ) : null}
           </View>
 
-          {/* Discriminação por tipo — só categorias com posições ativas */}
-          <View style={{ gap: 6, marginBottom: 14 }}>
-            {plMes !== 0 || opsAtivas > 0 ? (
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.opcao.color }} />
-                  <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>P&L Opções</Text>
+          {/* Discriminação por categoria */}
+          <View style={{ gap: 10, marginBottom: 14 }}>
+
+            {/* ── Dividendos ── */}
+            {dividendosMes > 0 || dividendosMesAnterior > 0 ? (
+              <View style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: 10 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <Text style={{ fontSize: 12, color: C.text, fontFamily: F.display, fontWeight: '700' }}>Dividendos</Text>
+                  <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 15, fontWeight: '800', color: dividendosMes > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
+                    {fmt(dividendosMes)}
+                  </Text>
                 </View>
-                <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 13, fontWeight: '700', color: plMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
-                  {fmt(plMes)}
-                </Text>
+                {dividendosMesAnterior > 0 ? (function() {
+                  var divUp = dividendosMes >= dividendosMesAnterior;
+                  var divPct = dividendosMesAnterior > 0 ? ((dividendosMes - dividendosMesAnterior) / dividendosMesAnterior) * 100 : 0;
+                  return (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <View style={{ backgroundColor: (divUp ? '#22c55e' : '#ef4444') + '15', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={[{ fontSize: 10, fontWeight: '700', color: divUp ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
+                          {(divPct > 0 ? '+' : '') + divPct.toFixed(0) + '%'}
+                        </Text>
+                      </View>
+                      <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>
+                        {'Ant: ' + fmt(dividendosMesAnterior)}
+                      </Text>
+                    </View>
+                  );
+                })() : null}
+                <View style={{ gap: 4 }}>
+                  {[
+                    { key: 'acao', label: 'Ações', color: P.acao.color, val: dividendosCatMes.acao, cats: ['acao'] },
+                    { key: 'fii', label: 'FIIs', color: P.fii.color, val: dividendosCatMes.fii, cats: ['fii'] },
+                    { key: 'etf', label: 'ETFs', color: P.etf.color, val: dividendosCatMes.etf, cats: ['etf'] },
+                    { key: 'stock_int', label: 'Stocks', color: P.stock_int.color, val: dividendosCatMes.stock_int, cats: ['stock_int'] },
+                    { key: 'bdr', label: 'BDRs/ADRs/REITs', color: P.bdr.color, val: (dividendosCatMes.bdr || 0) + (dividendosCatMes.adr || 0) + (dividendosCatMes.reit || 0), cats: ['bdr', 'adr', 'reit'] },
+                  ].map(function(catItem) {
+                    if (catItem.val <= 0) return null;
+                    var isExp = expandedRendaCat === catItem.key;
+                    var catProvs = isExp ? getProvsByCat(catItem.cats) : [];
+                    return (
+                      <View key={catItem.key}>
+                        <TouchableOpacity
+                          onPress={function() { animateLayout(); setExpandedRendaCat(isExp ? null : catItem.key); }}
+                          activeOpacity={0.7}
+                          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: catItem.color }} />
+                            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body }}>{catItem.label}</Text>
+                            <Ionicons name={isExp ? 'chevron-up' : 'chevron-down'} size={10} color={C.dim} />
+                          </View>
+                          <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 12, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }, ps]}>{fmt(catItem.val)}</Text>
+                        </TouchableOpacity>
+                        {isExp && catProvs.length > 0 ? (
+                          <View style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 6, padding: 8, marginTop: 4, marginBottom: 4, gap: 6 }}>
+                            {catProvs.map(function(p, idx) {
+                              return (
+                                <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={{ fontSize: 11, color: C.text, fontFamily: F.display, fontWeight: '600' }}>{p.ticker}</Text>
+                                    <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>
+                                      {(p.corretora || '') + (p.data_pagamento ? '  ' + isoToBr(p.data_pagamento) : '')}
+                                    </Text>
+                                  </View>
+                                  <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 11, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }, ps]}>
+                                    {fmt(p.valor)}
+                                  </Text>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </View>
               </View>
             ) : null}
-            {hasCat.acao || dividendosCatMes.acao > 0 ? (
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.acao.color }} />
-                  <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos Ações</Text>
+
+            {/* ── Prêmios de Opções ── */}
+            {plMes !== 0 || premiosMesAnterior !== 0 || opsAtivas > 0 ? (
+              <View style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: 10 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: premiosMes > 0 || recompraMes > 0 ? 6 : 0 }}>
+                  <Text style={{ fontSize: 12, color: C.text, fontFamily: F.display, fontWeight: '700' }}>Prêmios de Opções</Text>
+                  <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 15, fontWeight: '800', color: plMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
+                    {fmt(plMes)}
+                  </Text>
                 </View>
-                <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.acao > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
-                  {fmt(dividendosCatMes.acao)}
-                </Text>
+                {premiosMesAnterior !== 0 ? (function() {
+                  var plUp = plMes >= premiosMesAnterior;
+                  var plPctComp = Math.abs(premiosMesAnterior) > 0 ? ((plMes - premiosMesAnterior) / Math.abs(premiosMesAnterior)) * 100 : 0;
+                  return (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <View style={{ backgroundColor: (plUp ? '#22c55e' : '#ef4444') + '15', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={[{ fontSize: 10, fontWeight: '700', color: plUp ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
+                          {(plPctComp > 0 ? '+' : '') + plPctComp.toFixed(0) + '%'}
+                        </Text>
+                      </View>
+                      <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>
+                        {'Ant: ' + fmt(premiosMesAnterior)}
+                      </Text>
+                    </View>
+                  );
+                })() : null}
+                {premiosMes > 0 || recompraMes > 0 ? (
+                  <View style={{ gap: 4 }}>
+                    {premiosMes > 0 ? (
+                      <View>
+                        <TouchableOpacity
+                          onPress={function() { animateLayout(); setExpandedRendaCat(expandedRendaCat === 'premios' ? null : 'premios'); }}
+                          activeOpacity={0.7}
+                          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e' }} />
+                            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body }}>Prêmios</Text>
+                            <Ionicons name={expandedRendaCat === 'premios' ? 'chevron-up' : 'chevron-down'} size={10} color={C.dim} />
+                          </View>
+                          <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 12, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }, ps]}>{fmt(premiosMes)}</Text>
+                        </TouchableOpacity>
+                        {expandedRendaCat === 'premios' && premiosMesDetalhe.length > 0 ? (
+                          <View style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 6, padding: 8, marginTop: 4, marginBottom: 4, gap: 6 }}>
+                            {premiosMesDetalhe.map(function(p, idx) {
+                              return (
+                                <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={{ fontSize: 11, color: C.text, fontFamily: F.display, fontWeight: '600' }}>
+                                      {p.ticker + ' ' + (p.ticker_opcao || '')}
+                                    </Text>
+                                    <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>
+                                      {(p.tipo_opcao || '') + '  ' + (p.corretora || '')}
+                                    </Text>
+                                  </View>
+                                  <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 11, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }, ps]}>
+                                    {fmt(p.valor)}
+                                  </Text>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : null}
+                    {recompraMes > 0 ? (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#ef4444' }} />
+                          <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body }}>Recompras</Text>
+                        </View>
+                        <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 12, fontWeight: '700', color: '#ef4444', fontFamily: F.mono }, ps]}>{'-' + fmt(recompraMes)}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
             ) : null}
-            {hasCat.fii || dividendosCatMes.fii > 0 ? (
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.fii.color }} />
-                  <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Rendimentos FIIs</Text>
-                </View>
-                <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.fii > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
-                  {fmt(dividendosCatMes.fii)}
-                </Text>
-              </View>
-            ) : null}
-            {hasCat.etf || dividendosCatMes.etf > 0 ? (
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.etf.color }} />
-                  <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos ETFs</Text>
-                </View>
-                <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.etf > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
-                  {fmt(dividendosCatMes.etf)}
-                </Text>
-              </View>
-            ) : null}
-            {hasCat.stock_int || dividendosCatMes.stock_int > 0 ? (
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: P.stock_int.color }} />
-                  <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Dividendos Stocks</Text>
-                </View>
-                <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 13, fontWeight: '700', color: dividendosCatMes.stock_int > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
-                  {fmt(dividendosCatMes.stock_int)}
-                </Text>
-              </View>
-            ) : null}
+
+            {/* ── Renda Fixa ── */}
             {rendaFixa.length > 0 || rfRendaMensal > 0 ? (
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.rf }} />
-                  <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>Renda Fixa</Text>
+              <View style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: 10 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 12, color: C.text, fontFamily: F.display, fontWeight: '700' }}>Renda Fixa</Text>
+                  <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 15, fontWeight: '800', color: rfRendaMensal > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
+                    {fmt(rfRendaMensal)}
+                  </Text>
                 </View>
-                <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 13, fontWeight: '700', color: rfRendaMensal > 0 ? '#22c55e' : C.dim, fontFamily: F.mono }, ps]}>
-                  {fmt(rfRendaMensal)}
-                </Text>
               </View>
             ) : null}
           </View>
+
+          {/* ── Combinado (Dividendos + Prêmios) ── */}
+          {(dividendosMes > 0 || plMes !== 0 || dividendosMesAnterior > 0 || premiosMesAnterior !== 0) ? (
+            <View style={{ backgroundColor: C.accent + '10', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: C.accent + '20', marginBottom: 14 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.display, fontWeight: '700' }}>Dividendos + Opções</Text>
+                <Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 17, fontWeight: '800', color: (dividendosMes + plMes) >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
+                  {fmt(dividendosMes + plMes)}
+                </Text>
+              </View>
+              {dividendosMesAnterior > 0 || Math.abs(plMesAnterior) > 0 ? (function() {
+                var combAnterior = dividendosMesAnterior + plMesAnterior;
+                var combAtual = dividendosMes + plMes;
+                var combPct = Math.abs(combAnterior) > 0 ? ((combAtual - combAnterior) / Math.abs(combAnterior)) * 100 : 0;
+                var combUp = combAtual >= combAnterior;
+                return (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    {combPct !== 0 ? (
+                      <View style={{ backgroundColor: (combUp ? '#22c55e' : '#ef4444') + '15', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                        <Text style={[{ fontSize: 10, fontWeight: '700', color: combUp ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
+                          {(combPct > 0 ? '+' : '') + combPct.toFixed(0) + '% vs ant.'}
+                        </Text>
+                      </View>
+                    ) : null}
+                    <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>
+                      {'Ant: ' + fmt(combAnterior)}
+                    </Text>
+                  </View>
+                );
+              })() : null}
+            </View>
+          ) : null}
 
           {/* Divider */}
           <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginBottom: 14 }} />
@@ -1145,10 +1757,156 @@ export default function HomeScreen({ navigation }) {
           </View>
           {metaPct < 100 && metaPct > 0 ? (
             <Text style={[{ fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono, textAlign: 'right', marginTop: 5 }, ps]}>
-              {'Faltam ' + fmt(meta - rendaTotalMes)}
+              {'Faltam ' + fmt(meta - rendaTotalMes) + ' da meta mensal'}
             </Text>
           ) : null}
+
+          {/* Projecao anual + Streak */}
+          {(function() {
+            var projecaoAnual = rendaMediaAnual * 12;
+            var rendaByMonth = data.rendaAnualByMonth || {};
+            var anoCorrente = new Date().getFullYear();
+            var mesCorrente = new Date().getMonth(); // 0-indexed
+
+            // Calcular streak: meses consecutivos que atingiram a meta (de tras pra frente)
+            var streak = 0;
+            for (var si = mesCorrente - 1; si >= 0; si--) {
+              var mKey = anoCorrente + '-' + String(si + 1).padStart(2, '0');
+              var mVal = rendaByMonth[mKey] || 0;
+              if (mVal >= meta) {
+                streak++;
+              } else {
+                break;
+              }
+            }
+
+            if (projecaoAnual <= 0 && streak <= 0) return null;
+
+            return (
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                {projecaoAnual > 0 ? (
+                  <View style={{ backgroundColor: C.accent + '15', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Ionicons name="trending-up" size={12} color={C.accent} />
+                    <Text style={[{ fontSize: 11, fontFamily: F.mono, color: C.accent }, ps]}>
+                      {'Projeção ' + anoCorrente + ': ' + fmt(projecaoAnual)}
+                    </Text>
+                  </View>
+                ) : null}
+                {streak >= 2 ? (
+                  <View style={{ backgroundColor: '#22c55e15', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={{ fontSize: 12 }}>{'🔥'}</Text>
+                    <Text style={{ fontSize: 11, fontFamily: F.mono, color: '#22c55e', fontWeight: '700' }}>
+                      {streak + ' meses seguidos'}
+                    </Text>
+                  </View>
+                ) : null}
+                {rendaMediaAnual >= meta && meta > 0 ? (
+                  <View style={{ backgroundColor: '#22c55e15', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Ionicons name="checkmark-circle" size={12} color="#22c55e" />
+                    <Text style={{ fontSize: 11, fontFamily: F.mono, color: '#22c55e', fontWeight: '700' }}>
+                      Meta atingida na média!
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            );
+          })()}
         </GlassCard>
+
+        {/* FINANÇAS DO MÊS */}
+        {financasSummary && financasSummary.total > 0 ? (
+          <GlassCard glow="rgba(16,185,129,0.06)">
+            <SLabel right={
+              <TouchableOpacity onPress={function() { setInfoModal({ title: 'Finanças do Mês', text: 'Resumo das suas movimentações pessoais do mês atual. Valores de investimento são excluídos.' }); }}>
+                <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
+              </TouchableOpacity>
+            }>FINANÇAS DO MÊS</SLabel>
+
+            {/* Entradas / Saídas lado a lado */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 11, color: C.textSecondary, fontFamily: F.body, marginBottom: 2 }}>Entradas</Text>
+                <Sensitive><Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 18, fontWeight: '700', color: C.green, fontFamily: F.mono }, ps]}>{fmt(financasSummary.totalEntradasPessoais)}</Text></Sensitive>
+              </View>
+              <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                <Text style={{ fontSize: 11, color: C.textSecondary, fontFamily: F.body, marginBottom: 2 }}>Saídas</Text>
+                <Sensitive><Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 18, fontWeight: '700', color: C.red, fontFamily: F.mono }, ps]}>{fmt(financasSummary.totalSaidasPessoais)}</Text></Sensitive>
+              </View>
+            </View>
+
+            {/* Saldo pessoal */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
+              <Text style={{ fontSize: 12, color: C.textSecondary, fontFamily: F.body }}>Saldo pessoal</Text>
+              <Sensitive><Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 16, fontWeight: '700', color: financasSummary.saldoPessoal >= 0 ? C.green : C.red, fontFamily: F.mono }, ps]}>{(financasSummary.saldoPessoal >= 0 ? '+' : '') + fmt(financasSummary.saldoPessoal)}</Text></Sensitive>
+            </View>
+
+            {/* Top 4 grupos despesa */}
+            {(function() {
+              var grupoKeys = Object.keys(financasSummary.porGrupo);
+              var grupoArr = [];
+              for (var gi = 0; gi < grupoKeys.length; gi++) {
+                grupoArr.push({ k: grupoKeys[gi], v: financasSummary.porGrupo[grupoKeys[gi]] });
+              }
+              grupoArr.sort(function(a, b) { return b.v - a.v; });
+              var top4 = grupoArr.slice(0, 4);
+              if (top4.length === 0) return null;
+              return (
+                <View style={{ marginBottom: financasCartao ? 12 : 4 }}>
+                  <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 8 }}>TOP DESPESAS</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {top4.map(function(g) {
+                      var meta = finCats.getGrupoMeta(g.k);
+                      var pct = financasSummary.totalSaidasPessoais > 0 ? Math.round((g.v / financasSummary.totalSaidasPessoais) * 100) : 0;
+                      return (
+                        <View key={g.k} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: (meta.color || C.accent) + '15', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5 }}>
+                          <Ionicons name={meta.icon || 'ellipse-outline'} size={12} color={meta.color || C.accent} style={{ marginRight: 4 }} />
+                          <Text style={{ fontSize: 11, fontFamily: F.body, color: C.text, marginRight: 4 }}>{meta.label}</Text>
+                          <Sensitive><Text style={[{ fontSize: 11, fontFamily: F.mono, color: C.textSecondary }, ps]}>{fmt(g.v)}</Text></Sensitive>
+                          <Text style={{ fontSize: 9, fontFamily: F.mono, color: C.textTertiary || '#666688', marginLeft: 3 }}>{pct + '%'}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })()}
+
+            {/* Cartão principal — fatura */}
+            {financasCartao ? (
+              <View style={{ paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="card-outline" size={14} color={C.accent} />
+                    <Text style={{ fontSize: 12, fontFamily: F.body, color: C.text }}>{financasCartao.nome}</Text>
+                  </View>
+                  <Sensitive><Text maxFontSizeMultiplier={1.5} style={[{ fontSize: 14, fontWeight: '700', fontFamily: F.mono, color: C.red }, ps]}>{'R$ ' + fmt(financasCartao.faturaTotal)}</Text></Sensitive>
+                </View>
+                {financasCartao.vencimento ? (
+                  <Text style={{ fontSize: 11, fontFamily: F.mono, color: (function() {
+                    var venc = new Date(financasCartao.vencimento + 'T12:00:00');
+                    var hoje = new Date();
+                    var diffDias = Math.ceil((venc - hoje) / (1000 * 60 * 60 * 24));
+                    if (diffDias < 5) return C.red;
+                    if (diffDias < 10) return C.yellow || '#F59E0B';
+                    return C.textSecondary;
+                  })(), marginTop: 4, textAlign: 'right' }}>
+                    {'Vence ' + new Date(financasCartao.vencimento + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+
+            {/* Ver detalhes */}
+            <TouchableOpacity
+              onPress={function() { navigation.navigate('MainTabs', { screen: 'Carteira', params: { initialTab: 'financas' } }); }}
+              activeOpacity={0.7}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingTop: 12, marginTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}
+            >
+              <Text style={{ fontSize: 12, fontFamily: F.display, color: C.accent }}>Ver detalhes</Text>
+              <Ionicons name="chevron-forward" size={14} color={C.accent} style={{ marginLeft: 2 }} />
+            </TouchableOpacity>
+          </GlassCard>
+        ) : null}
 
         {/* ALERTAS */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -1211,130 +1969,210 @@ export default function HomeScreen({ navigation }) {
           <GlassCard glow="rgba(236,72,153,0.06)">
             <SLabel right={
               <Text style={{ fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.35)', fontFamily: F.mono }}>
-                próximos {Math.min(eventos.length, 3)}
+                {Math.min(eventos.length, 5) + ' de ' + eventos.length}
               </Text>
-            }>VENCIMENTOS</SLabel>
-            {eventos.slice(0, 3).map(function (e, i) {
+            }>AGENDA</SLabel>
+            {eventos.slice(0, 5).map(function (e, i) {
               return (
                 <CalItem key={i} dia={e.dia} diaSemana={e.diaSemana}
                   titulo={e.titulo} detalhe={e.detalhe} tipo={e.tipo}
-                  last={i === Math.min(eventos.length, 3) - 1}
+                  last={i === Math.min(eventos.length, 5) - 1}
                 />
               );
             })}
           </GlassCard>
         ) : null}
 
-        {/* RESUMO IA AUTOMÁTICO */}
-        {autoSummary ? (
-          <TouchableOpacity activeOpacity={0.8} onPress={function() {
-            if (!autoSummary.lido) {
-              markSummaryRead(autoSummary.id).catch(function() {});
-              var updated = {};
-              var sKeys = Object.keys(autoSummary);
-              for (var sk = 0; sk < sKeys.length; sk++) { updated[sKeys[sk]] = autoSummary[sKeys[sk]]; }
-              updated.lido = true;
-              setAutoSummary(updated);
-            }
-            setSummaryExpanded(!summaryExpanded);
-          }}>
-            <GlassCard glow="rgba(108,92,231,0.08)">
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: summaryExpanded ? 12 : 0 }}>
+        {/* RESUMO SEMANAL IA */}
+        {sub.canAccess('AI_SUMMARY') ? (
+          <GlassCard glow="rgba(108,92,231,0.08)">
+            {/* Header */}
+            <TouchableOpacity activeOpacity={0.8} onPress={function() {
+              if (autoSummary && !autoSummary.lido) {
+                markSummaryRead(autoSummary.id).catch(function() {});
+                var updated = {};
+                var sKeys = Object.keys(autoSummary);
+                for (var sk = 0; sk < sKeys.length; sk++) { updated[sKeys[sk]] = autoSummary[sKeys[sk]]; }
+                updated.lido = true;
+                setAutoSummary(updated);
+              }
+              setSummaryExpanded(!summaryExpanded);
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Ionicons name="sparkles" size={16} color={C.accent} />
-                  <Text style={{ fontSize: 13, fontFamily: F.display, color: C.accent, marginLeft: 6 }}>Resumo IA</Text>
-                  {!autoSummary.lido ? (
+                  <Text style={{ fontSize: 13, fontFamily: F.display, color: C.accent, marginLeft: 6 }}>Resumo Semanal IA</Text>
+                  {autoSummary && !autoSummary.lido ? (
                     <View style={{ backgroundColor: C.accent, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1, marginLeft: 8 }}>
                       <Text style={{ fontSize: 9, fontFamily: F.display, color: '#fff' }}>NOVO</Text>
                     </View>
                   ) : null}
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.dim, marginRight: 4 }}>
-                    {autoSummary.created_at ? new Date(autoSummary.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''}
-                  </Text>
+                  {autoSummary && autoSummary.created_at ? (
+                    <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.dim, marginRight: 4 }}>
+                      {new Date(autoSummary.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                    </Text>
+                  ) : null}
                   <Ionicons name={summaryExpanded ? 'chevron-up' : 'chevron-down'} size={14} color={C.dim} />
                 </View>
               </View>
-              {!summaryExpanded && autoSummary.teaser ? (
-                <Text style={{ fontSize: 12, fontFamily: F.body, color: C.textSecondary, marginTop: 4 }} numberOfLines={2}>
-                  {autoSummary.teaser}
-                </Text>
-              ) : null}
-              {summaryExpanded ? (
-                <View>
-                  {autoSummary.resumo ? (
-                    <View style={{ marginBottom: 12 }}>
-                      <Text style={{ fontSize: 11, fontFamily: F.mono, color: C.dim, letterSpacing: 0.8, marginBottom: 4 }}>RESUMO</Text>
-                      <Text style={{ fontSize: 13, fontFamily: F.body, color: C.text, lineHeight: 20 }}>{autoSummary.resumo}</Text>
-                    </View>
-                  ) : null}
-                  {autoSummary.acoes_urgentes ? (
-                    <View style={{ marginBottom: 12 }}>
-                      <Text style={{ fontSize: 11, fontFamily: F.mono, color: C.yellow, letterSpacing: 0.8, marginBottom: 4 }}>AÇÕES URGENTES</Text>
-                      <Text style={{ fontSize: 13, fontFamily: F.body, color: C.text, lineHeight: 20 }}>{autoSummary.acoes_urgentes}</Text>
-                    </View>
-                  ) : null}
-                  {autoSummary.dica_do_dia ? (
-                    <View>
-                      <Text style={{ fontSize: 11, fontFamily: F.mono, color: C.green, letterSpacing: 0.8, marginBottom: 4 }}>DICA DO DIA</Text>
-                      <Text style={{ fontSize: 13, fontFamily: F.body, color: C.text, lineHeight: 20 }}>{autoSummary.dica_do_dia}</Text>
-                    </View>
-                  ) : null}
+            </TouchableOpacity>
+
+            {/* Teaser (collapsed) */}
+            {!summaryExpanded && autoSummary && autoSummary.teaser ? (
+              <Text style={{ fontSize: 12, fontFamily: F.body, color: C.textSecondary, marginTop: 6 }} numberOfLines={2}>
+                {autoSummary.teaser}
+              </Text>
+            ) : null}
+
+            {/* Empty state */}
+            {!autoSummary && !summaryExpanded ? (
+              <Text style={{ fontSize: 12, fontFamily: F.body, color: C.dim, marginTop: 6 }}>
+                Nenhum resumo disponível ainda. O primeiro será gerado na sexta às 18h.
+              </Text>
+            ) : null}
+
+            {/* Conteúdo expandido */}
+            {summaryExpanded && autoSummary ? (
+              <View style={{ marginTop: 12 }}>
+                {autoSummary.resumo ? (
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={{ fontSize: 11, fontFamily: F.mono, color: C.dim, letterSpacing: 0.8, marginBottom: 4 }}>RESUMO</Text>
+                    <Text style={{ fontSize: 13, fontFamily: F.body, color: C.text, lineHeight: 20 }}>{autoSummary.resumo}</Text>
+                  </View>
+                ) : null}
+                {autoSummary.acoes_urgentes ? (
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={{ fontSize: 11, fontFamily: F.mono, color: C.yellow, letterSpacing: 0.8, marginBottom: 4 }}>AÇÕES URGENTES</Text>
+                    <Text style={{ fontSize: 13, fontFamily: F.body, color: C.text, lineHeight: 20 }}>{autoSummary.acoes_urgentes}</Text>
+                  </View>
+                ) : null}
+                {autoSummary.dica_do_dia ? (
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={{ fontSize: 11, fontFamily: F.mono, color: C.green, letterSpacing: 0.8, marginBottom: 4 }}>DICA DO DIA</Text>
+                    <Text style={{ fontSize: 13, fontFamily: F.body, color: C.text, lineHeight: 20 }}>{autoSummary.dica_do_dia}</Text>
+                  </View>
+                ) : null}
+
+                {/* Próxima análise */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, marginBottom: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' }}>
+                  <Ionicons name="time-outline" size={13} color={C.dim} />
+                  <Text style={{ fontSize: 11, fontFamily: F.body, color: C.dim, marginLeft: 4 }}>
+                    {'Próxima análise: ' + (function() {
+                      var now = new Date();
+                      var brt = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+                      var h = brt.getUTCHours();
+                      var dow = brt.getUTCDay();
+                      var next = new Date(brt);
+                      if (h >= 18 || dow === 0 || dow === 6) {
+                        next.setUTCDate(next.getUTCDate() + 1);
+                      }
+                      while (next.getUTCDay() === 0 || next.getUTCDay() === 6) {
+                        next.setUTCDate(next.getUTCDate() + 1);
+                      }
+                      next.setUTCHours(18, 0, 0, 0);
+                      var nextUtc = new Date(next.getTime() + 3 * 60 * 60 * 1000);
+                      var dias = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+                      return dias[nextUtc.getDay()] + ', ' + nextUtc.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' às 18h';
+                    })()}
+                  </Text>
                 </View>
-              ) : null}
-            </GlassCard>
-          </TouchableOpacity>
+
+                {/* Últimas análises */}
+                {pastSummaries.length > 0 ? (
+                  <View>
+                    <TouchableOpacity activeOpacity={0.7} onPress={function() { setShowPastSummaries(!showPastSummaries); setExpandedPastId(null); }}
+                      style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="document-text-outline" size={13} color={C.dim} />
+                        <Text style={{ fontSize: 11, fontFamily: F.body, color: C.dim, marginLeft: 4 }}>
+                          {'Últimas análises (' + pastSummaries.length + ')'}
+                        </Text>
+                      </View>
+                      <Ionicons name={showPastSummaries ? 'chevron-up' : 'chevron-down'} size={12} color={C.dim} />
+                    </TouchableOpacity>
+                    {showPastSummaries ? pastSummaries.map(function(ps) {
+                      var isExp = expandedPastId === ps.id;
+                      var dt = ps.created_at ? new Date(ps.created_at) : null;
+                      var dtLabel = dt ? dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
+                      return (
+                        <TouchableOpacity key={ps.id} activeOpacity={0.7} onPress={function() { setExpandedPastId(isExp ? null : ps.id); }}
+                          style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: 10, marginTop: 6 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Text style={{ fontSize: 12, fontFamily: F.body, color: C.textSecondary, flex: 1 }} numberOfLines={1}>
+                              {ps.teaser || 'Resumo de ' + dtLabel}
+                            </Text>
+                            <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.dim, marginLeft: 8 }}>{dtLabel}</Text>
+                          </View>
+                          {isExp ? (
+                            <View style={{ marginTop: 8 }}>
+                              {ps.resumo ? (
+                                <View style={{ marginBottom: 8 }}>
+                                  <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.dim, letterSpacing: 0.8, marginBottom: 3 }}>RESUMO</Text>
+                                  <Text style={{ fontSize: 12, fontFamily: F.body, color: C.text, lineHeight: 18 }}>{ps.resumo}</Text>
+                                </View>
+                              ) : null}
+                              {ps.acoes_urgentes ? (
+                                <View style={{ marginBottom: 8 }}>
+                                  <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.yellow, letterSpacing: 0.8, marginBottom: 3 }}>AÇÕES URGENTES</Text>
+                                  <Text style={{ fontSize: 12, fontFamily: F.body, color: C.text, lineHeight: 18 }}>{ps.acoes_urgentes}</Text>
+                                </View>
+                              ) : null}
+                              {ps.dica_do_dia ? (
+                                <View>
+                                  <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.green, letterSpacing: 0.8, marginBottom: 3 }}>DICA DO DIA</Text>
+                                  <Text style={{ fontSize: 12, fontFamily: F.body, color: C.text, lineHeight: 18 }}>{ps.dica_do_dia}</Text>
+                                </View>
+                              ) : null}
+                            </View>
+                          ) : null}
+                        </TouchableOpacity>
+                      );
+                    }) : null}
+                  </View>
+                ) : null}
+
+                {/* Botão Análise da Carteira */}
+                {sub.canAccess('AI_ANALYSIS') ? (
+                  <TouchableOpacity activeOpacity={0.7} onPress={function() { setAiConfirmVisible(true); }}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      paddingVertical: 10, borderRadius: 10, marginTop: 10,
+                      backgroundColor: 'rgba(108,92,231,0.12)', borderWidth: 1, borderColor: 'rgba(108,92,231,0.25)',
+                    }}>
+                    <Ionicons name="analytics-outline" size={15} color={C.accent} />
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: C.accent, fontFamily: F.display }}>Análise da Carteira</Text>
+                    <Text style={{ fontSize: 10, color: 'rgba(108,92,231,0.6)', fontFamily: F.body }}>sob demanda</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                {/* Ver análises salvas */}
+                {sub.canAccess('SAVED_ANALYSES') ? (
+                  <TouchableOpacity activeOpacity={0.7} onPress={function() { navigation.navigate('AnalisesSalvas'); }}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      paddingVertical: 8, borderRadius: 8, marginTop: 6,
+                    }}>
+                    <Ionicons name="bookmark-outline" size={13} color={C.dim} />
+                    <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body }}>Ver análises salvas</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
+          </GlassCard>
         ) : null}
 
-        {/* RESUMO IA */}
-        {sub.canAccess('AI_ANALYSIS') ? (
-          <TouchableOpacity activeOpacity={0.7} onPress={function() { setAiConfirmVisible(true); }}
-            style={{
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-              paddingVertical: 14, paddingHorizontal: 20, borderRadius: 14,
-              backgroundColor: 'rgba(108,92,231,0.08)', borderWidth: 1,
-              borderColor: 'rgba(108,92,231,0.2)', marginTop: 4,
-            }}>
-            <Ionicons name="sparkles" size={16} color={C.accent} />
-            <Text style={{ fontSize: 13, fontWeight: '700', color: C.accent, fontFamily: F.display }}>
-              Resumo IA
-            </Text>
-            <Text style={{ fontSize: 10, color: 'rgba(108,92,231,0.6)', fontFamily: F.body }}>
-              Análise inteligente da sua carteira
-            </Text>
-          </TouchableOpacity>
-        ) : null}
-        {sub.canAccess('SAVED_ANALYSES') ? (
-          <TouchableOpacity activeOpacity={0.7} onPress={function() { navigation.navigate('AnalisesSalvas'); }}
-            style={{
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-              paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10,
-              backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1,
-              borderColor: 'rgba(255,255,255,0.06)', marginTop: 8,
-            }}>
-            <Ionicons name="bookmark-outline" size={14} color={C.dim} />
-            <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.body }}>
-              Ver análises salvas
-            </Text>
-          </TouchableOpacity>
-        ) : null}
-
-        <View style={{ height: SIZE.tabBarHeight + 80 }} />
+        <View style={{ height: SIZE.tabBarHeight + 140 }} />
       </ScrollView>
 
       {/* FAB */}
-      <Fab navigation={navigation} items={[
-        { label: 'Operação', icon: 'wallet-outline', color: C.acoes, screen: 'AddOperacao' },
-        { label: 'Opção', icon: 'flash-outline', color: C.opcoes, screen: 'AddOpcao' },
-        { label: 'Provento', icon: 'cash-outline', color: C.fiis, screen: 'AddProvento' },
-        { label: 'Renda Fixa', icon: 'document-text-outline', color: C.rf, screen: 'AddRendaFixa' },
-        { label: 'Portfolio', icon: 'folder-outline', color: C.etfs, screen: 'ConfigPortfolios' },
-      ]} />
+      <Fab navigation={navigation} />
 
       {/* AI Confirm Modal */}
       <AiConfirmModal
         visible={aiConfirmVisible}
+        navigation={navigation}
         analysisType="Resumo da carteira"
         onCancel={function() { setAiConfirmVisible(false); }}
         onConfirm={function() { setAiConfirmVisible(false); handleAiResumo(); }}
@@ -1429,6 +2267,18 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      {/* Share Card */}
+      <ShareCard
+        visible={showShare}
+        onClose={function() { setShowShare(false); }}
+        patrimonio={patrimonio}
+        rendaMes={rendaTotalMes}
+        metaPct={metaPct}
+        varMes={rentabilidadeMes}
+        dividendosMes={dividendosMes}
+        premiosMes={premiosMes}
+      />
     </View>
   );
 }

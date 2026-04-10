@@ -1,7 +1,7 @@
 export { default as Glass } from './Glass';
 export { Badge, Pill, SectionLabel, Field } from './Primitives';
 export { Sparkline, Gauge } from './Charts';
-export { Skeleton, SkeletonCard, SkeletonRow, LoadingScreen, EmptyState, SkeletonCarteira, SkeletonOpcoes, SkeletonCaixa, SkeletonProventos, SkeletonRendaFixa, SkeletonFinancas } from './States';
+export { Skeleton, SkeletonCard, SkeletonRow, LoadingScreen, EmptyState, SkeletonCarteira, SkeletonOpcoes, SkeletonCaixa, SkeletonProventos, SkeletonRendaFixa, SkeletonFinancas, SkeletonFinanceiro } from './States';
 export { Logo, Wordmark } from './Logo';
 export { default as InfoTip } from './InfoTip';
 export { default as toastConfig } from './ToastConfig';
@@ -19,3 +19,4 @@ export { default as CurrencyPicker } from './CurrencyPicker';
 export { default as UpgradePrompt } from './UpgradePrompt';
 export { default as AiAnalysisModal } from './AiAnalysisModal';
 export { default as AiConfirmModal } from './AiConfirmModal';
+export { default as RendaHero } from './RendaHero';
