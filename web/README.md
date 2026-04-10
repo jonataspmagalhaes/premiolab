@@ -57,12 +57,26 @@ web/
 5. **Domínio**: apontar `premiolab.com.br` no painel Vercel
 6. **Aposentar `docs/`**: deletar repositório de páginas GitHub Pages OU configurar 301 redirect pro Vercel
 
+## Páginas implementadas
+
+- [x] `/` — landing principal com hero, features, pricing, CTA
+- [x] `/login` — auth via Supabase (email + senha)
+- [x] `/cadastro` — signup com confirmação por email
+- [x] `/assinar` — checkout Kiwify (mensal R$14,90 / anual R$149)
+- [x] `/privacidade` — política de privacidade portada de `docs/`
+- [x] `/termos` — termos de uso portados de `docs/`
+- [x] `/dashboard` — área logada com renda 30d, patrimônio, posições top, meta
+- [x] `/auth/logout` — POST handler para sign out
+- [x] `sitemap.xml` e `robots.txt` (gerados automaticamente)
+- [x] `Header` e `Footer` reaproveitáveis (`src/components/`)
+- [x] Middleware Supabase: refresh de sessão + protege `/dashboard`
+
 ## Próximas iterações
 
-- [ ] Páginas `/privacidade` e `/termos` (portar de `docs/`)
-- [ ] `/dashboard` com renda projetada + posições + calendário
-- [ ] Server actions usando `@supabase/ssr` e cookies do Next
-- [ ] Integração com edge function `kiwify-webhook` (já criada)
-- [ ] OG image dinâmica
-- [ ] Sitemap + robots.txt
+- [ ] OG image dinâmica (open-graph route handler)
+- [ ] Página `/dashboard/posicoes` com lista completa filtrável
+- [ ] Página `/dashboard/relatorios` listando os PDFs mensais (`portfolio_backups`)
+- [ ] Integração visual com `/dashboard/calendario` (eventos próximos 30d)
+- [ ] Recuperação de senha (`/recuperar-senha`)
 - [ ] Analytics (Vercel Analytics ou Plausible)
+- [ ] Páginas blog/conteúdo SEO (`/blog/...`)
