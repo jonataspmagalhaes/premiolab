@@ -20,3 +20,4 @@ export { default as UpgradePrompt } from './UpgradePrompt';
 export { default as AiAnalysisModal } from './AiAnalysisModal';
 export { default as AiConfirmModal } from './AiConfirmModal';
 export { default as RendaHero } from './RendaHero';
+export { default as YoCCard } from './YoCCard';

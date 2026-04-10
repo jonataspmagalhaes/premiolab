@@ -9,7 +9,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getDashboard, addSavedAnalysis } from '../../services/database';
-import { Glass, Badge, InfoTip, AiAnalysisModal, AiConfirmModal } from '../../components';
+import { Glass, Badge, InfoTip, AiAnalysisModal, AiConfirmModal, YoCCard } from '../../components';
 import { EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import Sensitive from '../../components/Sensitive';
@@ -458,6 +458,9 @@ export default function RendaResumoView(props) {
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} colors={[C.accent]} />}
     >
+      {/* Yield on Cost + crescimento da renda */}
+      <YoCCard userId={user && user.id} />
+
       {/* Botao Calendario de Renda */}
       <TouchableOpacity activeOpacity={0.8} onPress={function() { navigation.navigate('CalendarioRenda'); }}
         style={{ marginBottom: 12, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(34,197,94,0.25)', backgroundColor: 'rgba(34,197,94,0.08)' }}>
