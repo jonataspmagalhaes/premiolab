@@ -475,9 +475,14 @@ function PatrimonioHeroSection(props) {
         {/* Split KPIs — patrimonio + renda */}
         <View style={{ flexDirection: 'row', gap: T.space.md, marginBottom: T.space.md }}>
           <View style={{ flex: 1, borderRightWidth: 1, borderRightColor: T.color.border, paddingRight: T.space.md }}>
-            <Text style={[T.type.kpiLabel, { color: T.color.textMuted, marginBottom: T.space.xxs }]}>PATRIMONIO</Text>
+            <Text style={[T.type.kpiLabel, { color: T.color.textMuted, marginBottom: T.space.xxs }]}>INVESTIDO</Text>
             <Sensitive>
-              <Text style={[{ fontSize: 22, fontWeight: '800', color: T.color.textPrimary, fontFamily: F.mono }, ps]}>
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.6}
+                style={[{ fontSize: 22, fontWeight: '800', color: T.color.textPrimary, fontFamily: F.mono }, ps]}
+              >
                 {'R$ ' + fmtInt(patrimonio)}
               </Text>
             </Sensitive>
@@ -485,11 +490,14 @@ function PatrimonioHeroSection(props) {
           <View style={{ flex: 1, paddingLeft: T.space.xs }}>
             <Text style={[T.type.kpiLabel, { color: T.color.textMuted, marginBottom: T.space.xxs }]}>PROJ. 12M/MES</Text>
             <Sensitive>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                <Text style={[{ fontSize: 22, fontWeight: '800', color: T.color.income, fontFamily: F.mono }, ps]}>
-                  {'R$ ' + fmtInt(rendaMedia)}
-                </Text>
-              </View>
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.6}
+                style={[{ fontSize: 22, fontWeight: '800', color: T.color.income, fontFamily: F.mono }, ps]}
+              >
+                {'R$ ' + fmtInt(rendaMedia)}
+              </Text>
             </Sensitive>
             {deltaMes !== 0 ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 2 }}>

@@ -266,13 +266,15 @@ export function AppStoreProvider(props) {
     }).catch(function() {});
   }, [user]);
 
-  // Auto-fetch inicial quando user autentica
+  // Auto-fetch inicial quando user autentica. Forca refresh na mudanca de
+  // portfolio — o cache de 5min nao e chaveado por portfolioId, entao sem
+  // force=true trocar de portfolio dentro da janela nao atualizava nada.
   useEffect(function() {
     if (!user) return;
-    refreshCarteira();
-    refreshProventos();
-    refreshFinancas();
-    refreshIncome();
+    refreshCarteira(true);
+    refreshProventos(true);
+    refreshFinancas(true);
+    refreshIncome(true);
   }, [user, selectedPortfolio]);
 
   var value = {
