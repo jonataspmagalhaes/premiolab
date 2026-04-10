@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'PremioLab — Renda mensal de investimentos',
-  description: 'O app que organiza, projeta e cresce sua renda mensal de FIIs, ações, opções e renda fixa. R$ 14,90/mês ou R$ 149/ano.',
+  description: 'O app que organiza, projeta e cresce sua renda mensal de FIIs, ações, opções e renda fixa. R$ 14,99/mês ou R$ 149/ano.',
   metadataBase: new URL('https://premiolab.com.br'),
   openGraph: {
     title: 'PremioLab — Renda mensal de investimentos',

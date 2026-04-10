@@ -86,7 +86,7 @@ export default function TermosPage() {
             todas as features.
           </P>
           <UL items={[
-            'PRO Mensal: R$ 14,90/mês cobrado mensalmente.',
+            'PRO Mensal: R$ 14,99/mês cobrado mensalmente.',
             'PRO Anual: R$ 149,00/ano (~R$ 12,42/mês — 17% de desconto).',
             'Pagamentos processados pela Kiwify (PIX, boleto, cartão de crédito).',
             'O cancelamento pode ser feito a qualquer momento na sua área de assinatura. O acesso ao plano pago continua até o final do período já pago.',

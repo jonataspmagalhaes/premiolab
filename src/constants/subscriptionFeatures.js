@@ -49,12 +49,12 @@ var LIMITS = {
   FREE_OPTIONS: 3,
 };
 
-// Fase I reconstrucao: novo posicionamento premium R$14,90/mes ou R$149/ano
-// (~16% off anual). Justificado pelas features de renda novas (RendaPotencial,
+// Fase I reconstrucao: novo posicionamento premium R$14,99/mes ou R$149/ano
+// (~17% off anual). Justificado pelas features de renda novas (RendaPotencial,
 // Gerador, Calendario unificado, Snowball, Covered Call, Score).
 var PRICES = {
   pro: {
-    monthly: 14.90,
+    monthly: 14.99,
     annual: 149.00,
     annualMonthlyEquivalent: 12.42, // 149/12 — mostrar como "R$ 12,42/mes"
     annualDiscountPct: 17,           // ~ economia vs mensal

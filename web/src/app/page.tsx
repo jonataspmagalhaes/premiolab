@@ -30,7 +30,7 @@ export default function HomePage() {
             href="/assinar"
             className="px-8 py-4 rounded-md bg-income text-bg font-display font-bold text-base hover:opacity-90 transition"
           >
-            Começar agora — R$ 14,90/mês
+            Começar agora — R$ 14,99/mês
           </Link>
           <Link
             href="#features"
@@ -93,7 +93,7 @@ export default function HomePage() {
         <div className="grid md:grid-cols-2 gap-6">
           <PricingCard
             title="Mensal"
-            price="14,90"
+            price="14,99"
             period="/mês"
             highlight={false}
             cta="Assinar mensal"
@@ -143,7 +143,7 @@ export default function HomePage() {
           href="/assinar"
           className="inline-block px-10 py-4 rounded-md bg-income text-bg font-display font-bold text-lg hover:opacity-90 transition"
         >
-          Começar por R$ 14,90/mês
+          Começar por R$ 14,99/mês
         </Link>
       </section>
 

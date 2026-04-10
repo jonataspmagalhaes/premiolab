@@ -47,7 +47,7 @@ export default function AssinarPage({
             <h3 className="font-display font-bold text-xl mb-3">Mensal</h3>
             <div className="flex items-baseline gap-1 mb-1">
               <span className="text-sm text-secondary">R$</span>
-              <span className="text-5xl font-mono font-extrabold">14,90</span>
+              <span className="text-5xl font-mono font-extrabold">14,99</span>
               <span className="text-secondary">/mês</span>
             </div>
             <p className="text-xs text-muted mb-6">Cobrança mensal recorrente</p>
