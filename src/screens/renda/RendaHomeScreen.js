@@ -1258,7 +1258,8 @@ export default function RendaHomeScreen(props) {
     if (!user) return Promise.resolve();
     var pfArg = selectedPortfolio || undefined;
     return getDashboard(user.id, pfArg).then(function(res) {
-      if (res && res.data) setDashData(res.data);
+      // getDashboard retorna o objeto de dados direto (nao envolvido em {data, error}).
+      if (res) setDashData(res);
     }).catch(function(err) {
       console.warn('getDashboard error:', err && err.message);
     });
@@ -1270,8 +1271,15 @@ export default function RendaHomeScreen(props) {
       .then(function(res) { setPotencial(res); })
       .catch(function(err) { console.warn('potencial error:', err && err.message); });
     setProventosList(store.proventos || []);
+  }, [user, store.proventos]));
+
+  // Reage a mudancas de user/portfolio pra refetch o dashboard mesmo quando a
+  // tela ja esta focada. useFocusEffect so dispara no evento de focus, nao
+  // quando deps mudam in-place.
+  useEffect(function() {
+    if (!user) return;
     loadDashboard();
-  }, [user, store.proventos, selectedPortfolio]));
+  }, [user, selectedPortfolio]);
 
   function onRefresh() {
     setRefreshing(true);
