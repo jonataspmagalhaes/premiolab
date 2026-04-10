@@ -1,4 +1,9 @@
 // =========== PREMIOLAB DESIGN SYSTEM ===========
+// Re-export dos novos tokens (Fase B reconstrucao).
+// Codigo legado continua usando C/F/SIZE/SHADOW abaixo; codigo novo
+// deve usar T / color / space / type / radius via theme/tokens.js.
+export { T, color, space, type, radius, shadow as TShadow, size as TSize } from './tokens';
+
 export var C = {
   // Backgrounds
   bg: '#070a11',
@@ -23,8 +28,12 @@ export var C = {
   fiis: '#10B981',
   opcoes: '#8B5CF6',
   etfs: '#F59E0B',
+  etfs_int: '#FBBF24',
   rf: '#06B6D4',
   stock_int: '#E879F9',
+  bdr: '#FB923C',
+  adr: '#F472B6',
+  reit: '#34D399',
   // Status
   green: '#22C55E',
   red: '#EF4444',
@@ -37,9 +46,14 @@ export var PRODUCT_COLORS = {
   'acao': C.acoes,
   'fii': C.fiis,
   'etf': C.etfs,
+  'etf_int': C.etfs_int,
   'opcao': C.opcoes,
   'rf': C.rf,
   'stock_int': C.stock_int,
+  'bdr': C.bdr,
+  'adr': C.adr,
+  'reit': C.reit,
+  'caixa': '#8888aa',
 };
 
 export var F = {

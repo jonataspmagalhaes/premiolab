@@ -22,3 +22,4 @@ export { default as AiConfirmModal } from './AiConfirmModal';
 export { default as RendaHero } from './RendaHero';
 export { default as YoCCard } from './YoCCard';
 export { default as SnowballCard } from './SnowballCard';
+export { Button, Row, Stack, Spacer, Heading, BodyText, CaptionText, KpiLabel, MonoText, Card2 } from './Primitives2';
