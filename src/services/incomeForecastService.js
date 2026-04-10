@@ -23,6 +23,7 @@
 
 import { getProventos, getOpcoes, getRendaFixa, getPositions, getProfile } from './database';
 import { fetchFii12mChart } from './fiiStatusInvestService';
+import { fetchAcao12mChart, fetchAcaoDpaMedio } from './acaoStatusInvestService';
 import { fetchMarketIndicators } from './marketIndicatorsService';
 
 var FII_CATS = { fii: true };
@@ -151,7 +152,7 @@ function buildHistoryFromProventos(proventos, opcoesFechadas, months) {
 
 // ── Projecao 12 meses a frente ──
 // Media dos ultimos 12m por ticker + opcoes ativas + RF recorrente
-function buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiCharts, indicadores) {
+function buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiCharts, acaoCharts, acaoDpa, indicadores) {
   var now = new Date();
   var projecao = [];
   for (var i = 0; i < 12; i++) {
@@ -221,22 +222,69 @@ function buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiC
         }
       }
     } else if (ACAO_CATS[cat] || ETF_CATS[cat]) {
-      // Acoes/ETFs: usa historico dos proprios proventos (dividendos + JCP)
-      var hist2 = tickerMonthlyHist[tk2];
-      if (hist2) {
-        // Replica distribuicao mensal dos ultimos 12m
-        var histKeys = Object.keys(hist2.months);
-        for (var hk = 0; hk < histKeys.length; hk++) {
-          var parts = histKeys[hk].split('-');
-          var histMonthIdx = parseInt(parts[1], 10) - 1;
-          // Encontrar o mesmo mes no futuro (proximos 12)
-          for (var fm = 0; fm < 12; fm++) {
-            if (projecao[fm].mes === histMonthIdx) {
-              var v = hist2.months[histKeys[hk]];
-              projecao[fm].total += v;
-              projecao[fm].acao += v;
-              projecao[fm].items.push({ tipo: cat === 'etf' ? 'etf' : 'acao', ticker: tk2, valor: v });
+      // Acoes/ETFs: 3 tiers de fallback
+      //  T1. StatusInvest 12m chart (so categoria='acao', sem etf/stock_int):
+      //      chart de DPA × qty_atual, replica sazonalidade, corrige compras
+      //      recentes e zeragem de historico proprio.
+      //  T2. DPA medio 5 anos StatusInvest: distribui linear pelos 12 meses.
+      //      Util pra quando chart 12m veio zerado mas empresa tem historico
+      //      mais antigo (cortou dividendo recente mas pagava bem antes).
+      //  T3. Historico proprio da tabela proventos (comportamento antigo):
+      //      so usa se StatusInvest nao retornou nada.
+      var siChart = cat === 'acao' ? (acaoCharts[tk2] || null) : null;
+      var siDpa = cat === 'acao' ? (acaoDpa[tk2] || null) : null;
+      var acaoChartTotal = 0;
+      if (siChart) {
+        for (var sci = 0; sci < siChart.length; sci++) acaoChartTotal += siChart[sci];
+      }
+      var qtyAtual = pos.quantidade || 0;
+
+      if (acaoChartTotal > 0 && qtyAtual > 0) {
+        // T1: chart × qty_atual, mapeando mes do chart (passado) pro mesmo
+        // mes na janela futura.
+        var nowMonthIdx = now.getMonth();
+        for (var ci = 0; ci < 12; ci++) {
+          var dpaMes = siChart[ci] || 0;
+          if (dpaMes <= 0) continue;
+          // Chart e indexado [11] = mais antigo ... [0] = mes corrente (11 meses atras).
+          // No fiiStatusInvestService o loop push e de m=11 descending, entao
+          // chart[0] = mes corrente-11, chart[11] = mes corrente. Confirma mapeando:
+          // o mes do chart[ci] e (nowMonth - (11-ci)) normalizado.
+          var chartMonthIdx = ((nowMonthIdx - (11 - ci)) % 12 + 12) % 12;
+          for (var fm1 = 0; fm1 < 12; fm1++) {
+            if (projecao[fm1].mes === chartMonthIdx) {
+              var valV = dpaMes * qtyAtual;
+              projecao[fm1].total += valV;
+              projecao[fm1].acao += valV;
+              projecao[fm1].items.push({ tipo: 'acao', ticker: tk2, valor: valV, fonte: 'si_12m' });
               break;
+            }
+          }
+        }
+      } else if (siDpa && siDpa.avgAnual > 0 && siDpa.yearsWithData >= 2 && qtyAtual > 0) {
+        // T2: DPA medio 5 anos distribuido linear
+        var mensalLinear = (siDpa.avgAnual * qtyAtual) / 12;
+        for (var fm2 = 0; fm2 < 12; fm2++) {
+          projecao[fm2].total += mensalLinear;
+          projecao[fm2].acao += mensalLinear;
+          projecao[fm2].items.push({ tipo: 'acao', ticker: tk2, valor: mensalLinear, fonte: 'si_5y' });
+        }
+      } else {
+        // T3: historico proprio da tabela proventos
+        var hist2 = tickerMonthlyHist[tk2];
+        if (hist2) {
+          var histKeys = Object.keys(hist2.months);
+          for (var hk = 0; hk < histKeys.length; hk++) {
+            var parts = histKeys[hk].split('-');
+            var histMonthIdx = parseInt(parts[1], 10) - 1;
+            for (var fm3 = 0; fm3 < 12; fm3++) {
+              if (projecao[fm3].mes === histMonthIdx) {
+                var v = hist2.months[histKeys[hk]];
+                projecao[fm3].total += v;
+                projecao[fm3].acao += v;
+                projecao[fm3].items.push({ tipo: cat === 'etf' ? 'etf' : 'acao', ticker: tk2, valor: v, fonte: 'user_hist' });
+                break;
+              }
             }
           }
         }
@@ -317,10 +365,16 @@ export async function buildIncomeForecast(userId, opts) {
 
   // Buscar charts FII (em paralelo) para tickers FII das positions
   var fiiTickers = [];
+  var acaoTickers = [];
   for (var pi = 0; pi < positions.length; pi++) {
-    if (positions[pi].categoria === 'fii' && (positions[pi].quantidade || 0) > 0) {
-      fiiTickers.push((positions[pi].ticker || '').toUpperCase());
-    }
+    var catPi = positions[pi].categoria;
+    var qtyPi = positions[pi].quantidade || 0;
+    if (qtyPi <= 0) continue;
+    var tkPi = (positions[pi].ticker || '').toUpperCase();
+    if (!tkPi) continue;
+    if (catPi === 'fii') fiiTickers.push(tkPi);
+    else if (catPi === 'acao') acaoTickers.push(tkPi);
+    // etf, etf_int, stock_int, bdr nao tem cobertura StatusInvest
   }
   var fiiCharts = {};
   if (fiiTickers.length > 0) {
@@ -333,11 +387,33 @@ export async function buildIncomeForecast(userId, opts) {
     }
   }
 
+  // Buscar charts + DPA medio de acoes (paralelo) — replica a mesma estrategia
+  // dos FIIs. Usado pra projetar renda de compras recentes e suavizar anos
+  // atipicos, similar ao que sites como AGF fazem.
+  var acaoCharts = {};
+  var acaoDpa = {};
+  if (acaoTickers.length > 0) {
+    var acaoChartPromises = acaoTickers.map(function(tk) {
+      return fetchAcao12mChart(tk).then(function(ch) { return { tk: tk, chart: ch }; }).catch(function() { return { tk: tk, chart: null }; });
+    });
+    var acaoDpaPromises = acaoTickers.map(function(tk) {
+      return fetchAcaoDpaMedio(tk, 5).then(function(dpa) { return { tk: tk, dpa: dpa }; }).catch(function() { return { tk: tk, dpa: null }; });
+    });
+    var acaoChartRes = await Promise.all(acaoChartPromises);
+    var acaoDpaRes = await Promise.all(acaoDpaPromises);
+    for (var aci = 0; aci < acaoChartRes.length; aci++) {
+      acaoCharts[acaoChartRes[aci].tk] = acaoChartRes[aci].chart;
+    }
+    for (var adi = 0; adi < acaoDpaRes.length; adi++) {
+      acaoDpa[acaoDpaRes[adi].tk] = acaoDpaRes[adi].dpa;
+    }
+  }
+
   // Historico 12m (real)
   var historyMonthly = buildHistoryFromProventos(proventos, opcoesFechadas, 12);
 
   // Projecao 12m futuro
-  var projection = buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiCharts, indicadores);
+  var projection = buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiCharts, acaoCharts, acaoDpa, indicadores);
 
   // Summary
   var totalProj = 0; var maxMes = 0; var minMes = null;
