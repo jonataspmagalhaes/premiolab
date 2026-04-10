@@ -5,51 +5,34 @@ import { C, F, SIZE } from '../../theme';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSubscription } from '../../contexts/SubscriptionContext';
-import { getOperacoes, getProventos, getOpcoes, getAlertasConfig, updateAlertasConfig, getProfile } from '../../services/database';
+import { getOperacoes, getProventos, getOpcoes, getAlertasConfig, updateAlertasConfig, getProfile, updateProfile } from '../../services/database';
 import { Glass, Badge } from '../../components';
 
+// Menu enxuto — Fase G.
+// Remocoes: Taxa Selic (fundida em Perfil Investidor), Gastos Rapidos
+// (movido pra Financas na Carteira), Analise Completa (virou rota na
+// Carteira na Fase F), Analises IA Salvas (morta — IA desativada),
+// Simulador FII (movido pra tab Acoes), Historico Completo (fundir na
+// Carteira), Exportar CSV (movido pra Importar).
+// Resultado: 2 secoes, 8 itens no maximo (CONTA + DADOS).
 var SECTIONS = [
   {
-    title: 'CONFIGURAÇÕES',
+    title: 'CONTA',
     items: [
-      { icon: '📊', label: 'Taxa Selic', value: '_selic_', color: C.accent, route: 'ConfigSelic' },
-      { icon: '🏛', label: 'Contas', value: 'Corretoras e Bancos', color: C.acoes, route: 'ConfigCorretoras' },
-      { icon: '🔔', label: 'Alertas', value: 'Ativados', color: C.green, route: 'ConfigAlertas' },
-      { icon: '🎯', label: 'Meta Mensal', value: 'Configurar', color: C.yellow, route: 'ConfigMeta' },
-      { icon: '⚡', label: 'Gastos Rápidos', value: 'Atalhos de despesas', color: C.etfs, route: 'ConfigGastosRapidos' },
+      { icon: '👤', label: 'Perfil', value: '_perfil_', color: C.accent, route: 'Profile' },
+      { icon: '💳', label: 'Assinatura', value: '_plano_', color: C.fiis, route: 'Paywall' },
       { icon: '📂', label: 'Portfolios', value: 'Separar investimentos', color: C.fiis, route: 'ConfigPortfolios' },
-      { icon: '🤖', label: 'Resumo IA', value: '_resumo_ia_', color: C.accent, route: 'ConfigResumoIA', gate: 'AI_SUMMARY' },
-      { icon: '🧠', label: 'Perfil Investidor', value: 'Personalizar IA', color: C.opcoes, route: 'ConfigPerfilInvestidor' },
-      { icon: '💾', label: 'Backup', value: 'Restaurar dados', color: C.rf, route: 'Backup' },
+      { icon: '🎯', label: 'Meta Mensal', value: 'Configurar', color: C.yellow, route: 'ConfigMeta' },
+      { icon: '🔔', label: 'Alertas', value: 'Ativados', color: C.green, route: 'ConfigAlertas' },
+      { icon: '🏛', label: 'Contas / Corretoras', value: 'Gerenciar', color: C.acoes, route: 'ConfigCorretoras' },
     ],
   },
   {
-    title: 'ANÁLISE',
+    title: 'DADOS',
     items: [
-      { icon: '📈', label: 'Análise Completa', value: 'Performance, Alocação, Indicadores', color: C.accent, route: 'Analise', gate: 'ANALYSIS_TAB' },
-      { icon: '✨', label: 'Análises IA Salvas', value: 'Histórico de análises', color: C.accent, route: 'AnalisesSalvas', gate: 'SAVED_ANALYSES' },
-    ],
-  },
-  {
-    title: 'OPERAÇÕES',
-    items: [
-      { icon: '📋', label: 'Histórico Completo', value: '', color: C.acoes, route: 'Historico' },
-      { icon: '🏦', label: 'Renda Fixa', value: 'Gerenciar', color: C.rf, route: 'RendaFixa' },
-      { icon: '📥', label: 'Importar Operações', value: 'CSV / B3', color: C.fiis, route: 'ImportOperacoes', gate: 'CSV_IMPORT' },
-      { icon: '📤', label: 'Exportar CSV', value: '', color: C.sub, action: 'export_csv' },
-    ],
-  },
-  {
-    title: 'APRENDER',
-    items: [
-      { icon: '📖', label: 'Guia: Covered Call', value: '', color: C.fiis, route: 'Guia', params: { guia: 'covered_call' } },
-      { icon: '📖', label: 'Guia: Cash Secured Put', value: '', color: C.fiis, route: 'Guia', params: { guia: 'csp' } },
-      { icon: '📖', label: 'Guia: Wheel Strategy', value: '', color: C.fiis, route: 'Guia', params: { guia: 'wheel' } },
-    ],
-  },
-  {
-    title: 'APP',
-    items: [
+      { icon: '🧠', label: 'Perfil Investidor', value: 'Selic + preferencias', color: C.opcoes, route: 'ConfigPerfilInvestidor' },
+      { icon: '📥', label: 'Importar Operações', value: 'CSV / B3 / nota', color: C.fiis, route: 'ImportOperacoes', gate: 'CSV_IMPORT' },
+      { icon: '💾', label: 'Backup', value: 'Exportar / Restaurar', color: C.rf, route: 'Backup' },
       { icon: 'ℹ️', label: 'Sobre', value: 'v4.0.0', color: C.dim, route: 'Sobre' },
       { icon: '🚪', label: 'Sair', value: '', color: C.red, action: 'logout' },
     ],
@@ -65,7 +48,6 @@ export default function MaisScreen(props) {
 
   var _exAuto = useState(false); var exAuto = _exAuto[0]; var setExAuto = _exAuto[1];
   var _selicVal = useState(null); var selicVal = _selicVal[0]; var setSelicVal = _selicVal[1];
-  var _sumFreq = useState('off'); var sumFreq = _sumFreq[0]; var setSumFreq = _sumFreq[1];
   var _profileNome = useState(''); var profileNome = _profileNome[0]; var setProfileNome = _profileNome[1];
 
   useFocusEffect(useCallback(function() {
@@ -79,7 +61,25 @@ export default function MaisScreen(props) {
       if (result.data) {
         if (result.data.selic != null) setSelicVal(result.data.selic);
         if (result.data.nome) setProfileNome(result.data.nome);
-        if (result.data.ai_summary_frequency) setSumFreq(result.data.ai_summary_frequency);
+        // Auto-sync BCB rate se nao esta em modo manual
+        if (!result.data.selic_manual) {
+          fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json')
+            .then(function(r) { return r.json(); })
+            .then(function(bcbData) {
+              if (bcbData && bcbData.length > 0) {
+                var bcbRate = parseFloat(bcbData[0].valor);
+                if (bcbRate > 0 && bcbRate !== Number(result.data.selic)) {
+                  setSelicVal(bcbRate);
+                  var hist = Array.isArray(result.data.selic_history) ? result.data.selic_history.slice() : [];
+                  var lastH = hist.length > 0 ? hist[hist.length - 1] : null;
+                  if (!lastH || lastH.taxa !== bcbRate) {
+                    hist.push({ data: new Date().toISOString().substring(0, 10), taxa: bcbRate });
+                  }
+                  updateProfile(user.id, { selic: bcbRate, selic_history: hist }).catch(function() {});
+                }
+              }
+            }).catch(function() {});
+        }
       }
     });
   }, [user]));
@@ -215,18 +215,20 @@ export default function MaisScreen(props) {
                       i > 0 && { borderTopWidth: 1, borderTopColor: C.border },
                     ]}
                   >
-                    <View style={styles.menuLeft}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10 }}>
                       <Text style={[styles.menuIcon, { color: item.color }]}>{item.icon}</Text>
-                      <Text style={[styles.menuLabel, item.action === 'logout' && { color: C.red }]}>
-                        {item.label}
-                      </Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.menuLabel, item.action === 'logout' && { color: C.red }]}>
+                          {item.label}
+                        </Text>
+                        {item.value ? (
+                          <Text style={[styles.menuValue, { marginTop: 2 }]}>{item.value === '_selic_' ? (selicVal != null ? selicVal + '%' : '13.25%') : item.value}</Text>
+                        ) : null}
+                      </View>
                     </View>
                     <View style={styles.menuRight}>
                       {item.gate && !sub.canAccess(item.gate) ? (
                         <Ionicons name="lock-closed" size={14} color={C.dim} style={{ marginRight: 4 }} />
-                      ) : null}
-                      {item.value ? (
-                        <Text style={styles.menuValue}>{item.value === '_selic_' ? (selicVal != null ? selicVal + '%' : '13.25%') : item.value === '_resumo_ia_' ? (sumFreq === 'daily' ? 'Diário' : sumFreq === 'weekly' ? 'Semanal' : 'Desativado') : item.value}</Text>
                       ) : null}
                       <Text style={styles.menuChevron}>{'›'}</Text>
                     </View>
@@ -283,10 +285,10 @@ var styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12,
   },
-  menuLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  menuLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
   menuIcon: { fontSize: 20, width: 28, textAlign: 'center' },
-  menuLabel: { fontSize: 14, color: C.text, fontFamily: F.body },
-  menuRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  menuLabel: { fontSize: 14, color: C.text, fontFamily: F.body, flexShrink: 0 },
+  menuRight: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
   menuValue: { fontSize: 12, color: C.dim, fontFamily: F.mono },
   menuChevron: { fontSize: 16, color: C.dim },
 });

@@ -20,19 +20,15 @@ ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch
 // Screens
 import LoginScreen from '../screens/auth/LoginScreen';
 import OnboardingScreen from '../screens/auth/OnboardingScreen';
-import HomeScreen from '../screens/home/HomeScreen';
 import GestaoScreen from '../screens/gestao/GestaoScreen';
 import AssetDetailScreen from '../screens/carteira/AssetDetailScreen';
 import AddOperacaoScreen from '../screens/carteira/AddOperacaoScreen';
 import OpcoesScreen from '../screens/opcoes/OpcoesScreen';
 import AnaliseScreen from '../screens/analise/AnaliseScreen';
-import AnalisesSalvasScreen from '../screens/mais/AnalisesSalvasScreen';
-import RendaScreen from '../screens/renda/RendaScreen';
 import MaisScreen from '../screens/mais/MaisScreen';
 import ConfigMetaScreen from '../screens/mais/config/ConfigMetaScreen';
 import ConfigCorretorasScreen from '../screens/mais/config/ConfigCorretorasScreen';
 import ConfigAlertasScreen from '../screens/mais/config/ConfigAlertasScreen';
-import ConfigSelicScreen from '../screens/mais/config/ConfigSelicScreen';
 import AddOpcaoScreen from '../screens/opcoes/AddOpcaoScreen';
 import AddAlertaPrecoScreen from '../screens/carteira/AddAlertaPrecoScreen';
 import EditOperacaoScreen from '../screens/carteira/EditOperacaoScreen';
@@ -92,7 +88,6 @@ var SafeAddOperacaoScreen = withSafeArea(AddOperacaoScreen);
 var SafeConfigMetaScreen = withSafeArea(ConfigMetaScreen);
 var SafeConfigCorretorasScreen = withSafeArea(ConfigCorretorasScreen);
 var SafeConfigAlertasScreen = withSafeArea(ConfigAlertasScreen);
-var SafeConfigSelicScreen = withSafeArea(ConfigSelicScreen);
 var SafeAddOpcaoScreen = withSafeArea(AddOpcaoScreen);
 var SafeAddAlertaPrecoScreen = withSafeArea(AddAlertaPrecoScreen);
 var SafeEditOperacaoScreen = withSafeArea(EditOperacaoScreen);
@@ -438,7 +433,6 @@ function AppStack() {
       <Stack.Screen name="ConfigMeta" component={SafeConfigMetaScreen} />
       <Stack.Screen name="ConfigCorretoras" component={SafeConfigCorretorasScreen} />
       <Stack.Screen name="ConfigAlertas" component={SafeConfigAlertasScreen} />
-      <Stack.Screen name="ConfigSelic" component={SafeConfigSelicScreen} />
       <Stack.Screen name="AddOpcao" component={SafeAddOpcaoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="AddAlertaPreco" component={SafeAddAlertaPrecoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="EditOperacao" component={SafeEditOperacaoScreen} options={{ animation: 'slide_from_bottom' }} />
@@ -453,7 +447,6 @@ function AppStack() {
       <Stack.Screen name="EditProvento" component={SafeEditProventoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="AddSaldo" component={SafeAddSaldoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="Analise" component={SafeAnaliseScreen} />
-      <Stack.Screen name="AnalisesSalvas" component={AnalisesSalvasScreen} />
       <Stack.Screen name="AddMovimentacao" component={SafeAddMovimentacaoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="EditMovimentacao" component={SafeEditMovimentacaoScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="Extrato" component={SafeExtratoScreen} />

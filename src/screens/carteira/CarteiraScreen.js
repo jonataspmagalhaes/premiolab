@@ -8,6 +8,9 @@ import { animateLayout } from '../../utils/a11y';
 var dateUtils = require('../../utils/dateUtils');
 var parseLocalDate = dateUtils.parseLocalDate;
 var formatDateBR = dateUtils.formatDateBR;
+var fractional = require('../../utils/fractional');
+var formatQty = fractional.formatQty;
+var decMul = fractional.decMul;
 import Svg, {
   Circle as SvgCircle, Path, Defs, LinearGradient as SvgGrad, ClipPath,
   Stop, Line as SvgLine, Rect as SvgRect, G, Text as SvgText,
@@ -18,7 +21,7 @@ import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa, getOpcoes, getIndicatorByTicker, addSavedAnalysis, getPatrimonioSnapshots, getProfile, getRebalanceTargets, upsertRebalanceTargets } from '../../services/database';
 import { fetchFundamentals } from '../../services/fundamentalService';
-import { enrichPositionsWithPrices, fetchPriceHistory, fetchHistoryRouted, fetchPriceHistoryLong, fetchPriceHistoryRange, clearPriceCache, getLastPriceUpdate } from '../../services/priceService';
+import { enrichPositionsWithPrices, fetchPriceHistory, fetchHistoryRouted, fetchPriceHistoryLong, fetchPriceHistoryRange, clearPriceCache, getLastPriceUpdate, fetchTickerProfile } from '../../services/priceService';
 import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/currencyService';
 import { Glass, Badge, Pill, SectionLabel, InfoTip, PressableCard, FundamentalAccordion, Fab, UpgradePrompt, AiAnalysisModal, AiConfirmModal } from '../../components';
 import InteractiveChart, { MiniLineChart } from '../../components/InteractiveChart';
@@ -27,6 +30,16 @@ import { SkeletonCarteira, EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import { useSubscription } from '../../contexts/SubscriptionContext';
 var geminiService = require('../../services/geminiService');
+var TICKER_SECTORS = require('../../constants/tickerSectors').TICKER_SECTORS;
+var rebalUtils = require('../../utils/rebalance');
+var classifyMarketCap = rebalUtils.classifyMarketCap;
+var CAP_COLORS = rebalUtils.CAP_COLORS;
+var CAP_ORDER = rebalUtils.CAP_ORDER;
+var PROFILES = rebalUtils.PROFILES;
+var computeAporteSuggestions = rebalUtils.computeAporteSuggestions;
+var computeAccuracy = rebalUtils.computeAccuracy;
+var FII_REBAL_MAP = rebalUtils.FII_REBAL_MAP;
+var redistribute = rebalUtils.redistribute;
 
 // ══════════ HELPERS ══════════
 var FILTERS = [
@@ -34,19 +47,69 @@ var FILTERS = [
   { k: 'acoes', l: 'Ações', cat: 'acao', color: C.acoes },
   { k: 'fiis', l: 'FIIs', cat: 'fii', color: C.fiis },
   { k: 'etfs', l: 'ETFs', cat: 'etf', color: C.etfs },
+  { k: 'etfs_int', l: 'ETFs INT', cat: 'etf_int', color: C.etfs_int },
   { k: 'bdrs', l: 'BDRs', cat: 'bdr', color: C.bdr },
   { k: 'stocks_int', l: 'Stocks', cat: 'stock_int', color: C.stock_int },
   { k: 'adrs', l: 'ADRs', cat: 'adr', color: C.adr },
   { k: 'reits', l: 'REITs', cat: 'reit', color: C.reit },
   { k: 'rf', l: 'RF', color: C.rf },
 ];
-var CAT_LABELS = { acao: 'Ação', fii: 'FII', etf: 'ETF', opcao: 'Opção', stock_int: 'Stock', bdr: 'BDR', adr: 'ADR', reit: 'REIT' };
-var CAT_NAMES = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs', stock_int: 'Stocks', bdr: 'BDRs', adr: 'ADRs', reit: 'REITs', rf: 'RF' };
+var CAT_LABELS = { acao: 'Ação', fii: 'FII', etf: 'ETF', etf_int: 'ETF INT', opcao: 'Opção', stock_int: 'Stock', bdr: 'BDR', adr: 'ADR', reit: 'REIT' };
+var CAT_NAMES = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs', etf_int: 'ETFs INT', stock_int: 'Stocks', bdr: 'BDRs', adr: 'ADRs', reit: 'REITs', rf: 'RF' };
 var TIPO_LABELS = {
   cdb: 'CDB', lci_lca: 'LCI/LCA', tesouro_selic: 'Tesouro Selic',
   tesouro_ipca: 'Tesouro IPCA+', tesouro_pre: 'Tesouro Pré', debenture: 'Debênture',
 };
 var IDX_COLORS = { prefixado: C.green, cdi: C.accent, ipca: C.fiis, selic: C.opcoes };
+
+// Mapeamento brapi sector/industry → setor/segmento BR (fallback para tickers nao no mapa estatico)
+var _BRAPI_SECTOR_MAP = {
+  'Financial Services': { setor: 'Financeiro', segmento: 'Financeiro' },
+  'Energy': { setor: 'Petroleo', segmento: 'Petroleo' },
+  'Basic Materials': { setor: 'Mineracao', segmento: 'Materiais' },
+  'Consumer Cyclical': { setor: 'Varejo', segmento: 'Varejo' },
+  'Consumer Defensive': { setor: 'Consumo', segmento: 'Consumo' },
+  'Healthcare': { setor: 'Saude', segmento: 'Saude' },
+  'Technology': { setor: 'Tecnologia', segmento: 'Tecnologia' },
+  'Communication Services': { setor: 'Telecom', segmento: 'Telecom' },
+  'Utilities': { setor: 'Energia', segmento: 'Energia' },
+  'Industrials': { setor: 'Industria', segmento: 'Industria' },
+  'Real Estate': { setor: 'Construcao', segmento: 'Construcao' },
+};
+function _mapBrapiSector(sector, industry) {
+  if (industry) {
+    if (industry.indexOf('Steel') >= 0) return { setor: 'Siderurgia', segmento: 'Siderurgia' };
+    if (industry.indexOf('Mining') >= 0 || industry.indexOf('Gold') >= 0) return { setor: 'Mineracao', segmento: 'Mineracao' };
+    if (industry.indexOf('Oil') >= 0 || industry.indexOf('Gas') >= 0) return { setor: 'Petroleo', segmento: 'Petroleo' };
+    if (industry.indexOf('Pulp') >= 0 || industry.indexOf('Paper') >= 0) return { setor: 'Papel/Celulose', segmento: 'Celulose' };
+    if (industry.indexOf('Chemical') >= 0 || industry.indexOf('Specialty Chemical') >= 0) return { setor: 'Quimica', segmento: 'Petroquimica' };
+    if (industry.indexOf('Airlines') >= 0 || industry.indexOf('Airport') >= 0) return { setor: 'Transporte', segmento: 'Aereo' };
+    if (industry.indexOf('Railroads') >= 0 || industry.indexOf('Trucking') >= 0) return { setor: 'Transporte', segmento: 'Ferroviario' };
+    if (industry.indexOf('Electric') >= 0 || industry.indexOf('Utilities') >= 0 || industry.indexOf('Renewable') >= 0) return { setor: 'Energia', segmento: 'Energia' };
+    if (industry.indexOf('Water') >= 0) return { setor: 'Saneamento', segmento: 'Saneamento' };
+    if (industry.indexOf('Bank') >= 0) return { setor: 'Financeiro', segmento: 'Bancos' };
+    if (industry.indexOf('Insurance') >= 0) return { setor: 'Financeiro', segmento: 'Seguros' };
+    if (industry.indexOf('Capital Markets') >= 0) return { setor: 'Financeiro', segmento: 'Investimentos' };
+    if (industry.indexOf('Pharmaceutical') >= 0 || industry.indexOf('Drug') >= 0) return { setor: 'Saude', segmento: 'Farmaceutica' };
+    if (industry.indexOf('Medical') >= 0 || industry.indexOf('Health') >= 0 || industry.indexOf('Dental') >= 0) return { setor: 'Saude', segmento: 'Saude' };
+    if (industry.indexOf('Residential') >= 0 || industry.indexOf('Real Estate') >= 0) return { setor: 'Construcao', segmento: 'Incorporacao' };
+    if (industry.indexOf('Packaged Foods') >= 0 || industry.indexOf('Farm') >= 0 || industry.indexOf('Beverages') >= 0) return { setor: 'Consumo', segmento: 'Alimentos' };
+    if (industry.indexOf('Meat') >= 0) return { setor: 'Consumo', segmento: 'Frigorificos' };
+    if (industry.indexOf('Apparel') >= 0 || industry.indexOf('Luxury') >= 0 || industry.indexOf('Footwear') >= 0) return { setor: 'Varejo', segmento: 'Moda' };
+    if (industry.indexOf('Grocery') >= 0 || industry.indexOf('Department') >= 0) return { setor: 'Varejo', segmento: 'Supermercados' };
+    if (industry.indexOf('Retail') >= 0 || industry.indexOf('Specialty') >= 0) return { setor: 'Varejo', segmento: 'Varejo' };
+    if (industry.indexOf('Rental') >= 0 || industry.indexOf('Leasing') >= 0) return { setor: 'Varejo', segmento: 'Locacao' };
+    if (industry.indexOf('Telecom') >= 0) return { setor: 'Telecom', segmento: 'Telecom' };
+    if (industry.indexOf('Software') >= 0 || industry.indexOf('Internet') >= 0) return { setor: 'Tecnologia', segmento: 'Tecnologia' };
+    if (industry.indexOf('Education') >= 0) return { setor: 'Educacao', segmento: 'Educacao' };
+    if (industry.indexOf('Tobacco') >= 0 || industry.indexOf('Personal') >= 0 || industry.indexOf('Household') >= 0) return { setor: 'Consumo', segmento: 'Consumo' };
+    if (industry.indexOf('Engineering') >= 0 || industry.indexOf('Construction') >= 0) return { setor: 'Construcao', segmento: 'Engenharia' };
+    if (industry.indexOf('Aero') >= 0 || industry.indexOf('Defense') >= 0) return { setor: 'Industria', segmento: 'Aeronautica' };
+    if (industry.indexOf('Auto') >= 0) return { setor: 'Industria', segmento: 'Autopeças' };
+    if (industry.indexOf('Agricultural') >= 0) return { setor: 'Consumo', segmento: 'Agronegocio' };
+  }
+  return _BRAPI_SECTOR_MAP[sector] || null;
+}
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -406,6 +469,8 @@ var PositionCard = React.memo(function PositionCard(props) {
   var onSell = props.onSell;
   var onLancarOpcao = props.onLancarOpcao;
   var onTransacoes = props.onTransacoes;
+  var onComparar = props.onComparar;
+  var onAlerta = props.onAlerta;
   var fundData = props.fundamentals;
   var fundLoading = props.fundLoading;
   var opcoesForTicker = props.opcoesForTicker;
@@ -416,23 +481,28 @@ var PositionCard = React.memo(function PositionCard(props) {
   var showPortfolioBadge = props.showPortfolioBadge;
   var tickerMeta = props.tickerMeta;
   var onSetMeta = props.onSetMeta;
+  var metaTotalPct = props.metaTotalPct || 0;
+  var onNavigateRebal = props.onNavigateRebal;
   var totalPortfolio = props.totalPortfolio || 0;
   var tickerValorTotal = props.tickerValorTotal;
+  var typeTotal = props.typeTotal;
+  var typeLabel = props.typeLabel;
   var ps = usePrivacyStyle();
   var _metaEditing = useState(false); var metaEditing = _metaEditing[0]; var setMetaEditing = _metaEditing[1];
   var _metaInput = useState(''); var metaInput = _metaInput[0]; var setMetaInput = _metaInput[1];
 
-  var color = PRODUCT_COLORS[pos.categoria] || C.accent;
-  var catLabel = CAT_LABELS[pos.categoria] || (pos.categoria || '').toUpperCase();
   var posIsInt = pos.mercado === 'INT';
+  var displayCat = posIsInt && pos.categoria === 'etf' ? 'etf_int' : pos.categoria;
+  var color = PRODUCT_COLORS[pos.categoria] || C.accent;
+  var catLabel = CAT_LABELS[displayCat] || CAT_LABELS[pos.categoria] || (pos.categoria || '').toUpperCase();
   var posSymbol = posIsInt ? 'US$' : 'R$';
   var hasPrice = pos.preco_atual != null;
   // taxa de cambio: enrichment (atual) > media historica das operacoes > 1
   var fxRate = pos.taxa_cambio || pos.taxa_cambio_media || 1;
   // Para INT: preco_atual ja esta em BRL (enrichPositionsWithPrices converte)
-  var precoRef = hasPrice ? pos.preco_atual : (posIsInt && pos.pm ? pos.pm * fxRate : pos.pm);
-  var valorAtual = pos.quantidade * precoRef;
-  var custoTotal = posIsInt ? pos.quantidade * pos.pm * fxRate : pos.quantidade * pos.pm;
+  var precoRef = hasPrice ? pos.preco_atual : (posIsInt && pos.pm ? decMul(pos.pm, fxRate) : pos.pm);
+  var valorAtual = decMul(pos.quantidade, precoRef);
+  var custoTotal = posIsInt ? decMul(decMul(pos.quantidade, pos.pm), fxRate) : decMul(pos.quantidade, pos.pm);
   var pnl = valorAtual - custoTotal;
   var pnlPct = custoTotal > 0 ? (pnl / custoTotal) * 100 : 0;
   var isPos = pnl >= 0;
@@ -527,11 +597,11 @@ var PositionCard = React.memo(function PositionCard(props) {
             <View style={[styles.typeBadge, { backgroundColor: color + '14' }]}>
               <Text style={[styles.typeBadgeText, { color: color }]}>{catLabel}</Text>
             </View>
-            {pos.mercado === 'INT' ? (
+            {pos.mercado === 'INT' && displayCat !== 'etf_int' ? (
               <View style={[styles.typeBadge, { backgroundColor: C.stock_int + '14' }]}>
                 <Text style={[styles.typeBadgeText, { color: C.stock_int }]}>INT</Text>
               </View>
-            ) : pos.categoria === 'etf' ? (
+            ) : pos.categoria === 'etf' && pos.mercado !== 'INT' ? (
               <View style={[styles.typeBadge, { backgroundColor: C.etfs + '14' }]}>
                 <Text style={[styles.typeBadgeText, { color: C.etfs }]}>BR</Text>
               </View>
@@ -589,7 +659,7 @@ var PositionCard = React.memo(function PositionCard(props) {
             <View>
               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>QTD</Text>
               <Text style={[{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }, ps]}>
-                {pos.quantidade.toLocaleString('pt-BR')}
+                {formatQty(pos.quantidade)}
               </Text>
             </View>
           </View>
@@ -600,24 +670,40 @@ var PositionCard = React.memo(function PositionCard(props) {
           ) : null}
         </View>
 
-        {/* Row 3: Valor total + P&L */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: C.border + '30' }}>
-          <View>
-            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>TOTAL</Text>
-            <Text style={[{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }, ps]}>
-              {'R$ ' + fmt(valorAtual)}
-            </Text>
-          </View>
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>P&L</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Text style={[{ fontSize: 14, fontWeight: '700', color: pnlColor, fontFamily: F.mono }, ps]}>
-                {(isPos ? '+' : '') + 'R$ ' + fmt(Math.abs(pnl))}
+        {/* Row 3: Valor total + % + P&L */}
+        <View style={{ marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: C.border + '30' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View>
+              <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>TOTAL</Text>
+              <Text style={[{ fontSize: 14, fontWeight: '700', color: C.text, fontFamily: F.mono }, ps]}>
+                {'R$ ' + fmt(valorAtual)}
               </Text>
-              <View style={[styles.typeBadge, { backgroundColor: pnlColor + '14' }]}>
-                <Text style={[styles.typeBadgeText, { color: pnlColor }, ps]}>
-                  {(isPos ? '+' : '') + pnlPct.toFixed(1) + '%'}
+            </View>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>% CART.</Text>
+              <Text style={[{ fontSize: 13, fontWeight: '600', color: C.accent, fontFamily: F.mono }, ps]}>
+                {pctCarteira.toFixed(1) + '%'}
+              </Text>
+            </View>
+            {typeTotal != null && typeTotal > 0 ? (
+              <View style={{ alignItems: 'center' }}>
+                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{'% ' + (typeLabel || '').toUpperCase()}</Text>
+                <Text style={[{ fontSize: 13, fontWeight: '600', color: color, fontFamily: F.mono }, ps]}>
+                  {(typeTotal > 0 ? (valorAtual / typeTotal * 100).toFixed(1) : '0.0') + '%'}
                 </Text>
+              </View>
+            ) : null}
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>P&L</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={[{ fontSize: 13, fontWeight: '700', color: pnlColor, fontFamily: F.mono }, ps]}>
+                  {(isPos ? '+' : '') + 'R$ ' + fmt(Math.abs(pnl))}
+                </Text>
+                <View style={[styles.typeBadge, { backgroundColor: pnlColor + '14' }]}>
+                  <Text style={[styles.typeBadgeText, { color: pnlColor }, ps]}>
+                    {(isPos ? '+' : '') + pnlPct.toFixed(1) + '%'}
+                  </Text>
+                </View>
               </View>
             </View>
           </View>
@@ -657,18 +743,18 @@ var PositionCard = React.memo(function PositionCard(props) {
                           onSubmitEditing={function() {
                             var v = metaInput.replace(',', '.');
                             if (v === '' || isNaN(parseFloat(v))) {
-                              if (onSetMeta) onSetMeta(pos.ticker, null);
+                              if (onSetMeta) onSetMeta(pos.ticker, null, pos.categoria);
                             } else {
-                              if (onSetMeta) onSetMeta(pos.ticker, parseFloat(v));
+                              if (onSetMeta) onSetMeta(pos.ticker, parseFloat(v), pos.categoria);
                             }
                             setMetaEditing(false);
                           }}
                           onBlur={function() {
                             var v = metaInput.replace(',', '.');
                             if (v === '' || isNaN(parseFloat(v))) {
-                              if (onSetMeta) onSetMeta(pos.ticker, null);
+                              if (onSetMeta) onSetMeta(pos.ticker, null, pos.categoria);
                             } else {
-                              if (onSetMeta) onSetMeta(pos.ticker, parseFloat(v));
+                              if (onSetMeta) onSetMeta(pos.ticker, parseFloat(v), pos.categoria);
                             }
                             setMetaEditing(false);
                           }}
@@ -704,6 +790,20 @@ var PositionCard = React.memo(function PositionCard(props) {
                   <View style={{ height: 3, borderRadius: 2, backgroundColor: diffColor2, width: barPct + '%' }} />
                 </View>
               ) : null}
+              {metaEditing ? (function() {
+                var metaRestTicker = 100 - metaTotalPct;
+                var restColorTicker = Math.abs(metaRestTicker) < 0.5 ? C.green : metaRestTicker > 0 ? C.yellow : C.red;
+                return (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 3 }}>
+                    <Text style={{ fontSize: 9, fontFamily: F.mono, color: C.dim }}>
+                      {'Alocado ' + metaTotalPct.toFixed(0) + '%'}
+                    </Text>
+                    <Text style={{ fontSize: 9, fontFamily: F.mono, fontWeight: '600', color: restColorTicker }}>
+                      {Math.abs(metaRestTicker) < 0.5 ? '= 100%' : (metaRestTicker > 0 ? 'Falta ' : 'Excede ') + Math.abs(metaRestTicker).toFixed(1) + '%'}
+                    </Text>
+                  </View>
+                );
+              })() : null}
             </View>
           );
         })()}
@@ -731,7 +831,7 @@ var PositionCard = React.memo(function PositionCard(props) {
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: 2, paddingTop: 4, paddingBottom: 4 }}>
                   {renderDesempenhoMetric('P&L Aberto', (isPos ? '+' : '') + 'R$ ' + fmt(pnl), pnlColor)}
                   {renderDesempenhoMetric('P&L %', (isPos ? '+' : '') + pnlPct.toFixed(1) + '%', pnlColor)}
-                  {renderDesempenhoMetric(posIsInt ? 'Custo (US$)' : 'Custo total', posIsInt ? 'US$ ' + fmt(pos.quantidade * pos.pm) : 'R$ ' + custoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 }), C.sub)}
+                  {renderDesempenhoMetric(posIsInt ? 'Custo (US$)' : 'Custo total', posIsInt ? 'US$ ' + fmt(decMul(pos.quantidade, pos.pm)) : 'R$ ' + custoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 }), C.sub)}
                   {renderDesempenhoMetric(posIsInt ? 'Custo (R$)' : 'Valor atual', posIsInt ? '≈ R$ ' + custoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) : 'R$ ' + valorAtual.toLocaleString('pt-BR', { maximumFractionDigits: 0 }), C.sub)}
                   {posIsInt ? renderDesempenhoMetric('Valor atual', 'R$ ' + valorAtual.toLocaleString('pt-BR', { maximumFractionDigits: 0 }), C.sub) : null}
                   {renderDesempenhoMetric('% Carteira', pctCarteira.toFixed(1) + '%', C.sub)}
@@ -770,9 +870,9 @@ var PositionCard = React.memo(function PositionCard(props) {
                     {['1mo', '3mo', '6mo', '1y'].map(function(p) {
                       var lbl = p === '1mo' ? '1M' : p === '3mo' ? '3M' : p === '6mo' ? '6M' : '1A';
                       return (
-                        <Pill key={p} label={lbl} active={chartPeriod === p}
+                        <Pill key={p} active={chartPeriod === p}
                           onPress={function() { handleChartPeriod(p); }}
-                          color={color} />
+                          color={color}>{lbl}</Pill>
                       );
                     })}
                   </View>
@@ -833,6 +933,18 @@ var PositionCard = React.memo(function PositionCard(props) {
                 onPress={onTransacoes} accessibilityRole="button" accessibilityLabel="Mais">
                 <Text style={[styles.actionBtnText, { color: C.accent }]}>Mais</Text>
               </TouchableOpacity>
+              {onComparar ? (
+                <TouchableOpacity style={[styles.actionBtn, { borderColor: C.etfs + '30', backgroundColor: C.etfs + '08' }]}
+                  onPress={onComparar} accessibilityRole="button" accessibilityLabel="Comparar">
+                  <Text style={[styles.actionBtnText, { color: C.etfs }]}>Comparar</Text>
+                </TouchableOpacity>
+              ) : null}
+              {onAlerta ? (
+                <TouchableOpacity style={[styles.actionBtn, { borderColor: C.yellow + '30', backgroundColor: C.yellow + '08' }]}
+                  onPress={onAlerta} accessibilityRole="button" accessibilityLabel="Alerta">
+                  <Text style={[styles.actionBtnText, { color: C.yellow }]}>Alerta</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           </View>
         ) : null}
@@ -940,6 +1052,10 @@ export default function CarteiraScreen(props) {
   var _fxRates = useState({ BRL: 1 }); var fxRates = _fxRates[0]; var setFxRates = _fxRates[1];
   var _fil = useState('todos'); var filter = _fil[0]; var setFilter = _fil[1];
   var _sort = useState('valor'); var sortKey = _sort[0]; var setSortKey = _sort[1];
+  var _groupBy = useState('flat'); var groupBy = _groupBy[0]; var setGroupBy = _groupBy[1];
+  var _sectorMetas = useState({}); var sectorMetas = _sectorMetas[0]; var setSectorMetas = _sectorMetas[1];
+  var _editingSector = useState(null); var editingSector = _editingSector[0]; var setEditingSector = _editingSector[1];
+  var _sectorMetaInput = useState(''); var sectorMetaInput = _sectorMetaInput[0]; var setSectorMetaInput = _sectorMetaInput[1];
   var _corrFilter = useState(null); var corrFilter = _corrFilter[0]; var setCorrFilter = _corrFilter[1];
   var _load = useState(true); var loading = _load[0]; var setLoading = _load[1];
   var _ref = useState(false); var refreshing = _ref[0]; var setRefreshing = _ref[1];
@@ -970,21 +1086,75 @@ export default function CarteiraScreen(props) {
   var _snapshots = useState([]); var snapshots = _snapshots[0]; var setSnapshots = _snapshots[1];
   var _selicRate = useState(13.25); var selicRate = _selicRate[0]; var setSelicRate = _selicRate[1];
   var _ibovHist = useState([]); var ibovHist = _ibovHist[0]; var setIbovHist = _ibovHist[1];
-  var _perfSeries = useState({ cart: true, cdi: true, ibov: true, acao: false, fii: false, etf: false, stock_int: false, rf: false });
+  var _perfSeries = useState({ cart: true, cdi: true, ibov: true, ipca: false, acao: false, fii: false, etf: false, stock_int: false, rf: false });
   var perfSeries = _perfSeries[0]; var setPerfSeries = _perfSeries[1];
   var _showPerfChart = useState(true); var showPerfChart = _showPerfChart[0]; var setShowPerfChart = _showPerfChart[1];
+  var _perfSelIdx = useState(-1); var perfSelIdx = _perfSelIdx[0]; var setPerfSelIdx = _perfSelIdx[1];
+  var _perfFullscreen = useState(false); var perfFullscreen = _perfFullscreen[0]; var setPerfFullscreen = _perfFullscreen[1];
+  var _screenDims = useState({ w: Dimensions.get('window').width, h: Dimensions.get('window').height });
+  var screenDims = _screenDims[0]; var setScreenDims = _screenDims[1];
   var _familyBreakdown = useState(null); var familyBreakdown = _familyBreakdown[0]; var setFamilyBreakdown = _familyBreakdown[1];
   var _tickerMetas = useState({}); var tickerMetas = _tickerMetas[0]; var setTickerMetas = _tickerMetas[1];
   var _rebalTargetsRef = useRef(null);
+  var _segmentoMetas = useState({}); var segmentoMetas = _segmentoMetas[0]; var setSegmentoMetas = _segmentoMetas[1];
+  var _capMetas = useState({}); var capMetas = _capMetas[0]; var setCapMetas = _capMetas[1];
+  var _classMetas = useState({}); var classMetas = _classMetas[0]; var setClassMetas = _classMetas[1];
+  var _editingClass = useState(null); var editingClass = _editingClass[0]; var setEditingClass = _editingClass[1];
+  var _classMetaInput = useState(''); var classMetaInput = _classMetaInput[0]; var setClassMetaInput = _classMetaInput[1];
+  var _editingGroup = useState(null); var editingGroup = _editingGroup[0]; var setEditingGroup = _editingGroup[1];
+  var _groupMetaInput = useState(''); var groupMetaInput = _groupMetaInput[0]; var setGroupMetaInput = _groupMetaInput[1];
+  var _showProfiles = useState(false); var showProfiles = _showProfiles[0]; var setShowProfiles = _showProfiles[1];
+  var _aporteText = useState(''); var aporteText = _aporteText[0]; var setAporteText = _aporteText[1];
+  var _showAporte = useState(false); var showAporte = _showAporte[0]; var setShowAporte = _showAporte[1];
+  var _wishlistInput = useState(''); var wishlistInput = _wishlistInput[0]; var setWishlistInput = _wishlistInput[1];
+  var _selAllocSeg = useState(null); var selAllocSeg = _selAllocSeg[0]; var setSelAllocSeg = _selAllocSeg[1];
+  var _expandedGroups = useState({}); var expandedGroups = _expandedGroups[0]; var setExpandedGroups = _expandedGroups[1];
+  var _wishlistTickers = useState([]); var wishlistTickers = _wishlistTickers[0]; var setWishlistTickers = _wishlistTickers[1];
 
-  var handleSetMeta = function(ticker, pct) {
+  // Totais de alocação derivados das metas
+  var metaTotalPct = 0;
+  var metaTickerCount = 0;
+  var metaKeys = Object.keys(tickerMetas);
+  for (var mi = 0; mi < metaKeys.length; mi++) {
+    var mVal = parseFloat(tickerMetas[metaKeys[mi]]);
+    if (!isNaN(mVal)) {
+      metaTotalPct = metaTotalPct + mVal;
+      metaTickerCount = metaTickerCount + 1;
+    }
+  }
+  var metaRemainingPct = 100 - metaTotalPct;
+
+  // Helper: persistir sector_targets mantendo keys reservadas (_cap, _segmento, _capGroup)
+  var _persistSectorTargets = function(sectorFlat, segmentoObj, capGroupObj) {
+    var existing = _rebalTargetsRef.current || {};
+    var stFull = {};
+    var exST = existing.sector_targets || {};
+    var exSTKeys = Object.keys(exST);
+    for (var ei = 0; ei < exSTKeys.length; ei++) {
+      if (exSTKeys[ei].charAt(0) === '_') stFull[exSTKeys[ei]] = exST[exSTKeys[ei]];
+    }
+    if (sectorFlat) {
+      var sfKeys = Object.keys(sectorFlat);
+      for (var sfi = 0; sfi < sfKeys.length; sfi++) { stFull[sfKeys[sfi]] = sectorFlat[sfKeys[sfi]]; }
+    }
+    if (segmentoObj !== undefined) stFull._segmento = segmentoObj;
+    if (capGroupObj !== undefined) stFull._capGroup = capGroupObj;
+    upsertRebalanceTargets(user.id, {
+      class_targets: existing.class_targets || {},
+      sector_targets: stFull,
+      ticker_targets: existing.ticker_targets || {},
+    }).catch(function() {});
+  };
+
+  var handleSetMeta = function(ticker, pct, categoria) {
+    var numPct = (pct === null || pct === '' || isNaN(pct)) ? null : parseFloat(pct);
     var newMetas = {};
     var mKeys = Object.keys(tickerMetas);
     for (var mk = 0; mk < mKeys.length; mk++) { newMetas[mKeys[mk]] = tickerMetas[mKeys[mk]]; }
-    if (pct === null || pct === '' || isNaN(pct)) {
+    if (numPct === null) {
       delete newMetas[ticker];
     } else {
-      newMetas[ticker] = parseFloat(pct);
+      newMetas[ticker] = numPct;
     }
     setTickerMetas(newMetas);
     // Persist
@@ -994,10 +1164,83 @@ export default function CarteiraScreen(props) {
     var ttKeys = Object.keys(tt);
     for (var tk = 0; tk < ttKeys.length; tk++) { ttCopy[ttKeys[tk]] = tt[ttKeys[tk]]; }
     ttCopy._flat = newMetas;
+    if (categoria) {
+      var catKey = categoria + ':_flat';
+      var catFlat = {};
+      var cfKeys = ttCopy[catKey] ? Object.keys(ttCopy[catKey]) : [];
+      for (var ci = 0; ci < cfKeys.length; ci++) { catFlat[cfKeys[ci]] = ttCopy[catKey][cfKeys[ci]]; }
+      if (numPct === null) {
+        delete catFlat[ticker];
+      } else {
+        catFlat[ticker] = numPct;
+      }
+      ttCopy[catKey] = catFlat;
+    }
     upsertRebalanceTargets(user.id, {
       class_targets: existing.class_targets || {},
       sector_targets: existing.sector_targets || {},
       ticker_targets: ttCopy,
+    }).catch(function() {});
+  };
+
+  var handleSetSectorMeta = function(setor, pct) {
+    var numPct = (pct === null || pct === '' || isNaN(pct)) ? null : parseFloat(pct);
+    var newSM = {};
+    var smKeys = Object.keys(sectorMetas);
+    for (var si = 0; si < smKeys.length; si++) { newSM[smKeys[si]] = sectorMetas[smKeys[si]]; }
+    if (numPct === null) {
+      delete newSM[setor];
+    } else {
+      newSM[setor] = numPct;
+    }
+    setSectorMetas(newSM);
+    _persistSectorTargets(newSM, undefined, undefined);
+  };
+
+  var handleSetSegmentoMeta = function(segmento, pct) {
+    var numPct = (pct === null || pct === '' || isNaN(pct)) ? null : parseFloat(pct);
+    var newSeg = {};
+    var segKeys = Object.keys(segmentoMetas);
+    for (var si = 0; si < segKeys.length; si++) { newSeg[segKeys[si]] = segmentoMetas[segKeys[si]]; }
+    if (numPct === null) {
+      delete newSeg[segmento];
+    } else {
+      newSeg[segmento] = numPct;
+    }
+    setSegmentoMetas(newSeg);
+    _persistSectorTargets(null, newSeg, undefined);
+  };
+
+  var handleSetCapGroupMeta = function(capLabel, pct) {
+    var numPct = (pct === null || pct === '' || isNaN(pct)) ? null : parseFloat(pct);
+    var newCap = {};
+    var capKeys = Object.keys(capMetas);
+    for (var ci = 0; ci < capKeys.length; ci++) { newCap[capKeys[ci]] = capMetas[capKeys[ci]]; }
+    if (numPct === null) {
+      delete newCap[capLabel];
+    } else {
+      newCap[capLabel] = numPct;
+    }
+    setCapMetas(newCap);
+    _persistSectorTargets(null, undefined, newCap);
+  };
+
+  var handleSetClassMeta = function(cat, pct) {
+    var numPct = (pct === null || pct === '' || isNaN(pct)) ? null : parseFloat(pct);
+    var newCM = {};
+    var cmKeys = Object.keys(classMetas);
+    for (var ci = 0; ci < cmKeys.length; ci++) { newCM[cmKeys[ci]] = classMetas[cmKeys[ci]]; }
+    if (numPct === null) {
+      delete newCM[cat];
+    } else {
+      newCM[cat] = numPct;
+    }
+    setClassMetas(newCM);
+    var existing = _rebalTargetsRef.current || {};
+    upsertRebalanceTargets(user.id, {
+      class_targets: newCM,
+      sector_targets: existing.sector_targets || {},
+      ticker_targets: existing.ticker_targets || {},
     }).catch(function() {});
   };
 
@@ -1021,7 +1264,7 @@ export default function CarteiraScreen(props) {
     try {
       var results = await Promise.all([
         getPositions(user.id, portfolioId),
-        getSaldos(user.id, portfolioId),
+        getSaldos(user.id),
         getRendaFixa(user.id, portfolioId),
         getOpcoes(user.id, portfolioId),
       ]);
@@ -1106,12 +1349,44 @@ export default function CarteiraScreen(props) {
     } catch (e) { console.warn('Price enrichment failed:', e.message); }
     setPricesLoading(false);
 
-    // Fire-and-forget: load ticker metas
+    // Fire-and-forget: enrich unknown tickers with sector data via brapi
+    try {
+      var unknownSectors = [];
+      for (var usi = 0; usi < posData.length; usi++) {
+        var usTicker = posData[usi].ticker;
+        if (usTicker && !TICKER_SECTORS[usTicker.toUpperCase()]) unknownSectors.push(usTicker);
+      }
+      if (unknownSectors.length > 0) {
+        fetchTickerProfile(unknownSectors).then(function(profiles) {
+          var pKeys = Object.keys(profiles);
+          for (var pk = 0; pk < pKeys.length; pk++) {
+            var sym = pKeys[pk];
+            var prof = profiles[sym];
+            if (!prof || !prof.sector) continue;
+            var mapped = _mapBrapiSector(prof.sector, prof.industry);
+            if (mapped) TICKER_SECTORS[sym] = mapped;
+          }
+        }).catch(function() {});
+      }
+    } catch (e) { /* silent */ }
+
+    // Fire-and-forget: load ticker metas (only _flat — absolute %)
     getRebalanceTargets(user.id).then(function(rtRes) {
       if (rtRes.data) {
         _rebalTargetsRef.current = rtRes.data;
-        var flat = rtRes.data.ticker_targets && rtRes.data.ticker_targets._flat ? rtRes.data.ticker_targets._flat : {};
+        var tt = rtRes.data.ticker_targets || {};
+        var flat = tt._flat || {};
         setTickerMetas(flat);
+        var st = rtRes.data.sector_targets || {};
+        var stClean = {};
+        var stKeys = Object.keys(st);
+        for (var sti = 0; sti < stKeys.length; sti++) {
+          if (stKeys[sti].charAt(0) !== '_') stClean[stKeys[sti]] = st[stKeys[sti]];
+        }
+        setSectorMetas(stClean);
+        if (st._segmento) setSegmentoMetas(st._segmento);
+        if (st._capGroup) setCapMetas(st._capGroup);
+        if (rtRes.data.class_targets) setClassMetas(rtRes.data.class_targets);
       }
     }).catch(function() {});
 
@@ -1122,14 +1397,16 @@ export default function CarteiraScreen(props) {
       getProfile(user.id),
     ]).then(function(perfResults) {
       var snaps = perfResults[0] || [];
-      if (snaps.length < 2 && snapshotPfId) {
-        // Fallback: per-portfolio sem dados suficientes, usar snapshots globais
+      var mapped = snaps.map(function(s) { return { date: s.data, value: s.valor }; });
+      var weeklyCount = computeWeeklyReturns(mapped).length;
+      if (weeklyCount < 4 && snapshotPfId) {
+        // Fallback: per-portfolio sem dados suficientes para grafico, usar snapshots globais
         getPatrimonioSnapshots(user.id, null).then(function(globalSnaps) {
           var gs = globalSnaps || [];
           setSnapshots(gs.map(function(s) { return { date: s.data, value: s.valor }; }));
         }).catch(function() {});
       } else {
-        setSnapshots(snaps.map(function(s) { return { date: s.data, value: s.valor }; }));
+        setSnapshots(mapped);
       }
       var profResult = perfResults[1];
       var prof = profResult && profResult.data;
@@ -1185,7 +1462,14 @@ export default function CarteiraScreen(props) {
   else if (filter === 'rf') filteredPositions = [];
   else {
     var fd = FILTERS.find(function (f) { return f.k === filter; });
-    filteredPositions = positions.filter(function (p) { return p.categoria === (fd ? fd.cat : ''); });
+    var fCat = fd ? fd.cat : '';
+    if (fCat === 'etf_int') {
+      filteredPositions = positions.filter(function (p) { return p.categoria === 'etf' && p.mercado === 'INT'; });
+    } else if (fCat === 'etf') {
+      filteredPositions = positions.filter(function (p) { return p.categoria === 'etf' && p.mercado !== 'INT'; });
+    } else {
+      filteredPositions = positions.filter(function (p) { return p.categoria === fCat; });
+    }
   }
   // Corretora filter — adjust qty and PM to show only the selected corretora's data
   if (corrFilter) {
@@ -1208,6 +1492,24 @@ export default function CarteiraScreen(props) {
       corrAdjusted.push(adjPos);
     }
     filteredPositions = corrAdjusted;
+  }
+  // Incluir wishlist tickers (posicoes fantasma com qty=0 que tem meta definida)
+  // Apenas no modo 'todos' e sem filtro de corretora
+  if (filter === 'todos' && !corrFilter) {
+    var existingTickers = {};
+    for (var eti = 0; eti < filteredPositions.length; eti++) {
+      existingTickers[filteredPositions[eti].ticker] = true;
+    }
+    var metaTickerKeys = Object.keys(tickerMetas);
+    for (var wti = 0; wti < metaTickerKeys.length; wti++) {
+      var wTicker = metaTickerKeys[wti];
+      if (!existingTickers[wTicker] && tickerMetas[wTicker] > 0) {
+        filteredPositions = filteredPositions.concat([{
+          ticker: wTicker, categoria: 'acao', mercado: 'BR', quantidade: 0,
+          pm: 0, preco_atual: null, por_corretora: {}, _wishlist: true,
+        }]);
+      }
+    }
   }
   // Sort
   var sortedPositions = filteredPositions.slice().sort(function (a, b) {
@@ -1266,10 +1568,14 @@ export default function CarteiraScreen(props) {
   var isPosRealizado = plRealizado >= 0;
 
   // Allocation by class
-  var allocMap = { acao: 0, fii: 0, etf: 0, bdr: 0, stock_int: 0, adr: 0, reit: 0, rf: totalRF };
+  var allocMap = { acao: 0, fii: 0, etf: 0, etf_int: 0, bdr: 0, stock_int: 0, adr: 0, reit: 0, rf: totalRF };
   positions.forEach(function (p) {
     var cat = p.categoria || '';
-    if (allocMap[cat] !== undefined) allocMap[cat] += p.quantidade * (p.preco_atual || p.pm);
+    if (cat === 'etf' && p.mercado === 'INT') {
+      allocMap.etf_int += p.quantidade * (p.preco_atual || p.pm);
+    } else if (allocMap[cat] !== undefined) {
+      allocMap[cat] += p.quantidade * (p.preco_atual || p.pm);
+    }
   });
   var allocTotal = Object.values(allocMap).reduce(function (s, v) { return s + v; }, 0);
   var allocSegments = Object.keys(allocMap).filter(function (k) { return allocMap[k] > 0; }).map(function (k) {
@@ -1331,7 +1637,10 @@ export default function CarteiraScreen(props) {
     if (catKey === 'todos') return positions.length + rfAtivos.length;
     if (catKey === 'rf') return rfAtivos.length;
     var fdef = FILTERS.find(function (f) { return f.k === catKey; });
-    return positions.filter(function (p) { return p.categoria === (fdef ? fdef.cat : ''); }).length;
+    var fCat = fdef ? fdef.cat : '';
+    if (fCat === 'etf_int') return positions.filter(function (p) { return p.categoria === 'etf' && p.mercado === 'INT'; }).length;
+    if (fCat === 'etf') return positions.filter(function (p) { return p.categoria === 'etf' && p.mercado !== 'INT'; }).length;
+    return positions.filter(function (p) { return p.categoria === fCat; }).length;
   }
 
   function toggleExpand(key, ticker, mercado) {
@@ -1515,13 +1824,7 @@ export default function CarteiraScreen(props) {
         <EmptyState ionicon="briefcase-outline" title="Carteira vazia"
           description="Nenhum ativo na carteira. Registre compras de ações, FIIs, ETFs ou renda fixa."
           cta="Adicionar ativo" onCta={function () { nav('AddOperacao'); }} color={C.acoes} />
-        <Fab navigation={navigation} items={[
-          { label: 'Operação', icon: 'wallet-outline', color: C.acoes, screen: 'AddOperacao' },
-          { label: 'Opção', icon: 'flash-outline', color: C.opcoes, screen: 'AddOpcao' },
-          { label: 'Provento', icon: 'cash-outline', color: C.fiis, screen: 'AddProvento' },
-          { label: 'Renda Fixa', icon: 'document-text-outline', color: C.rf, screen: 'AddRendaFixa' },
-          { label: 'Portfolio', icon: 'folder-outline', color: C.etfs, screen: 'ConfigPortfolios' },
-        ]} />
+        <Fab navigation={navigation} />
       </View>
     );
   }
@@ -1740,18 +2043,67 @@ export default function CarteiraScreen(props) {
 
       {/* ══════ PERFORMANCE CHART ══════ */}
       {snapshots.length >= 2 ? (
-        <Glass padding={14}>
-          <TouchableOpacity activeOpacity={0.7} onPress={function() { setShowPerfChart(!showPerfChart); }}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: showPerfChart ? 8 : 0 }}>
-            <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>
-              {showPerfChart ? '▾' : '▸'} RETORNO SEMANAL
-            </Text>
-            <InfoTip title="Retorno Semanal" text={"Retorno percentual semanal comparando sua carteira vs CDI vs IBOV.\n\nCarteira: variação do patrimônio entre semanas.\nCDI: retorno teórico da Selic.\nIBOV: retorno real do índice Bovespa.\n\nToggle as séries para comparar classes de ativos."} size={12} />
-          </TouchableOpacity>
-          {showPerfChart ? (function() {
-            // Compute weekly returns for carteira
+        <Glass padding={0} style={{ overflow: 'hidden' }}>
+          {(function() {
+            var cR = computeWeeklyReturns(snapshots);
+            if (cR.length === 0) return null;
+            var aC = 0;
+            for (var aci = 0; aci < cR.length; aci++) { aC = (1 + aC / 100) * (1 + cR[aci].pct / 100) - 1; aC = aC * 100; }
+            var cdiAH = (selicRate || 13.25) - 0.10;
+            var cdiSH = (Math.pow(1 + cdiAH / 100, 1 / 52) - 1) * 100;
+            var aCDI = (Math.pow(1 + cdiSH / 100, cR.length) - 1) * 100;
+            var aIPCA = (Math.pow(1 + 4.5 / 100, cR.length / 52) - 1) * 100;
+            var aIBOV = 0;
+            if (ibovHist.length > 0) { var ibW = computeWeeklyReturns(ibovHist); for (var ii = 0; ii < ibW.length; ii++) { aIBOV = (1 + aIBOV / 100) * (1 + ibW[ii].pct / 100) - 1; aIBOV = aIBOV * 100; } }
+            var cCol = aC >= 0 ? C.green : C.red;
+            var bCDI = aC > aCDI;
+            var bCol = bCDI ? C.green : C.red;
+            var weeks = cR.length;
+            return (
+              <View style={{ padding: 14, paddingBottom: 0 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>Retorno acumulado</Text>
+                      <TouchableOpacity onPress={function() { setPerfFullscreen(true); setPerfSelIdx(-1); }}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Ionicons name="expand-outline" size={14} color={C.accent} />
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={{ fontSize: 22, fontFamily: F.mono, fontWeight: '700', color: cCol }}>
+                      {(aC >= 0 ? '+' : '') + aC.toFixed(1) + '%'}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>CDI</Text>
+                      <Text style={{ fontSize: 13, fontFamily: F.mono, fontWeight: '600', color: C.rf }}>{'+' + aCDI.toFixed(1) + '%'}</Text>
+                    </View>
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>IBOV</Text>
+                      <Text style={{ fontSize: 13, fontFamily: F.mono, fontWeight: '600', color: C.etfs }}>{(aIBOV >= 0 ? '+' : '') + aIBOV.toFixed(1) + '%'}</Text>
+                    </View>
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body }}>IPCA</Text>
+                      <Text style={{ fontSize: 13, fontFamily: F.mono, fontWeight: '600', color: '#F97316' }}>{'+' + aIPCA.toFixed(1) + '%'}</Text>
+                    </View>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: bCol + '15', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Ionicons name={bCDI ? 'trending-up' : 'trending-down'} size={12} color={bCol} />
+                    <Text style={{ fontSize: 10, fontFamily: F.mono, fontWeight: '600', color: bCol }}>{bCDI ? 'Acima do CDI' : 'Abaixo do CDI'}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: C.accent + '12', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.accent }}>{weeks + ' semanas'}</Text>
+                  </View>
+                </View>
+              </View>
+            );
+          })()}
+          {(function() {
             var cartReturns = computeWeeklyReturns(snapshots);
-            if (cartReturns.length === 0) return React.createElement(Text, { style: { fontSize: 11, color: C.sub, fontFamily: F.body, textAlign: 'center', paddingVertical: 10 } }, 'Dados insuficientes para o gráfico');
+            if (cartReturns.length === 0) return null;
 
             // CDI weekly returns
             var cdiAnual = (selicRate || 13.25) - 0.10;
@@ -1759,6 +2111,14 @@ export default function CarteiraScreen(props) {
             var cdiReturns = {};
             for (var cwi = 0; cwi < cartReturns.length; cwi++) {
               cdiReturns[cartReturns[cwi].week] = cdiSemanal;
+            }
+
+            // IPCA weekly returns (estimado ~4.5% a.a.)
+            var ipcaAnual = 4.5;
+            var ipcaSemanal = (Math.pow(1 + ipcaAnual / 100, 1 / 52) - 1) * 100;
+            var ipcaReturns = {};
+            for (var ipci = 0; ipci < cartReturns.length; ipci++) {
+              ipcaReturns[cartReturns[ipci].week] = ipcaSemanal;
             }
 
             // IBOV weekly returns
@@ -1772,7 +2132,7 @@ export default function CarteiraScreen(props) {
 
             // Per-category weekly returns (from snapshots proportional split)
             var catReturns = {};
-            var catKeys = ['acao', 'fii', 'etf', 'bdr', 'stock_int', 'adr', 'reit', 'rf'];
+            var catKeys = ['acao', 'fii', 'etf', 'etf_int', 'bdr', 'stock_int', 'adr', 'reit', 'rf'];
             if (allocTotal > 0) {
               for (var ck = 0; ck < catKeys.length; ck++) {
                 var catKey = catKeys[ck];
@@ -1789,7 +2149,7 @@ export default function CarteiraScreen(props) {
 
             // Build visible series
             var n = cartReturns.length;
-            var chartH = 150;
+            var chartH = 180;
             var chartW = Dimensions.get('window').width - 2 * SIZE.padding - 28 - 40;
             var padL = 38;
             var padR = 8;
@@ -1814,6 +2174,10 @@ export default function CarteiraScreen(props) {
                 var ibv = ibovReturns[rKey];
                 if (ibv != null && Math.abs(ibv) > maxAbs) maxAbs = Math.abs(ibv);
               }
+              if (perfSeries.ipca) {
+                var ipv = ipcaReturns[rKey];
+                if (ipv != null && Math.abs(ipv) > maxAbs) maxAbs = Math.abs(ipv);
+              }
               for (var cki2 = 0; cki2 < catKeys.length; cki2++) {
                 if (perfSeries[catKeys[cki2]] && catReturns[catKeys[cki2]]) {
                   var crv = catReturns[catKeys[cki2]][rKey];
@@ -1830,18 +2194,20 @@ export default function CarteiraScreen(props) {
 
             var allEls = [];
 
-            // Grid lines + Y labels
+            // Grid lines + Y labels (minimal e elegante)
             var ySteps = [maxAbs, maxAbs / 2, 0, -maxAbs / 2, -maxAbs];
             for (var yi = 0; yi < ySteps.length; yi++) {
               var yv = ySteps[yi];
               var yp = valToY(yv);
+              var isZero = yv === 0;
               allEls.push(React.createElement(SvgLine, {
                 key: 'pg-' + yi, x1: padL, y1: yp, x2: padL + plotW, y2: yp,
-                stroke: yv === 0 ? C.sub + '50' : C.sub + '18', strokeWidth: yv === 0 ? 1 : 0.5,
+                stroke: isZero ? C.text + '20' : C.text + '08', strokeWidth: isZero ? 1 : 0.5,
+                strokeDasharray: isZero ? undefined : '4,4',
               }));
               allEls.push(React.createElement(SvgText, {
                 key: 'pyl-' + yi, x: padL - 4, y: yp + 3,
-                fontSize: 8, fill: C.dim, fontFamily: F.mono, textAnchor: 'end',
+                fontSize: 8, fill: C.dim + '80', fontFamily: F.mono, textAnchor: 'end',
               }, (yv >= 0 ? '+' : '') + yv.toFixed(1) + '%'));
             }
 
@@ -1855,47 +2221,97 @@ export default function CarteiraScreen(props) {
               return pts;
             };
 
-            // Helper: render series (line + dots)
-            var renderSer = function(pts, color, key, showArea) {
+            // Helper: build smooth cubic bezier path from points
+            var smoothPath = function(pts) {
+              if (pts.length < 2) return '';
+              var d = 'M' + pts[0].x + ',' + pts[0].y;
+              for (var i = 1; i < pts.length; i++) {
+                var prev = pts[i - 1];
+                var curr = pts[i];
+                var tension = 0.3;
+                var dx = curr.x - prev.x;
+                var cp1x = prev.x + dx * tension;
+                var cp2x = curr.x - dx * tension;
+                d = d + ' C' + cp1x + ',' + prev.y + ' ' + cp2x + ',' + curr.y + ' ' + curr.x + ',' + curr.y;
+              }
+              return d;
+            };
+
+            // Helper: render series
+            var renderSer = function(pts, color, key, showArea, isDashed) {
               var els = [];
               if (pts.length < 1) return els;
+
+              // Gradiente (para area e glow da linha)
+              var gradId = 'grad_' + key;
+              var glowId = 'glow_' + key;
+              els.push(React.createElement(Defs, { key: key + '-defs' },
+                React.createElement(SvgGrad, { id: gradId, x1: '0', y1: '0', x2: '0', y2: '1' },
+                  React.createElement(Stop, { offset: '0%', stopColor: color, stopOpacity: showArea ? '0.30' : '0.0' }),
+                  React.createElement(Stop, { offset: '100%', stopColor: color, stopOpacity: '0.0' })
+                ),
+                React.createElement(SvgGrad, { id: glowId, x1: '0', y1: '0', x2: '1', y2: '0' },
+                  React.createElement(Stop, { offset: '0%', stopColor: color, stopOpacity: '0.3' }),
+                  React.createElement(Stop, { offset: '50%', stopColor: color, stopOpacity: '1' }),
+                  React.createElement(Stop, { offset: '100%', stopColor: color, stopOpacity: '0.6' })
+                )
+              ));
+
+              // Area fill com curva suave
               if (showArea && pts.length >= 2) {
-                var areaP = 'M' + pts[0].x + ',' + zeroY;
-                for (var a = 0; a < pts.length; a++) areaP = areaP + ' L' + pts[a].x + ',' + pts[a].y;
-                areaP = areaP + ' L' + pts[pts.length - 1].x + ',' + zeroY + ' Z';
-                els.push(React.createElement(Path, { key: key + '-a', d: areaP, fill: color, opacity: 0.08 }));
+                var curvePath = smoothPath(pts);
+                var areaP = curvePath + ' L' + pts[pts.length - 1].x + ',' + zeroY + ' L' + pts[0].x + ',' + zeroY + ' Z';
+                els.push(React.createElement(Path, { key: key + '-a', d: areaP, fill: 'url(#' + gradId + ')' }));
               }
+
+              // Linha curva suave
               if (pts.length >= 2) {
-                var lp = 'M' + pts[0].x + ',' + pts[0].y;
-                for (var l = 1; l < pts.length; l++) lp = lp + ' L' + pts[l].x + ',' + pts[l].y;
-                els.push(React.createElement(Path, { key: key + '-l', d: lp, stroke: color, strokeWidth: 2, fill: 'none', opacity: 0.9 }));
+                var linePath = smoothPath(pts);
+                var sw = showArea ? 2.5 : 1.5;
+                // Glow (sombra colorida atras da linha)
+                if (showArea) {
+                  els.push(React.createElement(Path, { key: key + '-glow', d: linePath, stroke: color, strokeWidth: sw + 3, fill: 'none', opacity: 0.15, strokeLinecap: 'round' }));
+                }
+                // Linha principal
+                var dashArr = isDashed ? '6,4' : undefined;
+                els.push(React.createElement(Path, { key: key + '-l', d: linePath, stroke: showArea ? 'url(#' + glowId + ')' : color, strokeWidth: sw, fill: 'none', opacity: isDashed ? 0.7 : 1, strokeLinecap: 'round', strokeDasharray: dashArr }));
               }
-              for (var d = 0; d < pts.length; d++) {
-                els.push(React.createElement(SvgCircle, { key: key + '-g' + d, cx: pts[d].x, cy: pts[d].y, r: 4, fill: color, opacity: 0.15 }));
-                els.push(React.createElement(SvgCircle, { key: key + '-d' + d, cx: pts[d].x, cy: pts[d].y, r: 2.5, fill: color, opacity: 1 }));
-                els.push(React.createElement(SvgText, { key: key + '-v' + d, x: pts[d].x, y: pts[d].y - 6, fontSize: 7, fill: color, fontFamily: F.mono, textAnchor: 'middle', opacity: 0.8 },
-                  (pts[d].val >= 0 ? '+' : '') + pts[d].val.toFixed(1) + '%'));
+
+              // Endpoint dot com glow pulsante
+              if (pts.length > 0) {
+                var last = pts[pts.length - 1];
+                // Glow grande
+                els.push(React.createElement(SvgCircle, { key: key + '-g3', cx: last.x, cy: last.y, r: 8, fill: color, opacity: 0.08 }));
+                els.push(React.createElement(SvgCircle, { key: key + '-g2', cx: last.x, cy: last.y, r: 5, fill: color, opacity: 0.15 }));
+                // Dot solido
+                els.push(React.createElement(SvgCircle, { key: key + '-dot', cx: last.x, cy: last.y, r: 3, fill: color, opacity: 1 }));
+                // Centro branco
+                els.push(React.createElement(SvgCircle, { key: key + '-inner', cx: last.x, cy: last.y, r: 1.2, fill: '#fff', opacity: 0.9 }));
+                // Valor no endpoint
+                var valText = (last.val >= 0 ? '+' : '') + last.val.toFixed(1) + '%';
+                els.push(React.createElement(SvgText, { key: key + '-val', x: last.x, y: last.y - 10, fontSize: 9, fill: color, fontFamily: F.mono, fontWeight: '700', textAnchor: 'middle' }, valText));
               }
               return els;
             };
 
             // Render series in order (back to front)
             var seriesConfig = [
-              { key: 'cdi', active: perfSeries.cdi, color: C.rf, area: false, getVal: function(wk) { return cdiReturns[wk] != null ? cdiReturns[wk] : null; } },
-              { key: 'ibov', active: perfSeries.ibov, color: C.etfs, area: false, getVal: function(wk) { return ibovReturns[wk] != null ? ibovReturns[wk] : null; } },
-              { key: 'rf', active: perfSeries.rf, color: C.rf, area: false, getVal: function(wk) { return catReturns.rf && catReturns.rf[wk] != null ? catReturns.rf[wk] : null; } },
-              { key: 'etf', active: perfSeries.etf, color: C.etfs, area: false, getVal: function(wk) { return catReturns.etf && catReturns.etf[wk] != null ? catReturns.etf[wk] : null; } },
-              { key: 'stock_int', active: perfSeries.stock_int, color: C.stock_int, area: false, getVal: function(wk) { return catReturns.stock_int && catReturns.stock_int[wk] != null ? catReturns.stock_int[wk] : null; } },
-              { key: 'fii', active: perfSeries.fii, color: C.fiis, area: false, getVal: function(wk) { return catReturns.fii && catReturns.fii[wk] != null ? catReturns.fii[wk] : null; } },
-              { key: 'acao', active: perfSeries.acao, color: C.acoes, area: false, getVal: function(wk) { return catReturns.acao && catReturns.acao[wk] != null ? catReturns.acao[wk] : null; } },
-              { key: 'cart', active: perfSeries.cart, color: C.accent, area: true, getVal: function(wk, idx) { return cartReturns[idx].pct; } },
+              { key: 'ipca', active: perfSeries.ipca, color: '#F97316', area: false, dash: true, getVal: function(wk) { return ipcaReturns[wk] != null ? ipcaReturns[wk] : null; } },
+              { key: 'cdi', active: perfSeries.cdi, color: C.rf, area: false, dash: true, getVal: function(wk) { return cdiReturns[wk] != null ? cdiReturns[wk] : null; } },
+              { key: 'ibov', active: perfSeries.ibov, color: C.etfs, area: false, dash: false, getVal: function(wk) { return ibovReturns[wk] != null ? ibovReturns[wk] : null; } },
+              { key: 'rf', active: perfSeries.rf, color: C.rf, area: false, dash: false, getVal: function(wk) { return catReturns.rf && catReturns.rf[wk] != null ? catReturns.rf[wk] : null; } },
+              { key: 'etf', active: perfSeries.etf, color: C.etfs, area: false, dash: false, getVal: function(wk) { return catReturns.etf && catReturns.etf[wk] != null ? catReturns.etf[wk] : null; } },
+              { key: 'stock_int', active: perfSeries.stock_int, color: C.stock_int, area: false, dash: false, getVal: function(wk) { return catReturns.stock_int && catReturns.stock_int[wk] != null ? catReturns.stock_int[wk] : null; } },
+              { key: 'fii', active: perfSeries.fii, color: C.fiis, area: false, dash: false, getVal: function(wk) { return catReturns.fii && catReturns.fii[wk] != null ? catReturns.fii[wk] : null; } },
+              { key: 'acao', active: perfSeries.acao, color: C.acoes, area: false, dash: false, getVal: function(wk) { return catReturns.acao && catReturns.acao[wk] != null ? catReturns.acao[wk] : null; } },
+              { key: 'cart', active: perfSeries.cart, color: C.accent, area: true, dash: false, getVal: function(wk, idx) { return cartReturns[idx].pct; } },
             ];
 
             for (var si = 0; si < seriesConfig.length; si++) {
               var sc = seriesConfig[si];
               if (!sc.active) continue;
               var pts = buildPts(sc.getVal);
-              var sEls = renderSer(pts, sc.color, 'p' + sc.key, sc.area);
+              var sEls = renderSer(pts, sc.color, 'p' + sc.key, sc.area, sc.dash);
               for (var se = 0; se < sEls.length; se++) allEls.push(sEls[se]);
             }
 
@@ -1912,11 +2328,55 @@ export default function CarteiraScreen(props) {
               }
             }
 
+            // Crosshair + tooltip para ponto selecionado
+            if (perfSelIdx >= 0 && perfSelIdx < n) {
+              var selX = idxToX(perfSelIdx);
+              // Linha vertical
+              allEls.push(React.createElement(SvgLine, { key: 'cross-v', x1: selX, y1: padT, x2: selX, y2: chartH - padB, stroke: C.text + '30', strokeWidth: 1, strokeDasharray: '3,3' }));
+              // Dots em todas as series ativas nesse ponto
+              for (var csi = 0; csi < seriesConfig.length; csi++) {
+                var csc = seriesConfig[csi];
+                if (!csc.active) continue;
+                var csv = csc.getVal(cartReturns[perfSelIdx].week, perfSelIdx);
+                if (csv == null) continue;
+                var csY = valToY(csv);
+                allEls.push(React.createElement(SvgCircle, { key: 'cross-d-' + csc.key, cx: selX, cy: csY, r: 4, fill: csc.color, opacity: 0.9 }));
+                allEls.push(React.createElement(SvgCircle, { key: 'cross-i-' + csc.key, cx: selX, cy: csY, r: 1.5, fill: '#fff', opacity: 0.9 }));
+              }
+            }
+
+            // Touch handler
+            var handleChartTouch = function(e) {
+              var touchX = e.nativeEvent.locationX - padL;
+              if (touchX < 0 || n === 0) { setPerfSelIdx(-1); return; }
+              var slotW = plotW / Math.max(1, n - 1);
+              var idx = Math.round(touchX / slotW);
+              if (idx < 0) idx = 0;
+              if (idx >= n) idx = n - 1;
+              setPerfSelIdx(perfSelIdx === idx ? -1 : idx);
+            };
+
+            // Tooltip data
+            var tooltipData = null;
+            if (perfSelIdx >= 0 && perfSelIdx < n) {
+              tooltipData = { date: cartReturns[perfSelIdx].date, week: cartReturns[perfSelIdx].week, values: [] };
+              for (var tti = 0; tti < seriesConfig.length; tti++) {
+                var tsc = seriesConfig[tti];
+                if (!tsc.active) continue;
+                var tv = tsc.getVal(cartReturns[perfSelIdx].week, perfSelIdx);
+                if (tv != null) tooltipData.values.push({ key: tsc.key, color: tsc.color, val: tv });
+              }
+            }
+
+            // Series pill labels
+            var PILL_LABELS = { cart: 'Carteira', cdi: 'CDI', ibov: 'IBOV', ipca: 'IPCA', acao: 'Acoes', fii: 'FIIs', etf: 'ETFs', stock_int: 'Stocks', rf: 'RF' };
+
             // Toggle pills
             var SERIES_PILLS = [
               { k: 'cart', l: 'Carteira', c: C.accent },
               { k: 'cdi', l: 'CDI', c: C.rf },
               { k: 'ibov', l: 'IBOV', c: C.etfs },
+              { k: 'ipca', l: 'IPCA', c: '#F97316' },
               { k: 'acao', l: 'Ações', c: C.acoes },
               { k: 'fii', l: 'FIIs', c: C.fiis },
               { k: 'etf', l: 'ETFs', c: C.etfs },
@@ -1924,8 +2384,45 @@ export default function CarteiraScreen(props) {
               { k: 'rf', l: 'RF', c: C.rf },
             ];
 
-            return React.createElement(View, null,
-              React.createElement(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginBottom: 10 }, contentContainerStyle: { gap: 6 } },
+            return React.createElement(View, { style: { paddingHorizontal: 14, paddingBottom: 14 } },
+              // Grafico com touch
+              React.createElement(View, {
+                onStartShouldSetResponder: function() { return true; },
+                onResponderGrant: handleChartTouch,
+                onResponderMove: function(e) {
+                  var tx = e.nativeEvent.locationX - padL;
+                  if (tx < 0 || n === 0) return;
+                  var sw2 = plotW / Math.max(1, n - 1);
+                  var ni = Math.round(tx / sw2);
+                  if (ni < 0) ni = 0;
+                  if (ni >= n) ni = n - 1;
+                  setPerfSelIdx(ni);
+                },
+                onResponderRelease: function() { /* manter selecionado */ },
+              },
+                React.createElement(Svg, { width: chartW, height: chartH }, allEls)
+              ),
+              // Tooltip
+              tooltipData ? React.createElement(View, { style: { backgroundColor: C.text + '08', borderRadius: 10, padding: 10, marginTop: 6 } },
+                React.createElement(View, { style: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 } },
+                  React.createElement(Text, { style: { fontSize: 11, fontFamily: F.mono, fontWeight: '600', color: C.text } },
+                    (function() { var dp2 = tooltipData.date.split('-'); return dp2[2] + '/' + dp2[1] + '/' + dp2[0]; })()),
+                  React.createElement(TouchableOpacity, { onPress: function() { setPerfSelIdx(-1); } },
+                    React.createElement(Ionicons, { name: 'close-circle', size: 16, color: C.dim }))
+                ),
+                React.createElement(View, { style: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 } },
+                  tooltipData.values.map(function(tv) {
+                    return React.createElement(View, { key: 'tt-' + tv.key, style: { flexDirection: 'row', alignItems: 'center', gap: 4 } },
+                      React.createElement(View, { style: { width: 6, height: 6, borderRadius: 3, backgroundColor: tv.color } }),
+                      React.createElement(Text, { style: { fontSize: 10, fontFamily: F.body, color: C.dim } }, PILL_LABELS[tv.key] || tv.key),
+                      React.createElement(Text, { style: { fontSize: 11, fontFamily: F.mono, fontWeight: '700', color: tv.val >= 0 ? C.green : C.red } },
+                        (tv.val >= 0 ? '+' : '') + tv.val.toFixed(2) + '%')
+                    );
+                  })
+                )
+              ) : null,
+              // Toggle pills
+              React.createElement(ScrollView, { horizontal: true, showsHorizontalScrollIndicator: false, style: { marginTop: 10 }, contentContainerStyle: { gap: 5 } },
                 SERIES_PILLS.map(function(sp) {
                   var isOn = perfSeries[sp.k];
                   return React.createElement(TouchableOpacity, {
@@ -1937,20 +2434,20 @@ export default function CarteiraScreen(props) {
                       setPerfSeries(next);
                     },
                     style: {
-                      paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6,
-                      borderWidth: 1, borderColor: isOn ? sp.c : C.border,
-                      backgroundColor: isOn ? sp.c + '22' : 'transparent',
+                      flexDirection: 'row', alignItems: 'center', gap: 4,
+                      paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8,
+                      backgroundColor: isOn ? sp.c + '18' : C.border + '15',
                     },
                   },
+                    React.createElement(View, { style: { width: 6, height: 6, borderRadius: 3, backgroundColor: isOn ? sp.c : C.dim } }),
                     React.createElement(Text, {
-                      style: { fontSize: 9, fontFamily: F.mono, fontWeight: '600', color: isOn ? sp.c : C.dim },
+                      style: { fontSize: 10, fontFamily: F.body, fontWeight: isOn ? '600' : '400', color: isOn ? sp.c : C.dim },
                     }, sp.l)
                   );
                 })
-              ),
-              React.createElement(Svg, { width: chartW, height: chartH }, allEls)
+              )
             );
-          })() : null}
+          })()}
         </Glass>
       ) : null}
 
@@ -1969,13 +2466,7 @@ export default function CarteiraScreen(props) {
           <Text style={{ fontSize: 11, fontFamily: F.body, color: C.accent }}>IA</Text>
         </TouchableOpacity>
         ) : null}
-        {sub.canAccess('SAVED_ANALYSES') ? (
-        <TouchableOpacity onPress={function() { navigation.navigate('AnalisesSalvas'); }}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2, paddingHorizontal: 6 }}
-          accessibilityRole="button" accessibilityLabel="Análises salvas">
-          <Ionicons name="bookmark-outline" size={14} color={C.accent} />
-        </TouchableOpacity>
-        ) : null}
+        {/* AnalisesSalvas removido na Fase G — IA desativada, feature morta */}
         {sub.canAccess('CSV_IMPORT') ? (
         <TouchableOpacity onPress={function() { navigation.navigate('ImportOperacoes'); }}
           style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 2, paddingHorizontal: 6 }}
@@ -1992,19 +2483,28 @@ export default function CarteiraScreen(props) {
         </TouchableOpacity>
         )}
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 6, paddingBottom: 2 }}>
-        {FILTERS.map(function (f) {
-          return (
-            <Pill key={f.k} active={filter === f.k} color={f.color}
-              onPress={function () { setFilter(f.k); setCorrFilter(null); }}>
-              {f.l} ({countCat(f.k)})
-            </Pill>
-          );
-        })}
-      </ScrollView>
 
-      <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, marginBottom: 2 }}>
+      <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, marginBottom: 2, alignItems: 'center' }}>
+        {/* Toggle agrupamento */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ flexDirection: 'row', borderRadius: 6, borderWidth: 1, borderColor: C.border + '50', overflow: 'hidden', marginRight: 4 }}>
+          {(function() {
+            var modes = [{ k: 'flat', l: 'Ativo' }, { k: 'setor', l: 'Setor' }, { k: 'segmento', l: 'Segmento' }];
+            if (filter === 'fiis') {
+              modes.push({ k: 'tipo_fii', l: 'Tipo' });
+            } else {
+              modes.push({ k: 'cap', l: 'Cap' });
+            }
+            return modes;
+          })().map(function(g) {
+            return (
+              <TouchableOpacity key={g.k} onPress={function() { setGroupBy(g.k); setEditingGroup(null); }}
+                style={{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: groupBy === g.k ? C.accent + '22' : 'transparent' }}>
+                <Text style={{ fontSize: 10, fontFamily: F.body, color: groupBy === g.k ? C.accent : C.dim }}>{g.l}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
         {[
           { k: 'valor', l: 'Valor' },
           { k: 'nome', l: 'A-Z' },
@@ -2043,43 +2543,979 @@ export default function CarteiraScreen(props) {
         </ScrollView>
       ) : null}
 
-      {/* ══════ 10. POSITION CARDS ══════ */}
-      {filteredPositions.map(function (pos, i) {
-        var key = 'pos_' + pos.ticker + '_' + i;
-        var opcoesForTicker = opcoes.filter(function(o) {
-          return o.ativo_base && o.ativo_base.toUpperCase() === pos.ticker.toUpperCase();
-        });
+      {/* ══════ ALOCACAO POR CLASSE (Nivel 1 do rebalanceamento) ══════ */}
+      {(function() {
+        var CLASS_DEFS = [
+          { cat: 'acao', label: 'Acoes', filterKey: 'acoes', color: C.acoes },
+          { cat: 'fii', label: 'FIIs', filterKey: 'fiis', color: C.fiis },
+          { cat: 'etf', label: 'ETFs', filterKey: 'etfs', color: C.etfs },
+          { cat: 'stock_int', label: 'Stocks', filterKey: 'stocks_int', color: C.stock_int },
+          { cat: 'bdr', label: 'BDRs', filterKey: 'bdrs', color: C.bdr || '#A855F7' },
+          { cat: 'reit', label: 'REITs', filterKey: 'reits', color: C.reit || '#EC4899' },
+        ];
+        var classVals = {};
+        for (var cdi = 0; cdi < CLASS_DEFS.length; cdi++) { classVals[CLASS_DEFS[cdi].cat] = 0; }
+        var rfTotal = 0;
+        for (var rfi = 0; rfi < rfAtivos.length; rfi++) { rfTotal += rfAtivos[rfi].valor_aplicado || 0; }
+        for (var pi = 0; pi < positions.length; pi++) {
+          var pc = positions[pi].categoria || 'acao';
+          if (classVals[pc] !== undefined) {
+            classVals[pc] += positions[pi].quantidade * (positions[pi].preco_atual || positions[pi].pm);
+          }
+        }
+        var classTotal = totalValue;
+        var classMetaTotal = 0;
+        var classMetaCount = 0;
+        var cmkKeys = Object.keys(classMetas);
+        for (var cmi = 0; cmi < cmkKeys.length; cmi++) {
+          var cmv = parseFloat(classMetas[cmkKeys[cmi]]);
+          if (!isNaN(cmv)) { classMetaTotal += cmv; classMetaCount++; }
+        }
+        var classMetaRestante = 100 - classMetaTotal;
+        var activeClasses = [];
+        for (var aci = 0; aci < CLASS_DEFS.length; aci++) {
+          var cd = CLASS_DEFS[aci];
+          if (classVals[cd.cat] > 0 || (classMetas[cd.cat] != null && classMetas[cd.cat] !== '')) {
+            activeClasses.push(cd);
+          }
+        }
+        if (rfTotal > 0 || (classMetas.rf != null && classMetas.rf !== '')) {
+          activeClasses.push({ cat: 'rf', label: 'RF', filterKey: 'rf', color: C.rf });
+          classVals.rf = rfTotal;
+        }
+        if (activeClasses.length < 2) return null;
+
+        var submitClassMeta = function() {
+          var sv = classMetaInput.replace(',', '.');
+          if (sv === '' || isNaN(parseFloat(sv))) {
+            handleSetClassMeta(editingClass, null);
+          } else {
+            handleSetClassMeta(editingClass, parseFloat(sv));
+          }
+          setEditingClass(null);
+        };
+
         return (
-          <PositionCard key={key} pos={pos} history={priceHistory[pos.ticker] || null}
-            totalCarteira={totalValue} expanded={expanded === key}
-            fundamentals={fundamentals[pos.ticker] && fundamentals[pos.ticker] !== false ? fundamentals[pos.ticker] : null}
-            fundLoading={!!fundLoading[pos.ticker]}
-            opcoesForTicker={opcoesForTicker}
-            indicator={indicators[pos.ticker] || null}
-            canAccessFund={sub.canAccess('FUNDAMENTALS')}
-            portfoliosList={portfoliosList}
-            showPortfolioBadge={!portfolioId && portfoliosList.length > 0}
-            onAiAnalysis={sub.canAccess('AI_ANALYSIS') ? function () { setPendingAiCard({ ticker: pos.ticker, mercado: pos.mercado }); setAiConfirmVisible(true); } : null}
-            onToggle={function () { toggleExpand(key, pos.ticker, pos.mercado); }}
-            onBuy={function () { nav('AddOperacao', { ticker: pos.ticker, tipo: 'compra', categoria: pos.categoria }); }}
-            onSell={function () { nav('AddOperacao', { ticker: pos.ticker, tipo: 'venda', categoria: pos.categoria }); }}
-            onLancarOpcao={function () { nav('AddOpcao', { ativo_base: pos.ticker }); }}
-            onTransacoes={function () { nav('AssetDetail', { ticker: pos.ticker, mercado: pos.mercado, portfolioId: portfolioId }); }}
-            tickerMeta={tickerMetas[pos.ticker]}
-            totalPortfolio={totalValue}
-            tickerValorTotal={corrFilter ? (function() {
-              for (var opi = 0; opi < positions.length; opi++) {
-                if (positions[opi].ticker === pos.ticker) {
-                  var op = positions[opi];
-                  var opRef = op.preco_atual != null ? op.preco_atual : (op.mercado === 'INT' ? op.pm * (op.taxa_cambio || op.taxa_cambio_media || 1) : op.pm);
-                  return op.quantidade * opRef;
-                }
+          <View style={{ borderRadius: 14, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: C.accent + '20', backgroundColor: C.accent + '04' }}>
+            {/* Barra segmentada clicavel */}
+            <View style={{ flexDirection: 'row', height: 18, borderRadius: 9, overflow: 'hidden', backgroundColor: C.border + '30', marginBottom: 4 }}>
+              {activeClasses.map(function(cd) {
+                var pct = classTotal > 0 ? (classVals[cd.cat] / classTotal) * 100 : 0;
+                if (pct < 0.5) return null;
+                var isActive = filter === cd.filterKey;
+                return (
+                  <TouchableOpacity key={'cb_' + cd.cat} activeOpacity={0.7}
+                    onPress={function() {
+                      var fk = cd.filterKey;
+                      setFilter(filter === fk ? 'todos' : fk);
+                      setCorrFilter(null); setSelAllocSeg(null);
+                      // Nao mudar groupBy — manter a selecao do usuario
+                    }}
+                    style={{ width: pct + '%', height: 18, backgroundColor: cd.color,
+                      opacity: filter !== 'todos' && !isActive ? 0.35 : 1,
+                      justifyContent: 'center', alignItems: 'center' }}>
+                    {pct >= 18 ? (
+                      <Text numberOfLines={1} style={{ fontSize: 8, fontFamily: F.mono, color: '#fff', fontWeight: '700' }}>
+                        {cd.label + ' ' + Math.round(pct) + '%'}
+                      </Text>
+                    ) : pct >= 8 ? (
+                      <Text numberOfLines={1} style={{ fontSize: 7, fontFamily: F.mono, color: '#fff', fontWeight: '700' }}>
+                        {Math.round(pct) + '%'}
+                      </Text>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {/* Detalhe do filtro ativo */}
+            {filter !== 'todos' ? (function() {
+              var activeCd = null;
+              for (var afi = 0; afi < activeClasses.length; afi++) {
+                if (activeClasses[afi].filterKey === filter) { activeCd = activeClasses[afi]; break; }
               }
-              return 0;
+              if (!activeCd) return null;
+              var aVal = classVals[activeCd.cat] || 0;
+              var aPct = classTotal > 0 ? (aVal / classTotal) * 100 : 0;
+              var aMeta = classMetas[activeCd.cat];
+              var aHasMeta = aMeta != null && aMeta !== '' && !isNaN(parseFloat(aMeta));
+              var aMetaVal = aHasMeta ? parseFloat(aMeta) : 0;
+              var aValFmt = aVal >= 1000 ? ('R$ ' + (aVal / 1000).toFixed(1) + 'k') : ('R$ ' + aVal.toFixed(0));
+              return (
+                <TouchableOpacity onPress={function() { setFilter('todos'); setCorrFilter(null); setSelAllocSeg(null); /* manter groupBy do usuario */ }}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    marginBottom: 6, paddingVertical: 4, borderRadius: 8, backgroundColor: activeCd.color + '12' }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: activeCd.color }} />
+                  <Text style={{ fontSize: 12, fontFamily: F.display, fontWeight: '700', color: activeCd.color }}>{activeCd.label}</Text>
+                  <Text style={{ fontSize: 12, fontFamily: F.mono, fontWeight: '600', color: C.text }}>{aPct.toFixed(1) + '%'}</Text>
+                  <Text style={{ fontSize: 11, fontFamily: F.mono, color: C.dim }}>{aValFmt}</Text>
+                  {aHasMeta ? <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.accent }}>{'meta ' + aMetaVal.toFixed(0) + '%'}</Text> : null}
+                  <Ionicons name="close-circle" size={14} color={C.dim} />
+                </TouchableOpacity>
+              );
             })() : null}
-            onSetMeta={handleSetMeta} />
+            {/* Cards horizontais */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 8, paddingRight: 4 }}>
+              {activeClasses.map(function(cd) {
+                var val = classVals[cd.cat] || 0;
+                var pct = classTotal > 0 ? (val / classTotal) * 100 : 0;
+                var meta = classMetas[cd.cat];
+                var hasMeta = meta != null && meta !== '' && !isNaN(parseFloat(meta));
+                var metaVal = hasMeta ? parseFloat(meta) : 0;
+                var diff = hasMeta ? pct - metaVal : 0;
+                var diffColor = hasMeta ? (Math.abs(diff) < 0.5 ? C.green : (diff > 0 ? C.etfs : C.red)) : C.dim;
+                var isActive = filter === cd.filterKey;
+                var isEdCls = editingClass === cd.cat;
+                var valFmt = val >= 1000 ? (val / 1000).toFixed(1) + 'k' : val.toFixed(0);
+
+                return (
+                  <TouchableOpacity key={'cc_' + cd.cat} activeOpacity={0.7}
+                    onPress={function() {
+                      var fk = cd.filterKey;
+                      setFilter(filter === fk ? 'todos' : fk);
+                      setCorrFilter(null); setSelAllocSeg(null);
+                      // Nao mudar groupBy — manter a selecao do usuario
+                    }}
+                    style={{ width: 110, backgroundColor: isActive ? cd.color + '15' : C.bg,
+                      borderRadius: 10, borderWidth: isActive ? 1.5 : 1, borderColor: isActive ? cd.color + '50' : C.border + '30',
+                      paddingHorizontal: 10, paddingVertical: 8 }}>
+                    {/* Nome + % */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: cd.color }} />
+                      <Text style={{ fontSize: 12, fontFamily: F.display, fontWeight: '700', color: C.text }}>{cd.label}</Text>
+                    </View>
+                    <Text style={{ fontSize: 16, fontFamily: F.mono, fontWeight: '700', color: cd.color, marginBottom: 1 }}>{pct.toFixed(1) + '%'}</Text>
+                    <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.dim, marginBottom: 5 }}>{'R$ ' + valFmt}</Text>
+                    {/* Meta */}
+                    {isEdCls ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                        <TextInput
+                          style={{ width: 40, height: 22, borderRadius: 5, borderWidth: 1.5, borderColor: C.accent,
+                            backgroundColor: C.bg, color: C.text, fontSize: 12, fontFamily: F.mono, fontWeight: '700', textAlign: 'center', paddingVertical: 0 }}
+                          value={classMetaInput}
+                          onChangeText={setClassMetaInput}
+                          keyboardType="decimal-pad"
+                          autoFocus
+                          maxLength={5}
+                          returnKeyType="done"
+                          onSubmitEditing={submitClassMeta}
+                          onBlur={submitClassMeta}
+                        />
+                        <Text style={{ fontSize: 10, color: C.accent, fontFamily: F.mono }}>%</Text>
+                      </View>
+                    ) : hasMeta ? (
+                      <TouchableOpacity onPress={function() { setClassMetaInput(String(metaVal)); setEditingClass(cd.cat); }}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                        <Text style={{ fontSize: 11, color: C.accent, fontFamily: F.mono, fontWeight: '600' }}>{'Meta ' + metaVal.toFixed(0) + '%'}</Text>
+                        <Text style={{ fontSize: 9, fontFamily: F.mono, fontWeight: '700', color: diffColor }}>
+                          {(diff >= 0 ? '+' : '') + diff.toFixed(1)}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity onPress={function() { setClassMetaInput(''); setEditingClass(cd.cat); }}>
+                        <Text style={{ fontSize: 10, color: C.accent, fontFamily: F.body }}>+ Meta</Text>
+                      </TouchableOpacity>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            {/* Rodape: alocado + perfil + aporte */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border + '20' }}>
+              {classMetaCount > 0 ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.dim }}>
+                    {'Metas ' + classMetaTotal.toFixed(0) + '%'}
+                  </Text>
+                  <Text style={{ fontSize: 10, fontFamily: F.mono, fontWeight: '700',
+                    color: Math.abs(classMetaRestante) < 0.5 ? C.green : classMetaRestante > 0 ? C.yellow : C.red }}>
+                    {Math.abs(classMetaRestante) < 0.5 ? '= 100%' : (classMetaRestante > 0 ? 'Falta ' : 'Excede ') + Math.abs(classMetaRestante).toFixed(1) + '%'}
+                  </Text>
+                </View>
+              ) : <View />}
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                <TouchableOpacity onPress={function() { setShowProfiles(true); }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: C.accent + '15' }}>
+                  <Ionicons name="people" size={13} color={C.accent} />
+                  <Text style={{ fontSize: 11, fontFamily: F.body, color: C.accent }}>Perfil</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={function() { setShowAporte(!showAporte); }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: C.green + '15' }}>
+                  <Ionicons name="trending-up" size={13} color={C.green} />
+                  <Text style={{ fontSize: 11, fontFamily: F.body, color: C.green }}>Aporte</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            {/* Aporte expandido */}
+            {showAporte ? (
+              <View style={{ marginTop: 8, backgroundColor: C.green + '06', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: C.green + '20' }}>
+                <Text style={{ fontSize: 13, fontFamily: F.display, fontWeight: '700', color: C.text, marginBottom: 8 }}>Simular Aporte</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                  <Text style={{ fontSize: 14, fontFamily: F.mono, fontWeight: '600', color: C.text }}>R$</Text>
+                  <TextInput
+                    style={{ flex: 1, height: 40, borderRadius: 8, borderWidth: 1.5, borderColor: C.green + '40',
+                      backgroundColor: C.bg, color: C.text, fontSize: 18, fontFamily: F.mono, fontWeight: '700', textAlign: 'center', paddingVertical: 0 }}
+                    value={aporteText}
+                    onChangeText={setAporteText}
+                    keyboardType="decimal-pad"
+                    placeholder="1.000"
+                    placeholderTextColor={C.dim}
+                  />
+                </View>
+                {(function() {
+                  var aporteVal = parseFloat((aporteText || '0').replace(',', '.')) || 0;
+                  var suggestions = aporteVal > 0 ? computeAporteSuggestions(positions, tickerMetas, classMetas, totalValue, aporteVal) : [];
+                  if (suggestions.length > 0) {
+                    var totalSug = 0;
+                    for (var tsi = 0; tsi < suggestions.length; tsi++) { totalSug += suggestions[tsi].valor; }
+                    return (
+                      <View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <Text style={{ fontSize: 11, fontFamily: F.body, color: C.dim }}>Distribuicao sugerida</Text>
+                          <Text style={{ fontSize: 11, fontFamily: F.mono, color: C.dim }}>{'R$ ' + fmt(totalSug) + ' de R$ ' + fmt(aporteVal)}</Text>
+                        </View>
+                        <View style={{ gap: 6 }}>
+                          {suggestions.slice(0, 10).map(function(s) {
+                            var sColor = PRODUCT_COLORS[s.categoria] || C.accent;
+                            return (
+                              <View key={'sug_' + s.ticker} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: sColor + '08', borderRadius: 8, padding: 8 }}>
+                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: sColor, marginRight: 8 }} />
+                                <Text style={{ fontSize: 14, fontFamily: F.mono, fontWeight: '700', color: C.text, width: 70 }}>{s.ticker}</Text>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ fontSize: 13, fontFamily: F.body, color: C.text }}>
+                                    {s.cotas + (s.cotas === 1 ? ' cota' : ' cotas')}
+                                  </Text>
+                                  <Text style={{ fontSize: 11, fontFamily: F.mono, color: C.dim }}>
+                                    {'R$ ' + fmt(s.preco) + ' cada'}
+                                  </Text>
+                                </View>
+                                <Text style={{ fontSize: 14, fontFamily: F.mono, fontWeight: '700', color: C.green }}>
+                                  {'R$ ' + fmt(s.valor)}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    );
+                  }
+                  if (aporteVal > 0) return (
+                    <View style={{ alignItems: 'center', paddingVertical: 10 }}>
+                      <Ionicons name="flag-outline" size={20} color={C.dim} />
+                      <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.body, textAlign: 'center', marginTop: 4 }}>
+                        Defina metas por classe acima para ver sugestoes de compra
+                      </Text>
+                    </View>
+                  );
+                  return null;
+                })()}
+              </View>
+            ) : null}
+          </View>
         );
-      })}
+      })()}
+
+      {/* ══════ PERFORMANCE FULLSCREEN ══════ */}
+      <Modal visible={perfFullscreen} animationType="slide" transparent={false} supportedOrientations={['portrait', 'landscape']}
+        onRequestClose={function() { setPerfFullscreen(false); setPerfSelIdx(-1); }}>
+        <View style={{ flex: 1, backgroundColor: C.bg }}
+          onLayout={function() { var d = Dimensions.get('window'); setScreenDims({ w: d.width, h: d.height }); }}>
+          {/* Header linha 1: titulo + fechar */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+            paddingTop: 50, paddingHorizontal: 16, paddingBottom: 4 }}>
+            <Text style={{ fontSize: 15, fontWeight: '700', color: C.text, fontFamily: F.display }}>Performance da Carteira</Text>
+            <TouchableOpacity onPress={function() { setPerfFullscreen(false); setPerfSelIdx(-1); }}
+              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: C.border + '30' }}>
+              <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono }}>Fechar</Text>
+            </TouchableOpacity>
+          </View>
+          {/* Header linha 2: pills */}
+          <View style={{ flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingBottom: 6 }}>
+            {[{ l: 'Carteira', c: C.accent, k: 'cart' }, { l: 'CDI', c: C.rf, k: 'cdi' }, { l: 'IBOV', c: C.etfs, k: 'ibov' }, { l: 'IPCA', c: '#F97316', k: 'ipca' }].map(function(lg) {
+              var lgOn = perfSeries[lg.k];
+              return (
+                <TouchableOpacity key={'fpl_' + lg.k} onPress={function() { var nx = {}; var pks = Object.keys(perfSeries); for (var pi2 = 0; pi2 < pks.length; pi2++) { nx[pks[pi2]] = perfSeries[pks[pi2]]; } nx[lg.k] = !nx[lg.k]; setPerfSeries(nx); }}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: lgOn ? lg.c + '20' : C.border + '15' }}>
+                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: lgOn ? lg.c : C.dim }} />
+                  <Text style={{ fontSize: 11, fontFamily: F.body, fontWeight: lgOn ? '600' : '400', color: lgOn ? lg.c : C.dim }}>{lg.l}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {/* Grafico — usa onLayout para dimensoes dinamicas */}
+          <View style={{ flex: 1, marginHorizontal: 8 }}
+            onLayout={function() { /* trigger re-render */ }}
+            onStartShouldSetResponder={function() { return true; }}
+            onResponderGrant={function(e) {
+              var cR2 = computeWeeklyReturns(snapshots);
+              var fn = cR2.length; if (fn === 0) return;
+              var sw = screenDims.w; var fPadL = 44;
+              var fPlotW = sw - 60 - fPadL - 12;
+              var tx = e.nativeEvent.locationX - fPadL;
+              var slotW = fPlotW / Math.max(1, fn - 1);
+              var idx = Math.round(tx / slotW);
+              if (idx < 0) idx = 0; if (idx >= fn) idx = fn - 1;
+              setPerfSelIdx(idx);
+            }}
+            onResponderMove={function(e) {
+              var cR2 = computeWeeklyReturns(snapshots);
+              var fn = cR2.length; if (fn === 0) return;
+              var sw = screenDims.w; var fPadL = 44;
+              var fPlotW = sw - 60 - fPadL - 12;
+              var tx = e.nativeEvent.locationX - fPadL;
+              var slotW = fPlotW / Math.max(1, fn - 1);
+              var idx = Math.round(tx / slotW);
+              if (idx < 0) idx = 0; if (idx >= fn) idx = fn - 1;
+              setPerfSelIdx(idx);
+            }}>
+            {(function() {
+              var cR2 = computeWeeklyReturns(snapshots);
+              if (cR2.length === 0) return null;
+              var sw = screenDims.w;
+              var sh = screenDims.h;
+              var fChartW = sw - 60;
+              var fChartH = sh - 160;
+              var fPadL = 44; var fPadR = 12; var fPadT = 12; var fPadB = 28;
+              var fPlotW = fChartW - fPadL - fPadR;
+              var fPlotH = fChartH - fPadT - fPadB;
+              var fn = cR2.length;
+              if (fPlotH < 50 || fPlotW < 50) return null;
+
+              var cdiAF = (selicRate || 13.25) - 0.10;
+              var cdiSF = (Math.pow(1 + cdiAF / 100, 1 / 52) - 1) * 100;
+              var ipcaSF = (Math.pow(1 + 4.5 / 100, 1 / 52) - 1) * 100;
+              var cdiRF = {}; var ipcaRF = {}; var ibovRF = {};
+              for (var fi = 0; fi < fn; fi++) { cdiRF[cR2[fi].week] = cdiSF; ipcaRF[cR2[fi].week] = ipcaSF; }
+              if (ibovHist.length > 0) { var ibWF = computeWeeklyReturns(ibovHist); for (var fi2 = 0; fi2 < ibWF.length; fi2++) { ibovRF[ibWF[fi2].week] = ibWF[fi2].pct; } }
+
+              var fMaxAbs = 1;
+              for (var fmi = 0; fmi < fn; fmi++) {
+                var fv2 = Math.abs(cR2[fmi].pct); if (fv2 > fMaxAbs) fMaxAbs = fv2;
+                var fiv = ibovRF[cR2[fmi].week]; if (fiv != null && Math.abs(fiv) > fMaxAbs) fMaxAbs = Math.abs(fiv);
+              }
+              fMaxAbs = Math.ceil(fMaxAbs) + 1; if (fMaxAbs < 3) fMaxAbs = 3;
+              var fZeroY = fPadT + fPlotH / 2;
+              var fValToY = function(v) { return fZeroY - (v / fMaxAbs) * (fPlotH / 2); };
+              var fIdxToX = function(i) { return fn === 1 ? fPadL + fPlotW / 2 : fPadL + (i / (fn - 1)) * fPlotW; };
+              var fSmooth = function(pts) {
+                if (pts.length < 2) return '';
+                var d = 'M' + pts[0].x + ',' + pts[0].y;
+                for (var j = 1; j < pts.length; j++) { var p = pts[j - 1]; var c = pts[j]; var dx = c.x - p.x; d = d + ' C' + (p.x + dx * 0.3) + ',' + p.y + ' ' + (c.x - dx * 0.3) + ',' + c.y + ' ' + c.x + ',' + c.y; }
+                return d;
+              };
+
+              var fEls = [];
+              var fYSteps = [fMaxAbs, fMaxAbs / 2, 0, -fMaxAbs / 2, -fMaxAbs];
+              for (var fyi = 0; fyi < fYSteps.length; fyi++) {
+                var fyv = fYSteps[fyi]; var fyp = fValToY(fyv);
+                fEls.push(React.createElement(SvgLine, { key: 'fg' + fyi, x1: fPadL, y1: fyp, x2: fPadL + fPlotW, y2: fyp, stroke: fyv === 0 ? C.text + '25' : C.text + '0A', strokeWidth: fyv === 0 ? 1 : 0.5, strokeDasharray: fyv === 0 ? undefined : '5,5' }));
+                fEls.push(React.createElement(SvgText, { key: 'fyl' + fyi, x: fPadL - 4, y: fyp + 4, fontSize: 10, fill: C.dim, fontFamily: F.mono, textAnchor: 'end' }, (fyv >= 0 ? '+' : '') + fyv.toFixed(1) + '%'));
+              }
+
+              var fSerDefs = [
+                { key: 'ipca', on: perfSeries.ipca, color: '#F97316', dash: true, gv: function(wk) { return ipcaRF[wk]; } },
+                { key: 'cdi', on: perfSeries.cdi, color: C.rf, dash: true, gv: function(wk) { return cdiRF[wk]; } },
+                { key: 'ibov', on: perfSeries.ibov, color: C.etfs, dash: false, gv: function(wk) { return ibovRF[wk]; } },
+                { key: 'cart', on: perfSeries.cart, color: C.accent, dash: false, gv: function(wk, idx) { return cR2[idx].pct; } },
+              ];
+              for (var fsi = 0; fsi < fSerDefs.length; fsi++) {
+                var fs = fSerDefs[fsi]; if (!fs.on) continue;
+                var fPts = [];
+                for (var fpi = 0; fpi < fn; fpi++) { var fpv = fs.gv(cR2[fpi].week, fpi); if (fpv != null) fPts.push({ x: fIdxToX(fpi), y: fValToY(fpv), val: fpv }); }
+                if (fPts.length < 2) continue;
+                var fPath = fSmooth(fPts); var isCart = fs.key === 'cart';
+                if (isCart) {
+                  var fGId = 'fsg_' + fs.key;
+                  fEls.push(React.createElement(Defs, { key: 'fsd' + fs.key }, React.createElement(SvgGrad, { id: fGId, x1: '0', y1: '0', x2: '0', y2: '1' }, React.createElement(Stop, { offset: '0%', stopColor: fs.color, stopOpacity: '0.3' }), React.createElement(Stop, { offset: '100%', stopColor: fs.color, stopOpacity: '0.02' }))));
+                  fEls.push(React.createElement(Path, { key: 'fsa' + fs.key, d: fPath + ' L' + fPts[fPts.length - 1].x + ',' + fZeroY + ' L' + fPts[0].x + ',' + fZeroY + ' Z', fill: 'url(#' + fGId + ')' }));
+                  fEls.push(React.createElement(Path, { key: 'fsgl' + fs.key, d: fPath, stroke: fs.color, strokeWidth: 5, fill: 'none', opacity: 0.12, strokeLinecap: 'round' }));
+                }
+                fEls.push(React.createElement(Path, { key: 'fsl' + fs.key, d: fPath, stroke: fs.color, strokeWidth: isCart ? 3 : 2, fill: 'none', strokeLinecap: 'round', strokeDasharray: fs.dash ? '8,5' : undefined, opacity: fs.dash ? 0.8 : 1 }));
+                var fLast = fPts[fPts.length - 1];
+                fEls.push(React.createElement(SvgCircle, { key: 'fse' + fs.key, cx: fLast.x, cy: fLast.y, r: 5, fill: fs.color }));
+                fEls.push(React.createElement(SvgCircle, { key: 'fsi' + fs.key, cx: fLast.x, cy: fLast.y, r: 2, fill: '#fff' }));
+                fEls.push(React.createElement(SvgText, { key: 'fsv' + fs.key, x: fLast.x, y: fLast.y - 10, fontSize: 11, fill: fs.color, fontFamily: F.mono, fontWeight: '700', textAnchor: 'middle' }, (fLast.val >= 0 ? '+' : '') + fLast.val.toFixed(2) + '%'));
+              }
+              for (var fxi = 0; fxi < fn; fxi++) {
+                var fShowX = fn <= 20 || fxi % Math.ceil(fn / 12) === 0 || fxi === fn - 1;
+                if (fShowX && cR2[fxi].date) { var fdp = cR2[fxi].date.split('-'); fEls.push(React.createElement(SvgText, { key: 'fxl' + fxi, x: fIdxToX(fxi), y: fChartH - 4, fontSize: 9, fill: C.dim, fontFamily: F.mono, textAnchor: 'middle' }, fdp[2] + '/' + fdp[1])); }
+              }
+              if (perfSelIdx >= 0 && perfSelIdx < fn) {
+                var fSelX = fIdxToX(perfSelIdx);
+                fEls.push(React.createElement(SvgLine, { key: 'fcrs', x1: fSelX, y1: fPadT, x2: fSelX, y2: fChartH - fPadB, stroke: C.text + '40', strokeWidth: 1, strokeDasharray: '4,4' }));
+                for (var fci = 0; fci < fSerDefs.length; fci++) { var fcs = fSerDefs[fci]; if (!fcs.on) continue; var fcv = fcs.gv(cR2[perfSelIdx].week, perfSelIdx); if (fcv == null) continue; fEls.push(React.createElement(SvgCircle, { key: 'fcrD' + fcs.key, cx: fSelX, cy: fValToY(fcv), r: 5, fill: fcs.color })); fEls.push(React.createElement(SvgCircle, { key: 'fcrI' + fcs.key, cx: fSelX, cy: fValToY(fcv), r: 2, fill: '#fff' })); }
+              }
+              return React.createElement(Svg, { width: fChartW, height: fChartH }, fEls);
+            })()}
+          </View>
+          {/* Tooltip */}
+          {(function() {
+            var cR2 = computeWeeklyReturns(snapshots);
+            if (perfSelIdx < 0 || perfSelIdx >= cR2.length) return null;
+            var FNAMES = { cart: 'Carteira', cdi: 'CDI', ibov: 'IBOV', ipca: 'IPCA' };
+            var cdiAF2 = (selicRate || 13.25) - 0.10;
+            var cdiSF2 = (Math.pow(1 + cdiAF2 / 100, 1 / 52) - 1) * 100;
+            var ipcaSF2 = (Math.pow(1 + 4.5 / 100, 1 / 52) - 1) * 100;
+            var vals = [];
+            if (perfSeries.cart) vals.push({ l: 'Carteira', c: C.accent, v: cR2[perfSelIdx].pct });
+            if (perfSeries.cdi) vals.push({ l: 'CDI', c: C.rf, v: cdiSF2 });
+            if (perfSeries.ibov && ibovHist.length > 0) {
+              var ibW2 = computeWeeklyReturns(ibovHist);
+              var ibMap2 = {}; for (var ib2 = 0; ib2 < ibW2.length; ib2++) { ibMap2[ibW2[ib2].week] = ibW2[ib2].pct; }
+              var ibv2 = ibMap2[cR2[perfSelIdx].week];
+              if (ibv2 != null) vals.push({ l: 'IBOV', c: C.etfs, v: ibv2 });
+            }
+            if (perfSeries.ipca) vals.push({ l: 'IPCA', c: '#F97316', v: ipcaSF2 });
+            var dp4 = cR2[perfSelIdx].date.split('-');
+            return (
+              <View style={{ paddingHorizontal: 16, paddingBottom: 20 }}>
+                <View style={{ backgroundColor: C.text + '08', borderRadius: 10, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <Text style={{ fontSize: 12, fontFamily: F.mono, fontWeight: '600', color: C.text }}>{dp4[2] + '/' + dp4[1] + '/' + dp4[0]}</Text>
+                  {vals.map(function(vv) {
+                    return (
+                      <View key={'ftt_' + vv.l} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: vv.c }} />
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>{vv.l}</Text>
+                        <Text style={{ fontSize: 11, fontFamily: F.mono, fontWeight: '700', color: vv.v >= 0 ? C.green : C.red }}>
+                          {(vv.v >= 0 ? '+' : '') + vv.v.toFixed(2) + '%'}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                  <TouchableOpacity onPress={function() { setPerfSelIdx(-1); }} style={{ marginLeft: 'auto' }}>
+                    <Ionicons name="close-circle" size={16} color={C.dim} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })()}
+        </View>
+      </Modal>
+
+      {/* ══════ PROFILE MODAL ══════ */}
+      <Modal visible={showProfiles} transparent animationType="fade" onRequestClose={function() { setShowProfiles(false); }}>
+        <TouchableOpacity activeOpacity={1} onPress={function() { setShowProfiles(false); }}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: C.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 36 }}>
+            <Text style={{ fontSize: 16, fontFamily: F.display, fontWeight: '700', color: C.text, marginBottom: 14, textAlign: 'center' }}>Perfil de Investidor</Text>
+            {['conservador', 'moderado', 'arrojado'].map(function(pk) {
+              var prof = PROFILES[pk];
+              return (
+                <TouchableOpacity key={pk} onPress={function() {
+                  animateLayout();
+                  // Apply profile: set sector metas from classes as flat %
+                  var classKeys = Object.keys(prof.classes);
+                  var newSM = {};
+                  for (var ci = 0; ci < classKeys.length; ci++) { newSM[classKeys[ci]] = prof.classes[classKeys[ci]]; }
+                  // Set cap metas
+                  var newCM = {};
+                  var capKeys = Object.keys(prof.acaoCaps);
+                  for (var ki = 0; ki < capKeys.length; ki++) { newCM[capKeys[ki]] = prof.acaoCaps[capKeys[ki]]; }
+                  setCapMetas(newCM);
+                  // Persist
+                  var existing = _rebalTargetsRef.current || {};
+                  var stFull = {};
+                  var exST = existing.sector_targets || {};
+                  var exSTKeys = Object.keys(exST);
+                  for (var ei = 0; ei < exSTKeys.length; ei++) { stFull[exSTKeys[ei]] = exST[exSTKeys[ei]]; }
+                  stFull._capGroup = newCM;
+                  upsertRebalanceTargets(user.id, {
+                    class_targets: prof.classes,
+                    sector_targets: stFull,
+                    ticker_targets: existing.ticker_targets || {},
+                  }).catch(function() {});
+                  setShowProfiles(false);
+                  Toast.show({ type: 'success', text1: 'Perfil ' + prof.label + ' aplicado' });
+                }}
+                  style={{ backgroundColor: C.card, borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: C.border + '30' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={{ fontSize: 18 }}>{prof.emoji}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 14, fontFamily: F.display, fontWeight: '700', color: C.text }}>{prof.label}</Text>
+                      <Text style={{ fontSize: 11, fontFamily: F.body, color: C.dim, marginTop: 2 }}>{prof.desc}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={C.dim} />
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ══════ 10. POSITION CARDS ══════ */}
+      {(function() {
+        // Total do tipo filtrado (para % relativa)
+        var typeTotal = 0;
+        for (var tti = 0; tti < filteredPositions.length; tti++) {
+          var tp = filteredPositions[tti];
+          typeTotal += tp.quantidade * (tp.preco_atual || tp.pm);
+        }
+        var typeLabel = (function() {
+          var af = FILTERS.find(function(f) { return f.k === filter; });
+          return af ? af.l : 'Todos';
+        })();
+
+        var renderCard = function(pos, i) {
+          var key = 'pos_' + pos.ticker + '_' + i;
+          var opcoesForTicker = opcoes.filter(function(o) {
+            return o.ativo_base && o.ativo_base.toUpperCase() === pos.ticker.toUpperCase();
+          });
+          return (
+            <PositionCard key={key} pos={pos} history={priceHistory[pos.ticker] || null}
+              totalCarteira={totalValue} expanded={expanded === key}
+              fundamentals={fundamentals[pos.ticker] && fundamentals[pos.ticker] !== false ? fundamentals[pos.ticker] : null}
+              fundLoading={!!fundLoading[pos.ticker]}
+              opcoesForTicker={opcoesForTicker}
+              indicator={indicators[pos.ticker] || null}
+              canAccessFund={sub.canAccess('FUNDAMENTALS')}
+              portfoliosList={portfoliosList}
+              showPortfolioBadge={!portfolioId && portfoliosList.length > 0}
+              onAiAnalysis={sub.canAccess('AI_ANALYSIS') ? function () { setPendingAiCard({ ticker: pos.ticker, mercado: pos.mercado }); setAiConfirmVisible(true); } : null}
+              onToggle={function () { toggleExpand(key, pos.ticker, pos.mercado); }}
+              onBuy={function () { nav('AddOperacao', { ticker: pos.ticker, tipo: 'compra', categoria: pos.categoria }); }}
+              onSell={function () { nav('AddOperacao', { ticker: pos.ticker, tipo: 'venda', categoria: pos.categoria }); }}
+              onLancarOpcao={function () { nav('AddOpcao', { ativo_base: pos.ticker }); }}
+              onTransacoes={function () { nav('AssetDetail', { ticker: pos.ticker, mercado: pos.mercado, portfolioId: portfolioId }); }}
+              onComparar={function () { nav('Analise', { forcedTab: 'compar', initialTickers: [pos.ticker] }); }}
+              onAlerta={function () { nav('AddAlertaPreco', { ticker: pos.ticker, precoAtual: pos.preco_atual }); }}
+              tickerMeta={tickerMetas[pos.ticker]}
+              totalPortfolio={totalValue}
+              tickerValorTotal={corrFilter ? (function() {
+                for (var opi = 0; opi < positions.length; opi++) {
+                  if (positions[opi].ticker === pos.ticker) {
+                    var op = positions[opi];
+                    var opRef = op.preco_atual != null ? op.preco_atual : (op.mercado === 'INT' ? op.pm * (op.taxa_cambio || op.taxa_cambio_media || 1) : op.pm);
+                    return op.quantidade * opRef;
+                  }
+                }
+                return 0;
+              })() : null}
+              onSetMeta={handleSetMeta}
+              metaTotalPct={metaTotalPct}
+              typeTotal={filter !== 'todos' ? typeTotal : null}
+              typeLabel={filter !== 'todos' ? typeLabel : null} />
+          );
+        };
+
+        // ── Funcao reutilizavel de header de grupo ──
+        var toggleGroup = function(gName) {
+          animateLayout();
+          var next = {};
+          var egKeys = Object.keys(expandedGroups);
+          for (var egi = 0; egi < egKeys.length; egi++) { next[egKeys[egi]] = expandedGroups[egKeys[egi]]; }
+          next[gName] = !next[gName];
+          setExpandedGroups(next);
+        };
+
+        var renderGroupHeader = function(gName, gData, metaVal, onSetMeta, dotColor, metaAllocInfo) {
+          var gPct = totalValue > 0 ? (gData.totalVal / totalValue) * 100 : 0;
+          var gHasMeta = metaVal != null && metaVal !== '';
+          var gMetaVal = gHasMeta ? parseFloat(metaVal) : 0;
+          var gDiff = gHasMeta ? gPct - gMetaVal : 0;
+          var gDiffColor = gHasMeta ? (Math.abs(gDiff) < 0.5 ? C.green : (gDiff > 0 ? C.etfs : C.red)) : C.dim;
+          var gBarPct = gHasMeta && gMetaVal > 0 ? Math.min(100, (gPct / gMetaVal) * 100) : 0;
+          var isEd = editingGroup === gName;
+          var isOpen = !!expandedGroups[gName];
+          var valFmt = gData.totalVal >= 1000 ? ('R$ ' + (gData.totalVal / 1000).toFixed(1) + 'k') : ('R$ ' + gData.totalVal.toFixed(0));
+
+          var submitMeta = function() {
+            var sv = groupMetaInput.replace(',', '.');
+            if (sv === '' || isNaN(parseFloat(sv))) {
+              onSetMeta(gName, null);
+            } else {
+              onSetMeta(gName, parseFloat(sv));
+            }
+            setEditingGroup(null);
+          };
+
+          return (
+            <View style={{ backgroundColor: C.accent + '08', borderRadius: 12, marginBottom: 4, borderWidth: 1,
+              borderColor: isOpen ? (dotColor || C.accent) + '40' : C.border + '30', overflow: 'hidden' }}>
+              {/* Linha 1: toggle + nome + info */}
+              <TouchableOpacity activeOpacity={0.7} onPress={function() { toggleGroup(gName); }}
+                style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: 9, paddingBottom: 5 }}>
+                <Ionicons name={isOpen ? 'chevron-down' : 'chevron-forward'} size={16} color={dotColor || C.accent} style={{ marginRight: 6 }} />
+                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: dotColor || C.accent, marginRight: 6 }} />
+                <Text style={{ fontSize: 13, color: C.text, fontFamily: F.display, fontWeight: '700', flex: 1 }}>{gName}</Text>
+                <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginRight: 8 }}>{gData.positions.length + ' ativos'}</Text>
+                <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono, fontWeight: '700' }}>{gPct.toFixed(1) + '%'}</Text>
+              </TouchableOpacity>
+              {/* Linha 2: valor + botao de meta grande e claro */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingBottom: 8 }}>
+                <Text style={{ fontSize: 12, fontFamily: F.mono, color: C.dim }}>{valFmt}</Text>
+                {/* Botao META — grande e obvio */}
+                {isEd ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.accent + '15',
+                    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+                    <Ionicons name="flag" size={13} color={C.accent} />
+                    <Text style={{ fontSize: 11, color: C.accent, fontFamily: F.body }}>Meta</Text>
+                    <TextInput
+                      style={{ width: 50, height: 26, borderRadius: 6, borderWidth: 1.5, borderColor: C.accent,
+                        backgroundColor: C.bg, color: C.text, fontSize: 13, fontFamily: F.mono, fontWeight: '700', textAlign: 'center', paddingVertical: 0 }}
+                      value={groupMetaInput}
+                      onChangeText={setGroupMetaInput}
+                      keyboardType="decimal-pad"
+                      autoFocus
+                      maxLength={5}
+                      returnKeyType="done"
+                      onSubmitEditing={submitMeta}
+                      onBlur={submitMeta}
+                    />
+                    <Text style={{ fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '600' }}>%</Text>
+                  </View>
+                ) : gHasMeta ? (
+                  <TouchableOpacity onPress={function() { setGroupMetaInput(String(gMetaVal)); setEditingGroup(gName); }}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: C.accent + '15',
+                      borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+                    <Ionicons name="flag" size={13} color={C.accent} />
+                    <Text style={{ fontSize: 13, color: C.accent, fontFamily: F.mono, fontWeight: '700' }}>{gMetaVal.toFixed(1) + '%'}</Text>
+                    <View style={{ backgroundColor: gDiffColor + '20', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
+                      <Text style={{ fontSize: 11, fontFamily: F.mono, fontWeight: '700', color: gDiffColor }}>
+                        {(gDiff >= 0 ? '+' : '') + gDiff.toFixed(1) + '%'}
+                      </Text>
+                    </View>
+                    <Ionicons name="pencil" size={11} color={C.dim} />
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity onPress={function() { setGroupMetaInput(''); setEditingGroup(gName); }}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: C.border + '25',
+                      borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: C.border + '40', borderStyle: 'dashed' }}>
+                    <Ionicons name="flag-outline" size={13} color={C.dim} />
+                    <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.body }}>Definir meta %</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {/* Progress bar */}
+              {gHasMeta && gMetaVal > 0 ? (
+                <View style={{ height: 3, backgroundColor: C.border + '40', marginHorizontal: 12, marginBottom: 6, borderRadius: 2, overflow: 'hidden' }}>
+                  <View style={{ height: 3, borderRadius: 2, backgroundColor: gDiffColor, width: gBarPct + '%' }} />
+                </View>
+              ) : null}
+              {/* Indicador de alocacao quando editando */}
+              {isEd && metaAllocInfo ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingHorizontal: 12, paddingBottom: 6 }}>
+                  <Text style={{ fontSize: 10, fontFamily: F.mono, color: C.dim }}>
+                    {'Alocado ' + metaAllocInfo.total.toFixed(0) + '%'}
+                  </Text>
+                  <Text style={{ fontSize: 10, fontFamily: F.mono, fontWeight: '700',
+                    color: Math.abs(metaAllocInfo.restante) < 0.5 ? C.green : metaAllocInfo.restante > 0 ? C.yellow : C.red }}>
+                    {Math.abs(metaAllocInfo.restante) < 0.5 ? '= 100%' : (metaAllocInfo.restante > 0 ? 'Falta ' : 'Excede ') + Math.abs(metaAllocInfo.restante).toFixed(1) + '%'}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          );
+        };
+
+        // ── Helper: setor/segmento com fallback para FIIs ──
+        var getSectorInfo = function(pos) {
+          var info = TICKER_SECTORS[pos.ticker];
+          if (info) return info;
+          // Fallbacks por categoria para tickers nao mapeados
+          if (pos.categoria === 'fii') return { setor: 'Papel/CRI', segmento: 'Recebiveis' };
+          if (pos.categoria === 'etf') {
+            if (pos.mercado === 'INT') return { setor: 'Internacional', segmento: 'ETF Global' };
+            return { setor: 'Ibovespa', segmento: 'ETF Brasil' };
+          }
+          if (pos.categoria === 'stock_int') return { setor: 'Stocks', segmento: 'Acao Global' };
+          if (pos.categoria === 'reit') return { setor: 'REITs', segmento: 'REIT' };
+          if (pos.categoria === 'bdr') return { setor: 'BDRs', segmento: 'BDR' };
+          if (pos.categoria === 'adr') return { setor: 'ADRs', segmento: 'ADR' };
+          return null;
+        };
+
+        // ── Funcao generica de agrupamento ──
+        var buildGroups = function(keyFn, orderFn) {
+          var gMap = {};
+          var gOrder = [];
+          for (var gi = 0; gi < filteredPositions.length; gi++) {
+            var gp = filteredPositions[gi];
+            var gKey = keyFn(gp);
+            if (!gMap[gKey]) {
+              gMap[gKey] = { positions: [], totalVal: 0 };
+              gOrder.push(gKey);
+            }
+            gMap[gKey].positions.push(gp);
+            gMap[gKey].totalVal += gp.quantidade * (gp.preco_atual || gp.pm);
+          }
+          if (orderFn) {
+            gOrder.sort(function(a, b) { return orderFn(a, b, gMap); });
+          } else {
+            gOrder.sort(function(a, b) { return gMap[b].totalVal - gMap[a].totalVal; });
+          }
+          return { map: gMap, order: gOrder };
+        };
+
+        var renderGrouped = function(groups, metaMap, onSetMeta, colorFn) {
+          // Barra de alocacao 100% no topo
+          var ALLOC_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#14B8A6', '#F97316', '#6366F1', '#84CC16', '#A855F7'];
+          // Dados do segmento selecionado
+          var selSegData = selAllocSeg ? groups.map[selAllocSeg] : null;
+          var selSegPct = selSegData && totalValue > 0 ? (selSegData.totalVal / totalValue) * 100 : 0;
+          var selSegMeta = selAllocSeg ? metaMap[selAllocSeg] : null;
+
+          // Total filtrado (soma de todos os grupos)
+          var filteredTotal = 0;
+          for (var fti = 0; fti < groups.order.length; fti++) {
+            filteredTotal += groups.map[groups.order[fti]].totalVal;
+          }
+          var filteredPctOfTotal = totalValue > 0 ? (filteredTotal / totalValue) * 100 : 0;
+          var activeFilter = FILTERS.find(function(f) { return f.k === filter; });
+          var filterLabel = activeFilter ? activeFilter.l : 'Ativos';
+          var filterColor = activeFilter ? activeFilter.color : C.accent;
+
+          // Calcular total de metas e restante
+          var metaTotal = 0;
+          var metaCount = 0;
+          var mmKeys = Object.keys(metaMap);
+          for (var mmi = 0; mmi < mmKeys.length; mmi++) {
+            var mv = parseFloat(metaMap[mmKeys[mmi]]);
+            if (!isNaN(mv)) { metaTotal += mv; metaCount++; }
+          }
+          var metaRestante = 100 - metaTotal;
+          var metaRestanteColor = Math.abs(metaRestante) < 0.5 ? C.green : metaRestante > 0 ? C.yellow : C.red;
+
+          var allocBar = (
+            <View key="alloc_bar" style={{ backgroundColor: C.card || C.accent + '06', borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: C.border + '25' }}>
+              {/* Header com totais */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 10 }}>
+                <View>
+                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>{'Total ' + filterLabel}</Text>
+                  <Text style={{ fontSize: 18, fontFamily: F.mono, fontWeight: '700', color: filterColor }}>
+                    {'R$ ' + (filteredTotal >= 100000 ? (filteredTotal / 1000).toFixed(1) + 'k' : filteredTotal.toFixed(0))}
+                  </Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>Total Carteira</Text>
+                  <Text style={{ fontSize: 14, fontFamily: F.mono, fontWeight: '600', color: C.text }}>
+                    {'R$ ' + (totalValue >= 100000 ? (totalValue / 1000).toFixed(1) + 'k' : totalValue.toFixed(0))}
+                  </Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>Peso</Text>
+                  <Text style={{ fontSize: 14, fontFamily: F.mono, fontWeight: '600', color: filterColor }}>
+                    {filteredPctOfTotal.toFixed(1) + '%'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Indicador de metas: alocado / restante */}
+              {metaCount > 0 ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                  marginBottom: 8, paddingVertical: 5, paddingHorizontal: 8,
+                  backgroundColor: metaRestanteColor + '10', borderRadius: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Ionicons name="pie-chart" size={12} color={metaRestanteColor} />
+                    <Text style={{ fontSize: 11, fontFamily: F.body, color: C.text }}>Meta alocada</Text>
+                    <Text style={{ fontSize: 12, fontFamily: F.mono, fontWeight: '700', color: C.text }}>{metaTotal.toFixed(0) + '%'}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={{ fontSize: 11, fontFamily: F.body, color: C.dim }}>
+                      {Math.abs(metaRestante) < 0.5 ? 'Completo' : metaRestante > 0 ? 'Falta' : 'Excede'}
+                    </Text>
+                    {Math.abs(metaRestante) >= 0.5 ? (
+                      <Text style={{ fontSize: 12, fontFamily: F.mono, fontWeight: '700', color: metaRestanteColor }}>
+                        {Math.abs(metaRestante).toFixed(1) + '%'}
+                      </Text>
+                    ) : (
+                      <Ionicons name="checkmark-circle" size={14} color={C.green} />
+                    )}
+                  </View>
+                </View>
+              ) : null}
+
+              {/* Barra segmentada clicavel */}
+              <View style={{ flexDirection: 'row', height: 18, borderRadius: 9, overflow: 'hidden', backgroundColor: C.border + '30' }}>
+                {groups.order.map(function(gName, gi) {
+                  var gData = groups.map[gName];
+                  var pct = totalValue > 0 ? (gData.totalVal / totalValue) * 100 : 0;
+                  if (pct < 0.5) return null;
+                  var col = colorFn ? colorFn(gName) : ALLOC_COLORS[gi % ALLOC_COLORS.length];
+                  var isSel = selAllocSeg === gName;
+                  return (
+                    <TouchableOpacity key={'ab_' + gName} activeOpacity={0.7}
+                      onPress={function() { setSelAllocSeg(selAllocSeg === gName ? null : gName); }}
+                      style={{ width: pct + '%', height: 18, backgroundColor: col,
+                        justifyContent: 'center', alignItems: 'center',
+                        opacity: selAllocSeg && !isSel ? 0.4 : 1 }}>
+                      {pct >= 8 ? (
+                        <Text style={{ fontSize: 9, fontFamily: F.mono, color: '#fff', fontWeight: '700' }}>{Math.round(pct) + '%'}</Text>
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Painel de detalhe do segmento selecionado */}
+              {selSegData ? (function() {
+                var selCol = colorFn ? colorFn(selAllocSeg) : C.accent;
+                var selMetaVal = selSegMeta != null && !isNaN(parseFloat(selSegMeta)) ? parseFloat(selSegMeta) : null;
+                var selDiff = selMetaVal != null ? selSegPct - selMetaVal : null;
+                // P&L total do grupo
+                var grpPnl = 0;
+                for (var si = 0; si < selSegData.positions.length; si++) {
+                  var sp = selSegData.positions[si];
+                  var spVal = sp.quantidade * (sp.preco_atual || sp.pm);
+                  var spCost = sp.quantidade * sp.pm;
+                  grpPnl += spVal - spCost;
+                }
+                var grpPnlPct = selSegData.totalVal > 0 ? (grpPnl / (selSegData.totalVal - grpPnl)) * 100 : 0;
+                var pnlColor = grpPnl >= 0 ? C.green : C.red;
+
+                return (
+                  <View style={{ marginTop: 10, backgroundColor: selCol + '10', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: selCol + '25' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: selCol }} />
+                        <Text style={{ fontSize: 15, fontFamily: F.display, fontWeight: '700', color: C.text }}>{selAllocSeg}</Text>
+                      </View>
+                      <TouchableOpacity onPress={function() { setSelAllocSeg(null); }}>
+                        <Ionicons name="close-circle" size={20} color={C.dim} />
+                      </TouchableOpacity>
+                    </View>
+                    {/* Metricas em grid */}
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      <View style={{ minWidth: '45%' }}>
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>Valor</Text>
+                        <Text style={{ fontSize: 14, fontFamily: F.mono, fontWeight: '700', color: C.text }}>
+                          {'R$ ' + (selSegData.totalVal >= 10000 ? (selSegData.totalVal / 1000).toFixed(1) + 'k' : selSegData.totalVal.toFixed(0))}
+                        </Text>
+                      </View>
+                      <View style={{ minWidth: '45%' }}>
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>% Carteira</Text>
+                        <Text style={{ fontSize: 14, fontFamily: F.mono, fontWeight: '700', color: C.text }}>{selSegPct.toFixed(1) + '%'}</Text>
+                      </View>
+                      <View style={{ minWidth: '45%' }}>
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>{'% ' + filterLabel}</Text>
+                        <Text style={{ fontSize: 14, fontFamily: F.mono, fontWeight: '700', color: filterColor }}>
+                          {(filteredTotal > 0 ? (selSegData.totalVal / filteredTotal * 100).toFixed(1) : '0.0') + '%'}
+                        </Text>
+                      </View>
+                      <View style={{ minWidth: '45%' }}>
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>P&L</Text>
+                        <Text style={{ fontSize: 14, fontFamily: F.mono, fontWeight: '700', color: pnlColor }}>
+                          {(grpPnl >= 0 ? '+' : '') + 'R$ ' + (Math.abs(grpPnl) >= 10000 ? (grpPnl / 1000).toFixed(1) + 'k' : grpPnl.toFixed(0))}
+                          {'  (' + (grpPnlPct >= 0 ? '+' : '') + grpPnlPct.toFixed(1) + '%)'}
+                        </Text>
+                      </View>
+                      {selMetaVal != null ? (
+                        <View style={{ minWidth: '45%' }}>
+                          <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>Meta</Text>
+                          <Text style={{ fontSize: 14, fontFamily: F.mono, fontWeight: '700',
+                            color: Math.abs(selDiff) < 0.5 ? C.green : (selDiff > 0 ? C.etfs : C.red) }}>
+                            {selMetaVal.toFixed(1) + '%  (' + (selDiff >= 0 ? '+' : '') + selDiff.toFixed(1) + '%)'}
+                          </Text>
+                        </View>
+                      ) : null}
+                      <View style={{ minWidth: '45%' }}>
+                        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.body }}>Ativos</Text>
+                        <Text style={{ fontSize: 14, fontFamily: F.mono, fontWeight: '700', color: C.text }}>{selSegData.positions.length}</Text>
+                      </View>
+                    </View>
+                    {/* Lista de tickers do grupo */}
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 8, borderTopWidth: 1, borderTopColor: selCol + '20', paddingTop: 8 }}>
+                      {selSegData.positions.map(function(sp) {
+                        var spVal = sp.quantidade * (sp.preco_atual || sp.pm);
+                        var spPctTotal = totalValue > 0 ? (spVal / totalValue) * 100 : 0;
+                        var spPctType = filteredTotal > 0 ? (spVal / filteredTotal) * 100 : 0;
+                        return (
+                          <View key={'st_' + sp.ticker} style={{ backgroundColor: selCol + '15', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                            <Text style={{ fontSize: 11, fontFamily: F.mono, fontWeight: '600', color: C.text }}>{sp.ticker}</Text>
+                            <Text style={{ fontSize: 9, fontFamily: F.mono, color: C.dim }}>
+                              {spPctTotal.toFixed(1) + '% cart. · ' + spPctType.toFixed(1) + '% ' + filterLabel.toLowerCase()}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })() : null}
+
+              {/* Labels compactas (quando nenhum selecionado) */}
+              {!selAllocSeg ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
+                  {groups.order.map(function(gName, gi) {
+                    var gData = groups.map[gName];
+                    var pctType = filteredTotal > 0 ? (gData.totalVal / filteredTotal) * 100 : 0;
+                    var col = colorFn ? colorFn(gName) : ALLOC_COLORS[gi % ALLOC_COLORS.length];
+                    return (
+                      <TouchableOpacity key={'al_' + gName} activeOpacity={0.7}
+                        onPress={function() { setSelAllocSeg(gName); }}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: col + '15',
+                          borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                        <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: col }} />
+                        <Text style={{ fontSize: 11, fontFamily: F.body, color: C.text }}>{gName}</Text>
+                        <Text style={{ fontSize: 11, fontFamily: F.mono, fontWeight: '600', color: col }}>{pctType.toFixed(0) + '%'}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </View>
+          );
+
+          var cards = groups.order.map(function(gName, gi) {
+            var gData = groups.map[gName];
+            var dotCol = colorFn ? colorFn(gName) : ALLOC_COLORS[gi % ALLOC_COLORS.length];
+            var isGrpOpen = !!expandedGroups[gName];
+            return (
+              <View key={'grp_' + gName} style={{ marginBottom: 4 }}>
+                {renderGroupHeader(gName, gData, metaMap[gName], onSetMeta, dotCol, { total: metaTotal, restante: metaRestante })}
+                {isGrpOpen ? gData.positions.map(function(pos, i) { return renderCard(pos, i); }) : null}
+              </View>
+            );
+          });
+
+          return [allocBar].concat(cards);
+        };
+
+        if (groupBy === 'setor') {
+          var sGroups = buildGroups(function(p) {
+            var sInfo = getSectorInfo(p);
+            return sInfo ? sInfo.setor : 'Outros';
+          });
+          return renderGrouped(sGroups, sectorMetas, handleSetSectorMeta);
+        }
+
+        if (groupBy === 'segmento') {
+          var sgGroups = buildGroups(function(p) {
+            var sInfo = getSectorInfo(p);
+            return sInfo ? sInfo.segmento : 'Outros';
+          });
+          return renderGrouped(sgGroups, segmentoMetas, handleSetSegmentoMeta);
+        }
+
+        if (groupBy === 'cap') {
+          var cGroups = buildGroups(
+            function(p) { return classifyMarketCap(p.marketCap); },
+            function(a, b) { return CAP_ORDER.indexOf(a) - CAP_ORDER.indexOf(b); }
+          );
+          return renderGrouped(cGroups, capMetas, handleSetCapGroupMeta, function(name) {
+            return CAP_COLORS[name] || C.accent;
+          });
+        }
+
+        if (groupBy === 'tipo_fii') {
+          var FII_TIPO_ORDER = ['Tijolo', 'Papel', 'Hibrido', 'Outros'];
+          var FII_TIPO_COLORS = { 'Tijolo': '#10B981', 'Papel': '#3B82F6', 'Hibrido': '#F59E0B', 'Outros': '#6B7280' };
+          var fiiGroups = buildGroups(
+            function(p) {
+              var sInfo = getSectorInfo(p);
+              if (!sInfo) return 'Outros';
+              return FII_REBAL_MAP[sInfo.setor] || 'Outros';
+            },
+            function(a, b) { return FII_TIPO_ORDER.indexOf(a) - FII_TIPO_ORDER.indexOf(b); }
+          );
+          return renderGrouped(fiiGroups, sectorMetas, handleSetSectorMeta, function(name) {
+            return FII_TIPO_COLORS[name] || C.accent;
+          });
+        }
+
+        // Flat mode (default)
+        return filteredPositions.map(function(pos, i) { return renderCard(pos, i); });
+      })()}
 
       {/* ══════ 11. RF CARDS ══════ */}
       {showRF && rfAtivos.length > 0 ? (
@@ -2251,7 +3687,7 @@ export default function CarteiraScreen(props) {
                 <View>
                   <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 }}>QUANTIDADE</Text>
                   <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, fontFamily: F.mono, marginTop: 2 }}>
-                    {selectedTile.quantidade.toLocaleString('pt-BR')}
+                    {formatQty(selectedTile.quantidade)}
                   </Text>
                 </View>
                 <View>
@@ -2284,20 +3720,10 @@ export default function CarteiraScreen(props) {
         message={'Limite de ' + positions.length + ' posições atingido'} />
     </View>
     ) : (
-    <Fab navigation={navigation} items={
+    <Fab navigation={navigation} extraItems={
       sub.canAccess('AI_ANALYSIS') ? [
         { label: 'Análise IA', icon: 'sparkles', color: C.accent, onPress: function() { setAiConfirmVisible(true); } },
-        { label: 'Operação', icon: 'wallet-outline', color: C.acoes, screen: 'AddOperacao' },
-        { label: 'Opção', icon: 'flash-outline', color: C.opcoes, screen: 'AddOpcao' },
-        { label: 'Renda Fixa', icon: 'document-text-outline', color: C.rf, screen: 'AddRendaFixa' },
-        { label: 'Portfolio', icon: 'folder-outline', color: C.etfs, screen: 'ConfigPortfolios' },
-      ] : [
-        { label: 'Operação', icon: 'wallet-outline', color: C.acoes, screen: 'AddOperacao' },
-        { label: 'Opção', icon: 'flash-outline', color: C.opcoes, screen: 'AddOpcao' },
-        { label: 'Provento', icon: 'cash-outline', color: C.fiis, screen: 'AddProvento' },
-        { label: 'Renda Fixa', icon: 'document-text-outline', color: C.rf, screen: 'AddRendaFixa' },
-        { label: 'Portfolio', icon: 'folder-outline', color: C.etfs, screen: 'ConfigPortfolios' },
-      ]
+      ] : undefined
     } />
     )}
 
