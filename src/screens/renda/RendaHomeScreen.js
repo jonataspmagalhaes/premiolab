@@ -32,6 +32,7 @@ import Sensitive, { usePrivacyStyle } from '../../components/Sensitive';
 import SnowballCard from '../../components/SnowballCard';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePrivacy } from '../../contexts/PrivacyContext';
+import { animateLayout } from '../../utils/a11y';
 import {
   useAppStore, useIncome, useCarteira, useFinancas, useRefresh,
 } from '../../contexts/AppStoreContext';
@@ -309,6 +310,125 @@ function Bars12m(props) {
         );
       })}
     </Svg>
+  );
+}
+
+// ─────────── Portfolio Selector (dropdown) ───────────
+function PortfolioSelector(props) {
+  var portfolios = props.portfolios || [];
+  var selected = props.selected;
+  var onChange = props.onChange;
+  var _open = useState(false); var open = _open[0]; var setOpen = _open[1];
+
+  if (portfolios.length === 0) return null;
+
+  var lbl = 'Todos';
+  var clr = T.color.accent;
+  var ico = 'people-outline';
+  if (selected === '__null__') { lbl = 'Padrao'; ico = 'briefcase-outline'; }
+  else if (selected) {
+    for (var pi = 0; pi < portfolios.length; pi++) {
+      if (portfolios[pi].id === selected) {
+        lbl = portfolios[pi].nome;
+        clr = portfolios[pi].cor || T.color.accent;
+        ico = portfolios[pi].icone || null;
+        break;
+      }
+    }
+  }
+
+  function pick(val) {
+    animateLayout();
+    setOpen(false);
+    onChange(val);
+  }
+
+  return (
+    <View style={{ zIndex: 10 }}>
+      <TouchableOpacity
+        onPress={function() { animateLayout(); setOpen(!open); }}
+        activeOpacity={0.7}
+        style={{
+          flexDirection: 'row', alignItems: 'center', gap: 6,
+          backgroundColor: 'rgba(255,255,255,0.04)',
+          borderRadius: 10,
+          paddingHorizontal: 12, paddingVertical: 8,
+          borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+          alignSelf: 'flex-start',
+        }}
+      >
+        {ico ? (
+          <Ionicons name={ico} size={14} color={clr} />
+        ) : (
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: clr }} />
+        )}
+        <Text style={{ fontSize: 12, fontFamily: F.body, color: T.color.textPrimary }}>{lbl}</Text>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={14} color="rgba(255,255,255,0.3)" />
+      </TouchableOpacity>
+      {open ? (
+        <View style={{
+          position: 'absolute',
+          top: 40,
+          left: 0,
+          minWidth: 180,
+          backgroundColor: T.color.bg,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: 'rgba(255,255,255,0.07)',
+          overflow: 'hidden',
+          zIndex: 20,
+          elevation: 10,
+        }}>
+          <TouchableOpacity
+            onPress={function() { pick(null); }}
+            style={[
+              { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' },
+              !selected && { backgroundColor: T.color.accent + '11' },
+            ]}
+          >
+            <Ionicons name="people-outline" size={14} color={!selected ? T.color.accent : 'rgba(255,255,255,0.3)'} />
+            <Text style={[{ fontSize: 13, fontFamily: F.body, color: T.color.textPrimary }, !selected && { color: T.color.accent }]}>
+              Todos
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={function() { pick('__null__'); }}
+            style={[
+              { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' },
+              selected === '__null__' && { backgroundColor: T.color.accent + '11' },
+            ]}
+          >
+            <Ionicons name="briefcase-outline" size={14} color={selected === '__null__' ? T.color.accent : 'rgba(255,255,255,0.3)'} />
+            <Text style={[{ fontSize: 13, fontFamily: F.body, color: T.color.textPrimary }, selected === '__null__' && { color: T.color.accent }]}>
+              Padrao
+            </Text>
+          </TouchableOpacity>
+          {portfolios.map(function(p) {
+            var isAct = selected === p.id;
+            var pColor = p.cor || T.color.accent;
+            return (
+              <TouchableOpacity
+                key={p.id}
+                onPress={function() { pick(p.id); }}
+                style={[
+                  { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' },
+                  isAct && { backgroundColor: T.color.accent + '11' },
+                ]}
+              >
+                {p.icone ? (
+                  <Ionicons name={p.icone} size={14} color={isAct ? pColor : 'rgba(255,255,255,0.3)'} />
+                ) : (
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: pColor }} />
+                )}
+                <Text style={[{ fontSize: 13, fontFamily: F.body, color: T.color.textPrimary }, isAct && { color: pColor }]}>
+                  {p.nome}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -1115,12 +1235,16 @@ export default function RendaHomeScreen(props) {
   var financas = useFinancas();
   var store = useAppStore();
   var refresh = useRefresh();
+  var privacy = usePrivacy();
 
   var forecast = income.forecast;
   var alerts = income.alerts;
   var positions = carteira.positions;
   var rf = carteira.rf;
   var opcoes = carteira.opcoes;
+  var portfolios = carteira.portfolios || [];
+  var selectedPortfolio = carteira.selectedPortfolio;
+  var setSelectedPortfolio = carteira.setSelectedPortfolio;
   var saldos = financas.saldos;
   var profile = store.profile;
 
@@ -1132,7 +1256,8 @@ export default function RendaHomeScreen(props) {
 
   function loadDashboard() {
     if (!user) return Promise.resolve();
-    return getDashboard(user.id).then(function(res) {
+    var pfArg = selectedPortfolio || undefined;
+    return getDashboard(user.id, pfArg).then(function(res) {
       if (res && res.data) setDashData(res.data);
     }).catch(function(err) {
       console.warn('getDashboard error:', err && err.message);
@@ -1146,7 +1271,7 @@ export default function RendaHomeScreen(props) {
       .catch(function(err) { console.warn('potencial error:', err && err.message); });
     setProventosList(store.proventos || []);
     loadDashboard();
-  }, [user, store.proventos]));
+  }, [user, store.proventos, selectedPortfolio]));
 
   function onRefresh() {
     setRefreshing(true);
@@ -1185,6 +1310,7 @@ export default function RendaHomeScreen(props) {
   var loadingInicial = income.loading && !forecast;
 
   return (
+    <View style={{ flex: 1, backgroundColor: T.color.bg }}>
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
@@ -1195,22 +1321,51 @@ export default function RendaHomeScreen(props) {
     >
       <View style={{
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        marginBottom: T.space.md,
+        marginBottom: T.space.sm,
       }}>
         <Text style={{ fontSize: 22, fontWeight: '800', color: T.color.textPrimary, fontFamily: F.display }}>
           Renda
         </Text>
-        <TouchableOpacity
-          onPress={function() { navigation.navigate('Mais'); }}
-          style={{
-            width: 36, height: 36, borderRadius: 18,
-            backgroundColor: T.color.surface1,
-            alignItems: 'center', justifyContent: 'center',
-          }}
-        >
-          <Ionicons name="person-outline" size={18} color={T.color.textSecondary} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity
+            onPress={function() { privacy.togglePrivacy(); }}
+            activeOpacity={0.7}
+            style={{
+              width: 36, height: 36, borderRadius: 18,
+              backgroundColor: T.color.surface1,
+              alignItems: 'center', justifyContent: 'center',
+            }}
+            accessibilityLabel="Alternar privacidade"
+          >
+            <Ionicons
+              name={privacy.isPrivate ? 'eye-off-outline' : 'eye-outline'}
+              size={18}
+              color={T.color.textSecondary}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={function() { navigation.navigate('Mais'); }}
+            style={{
+              width: 36, height: 36, borderRadius: 18,
+              backgroundColor: T.color.surface1,
+              alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <Ionicons name="person-outline" size={18} color={T.color.textSecondary} />
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {/* Portfolio selector */}
+      {portfolios.length > 0 ? (
+        <View style={{ marginBottom: T.space.md }}>
+          <PortfolioSelector
+            portfolios={portfolios}
+            selected={selectedPortfolio}
+            onChange={setSelectedPortfolio}
+          />
+        </View>
+      ) : null}
 
       {loadingInicial ? (
         <View style={{ paddingVertical: T.space.xxl, alignItems: 'center' }}>
@@ -1263,6 +1418,8 @@ export default function RendaHomeScreen(props) {
 
       <View style={{ height: T.space.xl }} />
     </ScrollView>
+    <Fab navigation={navigation} />
+    </View>
   );
 }
 
