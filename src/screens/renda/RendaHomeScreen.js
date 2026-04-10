@@ -483,7 +483,7 @@ function PatrimonioHeroSection(props) {
             </Sensitive>
           </View>
           <View style={{ flex: 1, paddingLeft: T.space.xs }}>
-            <Text style={[T.type.kpiLabel, { color: T.color.textMuted, marginBottom: T.space.xxs }]}>RENDA/MES</Text>
+            <Text style={[T.type.kpiLabel, { color: T.color.textMuted, marginBottom: T.space.xxs }]}>PROJ. 12M/MES</Text>
             <Sensitive>
               <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
                 <Text style={[{ fontSize: 22, fontWeight: '800', color: T.color.income, fontFamily: F.mono }, ps]}>
