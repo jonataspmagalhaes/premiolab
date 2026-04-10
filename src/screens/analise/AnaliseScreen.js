@@ -1,13 +1,17 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, TextInput, ActivityIndicator,
   Platform, Modal, Dimensions, KeyboardAvoidingView,
 } from 'react-native';
+var ScreenOrientation = null;
+try { ScreenOrientation = require('expo-screen-orientation'); } catch(e) {}
 import { animateLayout } from '../../utils/a11y';
 var dateUtils = require('../../utils/dateUtils');
 var parseLocalDate = dateUtils.parseLocalDate;
 var formatDateBR = dateUtils.formatDateBR;
+var fractional = require('../../utils/fractional');
+var formatQty = fractional.formatQty;
 import Svg, {
   Circle, Rect as SvgRect, G,
   Text as SvgText, Line as SvgLine, Path,
@@ -20,7 +24,8 @@ import {
   getDashboard, getProventos,
   getOperacoes, getProfile, getOpcoes,
   getIndicators,
-  getRebalanceTargets, upsertRebalanceTargets,
+  // getRebalanceTargets e upsertRebalanceTargets removidos — integrado na CarteiraScreen
+  getPortfolios,
 } from '../../services/database';
 import {
   runDailyCalculation, shouldCalculateToday,
@@ -31,7 +36,7 @@ import { fetchPriceHistoryLong, fetchTickerProfile, fetchPriceHistoryRange, fetc
 import { fetchFundamentals } from '../../services/fundamentalService';
 import { searchTickers } from '../../services/tickerSearchService';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Glass, Badge, Pill, SectionLabel, UpgradePrompt, AiConfirmModal } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, UpgradePrompt, AiConfirmModal, InfoTip } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import InteractiveChart from '../../components/InteractiveChart';
 import { usePrivacyStyle } from '../../components/Sensitive';
@@ -70,132 +75,14 @@ var TIPO_COLORS_PROV = {
 
 var MONTH_LABELS = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
-var CAT_COLORS = { acao: C.acoes, fii: C.fiis, etf: C.etfs, stock_int: C.stock_int, rf: C.rf };
-var CAT_LABELS = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs', stock_int: 'Stocks' };
-var CAT_NAMES_FULL = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs', stock_int: 'Stocks', rf: 'RF' };
+var CAT_COLORS = { acao: C.acoes, fii: C.fiis, etf: C.etfs, bdr: C.bdr, stock_int: C.stock_int, adr: C.adr, reit: C.reit, rf: C.rf };
+var CAT_LABELS = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs', bdr: 'BDRs', stock_int: 'Stocks', adr: 'ADRs', reit: 'REITs' };
+var CAT_NAMES_FULL = { acao: 'Ações', fii: 'FIIs', etf: 'ETFs', bdr: 'BDRs', stock_int: 'Stocks', adr: 'ADRs', reit: 'REITs', rf: 'RF', caixa: 'Caixa' };
 var SCREEN_W = Dimensions.get('window').width;
 var SCREEN_H = Dimensions.get('window').height;
 
-// ── Sankey: sector/segment mapping ──
-var TICKER_SECTORS = {
-  // Financeiro
-  BBAS3: { setor: 'Financeiro', segmento: 'Bancos' }, ITUB4: { setor: 'Financeiro', segmento: 'Bancos' },
-  BBDC4: { setor: 'Financeiro', segmento: 'Bancos' }, BBDC3: { setor: 'Financeiro', segmento: 'Bancos' },
-  SANB11: { setor: 'Financeiro', segmento: 'Bancos' }, BPAC11: { setor: 'Financeiro', segmento: 'Investimentos' },
-  B3SA3: { setor: 'Financeiro', segmento: 'Bolsa' }, BBSE3: { setor: 'Financeiro', segmento: 'Seguros' },
-  IRBR3: { setor: 'Financeiro', segmento: 'Seguros' }, PSSA3: { setor: 'Financeiro', segmento: 'Seguros' },
-  ITSA4: { setor: 'Financeiro', segmento: 'Holding' }, CXSE3: { setor: 'Financeiro', segmento: 'Seguros' },
-  CIEL3: { setor: 'Financeiro', segmento: 'Pagamentos' }, ABCB4: { setor: 'Financeiro', segmento: 'Bancos' },
-  // Petróleo e Gás
-  PETR4: { setor: 'Petróleo', segmento: 'Expl. e Refino' }, PETR3: { setor: 'Petróleo', segmento: 'Expl. e Refino' },
-  PRIO3: { setor: 'Petróleo', segmento: 'Junior Oils' }, RECV3: { setor: 'Petróleo', segmento: 'Junior Oils' },
-  RRRP3: { setor: 'Petróleo', segmento: 'Junior Oils' }, CSAN3: { setor: 'Petróleo', segmento: 'Distribuição' },
-  UGPA3: { setor: 'Petróleo', segmento: 'Distribuição' }, VBBR3: { setor: 'Petróleo', segmento: 'Distribuição' },
-  RAIZ4: { setor: 'Petróleo', segmento: 'Distribuição' },
-  // Mineração / Siderurgia
-  VALE3: { setor: 'Mineração', segmento: 'Mineração' }, CMIN3: { setor: 'Mineração', segmento: 'Mineração' },
-  CSNA3: { setor: 'Siderurgia', segmento: 'Siderurgia' }, GGBR4: { setor: 'Siderurgia', segmento: 'Siderurgia' },
-  USIM5: { setor: 'Siderurgia', segmento: 'Siderurgia' }, GOAU4: { setor: 'Siderurgia', segmento: 'Siderurgia' },
-  BRAP4: { setor: 'Mineração', segmento: 'Holding' },
-  // Energia
-  ELET3: { setor: 'Energia', segmento: 'Geração' }, ELET6: { setor: 'Energia', segmento: 'Geração' },
-  ENGI11: { setor: 'Energia', segmento: 'Geração' }, CPFE3: { setor: 'Energia', segmento: 'Distribuição' },
-  TAEE11: { setor: 'Energia', segmento: 'Transmissão' }, CMIG4: { setor: 'Energia', segmento: 'Geração' },
-  CMIG3: { setor: 'Energia', segmento: 'Geração' }, AURE3: { setor: 'Energia', segmento: 'Renovável' },
-  EGIE3: { setor: 'Energia', segmento: 'Geração' }, CPLE6: { setor: 'Energia', segmento: 'Distribuição' },
-  CPLE3: { setor: 'Energia', segmento: 'Distribuição' }, EQTL3: { setor: 'Energia', segmento: 'Transmissão' },
-  ENEV3: { setor: 'Energia', segmento: 'Geração' }, NEOE3: { setor: 'Energia', segmento: 'Distribuição' },
-  TRPL4: { setor: 'Energia', segmento: 'Transmissão' }, AESB3: { setor: 'Energia', segmento: 'Geração' },
-  // Consumo
-  ABEV3: { setor: 'Consumo', segmento: 'Bebidas' }, JBSS3: { setor: 'Consumo', segmento: 'Frigoríficos' },
-  MRFG3: { setor: 'Consumo', segmento: 'Frigoríficos' }, BRFS3: { setor: 'Consumo', segmento: 'Frigoríficos' },
-  NTCO3: { setor: 'Consumo', segmento: 'Cosméticos' }, BEEF3: { setor: 'Consumo', segmento: 'Frigoríficos' },
-  MDIA3: { setor: 'Consumo', segmento: 'Alimentos' }, SMTO3: { setor: 'Consumo', segmento: 'Açúcar' },
-  SLCE3: { setor: 'Consumo', segmento: 'Agronegócio' },
-  // Varejo
-  MGLU3: { setor: 'Varejo', segmento: 'E-commerce' }, LREN3: { setor: 'Varejo', segmento: 'Moda' },
-  ARZZ3: { setor: 'Varejo', segmento: 'Moda' }, PETZ3: { setor: 'Varejo', segmento: 'Especializado' },
-  RENT3: { setor: 'Varejo', segmento: 'Locação' }, ALPA4: { setor: 'Varejo', segmento: 'Moda' },
-  ASAI3: { setor: 'Varejo', segmento: 'Supermercados' }, CRFB3: { setor: 'Varejo', segmento: 'Supermercados' },
-  PCAR3: { setor: 'Varejo', segmento: 'Supermercados' }, VIVA3: { setor: 'Varejo', segmento: 'Joias' },
-  MULT3: { setor: 'Varejo', segmento: 'Shoppings' }, MOVI3: { setor: 'Varejo', segmento: 'Locação' },
-  SOMA3: { setor: 'Varejo', segmento: 'Moda' }, IGTI11: { setor: 'Varejo', segmento: 'Shoppings' },
-  // Saúde
-  HAPV3: { setor: 'Saúde', segmento: 'Planos' }, RDOR3: { setor: 'Saúde', segmento: 'Hospitais' },
-  FLRY3: { setor: 'Saúde', segmento: 'Diagnósticos' }, RADL3: { setor: 'Saúde', segmento: 'Farmácias' },
-  HYPE3: { setor: 'Saúde', segmento: 'Farmacêutica' }, ONCO3: { setor: 'Saúde', segmento: 'Hospitais' },
-  // Tecnologia
-  TOTS3: { setor: 'Tecnologia', segmento: 'Software' }, LWSA3: { setor: 'Tecnologia', segmento: 'Internet' },
-  CASH3: { setor: 'Tecnologia', segmento: 'Fintech' }, PAGS3: { setor: 'Tecnologia', segmento: 'Pagamentos' },
-  // Telecom
-  VIVT3: { setor: 'Telecom', segmento: 'Telecom' }, TIMS3: { setor: 'Telecom', segmento: 'Telecom' },
-  // Indústria
-  WEGE3: { setor: 'Indústria', segmento: 'Motores' }, EMBR3: { setor: 'Indústria', segmento: 'Aeronáutica' },
-  POMO4: { setor: 'Indústria', segmento: 'Ônibus' }, RAPT4: { setor: 'Indústria', segmento: 'Autopeças' },
-  TUPY3: { setor: 'Indústria', segmento: 'Autopeças' }, DXCO3: { setor: 'Indústria', segmento: 'Materiais' },
-  GGPS3: { setor: 'Indústria', segmento: 'Serviços' }, LEVE3: { setor: 'Indústria', segmento: 'Autopeças' },
-  // Papel e Celulose
-  SUZB3: { setor: 'Papel/Celulose', segmento: 'Celulose' }, KLBN11: { setor: 'Papel/Celulose', segmento: 'Celulose' },
-  // Transporte
-  CCRO3: { setor: 'Transporte', segmento: 'Concessões' }, AZUL4: { setor: 'Transporte', segmento: 'Aéreo' },
-  GOLL4: { setor: 'Transporte', segmento: 'Aéreo' }, RAIL3: { setor: 'Transporte', segmento: 'Ferroviário' },
-  STBP3: { setor: 'Transporte', segmento: 'Portos' }, ECOR3: { setor: 'Transporte', segmento: 'Concessões' },
-  // Construção
-  CYRE3: { setor: 'Construção', segmento: 'Incorporação' }, EZTC3: { setor: 'Construção', segmento: 'Incorporação' },
-  MRVE3: { setor: 'Construção', segmento: 'Incorporação' }, TRIS3: { setor: 'Construção', segmento: 'Incorporação' },
-  DIRR3: { setor: 'Construção', segmento: 'Incorporação' }, EVEN3: { setor: 'Construção', segmento: 'Incorporação' },
-  // Saneamento
-  SBSP3: { setor: 'Saneamento', segmento: 'Saneamento' }, SAPR11: { setor: 'Saneamento', segmento: 'Saneamento' },
-  // FIIs — Tijolo (Logística)
-  HGLG11: { setor: 'Logística', segmento: 'Galpões' }, XPLG11: { setor: 'Logística', segmento: 'Galpões' },
-  BTLG11: { setor: 'Logística', segmento: 'Galpões' }, GGRC11: { setor: 'Logística', segmento: 'Galpões' },
-  LVBI11: { setor: 'Logística', segmento: 'Galpões' }, VILG11: { setor: 'Logística', segmento: 'Galpões' },
-  BRCO11: { setor: 'Logística', segmento: 'Galpões' }, GALG11: { setor: 'Logística', segmento: 'Galpões' },
-  // FIIs — Tijolo (Lajes/Shopping/Urbana)
-  HGRE11: { setor: 'Lajes Corp.', segmento: 'Escritórios' },
-  BRCR11: { setor: 'Lajes Corp.', segmento: 'Escritórios' }, PVBI11: { setor: 'Lajes Corp.', segmento: 'Escritórios' },
-  VINO11: { setor: 'Lajes Corp.', segmento: 'Escritórios' }, RBRP11: { setor: 'Lajes Corp.', segmento: 'Escritórios' },
-  XPML11: { setor: 'Shopping', segmento: 'Shopping' }, VISC11: { setor: 'Shopping', segmento: 'Shopping' },
-  HSML11: { setor: 'Shopping', segmento: 'Shopping' }, HGBS11: { setor: 'Shopping', segmento: 'Shopping' },
-  TRXF11: { setor: 'Renda Urbana', segmento: 'Renda Urbana' }, HGRU11: { setor: 'Renda Urbana', segmento: 'Renda Urbana' },
-  // FIIs — Tijolo (Agro)
-  XPCA11: { setor: 'Agro', segmento: 'Agro' }, KNCA11: { setor: 'Agro', segmento: 'Agro' },
-  RZTR11: { setor: 'Agro', segmento: 'Agro' }, BTAL11: { setor: 'Agro', segmento: 'Agro' },
-  RURA11: { setor: 'Agro', segmento: 'Agro' }, TGAR11: { setor: 'Agro', segmento: 'Agro' },
-  // FIIs — Papel (CRI/Recebíveis)
-  KNCR11: { setor: 'Papel/CRI', segmento: 'Recebíveis' }, KNIP11: { setor: 'Papel/CRI', segmento: 'Recebíveis' },
-  MXRF11: { setor: 'Papel/CRI', segmento: 'Recebíveis' }, IRDM11: { setor: 'Papel/CRI', segmento: 'Recebíveis' },
-  RECR11: { setor: 'Papel/CRI', segmento: 'Recebíveis' }, RBRR11: { setor: 'Papel/CRI', segmento: 'Recebíveis' },
-  VGIR11: { setor: 'Papel/CRI', segmento: 'Recebíveis' }, CPTS11: { setor: 'Papel/CRI', segmento: 'Recebíveis' },
-  VRTA11: { setor: 'Papel/CRI', segmento: 'Recebíveis' }, HABT11: { setor: 'Papel/CRI', segmento: 'Recebíveis' },
-  DEVA11: { setor: 'Papel/CRI', segmento: 'Recebíveis' }, AFHI11: { setor: 'Papel/CRI', segmento: 'Recebíveis' },
-  SNCI11: { setor: 'Papel/CRI', segmento: 'Recebíveis' },
-  // FIIs — Híbrido (Fundo de Fundos)
-  RBRF11: { setor: 'Fundo de Fundos', segmento: 'FoF' }, BCFF11: { setor: 'Fundo de Fundos', segmento: 'FoF' },
-  HFOF11: { setor: 'Fundo de Fundos', segmento: 'FoF' }, MGFF11: { setor: 'Fundo de Fundos', segmento: 'FoF' },
-  // ETFs — Renda Variavel Brasil
-  BOVA11: { setor: 'RV Brasil', segmento: 'Ibovespa' },
-  BOVV11: { setor: 'RV Brasil', segmento: 'Ibovespa' },
-  SMAL11: { setor: 'Small Caps', segmento: 'Small Caps' },
-  DIVO11: { setor: 'Dividendos', segmento: 'Dividendos' },
-  // ETFs — Internacional
-  IVVB11: { setor: 'Internacional', segmento: 'S&P 500' },
-  NASD11: { setor: 'Internacional', segmento: 'Nasdaq' },
-  EURP11: { setor: 'Internacional', segmento: 'Europa' },
-  XINA11: { setor: 'Internacional', segmento: 'China' },
-  ACWI11: { setor: 'Internacional', segmento: 'Global' },
-  // ETFs — Cripto
-  HASH11: { setor: 'Cripto', segmento: 'Cripto' },
-  ETHE11: { setor: 'Cripto', segmento: 'Cripto' },
-  QBTC11: { setor: 'Cripto', segmento: 'Cripto' },
-  // ETFs — RF
-  IMAB11: { setor: 'RF ETF', segmento: 'IMA-B' },
-  IRFM11: { setor: 'RF ETF', segmento: 'IRF-M' },
-  B5P211: { setor: 'RF ETF', segmento: 'IMA-B 5+' },
-  // ETFs — Setorial
-  FIND11: { setor: 'Setorial', segmento: 'Financeiro' },
-  MATB11: { setor: 'Setorial', segmento: 'Materiais' },
-};
+// ── Sankey: sector/segment mapping (shared module) ──
+var TICKER_SECTORS = require('../../constants/tickerSectors').TICKER_SECTORS;
 
 var RF_SECTOR_MAP = {
   cdb: 'CDB', lci_lca: 'LCI/LCA',
@@ -203,63 +90,13 @@ var RF_SECTOR_MAP = {
   tesouro_pre: 'Tesouro Pre', debenture: 'Debenture',
 };
 
-// FII: map detailed sectors to broad rebal categories
-var FII_REBAL_MAP = {
-  'Logística': 'Tijolo', 'Lajes Corp.': 'Tijolo', 'Shopping': 'Tijolo',
-  'Agro': 'Tijolo', 'Renda Urbana': 'Tijolo',
-  'Papel/CRI': 'Papel',
-  'Fundo de Fundos': 'Híbrido',
-};
+// FII_REBAL_MAP movido para src/utils/rebalance.js
 var FII_SECTORS_SET = { 'Logística': 1, 'Lajes Corp.': 1, 'Shopping': 1, 'Papel/CRI': 1, 'Agro': 1, 'Renda Urbana': 1, 'Fundo de Fundos': 1 };
 var ETF_SECTORS_SET = { 'RV Brasil': 1, 'Small Caps': 1, 'Dividendos': 1, 'Internacional': 1, 'Cripto': 1, 'RF ETF': 1, 'Setorial': 1 };
 
-// Market Cap classification (BRL thresholds)
-var CAP_THRESHOLDS = [
-  { key: 'Large Cap', min: 40000000000 },
-  { key: 'Mid Cap', min: 10000000000 },
-  { key: 'Small Cap', min: 2000000000 },
-  { key: 'Micro Cap', min: 0 },
-];
-var CAP_COLORS = {
-  'Large Cap': '#3B82F6', 'Mid Cap': '#10B981',
-  'Small Cap': '#F59E0B', 'Micro Cap': '#EF4444',
-  'Sem Info': '#6B7280',
-};
-var CAP_ORDER = ['Large Cap', 'Mid Cap', 'Small Cap', 'Micro Cap', 'Sem Info'];
+// CAP_THRESHOLDS, CAP_COLORS, CAP_ORDER, classifyMarketCap movidos para src/utils/rebalance.js
 
-function classifyMarketCap(marketCap) {
-  if (!marketCap || marketCap <= 0) return 'Sem Info';
-  for (var i = 0; i < CAP_THRESHOLDS.length; i++) {
-    if (marketCap >= CAP_THRESHOLDS[i].min) return CAP_THRESHOLDS[i].key;
-  }
-  return 'Micro Cap';
-}
-
-function classifyTicker(ticker, positions, fallbackClass) {
-  var t = ticker.toUpperCase().trim();
-  var info = TICKER_SECTORS[t];
-  if (info) {
-    if (FII_SECTORS_SET[info.setor]) return { classe: 'fii', setor: FII_REBAL_MAP[info.setor] || 'Outros FII' };
-    if (ETF_SECTORS_SET[info.setor]) return { classe: 'etf', setor: '' };
-    return { classe: 'acao', setor: info.setor };
-  }
-  // Check user positions for categoria
-  if (positions) {
-    for (var i = 0; i < positions.length; i++) {
-      if (positions[i].ticker && positions[i].ticker.toUpperCase().trim() === t) {
-        var cat = positions[i].categoria || 'acao';
-        if (cat === 'fii') return { classe: 'fii', setor: 'Outros FII' };
-        if (cat === 'etf') return { classe: 'etf', setor: '' };
-        return { classe: 'acao', setor: 'Sem Setor' };
-      }
-    }
-  }
-  // Use expanded class as fallback (user adding ticker under that class)
-  if (fallbackClass === 'fii') return { classe: 'fii', setor: 'Outros FII' };
-  if (fallbackClass === 'etf') return { classe: 'etf', setor: '' };
-  if (fallbackClass === 'rf') return { classe: 'rf', setor: '' };
-  return { classe: 'acao', setor: 'Sem Setor' };
-}
+// classifyTicker removido — era usado apenas pelo RebalanceTool
 
 // ── Dynamic sector enrichment via brapi ──
 var _brapiSectorsFetched = {};
@@ -358,13 +195,16 @@ var PERF_SUBS = [
   { k: 'acao', l: 'Ação' },
   { k: 'fii', l: 'FII' },
   { k: 'etf', l: 'ETF' },
+  { k: 'bdr', l: 'BDR' },
   { k: 'stock_int', l: 'Stocks' },
+  { k: 'adr', l: 'ADR' },
+  { k: 'reit', l: 'REIT' },
   { k: 'opcoes', l: 'Opções' },
   { k: 'rf', l: 'RF' },
 ];
 
 var PERF_SUB_COLORS = {
-  todos: C.accent, acao: C.acoes, fii: C.fiis, etf: C.etfs, stock_int: C.stock_int, opcoes: C.opcoes, rf: C.rf,
+  todos: C.accent, acao: C.acoes, fii: C.fiis, etf: C.etfs, bdr: C.bdr, stock_int: C.stock_int, adr: C.adr, reit: C.reit, opcoes: C.opcoes, rf: C.rf,
 };
 
 var OPC_STATUS_LABELS = { ativa: 'Ativa', exercida: 'Exercida', expirada: 'Expirada', fechada: 'Fechada', expirou_po: 'Virou Pó' };
@@ -602,7 +442,10 @@ function computeIR(ops) {
           vendasAcoes: 0, ganhoAcoes: 0, perdaAcoes: 0,
           vendasFII: 0, ganhoFII: 0, perdaFII: 0,
           vendasETF: 0, ganhoETF: 0, perdaETF: 0,
+          vendasBDR: 0, ganhoBDR: 0, perdaBDR: 0,
           vendasStockInt: 0, ganhoStockInt: 0, perdaStockInt: 0,
+          vendasADR: 0, ganhoADR: 0, perdaADR: 0,
+          vendasREIT: 0, ganhoREIT: 0, perdaREIT: 0,
         };
       }
       var mr = monthResults[mKey];
@@ -613,9 +456,18 @@ function computeIR(ops) {
       } else if (cat === 'etf') {
         mr.vendasETF += vendaTotal;
         if (ganho >= 0) mr.ganhoETF += ganho; else mr.perdaETF += Math.abs(ganho);
+      } else if (cat === 'bdr') {
+        mr.vendasBDR += vendaTotal;
+        if (ganho >= 0) mr.ganhoBDR += ganho; else mr.perdaBDR += Math.abs(ganho);
       } else if (cat === 'stock_int') {
         mr.vendasStockInt += vendaTotal;
         if (ganho >= 0) mr.ganhoStockInt += ganho; else mr.perdaStockInt += Math.abs(ganho);
+      } else if (cat === 'adr') {
+        mr.vendasADR += vendaTotal;
+        if (ganho >= 0) mr.ganhoADR += ganho; else mr.perdaADR += Math.abs(ganho);
+      } else if (cat === 'reit') {
+        mr.vendasREIT += vendaTotal;
+        if (ganho >= 0) mr.ganhoREIT += ganho; else mr.perdaREIT += Math.abs(ganho);
       } else {
         mr.vendasAcoes += vendaTotal;
         if (ganho >= 0) mr.ganhoAcoes += ganho; else mr.perdaAcoes += Math.abs(ganho);
@@ -674,7 +526,10 @@ function computeTaxByMonth(monthResults) {
   var prejAcumAcoes = 0;
   var prejAcumFII = 0;
   var prejAcumETF = 0;
+  var prejAcumBDR = 0;
   var prejAcumStockInt = 0;
+  var prejAcumADR = 0;
+  var prejAcumREIT = 0;
   var results = [];
 
   months.forEach(function(mKey) {
@@ -682,7 +537,10 @@ function computeTaxByMonth(monthResults) {
     var saldoAcoes = mr.ganhoAcoes - mr.perdaAcoes - prejAcumAcoes;
     var saldoFII = mr.ganhoFII - mr.perdaFII - prejAcumFII;
     var saldoETF = mr.ganhoETF - mr.perdaETF - prejAcumETF;
+    var saldoBDR = (mr.ganhoBDR || 0) - (mr.perdaBDR || 0) - prejAcumBDR;
     var saldoStockInt = mr.ganhoStockInt - mr.perdaStockInt - prejAcumStockInt;
+    var saldoADR = (mr.ganhoADR || 0) - (mr.perdaADR || 0) - prejAcumADR;
+    var saldoREIT = (mr.ganhoREIT || 0) - (mr.perdaREIT || 0) - prejAcumREIT;
 
     var impostoAcoes = 0;
     if (mr.vendasAcoes > 20000 && saldoAcoes > 0) {
@@ -714,6 +572,17 @@ function computeTaxByMonth(monthResults) {
       prejAcumETF = 0;
     }
 
+    // BDR: 15% sem isencao de R$20k
+    var impostoBDR = 0;
+    if (saldoBDR > 0) {
+      impostoBDR = saldoBDR * 0.15;
+      prejAcumBDR = 0;
+    } else if (saldoBDR < 0) {
+      prejAcumBDR = Math.abs(saldoBDR);
+    } else {
+      prejAcumBDR = 0;
+    }
+
     var impostoStockInt = 0;
     if (saldoStockInt > 0) {
       impostoStockInt = saldoStockInt * 0.15;
@@ -724,18 +593,43 @@ function computeTaxByMonth(monthResults) {
       prejAcumStockInt = 0;
     }
 
+    // ADR: 15% sem isencao de R$20k
+    var impostoADR = 0;
+    if (saldoADR > 0) {
+      impostoADR = saldoADR * 0.15;
+      prejAcumADR = 0;
+    } else if (saldoADR < 0) {
+      prejAcumADR = Math.abs(saldoADR);
+    } else {
+      prejAcumADR = 0;
+    }
+
+    // REIT: 15% sem isencao de R$20k
+    var impostoREIT = 0;
+    if (saldoREIT > 0) {
+      impostoREIT = saldoREIT * 0.15;
+      prejAcumREIT = 0;
+    } else if (saldoREIT < 0) {
+      prejAcumREIT = Math.abs(saldoREIT);
+    } else {
+      prejAcumREIT = 0;
+    }
+
     results.push({
       month: mKey,
-      vendasAcoes: mr.vendasAcoes, vendasFII: mr.vendasFII, vendasETF: mr.vendasETF, vendasStockInt: mr.vendasStockInt,
+      vendasAcoes: mr.vendasAcoes, vendasFII: mr.vendasFII, vendasETF: mr.vendasETF, vendasBDR: mr.vendasBDR || 0, vendasStockInt: mr.vendasStockInt, vendasADR: mr.vendasADR || 0, vendasREIT: mr.vendasREIT || 0,
       ganhoAcoes: mr.ganhoAcoes, perdaAcoes: mr.perdaAcoes,
       ganhoFII: mr.ganhoFII, perdaFII: mr.perdaFII,
       ganhoETF: mr.ganhoETF, perdaETF: mr.perdaETF,
+      ganhoBDR: mr.ganhoBDR || 0, perdaBDR: mr.perdaBDR || 0,
       ganhoStockInt: mr.ganhoStockInt, perdaStockInt: mr.perdaStockInt,
-      saldoAcoes: saldoAcoes, saldoFII: saldoFII, saldoETF: saldoETF, saldoStockInt: saldoStockInt,
-      impostoAcoes: impostoAcoes, impostoFII: impostoFII, impostoETF: impostoETF, impostoStockInt: impostoStockInt,
-      impostoTotal: impostoAcoes + impostoFII + impostoETF + impostoStockInt,
+      ganhoADR: mr.ganhoADR || 0, perdaADR: mr.perdaADR || 0,
+      ganhoREIT: mr.ganhoREIT || 0, perdaREIT: mr.perdaREIT || 0,
+      saldoAcoes: saldoAcoes, saldoFII: saldoFII, saldoETF: saldoETF, saldoBDR: saldoBDR, saldoStockInt: saldoStockInt, saldoADR: saldoADR, saldoREIT: saldoREIT,
+      impostoAcoes: impostoAcoes, impostoFII: impostoFII, impostoETF: impostoETF, impostoBDR: impostoBDR, impostoStockInt: impostoStockInt, impostoADR: impostoADR, impostoREIT: impostoREIT,
+      impostoTotal: impostoAcoes + impostoFII + impostoETF + impostoBDR + impostoStockInt + impostoADR + impostoREIT,
       alertaAcoes20k: mr.vendasAcoes > 20000,
-      prejAcumAcoes: prejAcumAcoes, prejAcumFII: prejAcumFII, prejAcumETF: prejAcumETF, prejAcumStockInt: prejAcumStockInt,
+      prejAcumAcoes: prejAcumAcoes, prejAcumFII: prejAcumFII, prejAcumETF: prejAcumETF, prejAcumBDR: prejAcumBDR, prejAcumStockInt: prejAcumStockInt, prejAcumADR: prejAcumADR, prejAcumREIT: prejAcumREIT,
     });
   });
 
@@ -1353,1501 +1247,10 @@ function TwoLevelDonut(props) {
   );
 }
 
-// ═══════════ REBALANCEAMENTO ═══════════
+// ═══════════ REBALANCEAMENTO — Removido, agora integrado na CarteiraScreen ═══════════
+// buildRebalanceTree e RebalanceTool removidos.
+// Constantes compartilhadas em src/utils/rebalance.js
 
-function buildRebalanceTree(positions, rendaFixa, totalCarteira, classTargets, capTargets, sectorTargets, tickerTargets) {
-  var classes = ['acao', 'fii', 'etf', 'stock_int', 'rf'];
-  var FLAT_CLASSES = { etf: true, stock_int: true, rf: true };
-  var tree = [];
-
-  var positionsByClass = {};
-  classes.forEach(function (cat) { positionsByClass[cat] = []; });
-  positions.forEach(function (p) {
-    var cat = p.categoria || 'acao';
-    if (!positionsByClass[cat]) positionsByClass[cat] = [];
-    positionsByClass[cat].push(p);
-  });
-
-  function getRebalSector(ticker, cat) {
-    var info = TICKER_SECTORS[ticker];
-    if (!info) return 'Sem Setor';
-    if (cat === 'fii') return FII_REBAL_MAP[info.setor] || 'Outros FII';
-    return info.setor;
-  }
-
-  function buildTicker(key, label, color, atualVal, metaPctAbsParent, metaPctRelT, preco, qty) {
-    var atualPct = totalCarteira > 0 ? (atualVal / totalCarteira) * 100 : 0;
-    var metaPctAbsT = metaPctAbsParent * metaPctRelT / 100;
-    var metaVal = (metaPctAbsT / 100) * totalCarteira;
-    var diff = atualPct - metaPctAbsT;
-    var ajuste = metaVal - atualVal;
-    var cotas = preco > 0 ? Math.floor(Math.abs(ajuste) / preco) : 0;
-    var sharesAction = '';
-    if (Math.abs(ajuste) > 50 && preco > 0) {
-      sharesAction = ajuste > 0 ? ('Comprar ~' + cotas + ' cotas') : 'Manter';
-    }
-    return {
-      key: key, label: label, level: 'ticker', color: color,
-      atualVal: atualVal, atualPct: atualPct,
-      metaPctRel: metaPctRelT, metaPctAbs: metaPctAbsT,
-      diff: diff, ajuste: ajuste, preco: preco, qty: qty,
-      sharesAction: sharesAction,
-    };
-  }
-
-  classes.forEach(function (cat) {
-    var color = PRODUCT_COLORS[cat] || C.accent;
-    var nome = CAT_NAMES_FULL[cat] || cat;
-    var metaPctClass = classTargets[cat] || 0;
-    var isFlat = FLAT_CLASSES[cat] || false;
-
-    var atualValClass = 0;
-    if (cat === 'rf') {
-      rendaFixa.forEach(function (rf) { atualValClass += (rf.valor_aplicado || 0); });
-    } else {
-      positionsByClass[cat].forEach(function (p) {
-        atualValClass += p.quantidade * (p.preco_atual || p.pm);
-      });
-    }
-    var atualPctClass = totalCarteira > 0 ? (atualValClass / totalCarteira) * 100 : 0;
-    var metaValClass = (metaPctClass / 100) * totalCarteira;
-    var diffClass = atualPctClass - metaPctClass;
-    var ajusteClass = metaValClass - atualValClass;
-
-    if (isFlat) {
-      var flatKey = cat + ':_flat';
-      var flatTT = tickerTargets[flatKey] || {};
-      var tickers = [];
-      if (cat === 'rf') {
-        rendaFixa.forEach(function (rf) {
-          var label = (RF_SECTOR_MAP[rf.tipo] || rf.tipo || '').toUpperCase() + (rf.emissor ? ' - ' + rf.emissor : '');
-          var key = rf.id || label;
-          tickers.push(buildTicker(key, label, color, rf.valor_aplicado || 0, metaPctClass, flatTT[key] || 0, 0, 0));
-        });
-      } else {
-        positionsByClass[cat].forEach(function (p) {
-          var val = p.quantidade * (p.preco_atual || p.pm);
-          tickers.push(buildTicker(p.ticker, p.ticker, color, val, metaPctClass, flatTT[p.ticker] || 0, p.preco_atual || p.pm || 0, p.quantidade));
-        });
-      }
-      // Include tickers from tickerTargets that have no position (manually added)
-      var addedFlat = {};
-      tickers.forEach(function (t) { addedFlat[t.key] = true; });
-      Object.keys(flatTT).forEach(function (tk) {
-        if (!addedFlat[tk]) {
-          tickers.push(buildTicker(tk, tk, color, 0, metaPctClass, flatTT[tk] || 0, 0, 0));
-        }
-      });
-      tree.push({
-        key: cat, label: nome, level: 'class', color: color, flat: true,
-        atualVal: atualValClass, atualPct: atualPctClass,
-        metaPct: metaPctClass, diff: diffClass, ajuste: ajusteClass,
-        sectors: [], tickers: tickers,
-      });
-    } else if (cat === 'acao') {
-      // ── ACAO: cap → sector → ticker hierarchy ──
-      var capMap = {};
-      positionsByClass[cat].forEach(function (p) {
-        var capLabel = classifyMarketCap(p.marketCap);
-        if (!capMap[capLabel]) capMap[capLabel] = [];
-        capMap[capLabel].push(p);
-      });
-
-      // Include tickers from tickerTargets under acao caps
-      Object.keys(tickerTargets).forEach(function (tKey) {
-        if (tKey.indexOf('acao:') !== 0 || tKey === 'acao:_flat') return;
-        var parts = tKey.substring(5).split(':');
-        if (parts.length < 2) return;
-        var capName = parts[0];
-        var secName = parts[1];
-        var tObj = tickerTargets[tKey] || {};
-        Object.keys(tObj).forEach(function (tk) {
-          var found = false;
-          if (capMap[capName]) {
-            capMap[capName].forEach(function (p) {
-              if (p.ticker && p.ticker.toUpperCase() === tk.toUpperCase()) found = true;
-            });
-          }
-          if (!found) {
-            if (!capMap[capName]) capMap[capName] = [];
-            capMap[capName].push({ ticker: tk, quantidade: 0, preco_atual: 0, pm: 0, categoria: 'acao', marketCap: 0 });
-          }
-        });
-      });
-
-      var capTF = capTargets || {};
-      var capGroups = [];
-
-      CAP_ORDER.forEach(function (capName, cIdx) {
-        var capPositions = capMap[capName] || [];
-        var hasTarget = capTF[capName] && capTF[capName] > 0;
-        if (capPositions.length === 0 && !hasTarget) return;
-
-        var capMetaRel = capTF[capName] || 0;
-        var capMetaAbs = metaPctClass * capMetaRel / 100;
-        var atualValCap = 0;
-        capPositions.forEach(function (p) { atualValCap += p.quantidade * (p.preco_atual || p.pm); });
-        var atualPctCap = totalCarteira > 0 ? (atualValCap / totalCarteira) * 100 : 0;
-        var metaValCap = (capMetaAbs / 100) * totalCarteira;
-        var diffCap = atualPctCap - capMetaAbs;
-        var ajusteCap = metaValCap - atualValCap;
-
-        // Group by sector within cap
-        var sectorMap = {};
-        capPositions.forEach(function (p) {
-          var setor = getRebalSector(p.ticker, cat);
-          if (!sectorMap[setor]) sectorMap[setor] = [];
-          sectorMap[setor].push(p);
-        });
-
-        // Include targets-only tickers within this cap
-        var sectorTKey = 'acao:' + capName;
-        Object.keys(tickerTargets).forEach(function (tKey) {
-          if (tKey.indexOf(sectorTKey + ':') !== 0) return;
-          var secName = tKey.substring(sectorTKey.length + 1);
-          var tObj = tickerTargets[tKey] || {};
-          Object.keys(tObj).forEach(function (tk) {
-            var found = false;
-            if (sectorMap[secName]) {
-              sectorMap[secName].forEach(function (p) {
-                if (p.ticker && p.ticker.toUpperCase() === tk.toUpperCase()) found = true;
-              });
-            }
-            if (!found) {
-              if (!sectorMap[secName]) sectorMap[secName] = [];
-              sectorMap[secName].push({ ticker: tk, quantidade: 0, preco_atual: 0, pm: 0, categoria: 'acao', marketCap: 0 });
-            }
-          });
-        });
-
-        var sectorKeys = Object.keys(sectorMap);
-        sectorKeys.sort();
-        var sTF = sectorTargets[sectorTKey] || {};
-        var sectors = [];
-        sectorKeys.forEach(function (sectorName, sIdx) {
-          var items = sectorMap[sectorName];
-          var atualValSec = 0;
-          items.forEach(function (p) { atualValSec += p.quantidade * (p.preco_atual || p.pm); });
-          var atualPctSec = totalCarteira > 0 ? (atualValSec / totalCarteira) * 100 : 0;
-          var metaRel = sTF[sectorName] || 0;
-          var metaAbs = capMetaAbs * metaRel / 100;
-          var metaValSec = (metaAbs / 100) * totalCarteira;
-          var diffSec = atualPctSec - metaAbs;
-          var ajusteSec = metaValSec - atualValSec;
-          var tickTFKey = sectorTKey + ':' + sectorName;
-          var tickTF = tickerTargets[tickTFKey] || {};
-          var tickers = [];
-          items.forEach(function (p) {
-            var val = p.quantidade * (p.preco_atual || p.pm);
-            tickers.push(buildTicker(p.ticker, p.ticker, getSankeyColor(sIdx), val, metaAbs, tickTF[p.ticker] || 0, p.preco_atual || p.pm || 0, p.quantidade));
-          });
-          sectors.push({
-            key: sectorName, label: sectorName, level: 'sector', color: getSankeyColor(sIdx),
-            atualVal: atualValSec, atualPct: atualPctSec,
-            metaPctRel: metaRel, metaPctAbs: metaAbs,
-            diff: diffSec, ajuste: ajusteSec, tickers: tickers,
-          });
-        });
-
-        capGroups.push({
-          key: capName, label: capName, level: 'cap', color: CAP_COLORS[capName] || C.accent,
-          atualVal: atualValCap, atualPct: atualPctCap,
-          metaPctRel: capMetaRel, metaPctAbs: capMetaAbs,
-          diff: diffCap, ajuste: ajusteCap, sectors: sectors,
-        });
-      });
-
-      tree.push({
-        key: cat, label: nome, level: 'class', color: color, flat: false, hasCaps: true,
-        atualVal: atualValClass, atualPct: atualPctClass,
-        metaPct: metaPctClass, diff: diffClass, ajuste: ajusteClass,
-        capGroups: capGroups, sectors: [], tickers: [],
-      });
-    } else {
-      // ── FII: sector → ticker hierarchy (unchanged) ──
-      var sectorMap = {};
-      positionsByClass[cat].forEach(function (p) {
-        var setor = getRebalSector(p.ticker, cat);
-        if (!sectorMap[setor]) sectorMap[setor] = [];
-        sectorMap[setor].push(p);
-      });
-      Object.keys(tickerTargets).forEach(function (tKey) {
-        if (tKey.indexOf(cat + ':') !== 0 || tKey === cat + ':_flat') return;
-        var secName = tKey.substring(cat.length + 1);
-        var tObj = tickerTargets[tKey] || {};
-        Object.keys(tObj).forEach(function (tk) {
-          var found = false;
-          if (sectorMap[secName]) {
-            sectorMap[secName].forEach(function (p) {
-              if (p.ticker && p.ticker.toUpperCase() === tk.toUpperCase()) found = true;
-            });
-          }
-          if (!found) {
-            if (!sectorMap[secName]) sectorMap[secName] = [];
-            sectorMap[secName].push({ ticker: tk, quantidade: 0, preco_atual: 0, pm: 0, categoria: cat });
-          }
-        });
-      });
-      var sectorKeys = Object.keys(sectorMap);
-      sectorKeys.sort();
-      var sectorTF = sectorTargets[cat] || {};
-      var sectors = [];
-      sectorKeys.forEach(function (sectorName, sIdx) {
-        var items = sectorMap[sectorName];
-        var atualValSec = 0;
-        items.forEach(function (p) { atualValSec += p.quantidade * (p.preco_atual || p.pm); });
-        var atualPctSec = totalCarteira > 0 ? (atualValSec / totalCarteira) * 100 : 0;
-        var metaRel = sectorTF[sectorName] || 0;
-        var metaAbs = metaPctClass * metaRel / 100;
-        var metaValSec = (metaAbs / 100) * totalCarteira;
-        var diffSec = atualPctSec - metaAbs;
-        var ajusteSec = metaValSec - atualValSec;
-        var tickTF = tickerTargets[cat + ':' + sectorName] || {};
-        var tickers = [];
-        items.forEach(function (p) {
-          var val = p.quantidade * (p.preco_atual || p.pm);
-          tickers.push(buildTicker(p.ticker, p.ticker, getSankeyColor(sIdx), val, metaAbs, tickTF[p.ticker] || 0, p.preco_atual || p.pm || 0, p.quantidade));
-        });
-        sectors.push({
-          key: sectorName, label: sectorName, level: 'sector', color: getSankeyColor(sIdx),
-          atualVal: atualValSec, atualPct: atualPctSec,
-          metaPctRel: metaRel, metaPctAbs: metaAbs,
-          diff: diffSec, ajuste: ajusteSec, tickers: tickers,
-        });
-      });
-      tree.push({
-        key: cat, label: nome, level: 'class', color: color, flat: false,
-        atualVal: atualValClass, atualPct: atualPctClass,
-        metaPct: metaPctClass, diff: diffClass, ajuste: ajusteClass,
-        sectors: sectors, tickers: [],
-      });
-    }
-  });
-  return tree;
-}
-
-function RebalanceTool(props) {
-  var allocAtual = props.allocAtual || {};
-  var totalCarteira = props.totalCarteira || 0;
-  var positions = props.positions || [];
-  var assetList = props.assetList || [];
-  var rendaFixa = props.rendaFixa || [];
-  var userId = props.userId || null;
-  var savedTargets = props.savedTargets || null;
-
-  var DEFAULT_CLASS_TARGETS = { acao: 35, fii: 20, etf: 15, stock_int: 15, rf: 15 };
-  var _expandedClass = useState(null);
-  var expandedClass = _expandedClass[0]; var setExpandedClass = _expandedClass[1];
-  var _expandedCap = useState(null);
-  var expandedCap = _expandedCap[0]; var setExpandedCap = _expandedCap[1];
-  var _expandedSector = useState(null);
-  var expandedSector = _expandedSector[0]; var setExpandedSector = _expandedSector[1];
-  var _editing = useState(false);
-  var isEditing = _editing[0]; var setEditing = _editing[1];
-  var _saving = useState(false);
-  var isSaving = _saving[0]; var setSaving = _saving[1];
-  var DEFAULT_CAP_TARGETS = { 'Large Cap': 40, 'Mid Cap': 30, 'Small Cap': 20, 'Micro Cap': 10 };
-  var _classTargets = useState(DEFAULT_CLASS_TARGETS);
-  var classTargets = _classTargets[0]; var setClassTargets = _classTargets[1];
-  var _capTargets = useState(DEFAULT_CAP_TARGETS);
-  var capTargets = _capTargets[0]; var setCapTargets = _capTargets[1];
-  var _sectorTargets = useState({});
-  var sectorTargets = _sectorTargets[0]; var setSectorTargets = _sectorTargets[1];
-  var _tickerTargets = useState({});
-  var tickerTargets = _tickerTargets[0]; var setTickerTargets = _tickerTargets[1];
-  var _newTicker = useState('');
-  var newTicker = _newTicker[0]; var setNewTicker = _newTicker[1];
-  var _initialized = useState(false);
-  var initialized = _initialized[0]; var setInitialized = _initialized[1];
-  var _dbLoaded = useState(false);
-  var dbLoaded = _dbLoaded[0]; var setDbLoaded = _dbLoaded[1];
-  var _rebalInfoModal = useState(null); var rebalInfoModal = _rebalInfoModal[0]; var setRebalInfoModal = _rebalInfoModal[1];
-
-  // ── Load saved targets from DB ──
-  var _didLoadDB = false;
-  if (!dbLoaded && savedTargets) {
-    _didLoadDB = true;
-    setDbLoaded(true);
-    if (savedTargets.class_targets) setClassTargets(savedTargets.class_targets);
-    // Extract cap targets from sector_targets._cap
-    var savedST = savedTargets.sector_targets || {};
-    if (savedST._cap) {
-      setCapTargets(savedST._cap);
-      var stClean = {};
-      Object.keys(savedST).forEach(function (k) { if (k !== '_cap') stClean[k] = savedST[k]; });
-      setSectorTargets(stClean);
-    } else {
-      if (savedTargets.sector_targets) setSectorTargets(savedTargets.sector_targets);
-    }
-    if (savedTargets.ticker_targets) setTickerTargets(savedTargets.ticker_targets);
-    setInitialized(true);
-  }
-  var _aporteText = useState('');
-  var aporteText = _aporteText[0]; var setAporteText = _aporteText[1];
-  var _suggestions = useState(null);
-  var suggestions = _suggestions[0]; var setSuggestions = _suggestions[1];
-  var _showProfiles = useState(false);
-  var showProfiles = _showProfiles[0]; var setShowProfiles = _showProfiles[1];
-
-  var FLAT_CLASSES = { etf: true, stock_int: true, rf: true };
-
-  // ── Profile presets ──
-  var PROFILES = {
-    conservador: {
-      label: 'Conservador', emoji: '🛡️',
-      desc: 'Prioriza renda fixa e FIIs de papel. Menor exposicao a acoes.',
-      classes: { acao: 15, fii: 15, etf: 7, stock_int: 3, rf: 60 },
-      acaoCaps: { 'Large Cap': 60, 'Mid Cap': 25, 'Small Cap': 10, 'Micro Cap': 5 },
-      fiiSectors: { 'Tijolo': 30, 'Papel': 55, 'Híbrido': 15 },
-    },
-    moderado: {
-      label: 'Moderado', emoji: '⚖️',
-      desc: 'Equilibrio entre renda variavel e fixa. Diversificacao ampla.',
-      classes: { acao: 25, fii: 20, etf: 15, stock_int: 10, rf: 30 },
-      acaoCaps: { 'Large Cap': 45, 'Mid Cap': 30, 'Small Cap': 20, 'Micro Cap': 5 },
-      fiiSectors: { 'Tijolo': 45, 'Papel': 40, 'Híbrido': 15 },
-    },
-    arrojado: {
-      label: 'Arrojado', emoji: '🚀',
-      desc: 'Foco em acoes e ETFs para crescimento. Pouca renda fixa.',
-      classes: { acao: 30, fii: 15, etf: 20, stock_int: 20, rf: 15 },
-      acaoCaps: { 'Large Cap': 30, 'Mid Cap': 30, 'Small Cap': 25, 'Micro Cap': 15 },
-      fiiSectors: { 'Tijolo': 55, 'Papel': 30, 'Híbrido': 15 },
-    },
-  };
-
-  function applyProfile(profileKey) {
-    var profile = PROFILES[profileKey];
-    if (!profile) return;
-    animateLayout();
-
-    // 1. Set class targets
-    setClassTargets(profile.classes);
-
-    // 2. Build sector + ticker targets from current positions
-    var newSectorT = {};
-    var newTickerT = {};
-
-    ['acao', 'fii', 'etf', 'stock_int', 'rf'].forEach(function (cat) {
-      if (FLAT_CLASSES[cat]) {
-        // Flat: equal weight tickers
-        var items = [];
-        if (cat === 'rf') {
-          rendaFixa.forEach(function (rf) {
-            items.push(rf.id || ((rf.tipo || '').toUpperCase() + (rf.emissor ? ' - ' + rf.emissor : '')));
-          });
-        } else {
-          positions.forEach(function (p) {
-            if ((p.categoria || 'acao') !== cat) return;
-            items.push(p.ticker);
-          });
-        }
-        if (items.length > 0) {
-          var eq = Math.floor(100 / items.length);
-          var leftover = 100 - eq * items.length;
-          var tObj = {};
-          items.forEach(function (tk, ti) {
-            tObj[tk] = ti === 0 ? eq + leftover : eq;
-          });
-          newTickerT[cat + ':_flat'] = tObj;
-        }
-      } else if (cat === 'fii') {
-        // FII: use profile fiiSectors then equal weight tickers
-        var sectorMap = {};
-        positions.forEach(function (p) {
-          if ((p.categoria || 'acao') !== 'fii') return;
-          var info = TICKER_SECTORS[p.ticker];
-          var setor = info ? (FII_REBAL_MAP[info.setor] || 'Outros FII') : 'Outros FII';
-          if (!sectorMap[setor]) sectorMap[setor] = [];
-          sectorMap[setor].push(p.ticker);
-        });
-        var sKeys = Object.keys(sectorMap);
-        if (sKeys.length > 0) {
-          var sObj = {};
-          var usedPct = 0;
-          sKeys.forEach(function (sk, si) {
-            var pct = profile.fiiSectors[sk] || 0;
-            if (pct === 0 && !profile.fiiSectors[sk]) {
-              pct = Math.round((100 - usedPct) / (sKeys.length - si));
-            }
-            sObj[sk] = pct;
-            usedPct += pct;
-            // equal weight tickers in sector
-            var sitems = sectorMap[sk];
-            var eqT = Math.floor(100 / sitems.length);
-            var leftT = 100 - eqT * sitems.length;
-            var tO = {};
-            sitems.forEach(function (tk, ti) {
-              tO[tk] = ti === 0 ? eqT + leftT : eqT;
-            });
-            newTickerT['fii:' + sk] = tO;
-          });
-          // Normalize if total != 100
-          var total = 0;
-          Object.keys(sObj).forEach(function (k) { total += sObj[k]; });
-          if (total !== 100 && total > 0) {
-            var scale = 100 / total;
-            var assigned = 0;
-            var keys = Object.keys(sObj);
-            keys.forEach(function (k, i) {
-              if (i === keys.length - 1) {
-                sObj[k] = 100 - assigned;
-              } else {
-                sObj[k] = Math.round(sObj[k] * scale);
-                assigned += sObj[k];
-              }
-            });
-          }
-          newSectorT['fii'] = sObj;
-        }
-      } else {
-        // Acao: group by cap → sector → ticker
-        var newCapT = profile.acaoCaps || { 'Large Cap': 40, 'Mid Cap': 30, 'Small Cap': 20, 'Micro Cap': 10 };
-        var capSectorMap = {};
-        positions.forEach(function (p) {
-          if ((p.categoria || 'acao') !== 'acao') return;
-          var capLabel = classifyMarketCap(p.marketCap);
-          var info = TICKER_SECTORS[p.ticker];
-          var setor = info ? info.setor : 'Sem Setor';
-          if (!capSectorMap[capLabel]) capSectorMap[capLabel] = {};
-          if (!capSectorMap[capLabel][setor]) capSectorMap[capLabel][setor] = [];
-          capSectorMap[capLabel][setor].push(p.ticker);
-        });
-
-        Object.keys(capSectorMap).forEach(function (capName) {
-          var sectorsInCap = capSectorMap[capName];
-          var sKeys = Object.keys(sectorsInCap);
-          if (sKeys.length > 0) {
-            var eqS = Math.floor(100 / sKeys.length);
-            var leftS = 100 - eqS * sKeys.length;
-            var sObj = {};
-            sKeys.forEach(function (sk, si) {
-              sObj[sk] = si === 0 ? eqS + leftS : eqS;
-              var sitems = sectorsInCap[sk];
-              var eqT3 = Math.floor(100 / sitems.length);
-              var leftT3 = 100 - eqT3 * sitems.length;
-              var tO3 = {};
-              sitems.forEach(function (tk, ti) {
-                tO3[tk] = ti === 0 ? eqT3 + leftT3 : eqT3;
-              });
-              newTickerT['acao:' + capName + ':' + sk] = tO3;
-            });
-            newSectorT['acao:' + capName] = sObj;
-          }
-        });
-
-        setCapTargets(newCapT);
-      }
-    });
-
-    setSectorTargets(newSectorT);
-    setTickerTargets(newTickerT);
-    setSuggestions(null);
-    setShowProfiles(false);
-
-    // Save profile to DB (embed capTargets in sector_targets._cap)
-    if (userId) {
-      var stToSave = {};
-      Object.keys(newSectorT).forEach(function (k) { stToSave[k] = newSectorT[k]; });
-      stToSave._cap = profile.acaoCaps || { 'Large Cap': 40, 'Mid Cap': 30, 'Small Cap': 20, 'Micro Cap': 10 };
-      upsertRebalanceTargets(userId, {
-        class_targets: profile.classes,
-        sector_targets: stToSave,
-        ticker_targets: newTickerT,
-      }).catch(function () { /* silent */ });
-    }
-  }
-
-  // Auto-init sector/ticker targets from current positions (equal weight)
-  // Skip if DB targets were loaded in this same render
-  if (!initialized && !_didLoadDB && (positions.length > 0 || rendaFixa.length > 0)) {
-    var initSectorT = {};
-    var initTickerT = {};
-
-    ['acao', 'fii', 'etf', 'stock_int', 'rf'].forEach(function (cat) {
-      if (FLAT_CLASSES[cat]) {
-        var items = [];
-        if (cat === 'rf') {
-          rendaFixa.forEach(function (rf) {
-            items.push(rf.id || ((rf.tipo || '').toUpperCase() + (rf.emissor ? ' - ' + rf.emissor : '')));
-          });
-        } else {
-          positions.forEach(function (p) {
-            if ((p.categoria || 'acao') !== cat) return;
-            items.push(p.ticker);
-          });
-        }
-        if (items.length > 0) {
-          var eq = Math.round(100 / items.length);
-          var tObj = {};
-          items.forEach(function (tk, ti) {
-            tObj[tk] = ti === items.length - 1 ? (100 - eq * (items.length - 1)) : eq;
-          });
-          initTickerT[cat + ':_flat'] = tObj;
-        }
-      } else if (cat === 'acao') {
-        // Acao: group by cap → sector → ticker
-        var initCapSM = {};
-        positions.forEach(function (p) {
-          if ((p.categoria || 'acao') !== 'acao') return;
-          var capLabel = classifyMarketCap(p.marketCap);
-          var info = TICKER_SECTORS[p.ticker];
-          var setor = info ? info.setor : 'Sem Setor';
-          if (!initCapSM[capLabel]) initCapSM[capLabel] = {};
-          if (!initCapSM[capLabel][setor]) initCapSM[capLabel][setor] = [];
-          initCapSM[capLabel][setor].push(p.ticker);
-        });
-        // Equal weight caps that have positions
-        var capKeys = Object.keys(initCapSM);
-        if (capKeys.length > 0) {
-          var eqC = Math.round(100 / capKeys.length);
-          var initCapT = {};
-          capKeys.forEach(function (ck, ci) {
-            initCapT[ck] = ci === capKeys.length - 1 ? (100 - eqC * (capKeys.length - 1)) : eqC;
-          });
-          setCapTargets(initCapT);
-        }
-        Object.keys(initCapSM).forEach(function (capName) {
-          var sectorsInCap = initCapSM[capName];
-          var sKeys = Object.keys(sectorsInCap);
-          if (sKeys.length > 0) {
-            var eqS2 = Math.round(100 / sKeys.length);
-            var sObj2 = {};
-            sKeys.forEach(function (sk, si) {
-              sObj2[sk] = si === sKeys.length - 1 ? (100 - eqS2 * (sKeys.length - 1)) : eqS2;
-              var sitems = sectorsInCap[sk];
-              if (sitems.length > 0) {
-                var eqT4 = Math.round(100 / sitems.length);
-                var tO4 = {};
-                sitems.forEach(function (tk, ti) {
-                  tO4[tk] = ti === sitems.length - 1 ? (100 - eqT4 * (sitems.length - 1)) : eqT4;
-                });
-                initTickerT['acao:' + capName + ':' + sk] = tO4;
-              }
-            });
-            initSectorT['acao:' + capName] = sObj2;
-          }
-        });
-      } else {
-        // FII: sector → ticker
-        var sectorMap = {};
-        positions.forEach(function (p) {
-          if ((p.categoria || 'acao') !== cat) return;
-          var info = TICKER_SECTORS[p.ticker];
-          var setor = info ? (FII_REBAL_MAP[info.setor] || 'Outros FII') : 'Sem Setor';
-          if (!sectorMap[setor]) sectorMap[setor] = [];
-          sectorMap[setor].push(p.ticker);
-        });
-        var sectorKeys = Object.keys(sectorMap);
-        if (sectorKeys.length > 0) {
-          var eqS = Math.round(100 / sectorKeys.length);
-          var sObj = {};
-          sectorKeys.forEach(function (sk, si) {
-            sObj[sk] = si === sectorKeys.length - 1 ? (100 - eqS * (sectorKeys.length - 1)) : eqS;
-            var sitems = sectorMap[sk];
-            if (sitems.length > 0) {
-              var eqT = Math.round(100 / sitems.length);
-              var tO = {};
-              sitems.forEach(function (tk, ti) {
-                tO[tk] = ti === sitems.length - 1 ? (100 - eqT * (sitems.length - 1)) : eqT;
-              });
-              initTickerT[cat + ':' + sk] = tO;
-            }
-          });
-          initSectorT[cat] = sObj;
-        }
-      }
-    });
-    setSectorTargets(initSectorT);
-    setTickerTargets(initTickerT);
-    setInitialized(true);
-  }
-
-  // Build the tree
-  var tree = buildRebalanceTree(positions, rendaFixa, totalCarteira, classTargets, capTargets, sectorTargets, tickerTargets);
-
-  // Accuracy: 100 - sum(|class drift|)
-  var sumDrift = 0;
-  tree.forEach(function (c) { sumDrift += Math.abs(c.diff); });
-  var accuracy = Math.max(0, 100 - sumDrift);
-  var accColor = accuracy >= 95 ? C.green : accuracy >= 80 ? C.yellow : C.red;
-
-  var classKeys = ['acao', 'fii', 'etf', 'stock_int', 'rf'];
-  var totalClassPct = classKeys.reduce(function (s, k) { return s + (classTargets[k] || 0); }, 0);
-
-  // ── Compute aporte suggestions ──
-  function computeSuggestions() {
-    var aporteVal = parseCurrency(aporteText);
-    if (aporteVal <= 0) { setSuggestions(null); return; }
-    var newTotal = totalCarteira + aporteVal;
-
-    // Collect ticker-level leaves with deficits
-    var leaves = [];
-    tree.forEach(function (cls) {
-      var allTickers = cls.flat ? cls.tickers : [];
-      if (!cls.flat && cls.hasCaps) {
-        (cls.capGroups || []).forEach(function (cg) {
-          cg.sectors.forEach(function (sec) {
-            sec.tickers.forEach(function (t) { allTickers.push(t); });
-          });
-        });
-      } else if (!cls.flat) {
-        cls.sectors.forEach(function (sec) {
-          sec.tickers.forEach(function (t) { allTickers.push(t); });
-        });
-      }
-      allTickers.forEach(function (t) {
-        var metaValNew = (t.metaPctAbs / 100) * newTotal;
-        var deficit = metaValNew - t.atualVal;
-        if (deficit > 0) {
-          leaves.push({
-            key: t.key, label: t.label, color: cls.color,
-            classe: cls.label, setor: cls.flat ? cls.label : '',
-            deficit: deficit, preco: t.preco, qty: t.qty,
-          });
-        }
-      });
-    });
-
-    // Also check for classes under-target with NO ticker deficits (no positions)
-    tree.forEach(function (cls) {
-      var metaValCls = (cls.metaPct / 100) * newTotal;
-      var classDeficit = metaValCls - cls.atualVal;
-      if (classDeficit <= 0) return;
-      var hasTickerDef = false;
-      var allT = cls.flat ? cls.tickers : [];
-      if (!cls.flat && cls.hasCaps) {
-        (cls.capGroups || []).forEach(function (cg) {
-          cg.sectors.forEach(function (sec) {
-            sec.tickers.forEach(function (t) { allT.push(t); });
-          });
-        });
-      } else if (!cls.flat) {
-        cls.sectors.forEach(function (sec) {
-          sec.tickers.forEach(function (t) { allT.push(t); });
-        });
-      }
-      allT.forEach(function (t) {
-        if ((t.metaPctAbs / 100) * newTotal - t.atualVal > 0) hasTickerDef = true;
-      });
-      if (!hasTickerDef) {
-        leaves.push({
-          key: '_class_' + cls.key, label: 'Alocar em ' + cls.label, color: cls.color,
-          classe: cls.label, setor: '',
-          deficit: classDeficit, preco: 0, qty: 0,
-        });
-      }
-    });
-
-    if (leaves.length === 0) { setSuggestions({ items: [], aporte: aporteVal, sobra: aporteVal }); return; }
-
-    var totalDeficit = 0;
-    leaves.forEach(function (l) { totalDeficit += l.deficit; });
-
-    var items = [];
-    var used = 0;
-    leaves.forEach(function (l) {
-      var alloc = totalDeficit <= aporteVal ? l.deficit : (l.deficit / totalDeficit) * aporteVal;
-      if (l.preco > 0) {
-        var cotas = Math.floor(alloc / l.preco);
-        if (cotas <= 0) return;
-        alloc = cotas * l.preco;
-        items.push({ key: l.key, label: l.label, color: l.color, classe: l.classe, setor: l.setor,
-          valor: alloc, cotas: cotas, preco: l.preco });
-      } else {
-        if (alloc < 1) return;
-        items.push({ key: l.key, label: l.label, color: l.color, classe: l.classe, setor: l.setor,
-          valor: alloc, cotas: 0, preco: 0 });
-      }
-      used += alloc;
-    });
-    items.sort(function (a, b) { return b.valor - a.valor; });
-    setSuggestions({ items: items, aporte: aporteVal, sobra: Math.max(0, aporteVal - used) });
-  }
-
-  // ── Target helpers (clear suggestions on any change) ──
-  // ── Redistribute: when one item changes, redistribute remaining among others ──
-  function redistribute(obj, changedKey, newVal) {
-    var result = {};
-    Object.keys(obj).forEach(function (k) { result[k] = obj[k]; });
-    var oldVal = result[changedKey] || 0;
-    result[changedKey] = newVal;
-    var remaining = 100 - newVal;
-    var otherKeys = Object.keys(result).filter(function (k) { return k !== changedKey; });
-    var otherTotal = 0;
-    otherKeys.forEach(function (k) { otherTotal += (result[k] || 0); });
-    if (remaining <= 0) {
-      otherKeys.forEach(function (k) { result[k] = 0; });
-    } else if (otherTotal === 0) {
-      // All others are 0, distribute equally
-      if (otherKeys.length > 0) {
-        var eq = Math.floor(remaining / otherKeys.length);
-        var leftover = remaining - eq * otherKeys.length;
-        otherKeys.forEach(function (k, i) {
-          result[k] = i === 0 ? eq + leftover : eq;
-        });
-      }
-    } else {
-      // Proportional redistribution
-      var scale = remaining / otherTotal;
-      var assigned = 0;
-      otherKeys.forEach(function (k, i) {
-        if (i === otherKeys.length - 1) {
-          result[k] = Math.max(0, remaining - assigned);
-        } else {
-          var v = Math.round((result[k] || 0) * scale);
-          result[k] = Math.max(0, v);
-          assigned += result[k];
-        }
-      });
-    }
-    return result;
-  }
-
-  function stepClassTarget(cat, delta) {
-    var num = clamp((classTargets[cat] || 0) + delta, 0, 100);
-    var result = redistribute(classTargets, cat, num);
-    setClassTargets(result);
-    setSuggestions(null);
-  }
-  function setClassTargetVal(cat, val) {
-    var num = clamp(parseInt(val) || 0, 0, 100);
-    var result = redistribute(classTargets, cat, num);
-    setClassTargets(result);
-    setSuggestions(null);
-  }
-
-  function stepCapTarget(capName, delta) {
-    var num = clamp((capTargets[capName] || 0) + delta, 0, 100);
-    var result = redistribute(capTargets, capName, num);
-    setCapTargets(result);
-    setSuggestions(null);
-  }
-  function setCapTargetVal(capName, val) {
-    var num = clamp(parseInt(val) || 0, 0, 100);
-    var result = redistribute(capTargets, capName, num);
-    setCapTargets(result);
-    setSuggestions(null);
-  }
-
-  function stepSectorTarget(cat, sectorName, delta) {
-    var catObj = sectorTargets[cat] || {};
-    var num = clamp((catObj[sectorName] || 0) + delta, 0, 100);
-    var newInner = redistribute(catObj, sectorName, num);
-    var outerCopy = {};
-    Object.keys(sectorTargets).forEach(function (k) { outerCopy[k] = sectorTargets[k]; });
-    outerCopy[cat] = newInner;
-    setSectorTargets(outerCopy);
-    setSuggestions(null);
-  }
-  function setSectorTargetVal(cat, sectorName, val) {
-    var catObj = sectorTargets[cat] || {};
-    var num = clamp(parseInt(val) || 0, 0, 100);
-    var newInner = redistribute(catObj, sectorName, num);
-    var outerCopy = {};
-    Object.keys(sectorTargets).forEach(function (k) { outerCopy[k] = sectorTargets[k]; });
-    outerCopy[cat] = newInner;
-    setSectorTargets(outerCopy);
-    setSuggestions(null);
-  }
-
-  function stepTickerTarget(cat, sectorName, tickerKey, delta) {
-    var compKey = cat + ':' + sectorName;
-    var secObj = tickerTargets[compKey] || {};
-    var num = clamp((secObj[tickerKey] || 0) + delta, 0, 100);
-    var newInner = redistribute(secObj, tickerKey, num);
-    var outerCopy = {};
-    Object.keys(tickerTargets).forEach(function (k) { outerCopy[k] = tickerTargets[k]; });
-    outerCopy[compKey] = newInner;
-    setTickerTargets(outerCopy);
-    setSuggestions(null);
-  }
-  function setTickerTargetVal(cat, sectorName, tickerKey, val) {
-    var compKey = cat + ':' + sectorName;
-    var secObj = tickerTargets[compKey] || {};
-    var num = clamp(parseInt(val) || 0, 0, 100);
-    var newInner = redistribute(secObj, tickerKey, num);
-    var outerCopy = {};
-    Object.keys(tickerTargets).forEach(function (k) { outerCopy[k] = tickerTargets[k]; });
-    outerCopy[compKey] = newInner;
-    setTickerTargets(outerCopy);
-    setSuggestions(null);
-  }
-
-  // ── Centralized add ticker ──
-  function addTickerCentralized() {
-    var t = newTicker.toUpperCase().trim();
-    if (!t) return;
-    var cls = classifyTicker(t, positions, expandedClass);
-    var cat = cls.classe;
-    if (FLAT_CLASSES[cat]) {
-      var flatKey = cat + ':_flat';
-      var secObj = tickerTargets[flatKey] || {};
-      if (secObj[t] !== undefined) return;
-      var outerCopy = {};
-      Object.keys(tickerTargets).forEach(function (k) { outerCopy[k] = tickerTargets[k]; });
-      var innerCopy = {};
-      Object.keys(secObj).forEach(function (k) { innerCopy[k] = secObj[k]; });
-      innerCopy[t] = 0;
-      outerCopy[flatKey] = innerCopy;
-      setTickerTargets(outerCopy);
-    } else if (cat === 'acao') {
-      // Acao: determine cap group from marketCap
-      var mktCap = 0;
-      positions.forEach(function (p) {
-        if (p.ticker && p.ticker.toUpperCase() === t) mktCap = p.marketCap || 0;
-      });
-      var capLabel = classifyMarketCap(mktCap);
-      var setor = cls.setor;
-
-      // Ensure cap exists in capTargets
-      if (capTargets[capLabel] === undefined) {
-        var ctCopy = {};
-        Object.keys(capTargets).forEach(function (k) { ctCopy[k] = capTargets[k]; });
-        ctCopy[capLabel] = 0;
-        setCapTargets(ctCopy);
-      }
-      // Ensure sector exists under cap
-      var sectorTKey = 'acao:' + capLabel;
-      var catSectors = sectorTargets[sectorTKey] || {};
-      if (catSectors[setor] === undefined) {
-        var sCopy = {};
-        Object.keys(sectorTargets).forEach(function (k) { sCopy[k] = sectorTargets[k]; });
-        var inner = {};
-        Object.keys(catSectors).forEach(function (k) { inner[k] = catSectors[k]; });
-        inner[setor] = 0;
-        sCopy[sectorTKey] = inner;
-        setSectorTargets(sCopy);
-      }
-      var compKey = sectorTKey + ':' + setor;
-      var secO = tickerTargets[compKey] || {};
-      if (secO[t] !== undefined) return;
-      var oC = {};
-      Object.keys(tickerTargets).forEach(function (k) { oC[k] = tickerTargets[k]; });
-      var iC = {};
-      Object.keys(secO).forEach(function (k) { iC[k] = secO[k]; });
-      iC[t] = 0;
-      oC[compKey] = iC;
-      setTickerTargets(oC);
-    } else {
-      // FII: sector → ticker
-      var setor2 = cls.setor;
-      var catSectors2 = sectorTargets[cat] || {};
-      if (catSectors2[setor2] === undefined) {
-        var sCopy2 = {};
-        Object.keys(sectorTargets).forEach(function (k) { sCopy2[k] = sectorTargets[k]; });
-        var inner2 = {};
-        Object.keys(catSectors2).forEach(function (k) { inner2[k] = catSectors2[k]; });
-        inner2[setor2] = 0;
-        sCopy2[cat] = inner2;
-        setSectorTargets(sCopy2);
-      }
-      var compKey2 = cat + ':' + setor2;
-      var secO2 = tickerTargets[compKey2] || {};
-      if (secO2[t] !== undefined) return;
-      var oC2 = {};
-      Object.keys(tickerTargets).forEach(function (k) { oC2[k] = tickerTargets[k]; });
-      var iC2 = {};
-      Object.keys(secO2).forEach(function (k) { iC2[k] = secO2[k]; });
-      iC2[t] = 0;
-      oC2[compKey2] = iC2;
-      setTickerTargets(oC2);
-    }
-    setNewTicker('');
-    setSuggestions(null);
-  }
-
-  // ── Render helpers ──
-  function renderTotalBar(total, levelLabel) {
-    var barColor = total === 100 ? C.green : total > 100 ? C.red : C.yellow;
-    var barW = clamp(total, 0, 110);
-    var label = total === 100 ? 'OK' : total < 100 ? 'Faltam ' + (100 - total) + '%' : 'Excede ' + (total - 100) + '%';
-    return (
-      <View style={{ marginBottom: 6, marginTop: 4 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{levelLabel}</Text>
-          <Text style={{ fontSize: 10, fontWeight: '700', color: barColor, fontFamily: F.mono }}>
-            {total + '% — ' + label}
-          </Text>
-        </View>
-        <View style={{ height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.04)' }}>
-          <View style={{ height: 4, borderRadius: 2, backgroundColor: barColor, width: clamp(barW, 0, 100) + '%', opacity: 0.7 }} />
-        </View>
-      </View>
-    );
-  }
-
-  function renderBar(atualPct, metaPct, color, height) {
-    var atualW = clamp(atualPct, 0, 100);
-    var metaW = clamp(metaPct, 0, 100);
-    return (
-      <View style={{ marginTop: 6, height: height, borderRadius: height / 2, backgroundColor: 'rgba(255,255,255,0.03)', position: 'relative' }}>
-        <View style={{ position: 'absolute', top: 0, left: 0, height: height, borderRadius: height / 2,
-          backgroundColor: color, opacity: 0.15, width: metaW + '%' }} />
-        <View style={{ position: 'absolute', top: 0, left: 0, height: height, borderRadius: height / 2,
-          backgroundColor: color, opacity: 0.6, width: atualW + '%' }} />
-        {metaW > 2 ? (
-          <View style={{ position: 'absolute', top: -1, left: metaW + '%', width: 2, height: height + 2,
-            borderRadius: 1, backgroundColor: color, opacity: 0.9 }} />
-        ) : null}
-      </View>
-    );
-  }
-
-  function renderStepper(val, onStep, onSet) {
-    return (
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 1 }}>
-        <TouchableOpacity onPress={function () { onStep(-1); }}
-          style={{ width: 24, height: 26, borderRadius: 5, backgroundColor: C.surface,
-            borderWidth: 1, borderColor: C.border, justifyContent: 'center', alignItems: 'center' }}>
-          <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.mono, lineHeight: 16 }}>-</Text>
-        </TouchableOpacity>
-        <TextInput
-          style={{ width: 40, height: 26, borderRadius: 5, borderWidth: 1, borderColor: C.accent + '40',
-            backgroundColor: C.accent + '08', color: C.accent, fontSize: 13, fontFamily: F.mono,
-            textAlign: 'center', paddingVertical: 0, paddingHorizontal: 2, fontWeight: '700' }}
-          value={String(val)}
-          onChangeText={function (v) { onSet(v); }}
-          keyboardType="numeric"
-          maxLength={3}
-          selectTextOnFocus
-        />
-        <TouchableOpacity onPress={function () { onStep(1); }}
-          style={{ width: 24, height: 26, borderRadius: 5, backgroundColor: C.surface,
-            borderWidth: 1, borderColor: C.border, justifyContent: 'center', alignItems: 'center' }}>
-          <Text style={{ fontSize: 14, color: C.sub, fontFamily: F.mono, lineHeight: 16 }}>+</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  function renderBadge(ajuste, preco) {
-    if (Math.abs(ajuste) <= 50) {
-      return (
-        <View style={{ paddingHorizontal: 6, paddingVertical: 3, borderRadius: 5, backgroundColor: C.green + '10' }}>
-          <Text style={{ fontSize: 10, fontWeight: '600', color: C.green, fontFamily: F.mono }}>OK</Text>
-        </View>
-      );
-    }
-    if (ajuste > 0) {
-      var cotasC = preco > 0 ? Math.floor(ajuste / preco) : 0;
-      return (
-        <View style={{ alignItems: 'flex-end', paddingLeft: 6, paddingVertical: 3, paddingRight: 2,
-          borderRadius: 6, backgroundColor: C.green + '0A' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-            <Text style={{ fontSize: 9, color: C.green, fontFamily: F.mono }}>{'▲'}</Text>
-            <Text style={{ fontSize: 11, fontWeight: '700', color: C.green, fontFamily: F.mono }}>Comprar</Text>
-          </View>
-          <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginTop: 1 }}>{'R$ ' + fmt(ajuste)}</Text>
-          {cotasC > 0 ? (
-            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{'~' + cotasC + ' cotas'}</Text>
-          ) : null}
-        </View>
-      );
-    }
-    return (
-      <View style={{ alignItems: 'flex-end', paddingLeft: 6, paddingVertical: 3, paddingRight: 2,
-        borderRadius: 6, backgroundColor: C.yellow + '0A' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-          <Text style={{ fontSize: 9, color: C.yellow, fontFamily: F.mono }}>{'■'}</Text>
-          <Text style={{ fontSize: 11, fontWeight: '700', color: C.yellow, fontFamily: F.mono }}>Manter</Text>
-        </View>
-        <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono, marginTop: 1 }}>{'R$ ' + fmt(Math.abs(ajuste)) + ' acima'}</Text>
-      </View>
-    );
-  }
-
-  // ── RENDER: Ticker row ──
-  function renderTickerRow(t, cat, sectorKey, indent) {
-    var diffColor = Math.abs(t.diff) < 2 ? C.green : Math.abs(t.diff) < 5 ? C.yellow : C.red;
-    return (
-      <View key={t.key} style={{ marginLeft: indent, marginBottom: 1, padding: 8, borderRadius: 8,
-        backgroundColor: 'rgba(255,255,255,0.01)', borderLeftWidth: 2, borderLeftColor: diffColor + '60' }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 }}>
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.color }} />
-            <Text style={{ fontSize: 11, fontWeight: '600', color: C.text, fontFamily: F.display }} numberOfLines={1}>{t.label}</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {isEditing ? (
-              <View>
-                <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>META</Text>
-                {renderStepper(t.metaPctRel,
-                  function (d) { stepTickerTarget(cat, sectorKey, t.key, d); },
-                  function (v) { setTickerTargetVal(cat, sectorKey, t.key, v); })}
-              </View>
-            ) : null}
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>{t.atualPct.toFixed(1) + '%'}</Text>
-              {!isEditing ? (
-                <Text style={{ fontSize: 10, color: diffColor, fontWeight: '600', fontFamily: F.mono }}>
-                  {t.diff > 0 ? '+' : ''}{t.diff.toFixed(1) + '%'}
-                </Text>
-              ) : null}
-            </View>
-          </View>
-        </View>
-        {renderBar(t.atualPct, t.metaPctAbs, t.color, 8)}
-        {!isEditing && Math.abs(t.ajuste) > 50 ? (
-          <View style={{ marginTop: 4 }}>{renderBadge(t.ajuste, t.preco)}</View>
-        ) : null}
-      </View>
-    );
-  }
-
-  // ── RENDER: Sector row ──
-  function renderSectorRow(s, cat, indent) {
-    var ml = indent !== undefined ? indent : 16;
-    var diffColor = Math.abs(s.diff) < 2 ? C.green : Math.abs(s.diff) < 5 ? C.yellow : C.red;
-    var isExp = expandedSector === (cat + ':' + s.key);
-    var compKey = cat + ':' + s.key;
-    var tTargets = tickerTargets[compKey] || {};
-    var tickerTotalPct = 0;
-    Object.keys(tTargets).forEach(function (k) { tickerTotalPct += (tTargets[k] || 0); });
-
-    return (
-      <View key={s.key}>
-        <TouchableOpacity
-          onPress={function () {
-            animateLayout();
-            setExpandedSector(isExp ? null : cat + ':' + s.key);
-          }}
-          activeOpacity={0.7}
-          style={{ marginLeft: ml, marginBottom: 1, padding: 9, borderRadius: 9,
-            backgroundColor: 'rgba(255,255,255,0.02)', borderLeftWidth: 3, borderLeftColor: diffColor + '70' }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 }}>
-              <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: s.color }} />
-              <Text style={{ fontSize: 12, fontWeight: '600', color: C.text, fontFamily: F.display }}>{s.label}</Text>
-              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{isExp ? '▾' : '▸'}</Text>
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              {isEditing ? (
-                <View>
-                  <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>META</Text>
-                  {renderStepper(s.metaPctRel,
-                    function (d) { stepSectorTarget(cat, s.key, d); },
-                    function (v) { setSectorTargetVal(cat, s.key, v); })}
-                </View>
-              ) : null}
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>
-                  {s.atualPct.toFixed(1) + '% / ' + s.metaPctAbs.toFixed(1) + '%'}
-                </Text>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: diffColor, fontFamily: F.mono }}>
-                  {s.diff > 0 ? '+' : ''}{s.diff.toFixed(1) + '%'}
-                </Text>
-              </View>
-            </View>
-          </View>
-          {renderBar(s.atualPct, s.metaPctAbs, s.color, 10)}
-        </TouchableOpacity>
-        {isExp ? (
-          <View style={{ marginTop: 2 }}>
-            {isEditing ? renderTotalBar(tickerTotalPct, 'Total tickers em ' + s.key) : null}
-            {s.tickers.map(function (t) { return renderTickerRow(t, cat, s.key, ml + 16); })}
-          </View>
-        ) : null}
-      </View>
-    );
-  }
-
-  // ── RENDER: Cap row (Market Cap level for acao) ──
-  function renderCapRow(cg) {
-    var diffColor = Math.abs(cg.diff) < 2 ? C.green : Math.abs(cg.diff) < 5 ? C.yellow : C.red;
-    var isExp = expandedCap === cg.key;
-    var sectorTKey = 'acao:' + cg.key;
-    var sTF = sectorTargets[sectorTKey] || {};
-    var sectorTotalPct = 0;
-    Object.keys(sTF).forEach(function (k) { sectorTotalPct += (sTF[k] || 0); });
-
-    return (
-      <View key={cg.key}>
-        <TouchableOpacity
-          onPress={function () {
-            animateLayout();
-            if (isExp) { setExpandedCap(null); setExpandedSector(null); }
-            else { setExpandedCap(cg.key); setExpandedSector(null); }
-          }}
-          activeOpacity={0.7}
-          style={{ marginLeft: 16, marginBottom: 1, padding: 9, borderRadius: 9,
-            backgroundColor: 'rgba(255,255,255,0.02)', borderLeftWidth: 3, borderLeftColor: diffColor + '70' }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 }}>
-              <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: cg.color }} />
-              <Text style={{ fontSize: 12, fontWeight: '600', color: C.text, fontFamily: F.display }}>{cg.label}</Text>
-              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{isExp ? '▾' : '▸'}</Text>
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              {isEditing ? (
-                <View>
-                  <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>META</Text>
-                  {renderStepper(cg.metaPctRel,
-                    function (d) { stepCapTarget(cg.key, d); },
-                    function (v) { setCapTargetVal(cg.key, v); })}
-                </View>
-              ) : null}
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.mono }}>
-                  {cg.atualPct.toFixed(1) + '% / ' + cg.metaPctAbs.toFixed(1) + '%'}
-                </Text>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: diffColor, fontFamily: F.mono }}>
-                  {cg.diff > 0 ? '+' : ''}{cg.diff.toFixed(1) + '%'}
-                </Text>
-              </View>
-            </View>
-          </View>
-          {renderBar(cg.atualPct, cg.metaPctAbs, cg.color, 10)}
-        </TouchableOpacity>
-        {isExp ? (
-          <View style={{ marginTop: 2 }}>
-            {isEditing ? renderTotalBar(sectorTotalPct, 'Total setores em ' + cg.key) : null}
-            {cg.sectors.map(function (s) { return renderSectorRow(s, 'acao:' + cg.key, 32); })}
-          </View>
-        ) : null}
-      </View>
-    );
-  }
-
-  // ── RENDER: Class row ──
-  function renderClassRow(cls) {
-    var diffColor = Math.abs(cls.diff) < 2 ? C.green : Math.abs(cls.diff) < 5 ? C.yellow : C.red;
-    var isExp = expandedClass === cls.key;
-
-    // Total for sector/cap or flat ticker bar
-    var subTotalPct = 0;
-    if (cls.flat) {
-      var fKey = cls.key + ':_flat';
-      var fT = tickerTargets[fKey] || {};
-      Object.keys(fT).forEach(function (k) { subTotalPct += (fT[k] || 0); });
-    } else if (cls.hasCaps) {
-      Object.keys(capTargets).forEach(function (k) { subTotalPct += (capTargets[k] || 0); });
-    } else {
-      var catST = sectorTargets[cls.key] || {};
-      Object.keys(catST).forEach(function (k) { subTotalPct += (catST[k] || 0); });
-    }
-
-    return (
-      <View key={cls.key}>
-        <TouchableOpacity
-          onPress={function () {
-            animateLayout();
-            if (isExp) { setExpandedClass(null); setExpandedCap(null); setExpandedSector(null); }
-            else { setExpandedClass(cls.key); setExpandedCap(null); setExpandedSector(null); }
-          }}
-          activeOpacity={0.7}
-          style={{ marginBottom: 2, padding: 10, borderRadius: 10,
-            backgroundColor: 'rgba(255,255,255,0.015)', borderLeftWidth: 4, borderLeftColor: diffColor + '80' }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: cls.color }} />
-              <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.display }}>{cls.label}</Text>
-              <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>{isExp ? '▾' : '▸'}</Text>
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              {isEditing ? (
-                <View>
-                  <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>META</Text>
-                  {renderStepper(cls.metaPct,
-                    function (d) { stepClassTarget(cls.key, d); },
-                    function (v) { setClassTargetVal(cls.key, v); })}
-                </View>
-              ) : null}
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.mono }}>
-                  {cls.atualPct.toFixed(1) + '% / ' + cls.metaPct + '%'}
-                </Text>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: diffColor, fontFamily: F.mono }}>
-                  {cls.diff > 0 ? '+' : ''}{cls.diff.toFixed(1) + '%'}
-                </Text>
-              </View>
-            </View>
-          </View>
-          {renderBar(cls.atualPct, cls.metaPct, cls.color, 12)}
-        </TouchableOpacity>
-
-        {isExp ? (
-          <View style={{ marginTop: 2 }}>
-            {isEditing ? renderTotalBar(subTotalPct, cls.flat ? 'Total tickers em ' + cls.label : cls.hasCaps ? 'Total caps em ' + cls.label : 'Total setores em ' + cls.label) : null}
-            {cls.flat ? (
-              cls.tickers.map(function (t) { return renderTickerRow(t, cls.key, '_flat', 16); })
-            ) : cls.hasCaps ? (
-              cls.capGroups.map(function (cg) { return renderCapRow(cg); })
-            ) : (
-              cls.sectors.map(function (s) { return renderSectorRow(s, cls.key); })
-            )}
-          </View>
-        ) : null}
-      </View>
-    );
-  }
-
-  // ── Classify badge for add ticker ──
-  var addClassified = newTicker.trim().length >= 3 ? classifyTicker(newTicker, positions, expandedClass) : null;
-
-  return (
-    <View style={{ gap: 10 }}>
-      {/* ── HEADER CARD ── */}
-      <Glass glow padding={14}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={styles.sectionTitle}>REBALANCEAMENTO</Text>
-            <TouchableOpacity onPress={function() { setRebalInfoModal({ title: 'Rebalanceamento', text: 'Defina metas de alocação por classe, setor e ativo. O sistema calcula os ajustes necessários para equilibrar a carteira.' }); }}>
-              <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-            <TouchableOpacity onPress={function () {
-              animateLayout();
-              setShowProfiles(!showProfiles);
-            }}>
-              <Text style={{ fontSize: 11, color: C.opcoes, fontWeight: '600', fontFamily: F.mono }}>
-                {showProfiles ? '✕ Fechar' : '⚡ Perfil'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={function () {
-              animateLayout();
-              if (isEditing && userId) {
-                // Save to DB when closing edit mode (embed capTargets in sector_targets._cap)
-                setSaving(true);
-                var stToSave = {};
-                Object.keys(sectorTargets).forEach(function (k) { stToSave[k] = sectorTargets[k]; });
-                stToSave._cap = capTargets;
-                upsertRebalanceTargets(userId, {
-                  class_targets: classTargets,
-                  sector_targets: stToSave,
-                  ticker_targets: tickerTargets,
-                }).then(function () { setSaving(false); }).catch(function () { setSaving(false); });
-              }
-              setEditing(!isEditing);
-              if (showProfiles) setShowProfiles(false);
-            }}>
-              <Text style={{ fontSize: 11, color: C.accent, fontWeight: '600', fontFamily: F.mono }}>
-                {isSaving ? '...' : isEditing ? '✓ Salvar' : '✎ Editar metas'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Profile picker */}
-        {showProfiles ? (
-          <View style={{ marginBottom: 14 }}>
-            <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4, marginBottom: 8 }}>
-              REBALANCEAMENTO AUTOMATICO POR PERFIL
-            </Text>
-            <Text style={{ fontSize: 11, color: C.sub, fontFamily: F.body, marginBottom: 10 }}>
-              Selecione seu perfil de investidor para preencher automaticamente todas as metas de classe, setor e ticker.
-            </Text>
-            {['conservador', 'moderado', 'arrojado'].map(function (pKey) {
-              var p = PROFILES[pKey];
-              return (
-                <TouchableOpacity key={pKey} onPress={function () { applyProfile(pKey); }}
-                  activeOpacity={0.7}
-                  style={{ flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 10,
-                    backgroundColor: 'rgba(255,255,255,0.02)', borderWidth: 1, borderColor: C.border + '30',
-                    marginBottom: 6 }}>
-                  <Text style={{ fontSize: 20, marginRight: 12 }}>{p.emoji}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: C.text, fontFamily: F.display }}>{p.label}</Text>
-                    <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.body, marginTop: 2 }}>{p.desc}</Text>
-                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
-                      {['acao', 'fii', 'etf', 'stock_int', 'rf'].map(function (cat) {
-                        return (
-                          <View key={cat} style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
-                            backgroundColor: (PRODUCT_COLORS[cat] || C.accent) + '15' }}>
-                            <Text style={{ fontSize: 9, fontWeight: '700', color: PRODUCT_COLORS[cat] || C.accent, fontFamily: F.mono }}>
-                              {(CAT_NAMES_FULL[cat] || cat).substring(0, 5).toUpperCase() + ' ' + p.classes[cat] + '%'}
-                            </Text>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  </View>
-                  <Text style={{ fontSize: 16, color: C.accent, fontFamily: F.mono }}>→</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ) : null}
-
-        {/* Accuracy gauge */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 14 }}>
-          <View style={{ width: 52, height: 52, borderRadius: 26, borderWidth: 3, borderColor: accColor + '40',
-            justifyContent: 'center', alignItems: 'center', backgroundColor: accColor + '08' }}>
-            <Text style={{ fontSize: 16, fontWeight: '800', color: accColor, fontFamily: F.display }}>
-              {Math.round(accuracy)}
-            </Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, fontFamily: F.body }}>
-              {accuracy >= 95 ? 'Carteira alinhada' : accuracy >= 80 ? 'Pequeno ajuste necessario' : 'Rebalanceamento recomendado'}
-            </Text>
-            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>
-              {'Precisao de alinhamento: ' + Math.round(accuracy) + '%'}
-            </Text>
-          </View>
-        </View>
-
-        {isEditing ? renderTotalBar(totalClassPct, 'Total metas por classe') : null}
-
-        {/* Centralized add ticker */}
-        {isEditing ? (
-          <View style={{ marginTop: 6 }}>
-            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginBottom: 4 }}>ADICIONAR ATIVO</Text>
-            <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', height: 32, borderRadius: 8,
-                borderWidth: 1, borderColor: C.accent + '30', backgroundColor: C.accent + '06', paddingHorizontal: 10 }}>
-                <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono, marginRight: 6 }}>+</Text>
-                <TextInput
-                  style={{ flex: 1, height: 32, color: C.text, fontSize: 12, fontFamily: F.mono, paddingVertical: 0 }}
-                  value={newTicker}
-                  onChangeText={function (v) { setNewTicker(v); }}
-                  placeholder="Ticker (ex: ITUB4, HGLG11, IVVB11)"
-                  placeholderTextColor={C.dim}
-                  autoCapitalize="characters"
-                  maxLength={10}
-                />
-              </View>
-              <TouchableOpacity onPress={addTickerCentralized}
-                style={{ height: 32, paddingHorizontal: 12, borderRadius: 8, backgroundColor: C.accent + '20',
-                  borderWidth: 1, borderColor: C.accent + '40', justifyContent: 'center' }}>
-                <Text style={{ fontSize: 11, color: C.accent, fontWeight: '700', fontFamily: F.mono }}>Adicionar</Text>
-              </TouchableOpacity>
-            </View>
-            {addClassified ? (
-              <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, alignItems: 'center' }}>
-                <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
-                  backgroundColor: (PRODUCT_COLORS[addClassified.classe] || C.accent) + '20' }}>
-                  <Text style={{ fontSize: 9, fontWeight: '700', color: PRODUCT_COLORS[addClassified.classe] || C.accent, fontFamily: F.mono }}>
-                    {(CAT_NAMES_FULL[addClassified.classe] || addClassified.classe).toUpperCase()}
-                  </Text>
-                </View>
-                {addClassified.setor ? (
-                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{addClassified.setor}</Text>
-                ) : null}
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-      </Glass>
-
-      {/* ── ACCORDION ROWS ── */}
-      <Glass padding={10}>
-        {tree.map(function (cls) { return renderClassRow(cls); })}
-      </Glass>
-
-      {/* ── APORTE + SUGESTOES ── */}
-      <Glass padding={14}>
-        <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.4, marginBottom: 10 }}>SIMULAR APORTE</Text>
-        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', height: 38, borderRadius: 10,
-            borderWidth: 1, borderColor: C.accent + '30', backgroundColor: C.accent + '06', paddingHorizontal: 12 }}>
-            <Text style={{ fontSize: 13, color: C.dim, fontFamily: F.mono, marginRight: 6 }}>R$</Text>
-            <TextInput
-              style={{ flex: 1, height: 38, color: C.text, fontSize: 15, fontFamily: F.mono, paddingVertical: 0, fontWeight: '700' }}
-              value={aporteText}
-              onChangeText={function (v) { setAporteText(maskCurrency(v)); setSuggestions(null); }}
-              placeholder="0"
-              placeholderTextColor={C.dim}
-              keyboardType="numeric"
-              maxLength={15}
-            />
-          </View>
-          <TouchableOpacity onPress={function () {
-            animateLayout();
-            computeSuggestions();
-          }}
-            style={{ height: 38, paddingHorizontal: 16, borderRadius: 10, backgroundColor: C.accent,
-              justifyContent: 'center', alignItems: 'center' }}>
-            <Text style={{ fontSize: 12, color: '#fff', fontWeight: '700', fontFamily: F.display }}>Ver sugestoes</Text>
-          </TouchableOpacity>
-        </View>
-
-        {suggestions ? (
-          <View style={{ marginTop: 14 }}>
-            {suggestions.items.length === 0 ? (
-              <View style={{ padding: 12, borderRadius: 8, backgroundColor: C.green + '08' }}>
-                <Text style={{ fontSize: 12, color: C.green, fontFamily: F.body, fontWeight: '600' }}>
-                  Carteira já está alinhada com as metas!
-                </Text>
-                <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 4 }}>
-                  Nenhuma compra necessaria para atingir os alvos.
-                </Text>
-              </View>
-            ) : (
-              <View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: C.text, fontFamily: F.display }}>
-                    {'Sugestao para R$ ' + fmt(suggestions.aporte)}
-                  </Text>
-                  {suggestions.sobra > 1 ? (
-                    <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: C.yellow + '15' }}>
-                      <Text style={{ fontSize: 9, color: C.yellow, fontWeight: '600', fontFamily: F.mono }}>
-                        {'Sobra: R$ ' + fmt(suggestions.sobra)}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-                {suggestions.items.map(function (item, idx) {
-                  return (
-                    <View key={item.key + '_' + idx} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6,
-                      borderBottomWidth: idx < suggestions.items.length - 1 ? 1 : 0, borderBottomColor: C.border + '30' }}>
-                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: item.color, marginRight: 8 }} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 12, fontWeight: '700', color: C.text, fontFamily: F.display }}>{item.label}</Text>
-                        {item.setor ? (
-                          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{item.classe + ' / ' + item.setor}</Text>
-                        ) : (
-                          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{item.classe}</Text>
-                        )}
-                      </View>
-                      <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={{ fontSize: 13, fontWeight: '800', color: C.green, fontFamily: F.mono }}>
-                          {'R$ ' + fmt(item.valor)}
-                        </Text>
-                        {item.cotas > 0 ? (
-                          <Text style={{ fontSize: 10, color: C.sub, fontFamily: F.mono }}>
-                            {item.cotas + ' cotas x R$ ' + fmt(item.preco)}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </View>
-                  );
-                })}
-                <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border + '40',
-                  flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>Total alocado</Text>
-                  <Text style={{ fontSize: 13, fontWeight: '800', color: C.text, fontFamily: F.mono }}>
-                    {'R$ ' + fmt(suggestions.aporte - suggestions.sobra)}
-                  </Text>
-                </View>
-              </View>
-            )}
-          </View>
-        ) : null}
-      </Glass>
-      <Modal visible={rebalInfoModal !== null} animationType="fade" transparent={true}
-        onRequestClose={function() { setRebalInfoModal(null); }}>
-        <TouchableOpacity activeOpacity={1} onPress={function() { setRebalInfoModal(null); }}
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 30 }}>
-          <TouchableOpacity activeOpacity={1}
-            style={{ backgroundColor: C.card, borderRadius: 14, padding: 20, maxWidth: 340, width: '100%', borderWidth: 1, borderColor: C.border }}>
-            <Text style={{ fontSize: 13, color: C.text, fontFamily: F.display, fontWeight: '700', marginBottom: 10 }}>
-              {rebalInfoModal && rebalInfoModal.title || ''}
-            </Text>
-            <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body, lineHeight: 18 }}>
-              {rebalInfoModal && rebalInfoModal.text || ''}
-            </Text>
-            <TouchableOpacity onPress={function() { setRebalInfoModal(null); }}
-              style={{ marginTop: 14, alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 8, borderRadius: 8, backgroundColor: C.accent }}>
-              <Text style={{ fontSize: 12, color: C.text, fontFamily: F.mono, fontWeight: '600' }}>Fechar</Text>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-    </View>
-  );
-}
 
 // ═══════════ INLINE SVG: Proventos Bar Chart ═══════════
 
@@ -5598,9 +4001,19 @@ export default function AnaliseScreen(props) {
   var ps = usePrivacyStyle();
 
   var embedded = props.embedded || false;
-  var forcedTab = props.forcedTab || null;
+  var forcedTab = props.forcedTab || (route && route.params && route.params.forcedTab) || null;
+  var propPortfolioId = props.portfolioId !== undefined ? props.portfolioId : null;
   var initialTab = forcedTab || (route && route.params && route.params.initialTab ? route.params.initialTab : 'perf');
+  var routeInitialTickers = (route && route.params && route.params.initialTickers) || null;
   var _canAccessAnalysis = embedded || subscription.canAccess('ANALYSIS_TAB');
+
+  // Helper: JCP tem 15% IR retido na fonte — retorna valor liquido do provento
+  function provLiquido(prov) {
+    var val = prov.valor_total || 0;
+    var tipo = (prov.tipo_provento || prov.tipo || '').toLowerCase();
+    if (tipo === 'jcp') return val * 0.85;
+    return val;
+  }
 
   var scrollRef = useRef(null);
   useScrollToTop(scrollRef);
@@ -5659,7 +4072,7 @@ export default function AnaliseScreen(props) {
   var _searchError = useState(''); var searchError = _searchError[0]; var setSearchError = _searchError[1];
   var _provSub = useState('visao'); var provSub = _provSub[0]; var setProvSub = _provSub[1];
   var _selDonut = useState(-1); var selDonut = _selDonut[0]; var setSelDonut = _selDonut[1];
-  var _savedRebalTargets = useState(null); var savedRebalTargets = _savedRebalTargets[0]; var setSavedRebalTargets = _savedRebalTargets[1];
+  // savedRebalTargets removido — agora integrado na CarteiraScreen
   var _ibovHistory = useState([]); var ibovHistory = _ibovHistory[0]; var setIbovHistory = _ibovHistory[1];
   var _catShowAllEnc = useState(false); var catShowAllEnc = _catShowAllEnc[0]; var setCatShowAllEnc = _catShowAllEnc[1];
   var _catPLBarView = useState('mensal'); var catPLBarView = _catPLBarView[0]; var setCatPLBarView = _catPLBarView[1];
@@ -5667,8 +4080,14 @@ export default function AnaliseScreen(props) {
   var _showDrawdown = useState(false); var showDrawdown = _showDrawdown[0]; var setShowDrawdown = _showDrawdown[1];
   var _showPnlClasse = useState(false); var showPnlClasse = _showPnlClasse[0]; var setShowPnlClasse = _showPnlClasse[1];
 
+  // Portfolio selector (standalone mode only)
+  var _anlPortfolios = useState([]); var anlPortfolios = _anlPortfolios[0]; var setAnlPortfolios = _anlPortfolios[1];
+  var _anlSelPortfolio = useState(null); var anlSelPortfolio = _anlSelPortfolio[0]; var setAnlSelPortfolio = _anlSelPortfolio[1];
+  var _anlShowPortDD = useState(false); var anlShowPortDD = _anlShowPortDD[0]; var setAnlShowPortDD = _anlShowPortDD[1];
+  var _anlDefaultApplied = useState(false); var anlDefaultApplied = _anlDefaultApplied[0]; var setAnlDefaultApplied = _anlDefaultApplied[1];
+
   // Comparativo states
-  var _compTickers = useState([]); var compTickers = _compTickers[0]; var setCompTickers = _compTickers[1];
+  var _compTickers = useState(routeInitialTickers || []); var compTickers = _compTickers[0]; var setCompTickers = _compTickers[1];
   var _compPeriod = useState('6M'); var compPeriod = _compPeriod[0]; var setCompPeriod = _compPeriod[1];
   var _compData = useState(null); var compData = _compData[0]; var setCompData = _compData[1];
   var _compLoading = useState(false); var compLoading = _compLoading[0]; var setCompLoading = _compLoading[1];
@@ -5683,20 +4102,43 @@ export default function AnaliseScreen(props) {
   var _compAiLoading = useState(false); var compAiLoading = _compAiLoading[0]; var setCompAiLoading = _compAiLoading[1];
   var _compAiVisible = useState(false); var compAiVisible = _compAiVisible[0]; var setCompAiVisible = _compAiVisible[1];
   var _compAiConfirmVisible = useState(false); var compAiConfirmVisible = _compAiConfirmVisible[0]; var setCompAiConfirmVisible = _compAiConfirmVisible[1];
+  var _compFs = useState(false); var compFs = _compFs[0]; var setCompFs = _compFs[1];
+  var _compFsDims = useState({ w: Dimensions.get('window').width, h: Dimensions.get('window').height });
+  var compFsDims = _compFsDims[0]; var setCompFsDims = _compFsDims[1];
   var _compSearchTimer = useRef(null);
 
   // ── Data loading ──
   var load = async function() {
     if (!user) return;
     try {
+      // Determine effective portfolioId
+      var effectivePortfolio = embedded ? propPortfolioId : anlSelPortfolio;
+      var dashPortfolioId = null;
+      if (effectivePortfolio === '__default__') dashPortfolioId = '__null__';
+      else if (effectivePortfolio) dashPortfolioId = effectivePortfolio;
+
+      // Fetch portfolios for standalone selector
+      if (!embedded) {
+        try {
+          var pfRes = await getPortfolios(user.id);
+          var pfs = pfRes.data || [];
+          setAnlPortfolios(pfs);
+          if (!anlDefaultApplied && pfs.length > 0) {
+            setAnlSelPortfolio('__default__');
+            setAnlDefaultApplied(true);
+            effectivePortfolio = '__default__';
+            dashPortfolioId = '__null__';
+          }
+        } catch (e) { /* ignore */ }
+      }
+
       var results = await Promise.all([
-        getDashboard(user.id),
-        getProventos(user.id),
-        getOperacoes(user.id),
+        getDashboard(user.id, dashPortfolioId),
+        getProventos(user.id, { portfolioId: dashPortfolioId }),
+        getOperacoes(user.id, { portfolioId: dashPortfolioId }),
         getProfile(user.id),
-        getOpcoes(user.id),
+        getOpcoes(user.id, dashPortfolioId),
         getIndicators(user.id),
-        getRebalanceTargets(user.id),
       ]);
       var posData = results[0].positions || [];
 
@@ -5717,7 +4159,7 @@ export default function AnaliseScreen(props) {
       setOpcoes(results[4].data || []);
       var indData = results[5].data || [];
       setIndicators(indData);
-      setSavedRebalTargets(results[6].data || null);
+      // rebalTargets removido — integrado na CarteiraScreen
 
       // Trigger daily calculation if stale
       var lastCalc = indData.length > 0 ? indData[0].data_calculo : null;
@@ -5757,6 +4199,16 @@ export default function AnaliseScreen(props) {
   };
 
   useFocusEffect(useCallback(function() { load(); }, [user]));
+
+  // Reload when portfolio changes (standalone or embedded)
+  useEffect(function() {
+    if (!user) return;
+    if (embedded) {
+      load();
+    } else if (anlDefaultApplied) {
+      load();
+    }
+  }, [anlSelPortfolio, propPortfolioId]);
 
   // ── Derived: Performance ──
   var patrimonioHistory = dashboard ? (dashboard.patrimonioHistory || []) : [];
@@ -5901,7 +4353,7 @@ export default function AnaliseScreen(props) {
     var apByYearTicker = {};
     for (var api = 0; api < proventos.length; api++) {
       var apProv = proventos[api];
-      var apVal = apProv.valor_total || 0;
+      var apVal = provLiquido(apProv);
       var apDate = new Date((apProv.data_pagamento || '') + 'T12:00:00');
       if (isNaN(apDate.getTime())) continue;
       var apMKey = apDate.getFullYear() + '-' + String(apDate.getMonth() + 1).padStart(2, '0');
@@ -5964,7 +4416,7 @@ export default function AnaliseScreen(props) {
     var frProv = proventos[fri];
     var frTk = (frProv.ticker || '').toUpperCase().trim();
     if (!fiiTickerSet[frTk]) continue;
-    var frVal = frProv.valor_total || 0;
+    var frVal = provLiquido(frProv);
     fiiRendTotal += frVal;
     var frDateStr = (frProv.data_pagamento || '').substring(0, 10);
     var frDate = parseLocalDate(frProv.data_pagamento);
@@ -6043,7 +4495,7 @@ export default function AnaliseScreen(props) {
   var catMesesPositivos = 0;
   var catMesesNegativos = 0;
 
-  if (perfSub === 'acao' || perfSub === 'fii' || perfSub === 'etf' || perfSub === 'stock_int') {
+  if (perfSub === 'acao' || perfSub === 'fii' || perfSub === 'etf' || perfSub === 'bdr' || perfSub === 'stock_int' || perfSub === 'adr' || perfSub === 'reit') {
     for (var cp = 0; cp < positions.length; cp++) {
       if ((positions[cp].categoria || 'acao') === perfSub) {
         catPositions.push(positions[cp]);
@@ -6076,7 +4528,7 @@ export default function AnaliseScreen(props) {
     for (var cdp = 0; cdp < proventos.length; cdp++) {
       var prov = proventos[cdp];
       if (!catTickerSet[prov.ticker]) continue;
-      var provVal = prov.valor_total || 0;
+      var provVal = provLiquido(prov);
       catDividendsTotal += provVal;
       var provDateStr = (prov.data_pagamento || '').substring(0, 10);
       var provPago = provDateStr <= catTodayStr;
@@ -6182,7 +4634,7 @@ export default function AnaliseScreen(props) {
   var catPlMonthly = [];
   var catPlAnnual = [];
 
-  if (perfSub === 'acao' || perfSub === 'fii' || perfSub === 'etf' || perfSub === 'stock_int') {
+  if (perfSub === 'acao' || perfSub === 'fii' || perfSub === 'etf' || perfSub === 'bdr' || perfSub === 'stock_int' || perfSub === 'adr' || perfSub === 'reit') {
     // P&L Realizado (posições ativas com vendas + encerradas)
     for (var cpri = 0; cpri < positions.length; cpri++) {
       if ((positions[cpri].categoria || 'acao') === perfSub) {
@@ -6538,6 +4990,16 @@ export default function AnaliseScreen(props) {
     alocGrouped.rf = rfTotalAloc;
     totalAlocPatrimonio += rfTotalAloc;
   }
+  // Include saldos (caixa) for unified denominator
+  var saldosAloc = dashboard && dashboard.saldos ? dashboard.saldos : [];
+  var saldosTotalAloc = 0;
+  for (var si = 0; si < saldosAloc.length; si++) {
+    saldosTotalAloc += (saldosAloc[si].saldo || 0);
+  }
+  if (saldosTotalAloc > 0) {
+    alocGrouped.caixa = saldosTotalAloc;
+    totalAlocPatrimonio += saldosTotalAloc;
+  }
 
   // ── Derived: Asset list (for treemap + rentabilidade) ──
   var assetList = positions.map(function(p) {
@@ -6613,13 +5075,13 @@ export default function AnaliseScreen(props) {
     });
   }
 
-  var totalProvs = filteredProventos.reduce(function(s, p) { return s + (p.valor_total || 0); }, 0);
+  var totalProvs = filteredProventos.reduce(function(s, p) { return s + provLiquido(p); }, 0);
 
   // Proventos 12 meses (todos, sem filtro de tipo)
   var proventos12m = 0;
   proventos.forEach(function(p) {
     var pd = new Date(p.data_pagamento + 'T12:00:00');
-    if (pd >= oneYearAgo) proventos12m += (p.valor_total || 0);
+    if (pd >= oneYearAgo) proventos12m += provLiquido(p);
   });
 
   // Yield on cost
@@ -6640,7 +5102,7 @@ export default function AnaliseScreen(props) {
   for (var pse = 0; pse < provSemEtf.length; pse++) {
     var pseP = provSemEtf[pse];
     var pseDate = (pseP.data_pagamento || '').substring(0, 10);
-    var pseVal = pseP.valor_total || 0;
+    var pseVal = provLiquido(pseP);
     var psePd = new Date(pseP.data_pagamento + 'T12:00:00');
     if (pseDate <= todayProvStr) { provSemEtfRecebido += pseVal; } else { provSemEtfAReceber += pseVal; }
     if (psePd >= oneYearAgo && pseDate <= todayProvStr) provSemEtf12m += pseVal;
@@ -6669,7 +5131,7 @@ export default function AnaliseScreen(props) {
     var hmPd = hmProv.data_pagamento || '';
     if (hmPd.length < 7) continue;
     var hmMes = String(parseInt(hmPd.substring(5, 7)));
-    var hmVal = hmProv.valor_total || 0;
+    var hmVal = provLiquido(hmProv);
     if (!hmTickers[hmTk]) hmTickers[hmTk] = {};
     if (!hmTickers[hmTk][hmMes]) hmTickers[hmTk][hmMes] = 0;
     hmTickers[hmTk][hmMes] += hmVal;
@@ -6717,8 +5179,9 @@ export default function AnaliseScreen(props) {
     var prov = provMesAtual[pmi];
     var provTk = (prov.ticker || '').toUpperCase().trim();
     var isPago = (prov.data_pagamento || '') <= todayProvStr;
+    var provValLiq = provLiquido(prov);
     if (prov.corretora) {
-      addProvToCorretora(corretoraMap, prov.corretora, prov, prov.quantidade || 0, prov.valor_total || 0, isPago);
+      addProvToCorretora(corretoraMap, prov.corretora, prov, prov.quantidade || 0, provValLiq, isPago);
     } else {
       var tkCorr = posCorretMap[provTk];
       if (tkCorr) {
@@ -6732,14 +5195,14 @@ export default function AnaliseScreen(props) {
             var corrQty = tkCorr[corrKeysArr[ckj]] || 0;
             if (corrQty <= 0) continue;
             var ratio = corrQty / totalQtyCorr;
-            var corrValor = (prov.valor_total || 0) * ratio;
+            var corrValor = provValLiq * ratio;
             addProvToCorretora(corretoraMap, corrKeysArr[ckj], prov, Math.round(corrQty), corrValor, isPago);
           }
         } else {
-          addProvToCorretora(corretoraMap, 'Sem corretora', prov, prov.quantidade || 0, prov.valor_total || 0, isPago);
+          addProvToCorretora(corretoraMap, 'Sem corretora', prov, prov.quantidade || 0, provValLiq, isPago);
         }
       } else {
-        addProvToCorretora(corretoraMap, 'Sem corretora', prov, prov.quantidade || 0, prov.valor_total || 0, isPago);
+        addProvToCorretora(corretoraMap, 'Sem corretora', prov, prov.quantidade || 0, provValLiq, isPago);
       }
     }
   }
@@ -6760,7 +5223,7 @@ export default function AnaliseScreen(props) {
     if (!fiiTickerSet[fr12Tk]) continue;
     var fr12DateStr = (fr12Prov.data_pagamento || '').substring(0, 10);
     var fr12Date = new Date(fr12Prov.data_pagamento + 'T12:00:00');
-    if (fr12Date >= fiiOneYrAgo && fr12DateStr <= fiiTodayStr) fiiRend12mRecebido += (fr12Prov.valor_total || 0);
+    if (fr12Date >= fiiOneYrAgo && fr12DateStr <= fiiTodayStr) fiiRend12mRecebido += provLiquido(fr12Prov);
   }
   var fiiCusto = 0;
   var fiiValorAtual = 0;
@@ -6804,7 +5267,7 @@ export default function AnaliseScreen(props) {
     var fprDateStr = (fprProv.data_pagamento || '').substring(0, 10);
     if (fprDate >= fiiOneYrAgo && fprDateStr <= fiiTodayStr) {
       if (!fiiProvByTicker12m[fprTk]) fiiProvByTicker12m[fprTk] = 0;
-      fiiProvByTicker12m[fprTk] += (fprProv.valor_total || 0);
+      fiiProvByTicker12m[fprTk] += provLiquido(fprProv);
     }
   }
   var fiiAssetRanking = [];
@@ -6827,7 +5290,7 @@ export default function AnaliseScreen(props) {
     var fhmPd = fhmProv.data_pagamento || '';
     if (fhmPd.length < 7) continue;
     var fhmMes = String(parseInt(fhmPd.substring(5, 7)));
-    var fhmVal = fhmProv.valor_total || 0;
+    var fhmVal = provLiquido(fhmProv);
     if (!fiiHmTickers[fhmTk]) fiiHmTickers[fhmTk] = {};
     if (!fiiHmTickers[fhmTk][fhmMes]) fiiHmTickers[fhmTk][fhmMes] = 0;
     fiiHmTickers[fhmTk][fhmMes] += fhmVal;
@@ -6853,8 +5316,9 @@ export default function AnaliseScreen(props) {
     var fcProv = fiiMesAtual[fcm];
     var fcTk = (fcProv.ticker || '').toUpperCase().trim();
     var fcIsPago = (fcProv.data_pagamento || '').substring(0, 10) <= fiiTodayStr;
+    var fcValLiq = provLiquido(fcProv);
     if (fcProv.corretora) {
-      addProvToCorretora(fiiCorretoraMap, fcProv.corretora, fcProv, fcProv.quantidade || 0, fcProv.valor_total || 0, fcIsPago);
+      addProvToCorretora(fiiCorretoraMap, fcProv.corretora, fcProv, fcProv.quantidade || 0, fcValLiq, fcIsPago);
     } else {
       var fcCorr = posCorretMap[fcTk];
       if (fcCorr) {
@@ -6866,13 +5330,13 @@ export default function AnaliseScreen(props) {
             var fcQty = fcCorr[fcKeysArr[fckj]] || 0;
             if (fcQty <= 0) continue;
             var fcRatio = fcQty / fcTotalQty;
-            addProvToCorretora(fiiCorretoraMap, fcKeysArr[fckj], fcProv, Math.round(fcQty), (fcProv.valor_total || 0) * fcRatio, fcIsPago);
+            addProvToCorretora(fiiCorretoraMap, fcKeysArr[fckj], fcProv, Math.round(fcQty), fcValLiq * fcRatio, fcIsPago);
           }
         } else {
-          addProvToCorretora(fiiCorretoraMap, 'Sem corretora', fcProv, fcProv.quantidade || 0, fcProv.valor_total || 0, fcIsPago);
+          addProvToCorretora(fiiCorretoraMap, 'Sem corretora', fcProv, fcProv.quantidade || 0, fcValLiq, fcIsPago);
         }
       } else {
-        addProvToCorretora(fiiCorretoraMap, 'Sem corretora', fcProv, fcProv.quantidade || 0, fcProv.valor_total || 0, fcIsPago);
+        addProvToCorretora(fiiCorretoraMap, 'Sem corretora', fcProv, fcProv.quantidade || 0, fcValLiq, fcIsPago);
       }
     }
   }
@@ -7364,7 +5828,75 @@ export default function AnaliseScreen(props) {
         </View>
       ) : null}
 
-      {/* Sub-tabs */}
+      {/* Portfolio selector (standalone mode) */}
+      {!embedded && anlPortfolios.length > 0 ? (
+        <View style={{ paddingHorizontal: SIZE.padding, marginBottom: 8, zIndex: 10 }}>
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', alignSelf: 'flex-start' }}
+            onPress={function() { setAnlShowPortDD(!anlShowPortDD); }}
+            activeOpacity={0.7}
+          >
+            {(function() {
+              var lbl = 'Todos';
+              var clr = C.accent;
+              var ico = 'people-outline';
+              if (anlSelPortfolio === '__default__') { lbl = 'Padrão'; ico = 'briefcase-outline'; }
+              else if (anlSelPortfolio) {
+                for (var pi2 = 0; pi2 < anlPortfolios.length; pi2++) {
+                  if (anlPortfolios[pi2].id === anlSelPortfolio) {
+                    lbl = anlPortfolios[pi2].nome; clr = anlPortfolios[pi2].cor || C.accent; ico = anlPortfolios[pi2].icone || null;
+                    break;
+                  }
+                }
+              }
+              return (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  {ico ? <Ionicons name={ico} size={14} color={clr} /> : <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: clr }} />}
+                  <Text style={{ fontSize: 12, fontFamily: F.body, color: C.text }}>{lbl}</Text>
+                  <Ionicons name={anlShowPortDD ? 'chevron-up' : 'chevron-down'} size={14} color="rgba(255,255,255,0.3)" />
+                </View>
+              );
+            })()}
+          </TouchableOpacity>
+          {anlShowPortDD ? (
+            <View style={{ backgroundColor: C.bg, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', marginTop: 4, overflow: 'hidden' }}>
+              <TouchableOpacity
+                style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' }, !anlSelPortfolio && { backgroundColor: C.accent + '11' }]}
+                onPress={function() { setAnlSelPortfolio(null); setAnlShowPortDD(false); }}
+              >
+                <Ionicons name="people-outline" size={14} color={!anlSelPortfolio ? C.accent : 'rgba(255,255,255,0.3)'} />
+                <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, !anlSelPortfolio && { color: C.accent }]}>Todos</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' }, anlSelPortfolio === '__default__' && { backgroundColor: C.accent + '11' }]}
+                onPress={function() { setAnlSelPortfolio('__default__'); setAnlShowPortDD(false); }}
+              >
+                <Ionicons name="briefcase-outline" size={14} color={anlSelPortfolio === '__default__' ? C.accent : 'rgba(255,255,255,0.3)'} />
+                <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, anlSelPortfolio === '__default__' && { color: C.accent }]}>Padrão</Text>
+              </TouchableOpacity>
+              {anlPortfolios.map(function(p) {
+                var isAct = anlSelPortfolio === p.id;
+                return (
+                  <TouchableOpacity key={p.id}
+                    style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' }, isAct && { backgroundColor: C.accent + '11' }]}
+                    onPress={function() { setAnlSelPortfolio(p.id); setAnlShowPortDD(false); }}
+                  >
+                    {p.icone ? (
+                      <Ionicons name={p.icone} size={14} color={isAct ? (p.cor || C.accent) : 'rgba(255,255,255,0.3)'} />
+                    ) : (
+                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.cor || C.accent }} />
+                    )}
+                    <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, isAct && { color: p.cor || C.accent }]}>{p.nome}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Sub-tabs
+          Fase F: 'Renda Passiva' (prov) removida — duplicacao da tab Renda. */}
       {!embedded ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.subTabs}>
@@ -7373,7 +5905,6 @@ export default function AnaliseScreen(props) {
               { k: 'aloc', l: 'Alocação' },
               { k: 'comp', l: 'Composição' },
               { k: 'compar', l: 'Comparativo' },
-              { k: 'prov', l: 'Renda Passiva' },
             ].map(function(t) {
               return (
                 <Pill key={t.k} active={sub === t.k} color={C.accent}
@@ -7891,86 +6422,13 @@ export default function AnaliseScreen(props) {
                 </>
               )}
 
-              {/* P&L por classe (collapsible) */}
-              {pnlClassList.length > 0 && (
-                <>
-                  <TouchableOpacity onPress={function() { setShowPnlClasse(!showPnlClasse); }} activeOpacity={0.7}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: showPnlClasse ? 12 : 0 }}>
-                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: F.mono, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: '600' }}>
-                      {showPnlClasse ? '▾' : '▸'} P&L POR CLASSE
-                    </Text>
-                    <TouchableOpacity onPress={function() { setInfoModal({ title: 'P&L por Classe', text: 'Contribuição de cada classe de ativo (Ações, FIIs, ETFs, RF) para o resultado total da carteira em reais.' }); }}>
-                      <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
-                    </TouchableOpacity>
-                  </TouchableOpacity>
-                  {showPnlClasse && <Glass padding={14}>
-                    {pnlClassList.map(function(c, i) {
-                      var isPos = c.val >= 0;
-                      var barColor = isPos ? C.green : C.red;
-                      var barPct = clamp(Math.abs(c.val) / maxAbsClassPnl * 100, 2, 100);
-                      return (
-                        <View key={i} style={styles.hbarRow}>
-                          <Text style={styles.hbarLabel} numberOfLines={1}>{c.label}</Text>
-                          <View style={styles.hbarTrack}>
-                            <View style={[styles.hbarFill, {
-                              width: barPct + '%',
-                              backgroundColor: barColor + '40',
-                              borderColor: barColor + '80',
-                            }]} />
-                          </View>
-                          <Text style={[styles.plClassValue, { color: barColor }]} numberOfLines={1}>
-                            {isPos ? '+' : '\u2212'}R$ {fmtC(Math.abs(c.val))}
-                          </Text>
-                        </View>
-                      );
-                    })}
-                    <View style={{ borderTopWidth: 1, borderTopColor: C.border, marginTop: 8, paddingTop: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ fontSize: 10, color: C.sub, fontWeight: '700', fontFamily: F.mono }}>TOTAL</Text>
-                      {(function() {
-                        var totalPL = pnlClassList.reduce(function(s, c) { return s + c.val; }, 0);
-                        var isTotalPos = totalPL >= 0;
-                        return (
-                          <Text style={{ fontSize: 12, fontWeight: '800', color: isTotalPos ? C.green : C.red, fontFamily: F.mono }}>
-                            {isTotalPos ? '+' : '\u2212'}R$ {fmtC(Math.abs(totalPL))}
-                          </Text>
-                        );
-                      })()}
-                    </View>
-                  </Glass>}
-                </>
-              )}
 
-              {/* ── PROVENTOS (all categories) ── */}
-              {allProvData.length > 0 && allProvMax > 0 && (
-                <>
-                  <SectionLabel>PROVENTOS</SectionLabel>
-                  <Glass padding={12}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                      <View style={{ flexDirection: 'row', gap: 6 }}>
-                        <TouchableOpacity
-                          onPress={function() { setAllProvMode('mensal'); }}
-                          style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 8, backgroundColor: allProvMode === 'mensal' ? C.accent + '20' : 'transparent', borderWidth: 1, borderColor: allProvMode === 'mensal' ? C.accent + '50' : C.border }}>
-                          <Text style={{ fontSize: 10, fontWeight: '700', color: allProvMode === 'mensal' ? C.accent : C.dim, fontFamily: F.mono }}>MENSAL</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={function() { setAllProvMode('anual'); }}
-                          style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 8, backgroundColor: allProvMode === 'anual' ? C.accent + '20' : 'transparent', borderWidth: 1, borderColor: allProvMode === 'anual' ? C.accent + '50' : C.border }}>
-                          <Text style={{ fontSize: 10, fontWeight: '700', color: allProvMode === 'anual' ? C.accent : C.dim, fontFamily: F.mono }}>ANUAL</Text>
-                        </TouchableOpacity>
-                      </View>
-                      <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>
-                        {'Total: R$ ' + fmt(allProvData.reduce(function(s, d) { return s + d.value; }, 0))}
-                      </Text>
-                    </View>
-                    <Sensitive><ProvVertBarChart data={allProvData} maxVal={allProvMax} color={C.fiis} height={190} /></Sensitive>
-                  </Glass>
-                </>
-              )}
+
             </>
           )}
 
           {/* ── ACAO / FII / ETF / STOCK_INT ── */}
-          {(perfSub === 'acao' || perfSub === 'fii' || perfSub === 'etf' || perfSub === 'stock_int') && (
+          {(perfSub === 'acao' || perfSub === 'fii' || perfSub === 'etf' || perfSub === 'bdr' || perfSub === 'stock_int' || perfSub === 'adr' || perfSub === 'reit') && (
             <>
               {catPositions.length === 0 && catEncerradas.length === 0 ? (
                 <EmptyState
@@ -9228,10 +7686,7 @@ export default function AnaliseScreen(props) {
                     </Glass>
                   ) : null}
 
-                  {/* Rebalanceamento */}
-                  <RebalanceTool allocAtual={alocGrouped} totalCarteira={totalAlocPatrimonio}
-                    positions={positions} assetList={assetList} rendaFixa={rendaFixa}
-                    userId={user && user.id} savedTargets={savedRebalTargets} />
+                  {/* Rebalanceamento agora integrado na CarteiraScreen */}
             </>
           )}
         </>
@@ -9485,7 +7940,7 @@ export default function AnaliseScreen(props) {
                 <View>
                   <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, letterSpacing: 0.3 }}>QUANTIDADE</Text>
                   <Text style={{ fontSize: 13, fontWeight: '600', color: C.text, fontFamily: F.mono, marginTop: 2 }}>
-                    {selectedTile.quantidade.toLocaleString('pt-BR')}
+                    {formatQty(selectedTile.quantidade)}
                   </Text>
                 </View>
                 <View>
@@ -10484,6 +8939,11 @@ export default function AnaliseScreen(props) {
               { key: '3M', range: '3mo' },
               { key: '6M', range: '6mo' },
               { key: '1A', range: '1y' },
+              { key: '2A', range: '2y' },
+              { key: '3A', range: '3y' },
+              { key: '4A', range: '4y' },
+              { key: '5A', range: '5y' },
+              { key: 'Max', range: 'max' },
             ];
             var COMP_COLORS = [C.acoes, C.fiis, C.opcoes, C.etfs];
 
@@ -10599,6 +9059,51 @@ export default function AnaliseScreen(props) {
               });
             };
 
+            // Downsample: for periods >= 2A use weekly, for Max use monthly
+            var needsSample = compPeriod === '2A' || compPeriod === '3A' || compPeriod === '4A' || compPeriod === '5A' || compPeriod === 'Max';
+            var useMonthly = compPeriod === 'Max' || compPeriod === '5A' || compPeriod === '4A';
+
+            var downsampleWeekly = function(arr) {
+              if (!arr || arr.length === 0) return arr;
+              var result = [];
+              var lastWeek = '';
+              for (var dw = 0; dw < arr.length; dw++) {
+                var d = arr[dw].date;
+                if (!d) continue;
+                // ISO week key: year + week number
+                var dObj = new Date(d + 'T12:00:00');
+                var jan1 = new Date(dObj.getFullYear(), 0, 1);
+                var wk = Math.ceil(((dObj - jan1) / 86400000 + jan1.getDay() + 1) / 7);
+                var wkKey = dObj.getFullYear() + '-W' + wk;
+                if (wkKey !== lastWeek) {
+                  result.push(arr[dw]);
+                  lastWeek = wkKey;
+                } else {
+                  // Keep last point of each week (overwrite)
+                  result[result.length - 1] = arr[dw];
+                }
+              }
+              return result;
+            };
+
+            var downsampleMonthly = function(arr) {
+              if (!arr || arr.length === 0) return arr;
+              var result = [];
+              var lastMonth = '';
+              for (var dm = 0; dm < arr.length; dm++) {
+                var d = arr[dm].date;
+                if (!d) continue;
+                var mKey = d.substring(0, 7); // YYYY-MM
+                if (mKey !== lastMonth) {
+                  result.push(arr[dm]);
+                  lastMonth = mKey;
+                } else {
+                  result[result.length - 1] = arr[dm];
+                }
+              }
+              return result;
+            };
+
             // Normalize data: compute % return from first close
             var normalized = {};
             var allDates = [];
@@ -10617,7 +9122,14 @@ export default function AnaliseScreen(props) {
                   if (!dt || cl == null) continue;
                   var pctRet = ((cl / firstClose) - 1) * 100;
                   normSeries.push({ date: dt, pct: pctRet, close: cl });
-                  if (!dateSet[dt]) { dateSet[dt] = true; allDates.push(dt); }
+                }
+                // Downsample if long period
+                if (needsSample) {
+                  normSeries = useMonthly ? downsampleMonthly(normSeries) : downsampleWeekly(normSeries);
+                }
+                for (var nd = 0; nd < normSeries.length; nd++) {
+                  var ndt = normSeries[nd].date;
+                  if (!dateSet[ndt]) { dateSet[ndt] = true; allDates.push(ndt); }
                 }
                 normalized[ntk] = normSeries;
               }
@@ -10674,11 +9186,19 @@ export default function AnaliseScreen(props) {
               setCompAiVisible(true);
               setCompAiResult(null);
 
-              // Build ranking array
-              var rankArr = compTickers.slice().sort(function(a, b) { return (rankWins[b] || 0) - (rankWins[a] || 0); });
+              // Build ranking array (by win rate)
+              var rankArr = compTickers.slice().sort(function(a, b) {
+                var pA2 = rankParticipation[a] || 0;
+                var pB2 = rankParticipation[b] || 0;
+                var rA = pA2 > 0 ? (rankWins[a] || 0) / pA2 : -1;
+                var rB = pB2 > 0 ? (rankWins[b] || 0) / pB2 : -1;
+                if (rA !== rB) return rB - rA;
+                return (rankWins[b] || 0) - (rankWins[a] || 0);
+              });
               var rankData = [];
               for (var ri2 = 0; ri2 < rankArr.length; ri2++) {
-                rankData.push({ ticker: rankArr[ri2], wins: rankWins[rankArr[ri2]] || 0 });
+                var rTk = rankArr[ri2];
+                rankData.push({ ticker: rTk, wins: rankWins[rTk] || 0, participated: rankParticipation[rTk] || 0 });
               }
 
               // Build prices obj
@@ -10731,17 +9251,24 @@ export default function AnaliseScreen(props) {
 
             // Ranking tracker: wins per ticker per section + overall
             var rankWins = {};
+            var rankParticipation = {}; // how many indicators each ticker competed in
             var sectionWins = {};
-            for (var rw = 0; rw < compTickers.length; rw++) { rankWins[compTickers[rw]] = 0; }
+            var sectionParticipation = {};
+            for (var rw = 0; rw < compTickers.length; rw++) {
+              rankWins[compTickers[rw]] = 0;
+              rankParticipation[compTickers[rw]] = 0;
+            }
 
             // Helper: find best index for a row (also tracks wins)
             var findBestIdx = function(vals, invert, sectionKey) {
               var bestIdx = -1;
               var bestVal = null;
               var validCount = 0;
+              var validIdxs = [];
               for (var bi = 0; bi < vals.length; bi++) {
                 if (vals[bi] == null) continue;
                 validCount++;
+                validIdxs.push(bi);
                 if (bestVal == null) { bestVal = vals[bi]; bestIdx = bi; continue; }
                 if (invert) {
                   if (vals[bi] < bestVal) { bestVal = vals[bi]; bestIdx = bi; }
@@ -10750,6 +9277,17 @@ export default function AnaliseScreen(props) {
                 }
               }
               if (validCount < 2) return -1;
+              // Track participation for all tickers that had data
+              for (var vp = 0; vp < validIdxs.length; vp++) {
+                var pTk = compTickers[validIdxs[vp]];
+                rankParticipation[pTk] = (rankParticipation[pTk] || 0) + 1;
+                if (sectionKey) {
+                  if (!sectionParticipation[sectionKey]) {
+                    sectionParticipation[sectionKey] = {};
+                  }
+                  sectionParticipation[sectionKey][pTk] = (sectionParticipation[sectionKey][pTk] || 0) + 1;
+                }
+              }
               // Track win
               if (bestIdx >= 0) {
                 var winner = compTickers[bestIdx];
@@ -10784,12 +9322,22 @@ export default function AnaliseScreen(props) {
                   {vals.map(function(v, vi) {
                     var isBest = vi === bestIdx;
                     var display = v != null ? (format === 'pct' ? v.toFixed(1) + '%' : v.toFixed(2)) : '-';
+                    var unavailReason = null;
+                    if (v == null) {
+                      var fundData = compFundamentals[compTickers[vi]];
+                      if (fundData && fundData._unavailable && fundData._unavailable[key]) {
+                        unavailReason = fundData._unavailable[key];
+                      }
+                    }
                     return (
-                      <Text key={vi} style={{
-                        flex: 1, fontSize: 12, fontFamily: F.mono, textAlign: 'center',
-                        color: isBest ? C.green : C.text,
-                        fontWeight: isBest ? '700' : '400',
-                      }}>{display}</Text>
+                      <View key={vi} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                        <Text style={{
+                          fontSize: 12, fontFamily: F.mono, textAlign: 'center',
+                          color: v == null ? C.dim : (isBest ? C.green : C.text),
+                          fontWeight: isBest ? '700' : '400',
+                        }}>{display}</Text>
+                        {unavailReason ? <InfoTip text={unavailReason} size={10} color={C.dim} /> : null}
+                      </View>
                     );
                   })}
                 </View>
@@ -10800,28 +9348,56 @@ export default function AnaliseScreen(props) {
             var renderSectionRanking = function(sectionKey, sectionLabel) {
               var sw = sectionWins[sectionKey];
               if (!sw) return null;
-              // Compute ranking order
+              var sp2 = sectionParticipation[sectionKey] || {};
+              // Compute ranking order by win rate (wins / participation)
               var items = [];
               for (var sr = 0; sr < compTickers.length; sr++) {
-                items.push({ ticker: compTickers[sr], wins: sw[compTickers[sr]] || 0, color: COMP_COLORS[sr] || C.accent });
+                var tk = compTickers[sr];
+                var w = sw[tk] || 0;
+                var p = sp2[tk] || 0;
+                var rate = p > 0 ? w / p : -1; // -1 = no data at all
+                items.push({ ticker: tk, wins: w, participated: p, rate: rate, color: COMP_COLORS[sr] || C.accent });
               }
-              items.sort(function(a, b) { return b.wins - a.wins; });
-              // Assign positions (1st, 2nd, etc) with ties
+              // Sort by win rate desc, then by wins desc as tiebreaker
+              items.sort(function(a, b) {
+                if (a.rate !== b.rate) return b.rate - a.rate;
+                return b.wins - a.wins;
+              });
+              // Assign positions (only among those who participated)
               var pos = 1;
               for (var sp = 0; sp < items.length; sp++) {
-                if (sp > 0 && items[sp].wins < items[sp - 1].wins) pos = sp + 1;
+                if (items[sp].participated === 0) {
+                  items[sp].pos = -1; // no data
+                  continue;
+                }
+                if (sp > 0 && items[sp].rate < items[sp - 1].rate) {
+                  // Count how many before this had data
+                  var countBefore = 0;
+                  for (var cb = 0; cb < sp; cb++) {
+                    if (items[cb].participated > 0) countBefore++;
+                  }
+                  pos = countBefore + 1;
+                }
                 items[sp].pos = pos;
               }
               var medalColors = ['#FFD700', '#C0C0C0', '#CD7F32', C.dim];
               return (
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border, flexWrap: 'wrap' }}>
                   <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginRight: 4 }}>RANKING</Text>
                   {items.map(function(it, ii) {
+                    if (it.participated === 0) {
+                      return (
+                        <View key={ii} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                          <Text style={{ fontSize: 10, fontFamily: F.mono, fontWeight: '700', color: it.color }}>{it.ticker}</Text>
+                          <Text style={{ fontSize: 9, fontFamily: F.mono, color: C.dim }}>s/d</Text>
+                        </View>
+                      );
+                    }
                     return (
                       <View key={ii} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                         <Text style={{ fontSize: 11, fontFamily: F.mono, fontWeight: '700', color: medalColors[it.pos - 1] || C.dim }}>{it.pos + 'º'}</Text>
                         <Text style={{ fontSize: 10, fontFamily: F.mono, fontWeight: '700', color: it.color }}>{it.ticker}</Text>
-                        <Text style={{ fontSize: 9, fontFamily: F.mono, color: C.dim }}>{'(' + it.wins + ')'}</Text>
+                        <Text style={{ fontSize: 9, fontFamily: F.mono, color: C.dim }}>{it.wins + '/' + it.participated}</Text>
                       </View>
                     );
                   })}
@@ -10994,32 +9570,59 @@ export default function AnaliseScreen(props) {
 
                 {/* ── Period pills ── */}
                 {compData ? (
-                  <View style={styles.periodRow}>
-                    {COMP_PERIODS.map(function(p) {
-                      var active = compPeriod === p.key;
-                      return (
-                        <TouchableOpacity key={p.key}
-                          style={[styles.periodPill, active ? styles.periodPillActive : styles.periodPillInactive]}
-                          onPress={function() { setCompPeriod(p.key); setCompData(null); setCompTouch(null); }}>
-                          <Text style={[styles.periodPillText, { color: active ? C.accent : C.dim }]}>
-                            {p.key}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                    <View style={[styles.periodRow, { paddingHorizontal: 4 }]}>
+                      {COMP_PERIODS.map(function(p) {
+                        var active = compPeriod === p.key;
+                        return (
+                          <TouchableOpacity key={p.key}
+                            style={[styles.periodPill, active ? styles.periodPillActive : styles.periodPillInactive]}
+                            onPress={function() {
+                              if (p.key === compPeriod) return;
+                              setCompPeriod(p.key);
+                              setCompTouch(null);
+                              // Auto-refetch with new period
+                              setCompLoading(true);
+                              setCompFundLoading(true);
+                              var rv = p.range;
+                              Promise.all([
+                                fetchPriceHistoryRange(compTickers, rv),
+                                fetchPrices(compTickers),
+                                Promise.all(compTickers.map(function(t) {
+                                  return fetchFundamentals(t, 'BR').then(function(f) {
+                                    return { ticker: t, data: f };
+                                  }).catch(function() { return { ticker: t, data: null }; });
+                                })),
+                              ]).then(function(results) {
+                                setCompData(results[0]);
+                                setCompPrices(results[1] || {});
+                                var fundMap = {};
+                                var fundArr = results[2] || [];
+                                for (var fi = 0; fi < fundArr.length; fi++) {
+                                  if (fundArr[fi].data) fundMap[fundArr[fi].ticker] = fundArr[fi].data;
+                                }
+                                setCompFundamentals(fundMap);
+                                setCompLoading(false);
+                                setCompFundLoading(false);
+                              }).catch(function() {
+                                setCompLoading(false);
+                                setCompFundLoading(false);
+                              });
+                            }}>
+                            <Text style={[styles.periodPillText, { color: active ? C.accent : C.dim }]}>
+                              {p.key}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
                 ) : null}
 
                 {/* ── Rentability Chart ── */}
                 {hasChart && (function() {
-                  var chartH = 200;
-                  var chartW = SCREEN_W - 2 * SIZE.padding - 24;
-                  var padL = 42;
-                  var padR = 10;
-                  var padT = 12;
-                  var padB = 24;
-                  var plotH = chartH - padT - padB;
-                  var plotW = chartW - padL - padR;
+                  var dateIdx = {};
+                  for (var di = 0; di < allDates.length; di++) { dateIdx[allDates[di]] = di; }
                   var n = allDates.length;
 
                   var maxAbs = 1;
@@ -11034,175 +9637,300 @@ export default function AnaliseScreen(props) {
                   maxAbs = Math.ceil(maxAbs) + 1;
                   if (maxAbs < 3) maxAbs = 3;
 
-                  var zeroY = padT + plotH / 2;
-                  var valToY = function(v) { return zeroY - (v / maxAbs) * (plotH / 2); };
-                  var idxToX = function(i) {
-                    if (n <= 1) return padL + plotW / 2;
-                    return padL + (i / (n - 1)) * plotW;
+                  // Reusable chart builder
+                  var buildChart = function(chartW, chartH, prefix) {
+                    var padL = 42;
+                    var padR = 10;
+                    var padT = 12;
+                    var padB = 24;
+                    var plotH = chartH - padT - padB;
+                    var plotW = chartW - padL - padR;
+
+                    var zeroY = padT + plotH / 2;
+                    var valToY = function(v) { return zeroY - (v / maxAbs) * (plotH / 2); };
+                    var idxToX = function(i) {
+                      if (n <= 1) return padL + plotW / 2;
+                      return padL + (i / (n - 1)) * plotW;
+                    };
+
+                    var svgEls = [];
+
+                    var ySteps = [maxAbs, maxAbs / 2, 0, -maxAbs / 2, -maxAbs];
+                    for (var yi = 0; yi < ySteps.length; yi++) {
+                      var yv = ySteps[yi];
+                      var yp = valToY(yv);
+                      svgEls.push(React.createElement(SvgLine, {
+                        key: prefix + 'cg-' + yi, x1: padL, y1: yp, x2: padL + plotW, y2: yp,
+                        stroke: yv === 0 ? C.sub + '50' : C.sub + '18', strokeWidth: yv === 0 ? 1 : 0.5,
+                      }));
+                      svgEls.push(React.createElement(SvgText, {
+                        key: prefix + 'cyl-' + yi, x: padL - 4, y: yp + 3,
+                        fontSize: 8, fill: C.dim, fontFamily: F.mono, textAnchor: 'end',
+                      }, (yv >= 0 ? '+' : '') + yv.toFixed(1) + '%'));
+                    }
+
+                    var xLabelCount = chartW > 500 ? 8 : 5;
+                    var xLabelStep = Math.max(1, Math.floor(n / xLabelCount));
+                    for (var xi = 0; xi < n; xi += xLabelStep) {
+                      var xDate = allDates[xi];
+                      var xLabel = xDate ? xDate.substring(5, 7) + '/' + xDate.substring(8, 10) : '';
+                      svgEls.push(React.createElement(SvgText, {
+                        key: prefix + 'cxl-' + xi, x: idxToX(xi), y: chartH - 4,
+                        fontSize: 7, fill: C.dim, fontFamily: F.mono, textAnchor: 'middle',
+                      }, xLabel));
+                    }
+
+                    for (var li = 0; li < compTickers.length; li++) {
+                      var ltk = compTickers[li];
+                      var ldata = seriesMap[ltk];
+                      if (!ldata || ldata.length < 2) continue;
+                      var lcolor = COMP_COLORS[li] || C.accent;
+
+                      var pts = [];
+                      for (var lp = 0; lp < ldata.length; lp++) {
+                        var ldIdx = dateIdx[ldata[lp].date];
+                        if (ldIdx == null) continue;
+                        pts.push({ x: idxToX(ldIdx), y: valToY(ldata[lp].pct), val: ldata[lp].pct, date: ldata[lp].date, close: ldata[lp].close });
+                      }
+
+                      if (pts.length >= 2) {
+                        var aPath = 'M' + pts[0].x + ',' + zeroY;
+                        for (var ap = 0; ap < pts.length; ap++) {
+                          aPath = aPath + ' L' + pts[ap].x + ',' + pts[ap].y;
+                        }
+                        aPath = aPath + ' L' + pts[pts.length - 1].x + ',' + zeroY + ' Z';
+                        svgEls.push(React.createElement(Path, {
+                          key: prefix + 'ca-' + li, d: aPath, fill: lcolor, opacity: 0.06,
+                        }));
+                      }
+
+                      if (pts.length >= 2) {
+                        var lPath = 'M' + pts[0].x + ',' + pts[0].y;
+                        for (var ll = 1; ll < pts.length; ll++) {
+                          lPath = lPath + ' L' + pts[ll].x + ',' + pts[ll].y;
+                        }
+                        svgEls.push(React.createElement(Path, {
+                          key: prefix + 'cl-' + li, d: lPath, stroke: lcolor, strokeWidth: 2, fill: 'none', opacity: 0.9,
+                        }));
+                      }
+
+                      if (pts.length > 0) {
+                        var lastPt = pts[pts.length - 1];
+                        svgEls.push(React.createElement(Circle, {
+                          key: prefix + 'cdg-' + li, cx: lastPt.x, cy: lastPt.y, r: 5, fill: lcolor, opacity: 0.2,
+                        }));
+                        svgEls.push(React.createElement(Circle, {
+                          key: prefix + 'cdd-' + li, cx: lastPt.x, cy: lastPt.y, r: 3, fill: lcolor, opacity: 1,
+                        }));
+                      }
+                    }
+
+                    if (compTouch) {
+                      svgEls.push(React.createElement(SvgLine, {
+                        key: prefix + 'ct-line', x1: compTouch.x, y1: padT, x2: compTouch.x, y2: padT + plotH,
+                        stroke: C.text, strokeWidth: 0.5, opacity: 0.4, strokeDasharray: '3,3',
+                      }));
+                    }
+
+                    return { svgEls: svgEls, idxToX: idxToX, valToY: valToY };
                   };
 
-                  var dateIdx = {};
-                  for (var di = 0; di < allDates.length; di++) { dateIdx[allDates[di]] = di; }
-
-                  var svgEls = [];
-
-                  var ySteps = [maxAbs, maxAbs / 2, 0, -maxAbs / 2, -maxAbs];
-                  for (var yi = 0; yi < ySteps.length; yi++) {
-                    var yv = ySteps[yi];
-                    var yp = valToY(yv);
-                    svgEls.push(React.createElement(SvgLine, {
-                      key: 'cg-' + yi, x1: padL, y1: yp, x2: padL + plotW, y2: yp,
-                      stroke: yv === 0 ? C.sub + '50' : C.sub + '18', strokeWidth: yv === 0 ? 1 : 0.5,
-                    }));
-                    svgEls.push(React.createElement(SvgText, {
-                      key: 'cyl-' + yi, x: padL - 4, y: yp + 3,
-                      fontSize: 8, fill: C.dim, fontFamily: F.mono, textAnchor: 'end',
-                    }, (yv >= 0 ? '+' : '') + yv.toFixed(1) + '%'));
-                  }
-
-                  var xLabelStep = Math.max(1, Math.floor(n / 5));
-                  for (var xi = 0; xi < n; xi += xLabelStep) {
-                    var xDate = allDates[xi];
-                    var xLabel = xDate ? xDate.substring(5, 7) + '/' + xDate.substring(8, 10) : '';
-                    svgEls.push(React.createElement(SvgText, {
-                      key: 'cxl-' + xi, x: idxToX(xi), y: chartH - 4,
-                      fontSize: 7, fill: C.dim, fontFamily: F.mono, textAnchor: 'middle',
-                    }, xLabel));
-                  }
-
-                  for (var li = 0; li < compTickers.length; li++) {
-                    var ltk = compTickers[li];
-                    var ldata = seriesMap[ltk];
-                    if (!ldata || ldata.length < 2) continue;
-                    var lcolor = COMP_COLORS[li] || C.accent;
-
-                    var pts = [];
-                    for (var lp = 0; lp < ldata.length; lp++) {
-                      var ldIdx = dateIdx[ldata[lp].date];
-                      if (ldIdx == null) continue;
-                      pts.push({ x: idxToX(ldIdx), y: valToY(ldata[lp].pct), val: ldata[lp].pct, date: ldata[lp].date, close: ldata[lp].close });
-                    }
-
-                    if (pts.length >= 2) {
-                      var aPath = 'M' + pts[0].x + ',' + zeroY;
-                      for (var ap = 0; ap < pts.length; ap++) {
-                        aPath = aPath + ' L' + pts[ap].x + ',' + pts[ap].y;
+                  var handleTouch = function(idxToXFn) {
+                    return function(evt) {
+                      var touchX = evt.nativeEvent.locationX;
+                      var closestIdx = 0;
+                      var closestDist = 99999;
+                      for (var fi = 0; fi < n; fi++) {
+                        var dist = Math.abs(idxToXFn(fi) - touchX);
+                        if (dist < closestDist) { closestDist = dist; closestIdx = fi; }
                       }
-                      aPath = aPath + ' L' + pts[pts.length - 1].x + ',' + zeroY + ' Z';
-                      svgEls.push(React.createElement(Path, {
-                        key: 'ca-' + li, d: aPath, fill: lcolor, opacity: 0.06,
-                      }));
-                    }
-
-                    if (pts.length >= 2) {
-                      var lPath = 'M' + pts[0].x + ',' + pts[0].y;
-                      for (var ll = 1; ll < pts.length; ll++) {
-                        lPath = lPath + ' L' + pts[ll].x + ',' + pts[ll].y;
+                      var touchDate = allDates[closestIdx];
+                      var vals = [];
+                      for (var vi = 0; vi < compTickers.length; vi++) {
+                        var vtk = compTickers[vi];
+                        var vdata = seriesMap[vtk];
+                        if (!vdata) continue;
+                        var bestPt = null;
+                        var bestDist2 = 99999;
+                        for (var vj = 0; vj < vdata.length; vj++) {
+                          var vdi = dateIdx[vdata[vj].date];
+                          if (vdi == null) continue;
+                          var vd = Math.abs(vdi - closestIdx);
+                          if (vd < bestDist2) { bestDist2 = vd; bestPt = vdata[vj]; }
+                        }
+                        if (bestPt) vals.push({ ticker: vtk, pct: bestPt.pct, close: bestPt.close, color: COMP_COLORS[vi] || C.accent });
                       }
-                      svgEls.push(React.createElement(Path, {
-                        key: 'cl-' + li, d: lPath, stroke: lcolor, strokeWidth: 2, fill: 'none', opacity: 0.9,
-                      }));
-                    }
-
-                    if (pts.length > 0) {
-                      var lastPt = pts[pts.length - 1];
-                      svgEls.push(React.createElement(Circle, {
-                        key: 'cdg-' + li, cx: lastPt.x, cy: lastPt.y, r: 5, fill: lcolor, opacity: 0.2,
-                      }));
-                      svgEls.push(React.createElement(Circle, {
-                        key: 'cdd-' + li, cx: lastPt.x, cy: lastPt.y, r: 3, fill: lcolor, opacity: 1,
-                      }));
-                    }
-                  }
-
-                  if (compTouch) {
-                    svgEls.push(React.createElement(SvgLine, {
-                      key: 'ct-line', x1: compTouch.x, y1: padT, x2: compTouch.x, y2: padT + plotH,
-                      stroke: C.text, strokeWidth: 0.5, opacity: 0.4, strokeDasharray: '3,3',
-                    }));
-                  }
-
-                  var handleTouch = function(evt) {
-                    var touchX = evt.nativeEvent.locationX;
-                    var closestIdx = 0;
-                    var closestDist = 99999;
-                    for (var fi = 0; fi < n; fi++) {
-                      var dist = Math.abs(idxToX(fi) - touchX);
-                      if (dist < closestDist) { closestDist = dist; closestIdx = fi; }
-                    }
-                    var touchDate = allDates[closestIdx];
-                    var vals = [];
-                    for (var vi = 0; vi < compTickers.length; vi++) {
-                      var vtk = compTickers[vi];
-                      var vdata = seriesMap[vtk];
-                      if (!vdata) continue;
-                      var bestPt = null;
-                      var bestDist = 99999;
-                      for (var vj = 0; vj < vdata.length; vj++) {
-                        var vdi = dateIdx[vdata[vj].date];
-                        if (vdi == null) continue;
-                        var vd = Math.abs(vdi - closestIdx);
-                        if (vd < bestDist) { bestDist = vd; bestPt = vdata[vj]; }
-                      }
-                      if (bestPt) vals.push({ ticker: vtk, pct: bestPt.pct, close: bestPt.close, color: COMP_COLORS[vi] || C.accent });
-                    }
-                    setCompTouch({ x: idxToX(closestIdx), date: touchDate, vals: vals });
+                      setCompTouch({ x: idxToXFn(closestIdx), date: touchDate, vals: vals });
+                    };
                   };
+
+                  // Inline chart
+                  var inlineW = SCREEN_W - 2 * SIZE.padding - 24;
+                  var inlineH = 200;
+                  var inlineChart = buildChart(inlineW, inlineH, 'i');
+                  var inlineTouch = handleTouch(inlineChart.idxToX);
+
+                  // Legend row
+                  var legendRow = (
+                    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 10 }}>
+                      {compTickers.map(function(tk2, idx) {
+                        var sd = seriesMap[tk2];
+                        var lastPct = sd && sd.length > 0 ? sd[sd.length - 1].pct : 0;
+                        var lc = COMP_COLORS[idx] || C.accent;
+                        return (
+                          <View key={tk2} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                            <View style={{ width: 12, height: 3, borderRadius: 2, backgroundColor: lc }} />
+                            <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, fontWeight: '700' }}>{tk2}</Text>
+                            <Text style={{ fontSize: 10, color: lastPct >= 0 ? C.green : C.red, fontFamily: F.mono }}>
+                              {(lastPct >= 0 ? '+' : '') + lastPct.toFixed(1) + '%'}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  );
+
+                  // Tooltip
+                  var tooltipView = compTouch ? (
+                    <View style={{ backgroundColor: C.bg, borderRadius: 8, padding: 8, marginBottom: 6, borderWidth: 1, borderColor: C.sub + '20' }}>
+                      <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginBottom: 4 }}>
+                        {compTouch.date ? compTouch.date.substring(8, 10) + '/' + compTouch.date.substring(5, 7) + '/' + compTouch.date.substring(0, 4) : ''}
+                      </Text>
+                      {compTouch.vals.map(function(v, vi) {
+                        return (
+                          <View key={vi} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: v.color }} />
+                            <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, width: 50 }}>{v.ticker}</Text>
+                            <Text style={{ fontSize: 10, color: v.pct >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' }}>
+                              {(v.pct >= 0 ? '+' : '') + v.pct.toFixed(2) + '%'}
+                            </Text>
+                            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>
+                              {'R$ ' + fmt(v.close)}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : null;
+
+                  // Sampling label
+                  var sampleLabel = useMonthly ? 'Mensal' : (needsSample ? 'Semanal' : 'Diário');
 
                   return (
-                    <Glass padding={12}>
-                      <Text style={styles.sectionTitle}>RENTABILIDADE COMPARADA (%)</Text>
+                    <View>
+                      <Glass padding={12}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <Text style={styles.sectionTitle}>RENTABILIDADE COMPARADA (%)</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            {needsSample ? (
+                              <Text style={{ fontSize: 8, color: C.dim, fontFamily: F.mono }}>{sampleLabel}</Text>
+                            ) : null}
+                            <TouchableOpacity
+                              onPress={function() {
+                                setCompTouch(null);
+                                if (ScreenOrientation) {
+                                  ScreenOrientation.unlockAsync().catch(function() {});
+                                }
+                                setCompFs(true);
+                              }}
+                              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                              <Ionicons name="expand-outline" size={16} color={C.dim} />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
 
-                      {compTouch ? (
-                        <View style={{ backgroundColor: C.bg, borderRadius: 8, padding: 8, marginBottom: 6, borderWidth: 1, borderColor: C.sub + '20' }}>
-                          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, marginBottom: 4 }}>
-                            {compTouch.date ? compTouch.date.substring(8, 10) + '/' + compTouch.date.substring(5, 7) + '/' + compTouch.date.substring(0, 4) : ''}
-                          </Text>
-                          {compTouch.vals.map(function(v, vi) {
+                        {tooltipView}
+
+                        <View
+                          onStartShouldSetResponder={function() { return true; }}
+                          onMoveShouldSetResponder={function() { return true; }}
+                          onResponderGrant={inlineTouch}
+                          onResponderMove={inlineTouch}
+                          onResponderRelease={function() {}}>
+                          <Svg width={inlineW} height={inlineH}>
+                            {inlineChart.svgEls}
+                          </Svg>
+                        </View>
+
+                        {legendRow}
+                      </Glass>
+
+                      {/* Fullscreen Modal */}
+                      <Modal
+                        visible={compFs}
+                        animationType="fade"
+                        transparent={false}
+                        supportedOrientations={['portrait', 'landscape']}
+                        onRequestClose={function() {
+                          setCompFs(false);
+                          setCompTouch(null);
+                          if (ScreenOrientation) {
+                            ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(function() {});
+                          }
+                        }}>
+                        <View
+                          style={{ flex: 1, backgroundColor: C.bg }}
+                          onLayout={function(e) {
+                            var layout = e.nativeEvent.layout;
+                            setCompFsDims({ w: layout.width, h: layout.height });
+                          }}>
+                          {(function() {
+                            var isLand = compFsDims.w > compFsDims.h;
+                            var fsPadTop = isLand ? 10 : 54;
+                            var fsPadH = isLand ? 44 : SIZE.padding;
+                            var fsChartW = compFsDims.w - 2 * fsPadH - 24;
+                            var fsChartH = isLand ? compFsDims.h - 80 : compFsDims.h * 0.45;
+                            var fsChart = buildChart(fsChartW, fsChartH, 'fs');
+                            var fsTouch = handleTouch(fsChart.idxToX);
+
                             return (
-                              <View key={vi} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: v.color }} />
-                                <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, width: 50 }}>{v.ticker}</Text>
-                                <Text style={{ fontSize: 10, color: v.pct >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' }}>
-                                  {(v.pct >= 0 ? '+' : '') + v.pct.toFixed(2) + '%'}
-                                </Text>
-                                <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>
-                                  {'R$ ' + fmt(v.close)}
-                                </Text>
+                              <View style={{ flex: 1, paddingTop: fsPadTop, paddingHorizontal: fsPadH }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                  <Text style={{ fontSize: 14, fontFamily: F.display, color: C.text }}>Rentabilidade Comparada (%)</Text>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                    {needsSample ? (
+                                      <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{sampleLabel}</Text>
+                                    ) : null}
+                                    <TouchableOpacity
+                                      onPress={function() {
+                                        setCompFs(false);
+                                        setCompTouch(null);
+                                        if (ScreenOrientation) {
+                                          ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(function() {});
+                                        }
+                                      }}
+                                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                                      <Ionicons name="close" size={22} color={C.text} />
+                                    </TouchableOpacity>
+                                  </View>
+                                </View>
+
+                                {tooltipView}
+
+                                <View
+                                  onStartShouldSetResponder={function() { return true; }}
+                                  onMoveShouldSetResponder={function() { return true; }}
+                                  onResponderGrant={fsTouch}
+                                  onResponderMove={fsTouch}
+                                  onResponderRelease={function() {}}>
+                                  <Svg width={fsChartW} height={fsChartH}>
+                                    {fsChart.svgEls}
+                                  </Svg>
+                                </View>
+
+                                {legendRow}
+
+                                {!isLand ? (
+                                  <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body, textAlign: 'center', marginTop: 12 }}>
+                                    Gire o dispositivo para visualizar em paisagem
+                                  </Text>
+                                ) : null}
                               </View>
                             );
-                          })}
+                          })()}
                         </View>
-                      ) : null}
-
-                      <View
-                        onStartShouldSetResponder={function() { return true; }}
-                        onMoveShouldSetResponder={function() { return true; }}
-                        onResponderGrant={handleTouch}
-                        onResponderMove={handleTouch}
-                        onResponderRelease={function() {}}>
-                        <Svg width={chartW} height={chartH}>
-                          {svgEls}
-                        </Svg>
-                      </View>
-
-                      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 10 }}>
-                        {compTickers.map(function(tk2, idx) {
-                          var sd = seriesMap[tk2];
-                          var lastPct = sd && sd.length > 0 ? sd[sd.length - 1].pct : 0;
-                          var lc = COMP_COLORS[idx] || C.accent;
-                          return (
-                            <View key={tk2} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                              <View style={{ width: 12, height: 3, borderRadius: 2, backgroundColor: lc }} />
-                              <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, fontWeight: '700' }}>{tk2}</Text>
-                              <Text style={{ fontSize: 10, color: lastPct >= 0 ? C.green : C.red, fontFamily: F.mono }}>
-                                {(lastPct >= 0 ? '+' : '') + lastPct.toFixed(1) + '%'}
-                              </Text>
-                            </View>
-                          );
-                        })}
-                      </View>
-                    </Glass>
+                      </Modal>
+                    </View>
                   );
                 })()}
 
@@ -11308,33 +10036,50 @@ export default function AnaliseScreen(props) {
 
                     {/* ── Ranking Geral ── */}
                     {(function() {
-                      var sorted = compTickers.slice().sort(function(a, b) { return (rankWins[b] || 0) - (rankWins[a] || 0); });
                       var totalWins = 0;
                       for (var tw = 0; tw < compTickers.length; tw++) { totalWins += (rankWins[compTickers[tw]] || 0); }
                       if (totalWins === 0) return null;
+                      // Sort by win rate (wins/participation), then by absolute wins
+                      var sorted = compTickers.slice().sort(function(a, b) {
+                        var pA = rankParticipation[a] || 0;
+                        var pB = rankParticipation[b] || 0;
+                        var rateA = pA > 0 ? (rankWins[a] || 0) / pA : -1;
+                        var rateB = pB > 0 ? (rankWins[b] || 0) / pB : -1;
+                        if (rateA !== rateB) return rateB - rateA;
+                        return (rankWins[b] || 0) - (rankWins[a] || 0);
+                      });
                       var medals = ['🥇', '🥈', '🥉', '4º'];
                       return (
                         <Glass padding={14}>
                           <Text style={styles.sectionTitle}>RANKING GERAL</Text>
                           <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body, marginTop: 2, marginBottom: 10 }}>
-                            Baseado na quantidade de indicadores vencidos em todas as seções
+                            Taxa de vitória por indicador (vitórias / indicadores disputados)
                           </Text>
                           {sorted.map(function(tk, si) {
                             var wins = rankWins[tk] || 0;
-                            var pct = totalWins > 0 ? Math.round(wins / totalWins * 100) : 0;
+                            var part = rankParticipation[tk] || 0;
+                            var winRate = part > 0 ? Math.round(wins / part * 100) : 0;
                             var tkIdx = compTickers.indexOf(tk);
                             var tkColor = COMP_COLORS[tkIdx] || C.accent;
+                            var noData = part === 0;
                             return (
                               <View key={tk} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: si < sorted.length - 1 ? 1 : 0, borderBottomColor: C.border }}>
-                                <Text style={{ fontSize: 18, width: 30 }}>{medals[si] || (si + 1) + 'º'}</Text>
+                                <Text style={{ fontSize: 18, width: 30 }}>{noData ? '—' : (medals[si] || (si + 1) + 'º')}</Text>
                                 <View style={{ flex: 1 }}>
-                                  <Text style={{ fontSize: 14, fontFamily: F.display, color: tkColor }}>{tk}</Text>
-                                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                                    <View style={{ flex: 1, height: 6, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' }}>
-                                      <View style={{ width: pct + '%', height: 6, backgroundColor: tkColor, borderRadius: 3 }} />
-                                    </View>
-                                    <Text style={{ fontSize: 11, fontFamily: F.mono, color: tkColor, marginLeft: 8, width: 50, textAlign: 'right' }}>{wins} ({pct}%)</Text>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                    <Text style={{ fontSize: 14, fontFamily: F.display, color: tkColor }}>{tk}</Text>
+                                    {noData ? (
+                                      <Text style={{ fontSize: 9, fontFamily: F.mono, color: C.dim }}>sem dados</Text>
+                                    ) : null}
                                   </View>
+                                  {!noData ? (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                                      <View style={{ flex: 1, height: 6, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' }}>
+                                        <View style={{ width: winRate + '%', height: 6, backgroundColor: tkColor, borderRadius: 3 }} />
+                                      </View>
+                                      <Text style={{ fontSize: 11, fontFamily: F.mono, color: tkColor, marginLeft: 8, width: 70, textAlign: 'right' }}>{wins + '/' + part + ' (' + winRate + '%)'}</Text>
+                                    </View>
+                                  ) : null}
                                 </View>
                               </View>
                             );
@@ -11516,6 +10261,7 @@ export default function AnaliseScreen(props) {
     </ScrollView>
     <AiConfirmModal
       visible={compAiConfirmVisible}
+      navigation={navigation}
       analysisType="Comparativo de ativos"
       onCancel={function() { setCompAiConfirmVisible(false); }}
       onConfirm={function() { setCompAiConfirmVisible(false); handleCompAi(); }}
