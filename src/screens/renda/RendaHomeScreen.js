@@ -1,14 +1,16 @@
-// RendaHomeScreen — Tela principal (Fase E).
-// Substitui HomeScreen. Narrativa unica focada em renda mensal.
+// RendaHomeScreen — Tela principal (Fase E + recovery 2026-04-10).
+// Substitui HomeScreen. Narrativa focada em renda mensal.
 //
-// Layout (decidido na Fase B+):
-//   1. Split hero (patrimonio + renda lado a lado) + chart + meta
-//   2. "Esta Semana" — alertas + proximos 7 dias
-//   3. "Como Crescer" — potencial + gaps + snowball
-//   4. "Breakdown 12m" — bars mensais + fontes
+// Layout:
+//   1. Header (titulo + portfolio selector + privacy toggle + profile)
+//   2. Patrimonio Hero (InteractiveChart + KPI bar + allocation bar + 3 cards)
+//   3. Renda do Mes detalhada (Dividendos + Opcoes + breakdown + Meta)
+//   4. Esta Semana — alertas + proximos 7 dias
+//   5. Como Crescer — potencial + gaps + snowball
+//   6. Breakdown 12m — bars mensais + fontes
+//   7. FAB
 //
-// Consome AppStoreContext: zero fetches diretos, tudo via hooks.
-// Usa tokens (T) e densidade balanceada.
+// Consome AppStoreContext + getDashboard direto (patrimonioHistory).
 
 import React from 'react';
 var useState = React.useState;
@@ -19,20 +21,47 @@ import {
   ActivityIndicator, RefreshControl, Dimensions,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import Svg, { Rect, Path, Circle } from 'react-native-svg';
+import Svg, { Rect, Path } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F } from '../../theme';
 import { T } from '../../theme/tokens';
 import { Glass } from '../../components';
+import InteractiveChart from '../../components/InteractiveChart';
+import Fab from '../../components/Fab';
 import Sensitive, { usePrivacyStyle } from '../../components/Sensitive';
 import SnowballCard from '../../components/SnowballCard';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePrivacy } from '../../contexts/PrivacyContext';
 import {
   useAppStore, useIncome, useCarteira, useFinancas, useRefresh,
 } from '../../contexts/AppStoreContext';
 import { computeRendaPotencial } from '../../services/rendaPotencialService';
+import { getDashboard } from '../../services/database';
 
 var W = Dimensions.get('window').width;
+
+// ─────────── Paleta por categoria (reuso do HomeScreen antigo) ───────────
+var P = {
+  acao:      { label: 'Acoes',    short: 'Acoes', color: '#22c55e' },
+  fii:       { label: 'FIIs',     short: 'FII', color: '#a855f7' },
+  opcao:     { label: 'Opcoes',   short: 'OP', color: '#0ea5e9' },
+  etf:       { label: 'ETFs BR',  short: 'ETF', color: '#f59e0b' },
+  etf_int:   { label: 'ETFs INT', short: 'ETF INT', color: '#FBBF24' },
+  bdr:       { label: 'BDRs',     short: 'BDR', color: '#FB923C' },
+  stock_int: { label: 'Stocks',   short: 'Stock', color: '#E879F9' },
+  adr:       { label: 'ADRs',     short: 'ADR', color: '#F472B6' },
+  reit:      { label: 'REITs',    short: 'REIT', color: '#34D399' },
+  rf:        { label: 'RF',       short: 'RF', color: '#ec4899' },
+};
+var PKEYS = ['acao', 'fii', 'opcao', 'etf', 'etf_int', 'bdr', 'stock_int', 'adr', 'reit', 'rf'];
+
+var PERIODS = [
+  { key: '1M', label: '1M', days: 30 },
+  { key: '3M', label: '3M', days: 90 },
+  { key: '6M', label: '6M', days: 180 },
+  { key: '1A', label: '1A', days: 365 },
+  { key: 'ALL', label: 'Tudo', days: 0 },
+];
 
 // ─────────── Helpers ───────────
 
@@ -69,6 +98,89 @@ function computePatrimonio(positions, rf, saldos) {
     }
   }
   return total;
+}
+
+function computeAlloc(positions, rfTotalAplicado) {
+  var alloc = {};
+  for (var ki = 0; ki < PKEYS.length; ki++) alloc[PKEYS[ki]] = 0;
+  for (var i = 0; i < positions.length; i++) {
+    var p = positions[i];
+    var t = p.categoria || 'acao';
+    var price = p.preco_atual || (p.mercado === 'INT'
+      ? (p.pm || 0) * (p.taxa_cambio || p.taxa_cambio_media || 1)
+      : (p.pm || 0));
+    var val = (p.quantidade || 0) * price;
+    if (t === 'etf' && p.mercado === 'INT') {
+      alloc.etf_int += val;
+    } else {
+      alloc[t] = (alloc[t] || 0) + val;
+    }
+  }
+  alloc.rf = rfTotalAplicado;
+  var totalAlloc = 0;
+  for (var kj = 0; kj < PKEYS.length; kj++) totalAlloc += alloc[PKEYS[kj]];
+  return { alloc: alloc, totalAlloc: totalAlloc };
+}
+
+function computeRentabilidade(patrimonioHistory, patrimonio, positions, rfTotalAplicado) {
+  var rentSemanal = 0;
+  var rentMensal = 0;
+  var rentAno = 0;
+  var rentTotal = 0;
+  if (!patrimonioHistory || patrimonioHistory.length < 2) {
+    return { rentSemanal: 0, rentMensal: 0, rentAno: 0, rentTotal: 0 };
+  }
+  var lastVal = patrimonioHistory[patrimonioHistory.length - 1].value;
+  function findValAt(daysAgo) {
+    var d = new Date();
+    d.setDate(d.getDate() - daysAgo);
+    var cutStr = d.toISOString().substring(0, 10);
+    var best = null;
+    for (var hi = 0; hi < patrimonioHistory.length; hi++) {
+      if (patrimonioHistory[hi].date <= cutStr) best = patrimonioHistory[hi];
+    }
+    return best ? best.value : 0;
+  }
+  var val7 = findValAt(7);
+  if (val7 > 0) rentSemanal = ((lastVal - val7) / val7) * 100;
+  var val30 = findValAt(30);
+  if (val30 > 0) rentMensal = ((lastVal - val30) / val30) * 100;
+
+  var yearStart = new Date().getFullYear() + '-01-01';
+  var valYtd = 0;
+  for (var yi = 0; yi < patrimonioHistory.length; yi++) {
+    if (patrimonioHistory[yi].date >= yearStart) { valYtd = patrimonioHistory[yi].value; break; }
+  }
+  if (valYtd > 0) rentAno = ((lastVal - valYtd) / valYtd) * 100;
+
+  var custoInvestido = 0;
+  for (var ci = 0; ci < positions.length; ci++) {
+    var cPos = positions[ci];
+    var cQty = cPos.quantidade || 0;
+    var cPm = cPos.pm || 0;
+    if (cPos.mercado === 'INT') {
+      custoInvestido += cQty * cPm * (cPos.taxa_cambio || cPos.taxa_cambio_media || 1);
+    } else {
+      custoInvestido += cQty * cPm;
+    }
+  }
+  custoInvestido += rfTotalAplicado;
+  if (custoInvestido > 0) rentTotal = ((patrimonio - custoInvestido) / custoInvestido) * 100;
+  return { rentSemanal: rentSemanal, rentMensal: rentMensal, rentAno: rentAno, rentTotal: rentTotal };
+}
+
+function filterChartByPeriod(patrimonioHistory, chartPeriod) {
+  if (!patrimonioHistory || patrimonioHistory.length === 0) return [];
+  if (chartPeriod === 'ALL') return patrimonioHistory;
+  var periodDef = null;
+  for (var i = 0; i < PERIODS.length; i++) {
+    if (PERIODS[i].key === chartPeriod) { periodDef = PERIODS[i]; break; }
+  }
+  if (!periodDef || periodDef.days === 0) return patrimonioHistory;
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - periodDef.days);
+  var cutoffStr = cutoff.toISOString().substring(0, 10);
+  return patrimonioHistory.filter(function(pt) { return pt.date >= cutoffStr; });
 }
 
 function computeProximos7Dias(proventos, opcoes) {
@@ -110,10 +222,32 @@ function computeProximos7Dias(proventos, opcoes) {
   return eventos;
 }
 
+function countOpsVenc7d(opcoes) {
+  var now = new Date();
+  var limite = new Date(now.getTime() + 7 * 24 * 3600 * 1000);
+  var count = 0;
+  for (var i = 0; i < opcoes.length; i++) {
+    var o = opcoes[i];
+    if (o.status !== 'ativa') continue;
+    var venc = parseDateSafe(o.vencimento);
+    if (!venc || venc < now || venc > limite) continue;
+    count++;
+  }
+  return count;
+}
+
+function countOpsAtivas(opcoes) {
+  var c = 0;
+  for (var i = 0; i < opcoes.length; i++) {
+    if (opcoes[i].status === 'ativa') c++;
+  }
+  return c;
+}
+
 var MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 var DIAS_SEM = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
 
-// ─────────── Mini Sparkline ───────────
+// ─────────── Mini Sparkline (usado no BreakdownSection) ───────────
 function Sparkline(props) {
   var data = props.data || [];
   var width = props.width || 180;
@@ -179,46 +313,60 @@ function Bars12m(props) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// SECTION 1: SPLIT HERO
+// SECTION 1: PATRIMONIO HERO (expandido - restaurado da Home antiga)
 // ═══════════════════════════════════════════════════════════
-function SplitHeroSection(props) {
+function PatrimonioHeroSection(props) {
   var patrimonio = props.patrimonio || 0;
   var rendaMedia = props.rendaMedia || 0;
-  var meta = props.meta || 0;
   var forecast = props.forecast;
+  var patrimonioHistory = props.patrimonioHistory || [];
+  var alloc = props.alloc || {};
+  var totalAlloc = props.totalAlloc || 0;
+  var rentSemanal = props.rentSemanal || 0;
+  var rentMensal = props.rentMensal || 0;
+  var rentAno = props.rentAno || 0;
+  var rentTotal = props.rentTotal || 0;
+  var chartPeriod = props.chartPeriod;
+  var setChartPeriod = props.setChartPeriod;
+  var posicoesCount = props.posicoesCount || 0;
+  var opsAtivas = props.opsAtivas || 0;
+  var opsVenc7d = props.opsVenc7d || 0;
   var ps = usePrivacyStyle();
 
   var deltaMes = (forecast && forecast.summary && forecast.summary.deltaMes) || 0;
   var deltaColor = deltaMes > 0 ? T.color.income : deltaMes < 0 ? T.color.danger : T.color.textMuted;
   var deltaIcon = deltaMes > 0 ? 'trending-up' : deltaMes < 0 ? 'trending-down' : 'remove';
 
-  var historyMonthly = (forecast && forecast.historyMonthly) || [];
-  var sparkData = historyMonthly.map(function(h) { return h.total; });
+  var filteredChartData = filterChartByPeriod(patrimonioHistory, chartPeriod);
+  var hasRealChart = filteredChartData.length >= 2;
 
-  var pctMeta = meta > 0 ? Math.min(100, (rendaMedia / meta) * 100) : 0;
+  var kpiItems = [
+    { label: '7D', val: rentSemanal },
+    { label: '1M', val: rentMensal },
+    { label: 'YTD', val: rentAno },
+    { label: 'Total', val: rentTotal },
+  ];
 
   return (
     <Glass padding={0} glow="rgba(34,197,94,0.18)" style={{ marginBottom: T.space.gap, borderColor: 'rgba(34,197,94,0.25)' }}>
       <View style={{ height: 3, borderTopLeftRadius: T.radius.md, borderTopRightRadius: T.radius.md, backgroundColor: T.color.income }} />
       <View style={{ padding: T.space.lg }}>
 
-        {/* Split KPIs */}
+        {/* Split KPIs — patrimonio + renda */}
         <View style={{ flexDirection: 'row', gap: T.space.md, marginBottom: T.space.md }}>
-          {/* Patrimonio */}
           <View style={{ flex: 1, borderRightWidth: 1, borderRightColor: T.color.border, paddingRight: T.space.md }}>
             <Text style={[T.type.kpiLabel, { color: T.color.textMuted, marginBottom: T.space.xxs }]}>PATRIMONIO</Text>
             <Sensitive>
-              <Text style={[{ fontSize: 20, fontWeight: '800', color: T.color.textPrimary, fontFamily: F.mono }, ps]}>
+              <Text style={[{ fontSize: 22, fontWeight: '800', color: T.color.textPrimary, fontFamily: F.mono }, ps]}>
                 {'R$ ' + fmtInt(patrimonio)}
               </Text>
             </Sensitive>
           </View>
-          {/* Renda */}
           <View style={{ flex: 1, paddingLeft: T.space.xs }}>
             <Text style={[T.type.kpiLabel, { color: T.color.textMuted, marginBottom: T.space.xxs }]}>RENDA/MES</Text>
             <Sensitive>
               <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                <Text style={[{ fontSize: 20, fontWeight: '800', color: T.color.income, fontFamily: F.mono }, ps]}>
+                <Text style={[{ fontSize: 22, fontWeight: '800', color: T.color.income, fontFamily: F.mono }, ps]}>
                   {'R$ ' + fmtInt(rendaMedia)}
                 </Text>
               </View>
@@ -234,36 +382,195 @@ function SplitHeroSection(props) {
           </View>
         </View>
 
-        {/* Sparkline historico renda */}
-        {sparkData.length >= 2 ? (
-          <View style={{ marginBottom: T.space.md }}>
-            <Text style={[T.type.kpiLabel, { color: T.color.textMuted, marginBottom: T.space.xxs }]}>
-              RENDA ULTIMOS 12M
-            </Text>
-            <Sparkline data={sparkData} width={W - T.space.screenPad * 2 - T.space.lg * 2} height={40} />
+        {/* KPI bar rentabilidade 7D / 1M / YTD / Total */}
+        {patrimonioHistory.length >= 2 ? (
+          <View style={{ flexDirection: 'row', gap: 4, marginBottom: T.space.sm }}>
+            {kpiItems.map(function(item) {
+              var v = item.val || 0;
+              var col = v > 0 ? '#22c55e' : (v < 0 ? '#ef4444' : T.color.textMuted);
+              return (
+                <View key={item.label} style={{
+                  flex: 1,
+                  backgroundColor: 'rgba(255,255,255,0.035)',
+                  borderRadius: 8,
+                  paddingVertical: 6,
+                  paddingHorizontal: 4,
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: 'rgba(255,255,255,0.06)',
+                }}>
+                  <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.mono, letterSpacing: 0.5 }}>
+                    {item.label}
+                  </Text>
+                  <Text style={[{ fontSize: 11, fontWeight: '800', color: col, fontFamily: F.mono, marginTop: 2 }, ps]}>
+                    {(v > 0 ? '+' : '') + v.toFixed(1) + '%'}
+                  </Text>
+                </View>
+              );
+            })}
           </View>
         ) : null}
 
-        {/* Meta bar */}
-        {meta > 0 ? (
-          <View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: T.space.xxs }}>
-              <Text style={[T.type.kpiLabel, { color: T.color.textMuted }]}>META MENSAL</Text>
-              <Sensitive>
-                <Text style={[{ fontSize: 11, color: pctMeta >= 100 ? T.color.income : T.color.accent, fontFamily: F.mono, fontWeight: '700' }, ps]}>
-                  {fmtPct(pctMeta, 0) + ' de R$ ' + fmtInt(meta)}
-                </Text>
-              </Sensitive>
+        {/* Filtro de periodo */}
+        {patrimonioHistory.length >= 2 ? (
+          <View style={{ flexDirection: 'row', gap: 4, marginBottom: T.space.xs }}>
+            {PERIODS.map(function(p) {
+              var active = chartPeriod === p.key;
+              return (
+                <TouchableOpacity
+                  key={p.key}
+                  onPress={function() { setChartPeriod(p.key); }}
+                  activeOpacity={0.7}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: 6,
+                    backgroundColor: active ? T.color.accent + '22' : 'transparent',
+                    borderWidth: 1,
+                    borderColor: active ? T.color.accent + '55' : 'rgba(255,255,255,0.06)',
+                  }}
+                >
+                  <Text style={{
+                    fontSize: 10,
+                    fontFamily: F.mono,
+                    color: active ? T.color.accent : T.color.textMuted,
+                    fontWeight: active ? '700' : '500',
+                  }}>
+                    {p.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ) : null}
+
+        {/* InteractiveChart */}
+        {hasRealChart ? (
+          <View style={{ marginHorizontal: -6, marginBottom: T.space.sm }}>
+            <Sensitive>
+              <InteractiveChart
+                data={filteredChartData}
+                color="#0ea5e9"
+                height={130}
+                fontFamily={F.mono}
+                label="Evolucao do patrimonio"
+              />
+            </Sensitive>
+          </View>
+        ) : (
+          <View style={{
+            height: 80,
+            justifyContent: 'center',
+            alignItems: 'center',
+            backgroundColor: 'rgba(255,255,255,0.02)',
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.04)',
+            borderStyle: 'dashed',
+            marginBottom: T.space.sm,
+          }}>
+            <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', fontFamily: F.mono }}>
+              Grafico disponivel com mais historico
+            </Text>
+          </View>
+        )}
+
+        {/* Allocation bar por categoria */}
+        {totalAlloc > 0 ? (
+          <View style={{ marginBottom: T.space.sm }}>
+            <View style={{
+              flexDirection: 'row',
+              height: 6,
+              borderRadius: 3,
+              overflow: 'hidden',
+              backgroundColor: 'rgba(255,255,255,0.03)',
+            }}>
+              {PKEYS.map(function(k, i) {
+                var pct = (alloc[k] || 0) / totalAlloc * 100;
+                if (pct < 0.5) return null;
+                return (
+                  <View key={k} style={{
+                    flex: pct,
+                    height: 6,
+                    backgroundColor: P[k].color,
+                    marginRight: i < PKEYS.length - 1 ? 1 : 0,
+                  }} />
+                );
+              })}
             </View>
-            <View style={{ height: 6, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 3 }}>
-              <View style={{
-                height: 6, borderRadius: 3,
-                backgroundColor: pctMeta >= 100 ? T.color.income : T.color.accent,
-                width: Math.min(100, pctMeta) + '%',
-              }} />
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+              {PKEYS.map(function(k) {
+                var pct = (alloc[k] || 0) / totalAlloc * 100;
+                if (pct < 0.5) return null;
+                return (
+                  <View key={k} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: P[k].color }} />
+                    <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', fontFamily: F.body }}>
+                      {P[k].short}
+                    </Text>
+                    <Text style={[{ fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', fontFamily: F.mono }, ps]}>
+                      {pct.toFixed(0) + '%'}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
           </View>
         ) : null}
+
+        {/* 3 cards resumo: Rentab Ano / Posicoes / Opcoes */}
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          <View style={{
+            flex: 1,
+            backgroundColor: 'rgba(255,255,255,0.035)',
+            borderRadius: 10,
+            padding: 10,
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.06)',
+          }}>
+            <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.mono, letterSpacing: 0.5 }}>RENTAB. ANO</Text>
+            <Text style={[{
+              fontSize: 14,
+              fontWeight: '800',
+              color: rentAno > 0 ? '#22c55e' : (rentAno < 0 ? '#ef4444' : T.color.textMuted),
+              fontFamily: F.mono,
+              marginTop: 2,
+            }, ps]}>
+              {(rentAno > 0 ? '+' : '') + rentAno.toFixed(2) + '%'}
+            </Text>
+          </View>
+          <View style={{
+            flex: 1,
+            backgroundColor: 'rgba(255,255,255,0.035)',
+            borderRadius: 10,
+            padding: 10,
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.06)',
+          }}>
+            <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.mono, letterSpacing: 0.5 }}>POSICOES</Text>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: T.color.textPrimary, fontFamily: F.mono, marginTop: 2 }}>
+              {posicoesCount}
+            </Text>
+          </View>
+          <View style={{
+            flex: 1,
+            backgroundColor: 'rgba(255,255,255,0.035)',
+            borderRadius: 10,
+            padding: 10,
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.06)',
+          }}>
+            <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.mono, letterSpacing: 0.5 }}>OPCOES</Text>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: P.opcao.color, fontFamily: F.mono, marginTop: 2 }}>
+              {opsAtivas}
+            </Text>
+            {opsVenc7d > 0 ? (
+              <Text style={{ fontSize: 9, color: '#ef4444', fontFamily: F.mono }}>
+                {opsVenc7d + ' vence 7d'}
+              </Text>
+            ) : null}
+          </View>
+        </View>
       </View>
     </Glass>
   );
@@ -292,7 +599,6 @@ function EstaSemanaSection(props) {
         </Text>
       </View>
 
-      {/* Alertas */}
       {alertsTop.map(function(a, idx) {
         var sevColor = a.severidade === 'alta' ? T.color.danger : a.severidade === 'media' ? T.color.warning : T.color.info;
         return (
@@ -309,7 +615,6 @@ function EstaSemanaSection(props) {
         );
       })}
 
-      {/* Proximos eventos */}
       {eventosTop.map(function(e, idx) {
         var diaSemIdx = e.data.getDay();
         var diaNome = DIAS_SEM[diaSemIdx] + ' ' + e.data.getDate();
@@ -337,7 +642,6 @@ function EstaSemanaSection(props) {
         );
       })}
 
-      {/* Link calendario */}
       <TouchableOpacity
         onPress={function() { navigation.navigate('CalendarioRenda'); }}
         activeOpacity={0.7}
@@ -385,7 +689,6 @@ function ComoCrescerSection(props) {
         </Text>
       </View>
 
-      {/* Hero potencial */}
       {gap > 0 ? (
         <View style={{
           backgroundColor: T.color.incomeBg,
@@ -414,7 +717,6 @@ function ComoCrescerSection(props) {
         </View>
       ) : null}
 
-      {/* Gaps — onde esta travado */}
       {topGaps.length > 0 ? (
         <View style={{ marginBottom: T.space.sm }}>
           {topGaps.map(function(g, idx) {
@@ -458,7 +760,6 @@ function ComoCrescerSection(props) {
         </View>
       ) : null}
 
-      {/* Link pra tela Acoes */}
       <TouchableOpacity
         activeOpacity={0.8}
         onPress={function() { navigation.navigate('Acoes'); }}
@@ -478,7 +779,6 @@ function ComoCrescerSection(props) {
         <Ionicons name="chevron-forward" size={14} color={T.color.income} />
       </TouchableOpacity>
 
-      {/* Snowball inline */}
       <View style={{ marginTop: T.space.sm }}>
         <SnowballCard userId={userId} rendaAtual={rendaAtual} />
       </View>
@@ -516,7 +816,6 @@ function BreakdownSection(props) {
         </Text>
       </View>
 
-      {/* Bars 12m */}
       <Bars12m data={monthly} />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: T.space.sm }}>
         <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.mono }}>
@@ -527,7 +826,6 @@ function BreakdownSection(props) {
         </Text>
       </View>
 
-      {/* Breakdown por fonte */}
       <View style={{ borderTopWidth: 1, borderTopColor: T.color.border, paddingTop: T.space.sm }}>
         <Text style={[T.type.kpiLabel, { color: T.color.textMuted, marginBottom: T.space.xs }]}>
           POR FONTE (media/mes)
@@ -583,22 +881,35 @@ export default function RendaHomeScreen(props) {
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
   var _potencial = useState(null); var potencial = _potencial[0]; var setPotencial = _potencial[1];
   var _proventosList = useState([]); var proventosList = _proventosList[0]; var setProventosList = _proventosList[1];
+  var _dashData = useState(null); var dashData = _dashData[0]; var setDashData = _dashData[1];
+  var _chartPeriod = useState('ALL'); var chartPeriod = _chartPeriod[0]; var setChartPeriod = _chartPeriod[1];
 
-  // Carregar rendaPotencial quando user muda/foco
+  function loadDashboard() {
+    if (!user) return Promise.resolve();
+    return getDashboard(user.id).then(function(res) {
+      if (res && res.data) setDashData(res.data);
+    }).catch(function(err) {
+      console.warn('getDashboard error:', err && err.message);
+    });
+  }
+
   useFocusEffect(useCallback(function() {
     if (!user) return;
     computeRendaPotencial(user.id)
       .then(function(res) { setPotencial(res); })
       .catch(function(err) { console.warn('potencial error:', err && err.message); });
-    // Proventos pra proximos 7 dias (puxa direto do store)
     setProventosList(store.proventos || []);
+    loadDashboard();
   }, [user, store.proventos]));
 
   function onRefresh() {
     setRefreshing(true);
     refresh().then(function() {
       if (user) {
-        return computeRendaPotencial(user.id).then(function(res) { setPotencial(res); });
+        return Promise.all([
+          computeRendaPotencial(user.id).then(function(res) { setPotencial(res); }),
+          loadDashboard(),
+        ]);
       }
     }).catch(function() {}).then(function() {
       setRefreshing(false);
@@ -610,6 +921,20 @@ export default function RendaHomeScreen(props) {
   var rendaMedia = (forecast && forecast.summary && forecast.summary.mediaProjetada) || 0;
   var meta = (profile && profile.meta_mensal) || 0;
   var eventos7d = computeProximos7Dias(proventosList, opcoes);
+  var opsAtivas = countOpsAtivas(opcoes);
+  var opsVenc7d = countOpsVenc7d(opcoes);
+
+  var rfTotalAplicado = 0;
+  for (var rfi = 0; rfi < rf.length; rfi++) rfTotalAplicado += (rf[rfi].valor_aplicado || 0);
+
+  var allocRes = computeAlloc(positions, rfTotalAplicado);
+  var alloc = allocRes.alloc;
+  var totalAlloc = allocRes.totalAlloc;
+
+  var patrimonioHistory = (dashData && dashData.patrimonioHistory) || [];
+  var rentRes = computeRentabilidade(patrimonioHistory, patrimonio, positions, rfTotalAplicado);
+
+  var posicoesCount = positions.length + rf.length;
 
   var loadingInicial = income.loading && !forecast;
 
@@ -622,7 +947,6 @@ export default function RendaHomeScreen(props) {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={T.color.accent} />
       }
     >
-      {/* Header */}
       <View style={{
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         marginBottom: T.space.md,
@@ -642,7 +966,6 @@ export default function RendaHomeScreen(props) {
         </TouchableOpacity>
       </View>
 
-      {/* Loading inicial */}
       {loadingInicial ? (
         <View style={{ paddingVertical: T.space.xxl, alignItems: 'center' }}>
           <ActivityIndicator size="large" color={T.color.accent} />
@@ -652,22 +975,30 @@ export default function RendaHomeScreen(props) {
         </View>
       ) : (
         <View>
-          {/* 1. Split Hero */}
-          <SplitHeroSection
+          <PatrimonioHeroSection
             patrimonio={patrimonio}
             rendaMedia={rendaMedia}
-            meta={meta}
             forecast={forecast}
+            patrimonioHistory={patrimonioHistory}
+            alloc={alloc}
+            totalAlloc={totalAlloc}
+            rentSemanal={rentRes.rentSemanal}
+            rentMensal={rentRes.rentMensal}
+            rentAno={rentRes.rentAno}
+            rentTotal={rentRes.rentTotal}
+            chartPeriod={chartPeriod}
+            setChartPeriod={setChartPeriod}
+            posicoesCount={posicoesCount}
+            opsAtivas={opsAtivas}
+            opsVenc7d={opsVenc7d}
           />
 
-          {/* 2. Esta Semana */}
           <EstaSemanaSection
             alerts={alerts}
             eventos={eventos7d}
             navigation={navigation}
           />
 
-          {/* 3. Como Crescer */}
           <ComoCrescerSection
             potencial={potencial}
             rendaAtual={rendaMedia}
@@ -675,7 +1006,6 @@ export default function RendaHomeScreen(props) {
             navigation={navigation}
           />
 
-          {/* 4. Breakdown 12m */}
           <BreakdownSection forecast={forecast} />
         </View>
       )}
