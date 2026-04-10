@@ -21,8 +21,9 @@
  *  - getMonthlyIncomeHistory(userId, months) → historico N meses para sparkline
  */
 
-import { getProventos, getOpcoes, getRendaFixa, getPositions } from './database';
+import { getProventos, getOpcoes, getRendaFixa, getPositions, getProfile } from './database';
 import { fetchFii12mChart } from './fiiStatusInvestService';
+import { fetchMarketIndicators } from './marketIndicatorsService';
 
 var FII_CATS = { fii: true };
 var ACAO_CATS = { acao: true, stock_int: true };
@@ -40,16 +41,22 @@ function parseDateSafe(s) {
 }
 
 // Distribui valor anual de RF em cupons mensais estimados
-function rfMensalEstimado(rf) {
+function rfMensalEstimado(rf, indicadores) {
   var valor = rf.valor_aplicado || 0;
   var taxaPct = rf.taxa || 0;
   var indexador = (rf.indexador || '').toUpperCase();
   var taxaAnual = taxaPct;
-  // Pre/Pos: assumimos taxa como % a.a. Se pos-fixado CDI usamos 13% a.a. como base (aproximado)
+  // Selic ~= CDI (o DI segue a Selic meta com spread minimo). Se indicadores
+  // nao vieram, usa defaults conservadores. CDI aqui e a taxa total anual
+  // do indexador, nao o spread do papel.
+  var selicAnual = (indicadores && indicadores.selic) || 10.75;
+  var ipcaAnual = (indicadores && indicadores.ipca) || 4.5;
   if (indexador === 'CDI' || indexador.indexOf('CDI') !== -1) {
-    taxaAnual = taxaPct / 100 * 13;
+    // taxaPct e o % do CDI que o papel paga (ex: 110% → 1.10)
+    taxaAnual = (taxaPct / 100) * selicAnual;
   } else if (indexador === 'IPCA') {
-    taxaAnual = taxaPct + 5;
+    // taxaPct e o cupom real acima do IPCA (ex: IPCA+6 → taxaPct=6)
+    taxaAnual = taxaPct + ipcaAnual;
   }
   if (taxaAnual <= 0) return 0;
   return valor * taxaAnual / 100 / 12;
@@ -109,7 +116,7 @@ function buildHistoryFromProventos(proventos, opcoesFechadas, months) {
 
 // ── Projecao 12 meses a frente ──
 // Media dos ultimos 12m por ticker + opcoes ativas + RF recorrente
-function buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiCharts) {
+function buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiCharts, indicadores) {
   var now = new Date();
   var projecao = [];
   for (var i = 0; i < 12; i++) {
@@ -221,7 +228,7 @@ function buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiC
   // 3) RF — rendimento mensal estimado (todos os meses)
   for (var ri = 0; ri < rf.length; ri++) {
     var rfItem = rf[ri];
-    var mensal = rfMensalEstimado(rfItem);
+    var mensal = rfMensalEstimado(rfItem, indicadores);
     if (mensal <= 0) continue;
     for (var rm = 0; rm < 12; rm++) {
       projecao[rm].total += mensal;
@@ -241,11 +248,22 @@ export async function buildIncomeForecast(userId, opts) {
     getProventos(userId, { limit: 2000, portfolioId: portfolioId || undefined }),
     getOpcoes(userId, portfolioId || undefined),
     getRendaFixa(userId, portfolioId || undefined),
+    getProfile(userId).catch(function() { return null; }),
+    fetchMarketIndicators().catch(function() { return { selic: 10.75, ipca: 4.5 }; }),
   ]);
   var positions = (results[0] && results[0].data) || [];
   var proventos = (results[1] && results[1].data) || [];
   var opcoes = (results[2] && results[2].data) || [];
   var rf = (results[3] && results[3].data) || [];
+  var profile = (results[4] && results[4].data) || null;
+  var marketInd = results[5] || { selic: 10.75, ipca: 4.5 };
+
+  // Selic do profile tem prioridade (user pode sobrescrever o BCB em Mais>Config).
+  // IPCA vem sempre do BCB (ou fallback).
+  var indicadores = {
+    selic: (profile && profile.selic > 0) ? profile.selic : marketInd.selic,
+    ipca: marketInd.ipca,
+  };
 
   var opcoesAtivas = [];
   var opcoesFechadas = [];
@@ -276,7 +294,7 @@ export async function buildIncomeForecast(userId, opts) {
   var historyMonthly = buildHistoryFromProventos(proventos, opcoesFechadas, 12);
 
   // Projecao 12m futuro
-  var projection = buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiCharts);
+  var projection = buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiCharts, indicadores);
 
   // Summary
   var totalProj = 0; var maxMes = 0; var minMes = null;
@@ -326,6 +344,7 @@ export async function buildIncomeForecast(userId, opts) {
   return {
     monthly: projection,
     historyMonthly: historyMonthly,
+    indicadores: indicadores,
     summary: {
       mediaProjetada: mediaProj,
       totalProjetado: totalProj,
