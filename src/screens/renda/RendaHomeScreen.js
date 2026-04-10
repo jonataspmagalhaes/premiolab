@@ -577,6 +577,252 @@ function PatrimonioHeroSection(props) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// SECTION 1b: RENDA DO MES detalhada (restaurado da Home antiga)
+// ═══════════════════════════════════════════════════════════
+function RendaDoMesSection(props) {
+  var dashData = props.dashData;
+  var meta = props.meta || 0;
+  var ps = usePrivacyStyle();
+
+  if (!dashData) return null;
+
+  var dividendosMes = dashData.dividendosMes || 0;
+  var dividendosMesAnterior = dashData.dividendosMesAnterior || 0;
+  var dividendosCatMes = dashData.dividendosCatMes || {};
+  var plMes = dashData.plMes || 0;
+  var plMesAnterior = dashData.plMesAnterior || 0;
+  var premiosMes = dashData.premiosMes || 0;
+  var premiosMesAnterior = dashData.premiosMesAnterior || 0;
+  var recompraMes = dashData.recompraMes || 0;
+  var rfRendaMensal = dashData.rfRendaMensal || 0;
+  var rendaTotalMes = dashData.rendaTotalMes || 0;
+
+  if (dividendosMes === 0 && plMes === 0 && rfRendaMensal === 0 && dividendosMesAnterior === 0) {
+    return null;
+  }
+
+  var rendaColor = rendaTotalMes >= 0 ? '#22c55e' : '#ef4444';
+  var pctMeta = meta > 0 ? (rendaTotalMes / meta) * 100 : 0;
+  var pctMetaClamped = Math.max(0, Math.min(100, pctMeta));
+
+  var catItems = [
+    { key: 'acao', label: 'Acoes', color: P.acao.color, val: dividendosCatMes.acao || 0 },
+    { key: 'fii', label: 'FIIs', color: P.fii.color, val: dividendosCatMes.fii || 0 },
+    { key: 'etf', label: 'ETFs', color: P.etf.color, val: dividendosCatMes.etf || 0 },
+    { key: 'stock_int', label: 'Stocks', color: P.stock_int.color, val: dividendosCatMes.stock_int || 0 },
+    { key: 'bdr', label: 'BDRs/ADRs/REITs', color: P.bdr.color,
+      val: (dividendosCatMes.bdr || 0) + (dividendosCatMes.adr || 0) + (dividendosCatMes.reit || 0) },
+  ];
+
+  function renderDeltaChip(atual, anterior) {
+    if (!anterior || Math.abs(anterior) === 0) return null;
+    var pct = ((atual - anterior) / Math.abs(anterior)) * 100;
+    var up = atual >= anterior;
+    var col = up ? '#22c55e' : '#ef4444';
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <View style={{ backgroundColor: col + '15', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+          <Text style={[{ fontSize: 10, fontWeight: '700', color: col, fontFamily: F.mono }, ps]}>
+            {(pct > 0 ? '+' : '') + pct.toFixed(0) + '%'}
+          </Text>
+        </View>
+        <Text style={[{ fontSize: 10, color: T.color.textMuted, fontFamily: F.mono }, ps]}>
+          {'Ant: R$ ' + fmt(anterior)}
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <Glass padding={T.space.cardPad} glow="rgba(108,92,231,0.10)" style={{ marginBottom: T.space.gap }}>
+      {/* Header + total */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: T.space.xs, marginBottom: T.space.sm }}>
+        <Text style={{ fontSize: 14 }}>💰</Text>
+        <Text style={{ fontSize: 13, color: T.color.textPrimary, fontFamily: F.display, fontWeight: '700' }}>
+          Renda do Mes
+        </Text>
+      </View>
+
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: T.space.md }}>
+        <Sensitive>
+          <Text style={[{ fontSize: 26, fontWeight: '800', color: rendaColor, fontFamily: F.display }, ps]}>
+            {'R$ ' + fmt(rendaTotalMes)}
+          </Text>
+        </Sensitive>
+      </View>
+
+      {/* Dividendos card */}
+      {(dividendosMes > 0 || dividendosMesAnterior > 0) ? (
+        <View style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <Text style={{ fontSize: 12, color: T.color.textPrimary, fontFamily: F.display, fontWeight: '700' }}>
+              Dividendos
+            </Text>
+            <Sensitive>
+              <Text style={[{ fontSize: 15, fontWeight: '800', color: dividendosMes > 0 ? '#22c55e' : T.color.textMuted, fontFamily: F.mono }, ps]}>
+                {'R$ ' + fmt(dividendosMes)}
+              </Text>
+            </Sensitive>
+          </View>
+          {renderDeltaChip(dividendosMes, dividendosMesAnterior)}
+          <View style={{ gap: 4 }}>
+            {catItems.map(function(c) {
+              if (c.val <= 0) return null;
+              return (
+                <View key={c.key} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: c.color }} />
+                    <Text style={{ fontSize: 11, color: T.color.textSecondary, fontFamily: F.body }}>{c.label}</Text>
+                  </View>
+                  <Sensitive>
+                    <Text style={[{ fontSize: 12, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }, ps]}>
+                      {'R$ ' + fmt(c.val)}
+                    </Text>
+                  </Sensitive>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      {/* Premios Opcoes card */}
+      {(plMes !== 0 || premiosMesAnterior !== 0) ? (
+        <View style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <Text style={{ fontSize: 12, color: T.color.textPrimary, fontFamily: F.display, fontWeight: '700' }}>
+              Premios de Opcoes
+            </Text>
+            <Sensitive>
+              <Text style={[{ fontSize: 15, fontWeight: '800', color: plMes >= 0 ? '#22c55e' : '#ef4444', fontFamily: F.mono }, ps]}>
+                {'R$ ' + fmt(plMes)}
+              </Text>
+            </Sensitive>
+          </View>
+          {renderDeltaChip(plMes, premiosMesAnterior)}
+          {premiosMes > 0 ? (
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e' }} />
+                <Text style={{ fontSize: 11, color: T.color.textSecondary, fontFamily: F.body }}>Premios</Text>
+              </View>
+              <Sensitive>
+                <Text style={[{ fontSize: 12, fontWeight: '700', color: '#22c55e', fontFamily: F.mono }, ps]}>
+                  {'R$ ' + fmt(premiosMes)}
+                </Text>
+              </Sensitive>
+            </View>
+          ) : null}
+          {recompraMes > 0 ? (
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#ef4444' }} />
+                <Text style={{ fontSize: 11, color: T.color.textSecondary, fontFamily: F.body }}>Recompras</Text>
+              </View>
+              <Sensitive>
+                <Text style={[{ fontSize: 12, fontWeight: '700', color: '#ef4444', fontFamily: F.mono }, ps]}>
+                  {'-R$ ' + fmt(recompraMes)}
+                </Text>
+              </Sensitive>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Renda Fixa card */}
+      {rfRendaMensal > 0 ? (
+        <View style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ fontSize: 12, color: T.color.textPrimary, fontFamily: F.display, fontWeight: '700' }}>
+              Renda Fixa
+            </Text>
+            <Sensitive>
+              <Text style={[{ fontSize: 15, fontWeight: '800', color: '#22c55e', fontFamily: F.mono }, ps]}>
+                {'R$ ' + fmt(rfRendaMensal)}
+              </Text>
+            </Sensitive>
+          </View>
+        </View>
+      ) : null}
+
+      {/* Consolidado Dividendos + Opcoes */}
+      {(dividendosMes > 0 || plMes !== 0) ? (
+        <View style={{
+          backgroundColor: T.color.accent + '10',
+          borderRadius: 8,
+          padding: 10,
+          borderWidth: 1,
+          borderColor: T.color.accent + '20',
+          marginBottom: 14,
+        }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ fontSize: 12, color: T.color.accent, fontFamily: F.display, fontWeight: '700' }}>
+              Dividendos + Opcoes
+            </Text>
+            <Sensitive>
+              <Text style={[{
+                fontSize: 17,
+                fontWeight: '800',
+                color: (dividendosMes + plMes) >= 0 ? '#22c55e' : '#ef4444',
+                fontFamily: F.mono,
+              }, ps]}>
+                {'R$ ' + fmt(dividendosMes + plMes)}
+              </Text>
+            </Sensitive>
+          </View>
+          {renderDeltaChip(dividendosMes + plMes, dividendosMesAnterior + plMesAnterior)}
+        </View>
+      ) : null}
+
+      {/* META MENSAL com progress bar gradient */}
+      {meta > 0 ? (
+        <View style={{ borderTopWidth: 1, borderTopColor: T.color.border, paddingTop: T.space.sm }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+            <Text style={[T.type.kpiLabel, { color: T.color.textMuted }]}>META MENSAL</Text>
+            <Sensitive>
+              <Text style={[{
+                fontSize: 11,
+                color: pctMeta >= 100 ? '#22c55e' : (pctMeta < 0 ? '#ef4444' : T.color.accent),
+                fontFamily: F.mono,
+                fontWeight: '700',
+              }, ps]}>
+                {fmtPct(pctMeta, 0) + ' DA META'}
+              </Text>
+            </Sensitive>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 8 }}>
+            <Sensitive>
+              <Text style={[{ fontSize: 18, fontWeight: '800', color: T.color.accent, fontFamily: F.display }, ps]}>
+                {'R$ ' + fmt(rendaTotalMes)}
+              </Text>
+            </Sensitive>
+            <Sensitive>
+              <Text style={[{ fontSize: 12, color: T.color.textMuted, fontFamily: F.display, marginLeft: 4 }, ps]}>
+                {' / R$ ' + fmt(meta)}
+              </Text>
+            </Sensitive>
+          </View>
+          {/* Progress bar gradient (simulado com 3 layers empilhadas) */}
+          <View style={{ height: 8, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 4, overflow: 'hidden' }}>
+            <View style={{
+              height: 8,
+              width: pctMetaClamped + '%',
+              borderRadius: 4,
+              backgroundColor: pctMeta >= 100 ? '#22c55e' : T.color.accent,
+            }} />
+          </View>
+          {(plMes !== 0 || dividendosMes > 0 || rfRendaMensal > 0) ? (
+            <Text style={[{ fontSize: 10, color: T.color.textMuted, fontFamily: F.mono, marginTop: 6 }, ps]}>
+              {'P&L Opcoes R$ ' + fmt(plMes) + ' + Div R$ ' + fmt(dividendosMes) + ' + RF R$ ' + fmt(rfRendaMensal)}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+    </Glass>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
 // SECTION 2: ESTA SEMANA
 // ═══════════════════════════════════════════════════════════
 function EstaSemanaSection(props) {
@@ -991,6 +1237,11 @@ export default function RendaHomeScreen(props) {
             posicoesCount={posicoesCount}
             opsAtivas={opsAtivas}
             opsVenc7d={opsVenc7d}
+          />
+
+          <RendaDoMesSection
+            dashData={dashData}
+            meta={meta}
           />
 
           <EstaSemanaSection
