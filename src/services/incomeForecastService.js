@@ -41,6 +41,22 @@ function parseDateSafe(s) {
 }
 
 // Distribui valor anual de RF em cupons mensais estimados
+// Papeis isentos de IR na pessoa fisica (debentures incentivadas nao estao
+// na lista porque o dropdown atual mostra "Debenture" generico — se o user
+// marcar como incentivada no futuro, adicionar aqui).
+var TIPOS_ISENTOS_IR = { lci_lca: true, lci: true, lca: true, cri: true, cra: true, poupanca: true, lcd: true };
+
+// Tabela regressiva do IR pra aplicacoes de renda fixa tributadas.
+// Calcula pelo dias desde a aplicacao ate o vencimento (assume hold to maturity).
+// Fallback: se nao tem vencimento, assume 720+ dias (15%).
+function irRateFromDays(days) {
+  if (days == null || !isFinite(days)) return 0.15;
+  if (days <= 180) return 0.225;
+  if (days <= 360) return 0.20;
+  if (days <= 720) return 0.175;
+  return 0.15;
+}
+
 function rfMensalEstimado(rf, indicadores) {
   var valor = rf.valor_aplicado || 0;
   var taxaPct = rf.taxa || 0;
@@ -57,9 +73,28 @@ function rfMensalEstimado(rf, indicadores) {
   } else if (indexador === 'IPCA') {
     // taxaPct e o cupom real acima do IPCA (ex: IPCA+6 → taxaPct=6)
     taxaAnual = taxaPct + ipcaAnual;
+  } else if (indexador === 'SELIC') {
+    // Tesouro Selic: taxaPct e o spread (geralmente 0) sobre a Selic
+    taxaAnual = taxaPct + selicAnual;
   }
   if (taxaAnual <= 0) return 0;
-  return valor * taxaAnual / 100 / 12;
+  var bruto = valor * taxaAnual / 100 / 12;
+
+  // Desconta IR. Isentos (LCI/LCA/CRI/CRA/Poupanca/LCD) retornam bruto.
+  var tipo = (rf.tipo || '').toLowerCase();
+  if (TIPOS_ISENTOS_IR[tipo]) return bruto;
+
+  // Tributado: calcula dias de posse (aplicacao → vencimento). Se nao tem
+  // vencimento, assume longo prazo (15%). Se nao tem data_aplicacao, usa
+  // created_at como fallback.
+  var dataAplic = parseDateSafe(rf.data_aplicacao || rf.created_at);
+  var venc = parseDateSafe(rf.vencimento);
+  var dias = null;
+  if (dataAplic && venc) {
+    dias = Math.round((venc - dataAplic) / (1000 * 60 * 60 * 24));
+  }
+  var irRate = irRateFromDays(dias);
+  return bruto * (1 - irRate);
 }
 
 // ── Historico de renda mensal a partir dos proventos reais ──
