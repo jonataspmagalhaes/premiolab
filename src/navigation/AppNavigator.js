@@ -63,6 +63,7 @@ import ProfileScreen from '../screens/mais/ProfileScreen';
 import PaywallScreen from '../screens/mais/PaywallScreen';
 import SimuladorFIIScreen from '../screens/simulador-fii/SimuladorFIIScreen';
 import CalendarioRendaScreen from '../screens/renda/CalendarioRendaScreen';
+import GeradorRendaScreen from '../screens/renda/GeradorRendaScreen';
 import ConfigPortfoliosScreen from '../screens/mais/config/ConfigPortfoliosScreen';
 import ConfigPerfilInvestidorScreen from '../screens/mais/config/ConfigPerfilInvestidorScreen';
 import BackupScreen from '../screens/mais/config/BackupScreen';
@@ -124,6 +125,7 @@ var SafeBackupScreen = withSafeArea(BackupScreen);
 var SafeConfigPerfilInvestidorScreen = withSafeArea(ConfigPerfilInvestidorScreen);
 var SafeSimuladorFIIScreen = withSafeArea(SimuladorFIIScreen);
 var SafeCalendarioRendaScreen = withSafeArea(CalendarioRendaScreen);
+var SafeGeradorRendaScreen = withSafeArea(GeradorRendaScreen);
 
 // Dark Theme
 var PremioLabTheme = Object.assign({}, DefaultTheme, {
@@ -467,6 +469,7 @@ function AppStack() {
       <Stack.Screen name="ConfigPerfilInvestidor" component={SafeConfigPerfilInvestidorScreen} />
       <Stack.Screen name="SimuladorFII" component={SafeSimuladorFIIScreen} />
       <Stack.Screen name="CalendarioRenda" component={SafeCalendarioRendaScreen} />
+      <Stack.Screen name="GeradorRenda" component={SafeGeradorRendaScreen} />
     </Stack.Navigator>
   );
 }

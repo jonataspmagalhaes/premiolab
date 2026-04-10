@@ -461,20 +461,25 @@ export default function RendaResumoView(props) {
       {/* Yield on Cost + crescimento da renda */}
       <YoCCard userId={user && user.id} />
 
-      {/* Botao Calendario de Renda */}
-      <TouchableOpacity activeOpacity={0.8} onPress={function() { navigation.navigate('CalendarioRenda'); }}
-        style={{ marginBottom: 12, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(34,197,94,0.25)', backgroundColor: 'rgba(34,197,94,0.08)' }}>
-        <View style={{ padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: 'rgba(34,197,94,0.18)', alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="calendar-outline" size={20} color="#22c55e" />
+      {/* Botoes — Calendario + Gerador de Renda */}
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+        <TouchableOpacity activeOpacity={0.8} onPress={function() { navigation.navigate('CalendarioRenda'); }}
+          style={{ flex: 1, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(34,197,94,0.25)', backgroundColor: 'rgba(34,197,94,0.08)' }}>
+          <View style={{ padding: 12, alignItems: 'center' }}>
+            <Ionicons name="calendar-outline" size={22} color="#22c55e" />
+            <Text style={{ fontSize: 12, color: C.text, fontFamily: F.display, fontWeight: '700', marginTop: 6 }}>Calendario</Text>
+            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body, marginTop: 2 }}>Eventos dia a dia</Text>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 14, color: C.text, fontFamily: F.display, fontWeight: '700' }}>Calendario de Renda</Text>
-            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.body }}>Veja cada centavo entrando, dia a dia</Text>
+        </TouchableOpacity>
+        <TouchableOpacity activeOpacity={0.8} onPress={function() { navigation.navigate('GeradorRenda'); }}
+          style={{ flex: 1, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: C.accent + '40', backgroundColor: C.accent + '15' }}>
+          <View style={{ padding: 12, alignItems: 'center' }}>
+            <Ionicons name="rocket-outline" size={22} color={C.accent} />
+            <Text style={{ fontSize: 12, color: C.text, fontFamily: F.display, fontWeight: '700', marginTop: 6 }}>Gerador</Text>
+            <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.body, marginTop: 2 }}>Meta → mix sugerido</Text>
           </View>
-          <Ionicons name="chevron-forward" size={18} color={C.dim} />
-        </View>
-      </TouchableOpacity>
+        </TouchableOpacity>
+      </View>
 
       {/* RENDA DO MÊS */}
       <Glass glow="rgba(108,92,231,0.10)" padding={SIZE.padding}>
