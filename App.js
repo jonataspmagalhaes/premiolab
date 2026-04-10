@@ -1,11 +1,40 @@
 import React from 'react';
-import { StatusBar, View, Text, StyleSheet } from 'react-native';
+import { StatusBar, View, Text, StyleSheet, Alert } from 'react-native';
 import { useFonts } from 'expo-font';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider } from './src/contexts/AuthContext';
+import { SubscriptionProvider } from './src/contexts/SubscriptionContext';
 import { PrivacyProvider } from './src/contexts/PrivacyContext';
+import { AppStoreProvider } from './src/contexts/AppStoreContext';
 import AppNavigator from './src/navigation/AppNavigator';
+var Updates = require('expo-updates');
+
+// Setup push notifications handler (foreground display + Android channel)
+var notifService = require('./src/services/notificationService');
+notifService.setNotificationHandler();
+notifService.setupNotificationChannel();
+
+// Checar OTA updates ao abrir o app
+function checkForOTAUpdate() {
+  if (__DEV__) return; // Nao roda em development
+  try {
+    Updates.checkForUpdateAsync().then(function(result) {
+      if (result && result.isAvailable) {
+        Updates.fetchUpdateAsync().then(function() {
+          Alert.alert(
+            'Atualização disponível',
+            'Uma nova versão foi baixada. Deseja reiniciar o app agora?',
+            [
+              { text: 'Depois', style: 'cancel' },
+              { text: 'Reiniciar', onPress: function() { Updates.reloadAsync(); } },
+            ]
+          );
+        }).catch(function(e) { console.warn('fetchUpdate error:', e); });
+      }
+    }).catch(function(e) { console.warn('checkUpdate error:', e); });
+  } catch (e) { console.warn('OTA check error:', e); }
+}
 
 const C = { bg: '#070a11', accent: '#6C5CE7' };
 
@@ -17,6 +46,9 @@ export default function App() {
     'JetBrainsMono-Regular': require('./assets/fonts/JetBrainsMono-Regular.ttf'),
     'JetBrainsMono-Bold': require('./assets/fonts/JetBrainsMono-Bold.ttf'),
   });
+
+  // Checar OTA update uma vez ao montar
+  React.useEffect(function() { checkForOTAUpdate(); }, []);
 
   if (!fontsLoaded) {
     return (
@@ -32,9 +64,13 @@ export default function App() {
       <SafeAreaProvider>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <AuthProvider>
-          <PrivacyProvider>
-            <AppNavigator />
-          </PrivacyProvider>
+          <SubscriptionProvider>
+            <PrivacyProvider>
+              <AppStoreProvider>
+                <AppNavigator />
+              </AppStoreProvider>
+            </PrivacyProvider>
+          </SubscriptionProvider>
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
