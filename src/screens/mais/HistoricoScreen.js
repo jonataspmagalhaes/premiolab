@@ -6,8 +6,8 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { useAppStore } from '../../contexts/AppStoreContext';
-import { getOperacoes, getOpcoes, getProventos, getPortfolios } from '../../services/database';
+import { useAppStore, useCarteira, useProventos } from '../../contexts/AppStoreContext';
+import { getOperacoes, getPortfolios } from '../../services/database';
 import { Glass, Badge, Pill, SectionLabel, PeriodFilter } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
@@ -22,17 +22,23 @@ export default function HistoricoScreen(props) {
   var navigation = props.navigation;
   var _auth = useAuth(); var user = _auth.user;
 
+  // Opcoes e proventos vem do store unificado. Operacoes nao esta no store
+  // ainda, fica como fetch local.
+  var carteira = useCarteira();
+  var provStore = useProventos();
+  var opcoes = carteira.opcoes;
+  var proventos = provStore.proventos;
+  var refreshCarteira = carteira.refresh;
+  var refreshProventos = provStore.refresh;
+
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
   var _filter = useState('todos'); var filter = _filter[0]; var setFilter = _filter[1];
   var _operacoes = useState([]); var operacoes = _operacoes[0]; var setOperacoes = _operacoes[1];
-  var _opcoes = useState([]); var opcoes = _opcoes[0]; var setOpcoes = _opcoes[1];
-  var _proventos = useState([]); var proventos = _proventos[0]; var setProventos = _proventos[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
   var _subFilter = useState('todos'); var subFilter = _subFilter[0]; var setSubFilter = _subFilter[1];
   var _dateRange = useState(null); var dateRange = _dateRange[0]; var setDateRange = _dateRange[1];
   var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfolios = _portfolios[1];
-  // selectedPortfolio unificado via AppStoreContext
   var appStore = useAppStore();
   var selPortfolio = appStore.selectedPortfolio;
   var setSelPortfolio = appStore.setSelectedPortfolio;
@@ -50,14 +56,11 @@ export default function HistoricoScreen(props) {
     var dashPfId = selPortfolio || null;
 
     try {
-      var results = await Promise.all([
-        getOperacoes(user.id, { portfolioId: dashPfId }),
-        getOpcoes(user.id, dashPfId),
-        getProventos(user.id, { portfolioId: dashPfId }),
-      ]);
-      setOperacoes(results[0].data || []);
-      setOpcoes(results[1].data || []);
-      setProventos(results[2].data || []);
+      var opsRes = await getOperacoes(user.id, { portfolioId: dashPfId });
+      setOperacoes(opsRes.data || []);
+      // Opcoes/proventos atualizados via store (disparo abaixo)
+      refreshCarteira(true);
+      refreshProventos(true);
     } catch (e) {
       console.warn('HistoricoScreen load error:', e);
       setLoadError(true);

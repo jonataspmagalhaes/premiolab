@@ -16,8 +16,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { C, F, SIZE } from '../../theme';
 import { Glass } from '../../components';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCarteira, useProventos } from '../../contexts/AppStoreContext';
 import Sensitive, { usePrivacyStyle } from '../../components/Sensitive';
-import { getProventos, getOpcoes, getRendaFixa } from '../../services/database';
 
 var W = Dimensions.get('window').width;
 
@@ -209,30 +209,23 @@ export default function CalendarioRendaScreen(props) {
   var _month = useState(now.getMonth()); var month = _month[0]; var setMonth = _month[1];
   var _selDay = useState(now.getDate()); var selDay = _selDay[0]; var setSelDay = _selDay[1];
 
-  var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
-  var _proventos = useState([]); var proventos = _proventos[0]; var setProventos = _proventos[1];
-  var _opcoes = useState([]); var opcoes = _opcoes[0]; var setOpcoes = _opcoes[1];
-  var _rfList = useState([]); var rfList = _rfList[0]; var setRfList = _rfList[1];
+  // Datasets via store — filtrados globalmente pelo selectedPortfolio.
+  // Mudanca de comportamento: antes mostrava dados de TODOS os portfolios,
+  // agora respeita o filtro global. Trocar pra 'Todos' no header pra ver tudo.
+  var carteira = useCarteira();
+  var provStore = useProventos();
+  var opcoes = carteira.opcoes;
+  var rfList = carteira.rf;
+  var proventos = provStore.proventos;
+  var loading = carteira.loading || provStore.loading;
+  var refreshCarteira = carteira.refresh;
+  var refreshProventos = provStore.refresh;
 
-  function loadAll() {
+  useFocusEffect(useCallback(function() {
     if (!user) return;
-    setLoading(true);
-    Promise.all([
-      getProventos(user.id, { limit: 2000 }),
-      getOpcoes(user.id),
-      getRendaFixa(user.id),
-    ]).then(function(results) {
-      setProventos((results[0] && results[0].data) || []);
-      setOpcoes((results[1] && results[1].data) || []);
-      setRfList((results[2] && results[2].data) || []);
-      setLoading(false);
-    }).catch(function(err) {
-      console.warn('Calendario loadAll error:', err && err.message);
-      setLoading(false);
-    });
-  }
-
-  useFocusEffect(useCallback(function() { loadAll(); }, [user]));
+    refreshCarteira(true);
+    refreshProventos(true);
+  }, [user, refreshCarteira, refreshProventos]));
 
   function prevMonth() {
     if (month === 0) { setMonth(11); setYear(year - 1); }

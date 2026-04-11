@@ -4,11 +4,14 @@ import {
   TouchableOpacity, Alert, Modal, ActivityIndicator,
 } from 'react-native';
 import { animateLayout } from '../../utils/a11y';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect } from '@react-navigation/native';
 import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getProventos, deleteProvento, addProvento, getProfile } from '../../services/database';
+import { useSubscription } from '../../contexts/SubscriptionContext';
+import { useProventos } from '../../contexts/AppStoreContext';
+import { deleteProvento, deleteAllProventos, addProvento, getProfile } from '../../services/database';
 import { runDividendSync } from '../../services/dividendService';
 import { Glass, Badge, Pill, SectionLabel, SwipeableRow, PeriodFilter } from '../../components';
 import { SkeletonProventos, EmptyState } from '../../components/States';
@@ -70,8 +73,12 @@ export default function ProventosScreen(props) {
   var navigation = props.navigation;
   var embedded = props.embedded || false;
   var user = useAuth().user;
-  var _items = useState([]); var items = _items[0]; var setItems = _items[1];
-  var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
+  var sub = useSubscription();
+  // Dataset via AppStoreContext — filtrado por selectedPortfolio globalmente
+  var provStore = useProventos();
+  var items = provStore.proventos;
+  var loading = provStore.loading;
+  var refreshProventos = provStore.refresh;
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
   var _filter = useState('todos'); var filter = _filter[0]; var setFilter = _filter[1];
   var _tab = useState('pendente'); var tab = _tab[0]; var setTab = _tab[1];
@@ -82,29 +89,21 @@ export default function ProventosScreen(props) {
   var _dateRange = useState(null); var dateRange = _dateRange[0]; var setDateRange = _dateRange[1];
   var ps = usePrivacyStyle();
 
-  var load = async function() {
+  // Carrega last_dividend_sync do profile (fora do store pra simplificar).
+  // Na montagem e no focus, garante o store de proventos atualizado.
+  useFocusEffect(useCallback(function() {
     if (!user) return;
     setLoadError(false);
-    try {
-      var results = await Promise.all([
-        getProventos(user.id, { limit: 500 }),
-        getProfile(user.id),
-      ]);
-      setItems(results[0].data || []);
-      var prof = results[1] && results[1].data ? results[1].data : null;
+    getProfile(user.id).then(function(res) {
+      var prof = res && res.data ? res.data : null;
       if (prof && prof.last_dividend_sync) setLastSync(prof.last_dividend_sync);
-    } catch (e) {
-      console.warn('ProventosScreen load failed:', e);
-      setLoadError(true);
-    }
-    setLoading(false);
-  };
-
-  useFocusEffect(useCallback(function() { load(); }, [user]));
+    }).catch(function() { setLoadError(true); });
+    refreshProventos(true);
+  }, [user, refreshProventos]));
 
   var onRefresh = async function() {
     setRefreshing(true);
-    await load();
+    try { await refreshProventos(true); } catch (_) {}
     setRefreshing(false);
   };
 
@@ -117,7 +116,7 @@ export default function ProventosScreen(props) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (result.inserted > 0) {
         Toast.show({ type: 'success', text1: result.inserted + ' provento' + (result.inserted > 1 ? 's' : '') + ' importado' + (result.inserted > 1 ? 's' : ''), text2: (result.checked || 0) + ' ticker' + (result.checked > 1 ? 's' : '') + ' verificado' + (result.checked > 1 ? 's' : '') });
-        await load();
+        await refreshProventos(true);
       } else {
         Alert.alert('Nenhum provento novo', result.message || 'Nenhum provento novo encontrado.');
       }
@@ -125,6 +124,44 @@ export default function ProventosScreen(props) {
       Alert.alert('Erro', 'Falha ao sincronizar dividendos: ' + (e.message || e));
     }
     setSyncing(false);
+  };
+
+  var handleResync = function() {
+    if (syncing || !user) return;
+    Alert.alert(
+      'Resincronizar proventos?',
+      'Proventos dos últimos 12 meses serão apagados e reimportados automaticamente com quantidades corretas por portfólio.\n\nProventos mais antigos serão preservados.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Resincronizar',
+          style: 'destructive',
+          onPress: async function() {
+            setSyncing(true);
+            try {
+              // Apagar proventos dos ultimos 12 meses (janela do sync) — sem filtro de portfolio
+              // para limpar proventos que podem ter sido atribuidos ao portfolio errado
+              var cutoff = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+              var cutoffStr = cutoff.toISOString().substring(0, 10);
+              var delResult = await deleteAllProventos(user.id, null, cutoffStr);
+              if (delResult.error) {
+                Alert.alert('Erro', 'Falha ao apagar proventos: ' + (delResult.error.message || ''));
+                setSyncing(false);
+                return;
+              }
+              var result = await runDividendSync(user.id);
+              setLastSync(new Date().toISOString().substring(0, 10));
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Toast.show({ type: 'success', text1: (result.inserted || 0) + ' provento' + ((result.inserted || 0) > 1 ? 's' : '') + ' reimportado' + ((result.inserted || 0) > 1 ? 's' : ''), text2: 'Resincronização concluída' });
+              await refreshProventos(true);
+            } catch (e) {
+              Alert.alert('Erro', 'Falha ao resincronizar: ' + (e.message || e));
+            }
+            setSyncing(false);
+          },
+        },
+      ]
+    );
   };
 
   var undoRef = useRef(null);
@@ -142,7 +179,7 @@ export default function ProventosScreen(props) {
     };
     if (saved.corretora) payload.corretora = saved.corretora;
     await addProvento(user.id, payload);
-    load();
+    refreshProventos(true);
   };
 
   var handleDelete = function(id) {
@@ -165,7 +202,7 @@ export default function ProventosScreen(props) {
             if (!result.error) {
               undoRef.current = prov;
               animateLayout();
-              setItems(items.filter(function(i) { return i.id !== id; }));
+              refreshProventos(true);
               Toast.show({
                 type: 'undo',
                 text1: 'Provento excluído',
@@ -221,13 +258,18 @@ export default function ProventosScreen(props) {
       monthOrder.push(dateStr);
     }
     months[dateStr].items.push(p);
-    months[dateStr].total += (p.valor_total || 0);
+    // JCP tem 15% IR retido na fonte — somar valor liquido
+    var ptipo = (p.tipo_provento || '').toLowerCase();
+    var pval = (p.valor_total || 0);
+    months[dateStr].total += (ptipo === 'jcp') ? pval * 0.85 : pval;
   }
 
   // Grand total
   var totalGeral = 0;
   for (var j = 0; j < filtered.length; j++) {
-    totalGeral += (filtered[j].valor_total || 0);
+    var jtipo = (filtered[j].tipo_provento || '').toLowerCase();
+    var jval = (filtered[j].valor_total || 0);
+    totalGeral += (jtipo === 'jcp') ? jval * 0.85 : jval;
   }
 
   // Month label
@@ -242,7 +284,7 @@ export default function ProventosScreen(props) {
   if (loading) return <View style={{ flex: 1, backgroundColor: C.bg, padding: 18 }}><SkeletonProventos /></View>;
   if (loadError) return (
     <View style={{ flex: 1, backgroundColor: C.bg, padding: 18 }}>
-      <EmptyState ionicon="alert-circle-outline" title="Erro ao carregar" description="Não foi possível carregar os proventos. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { setLoading(true); load(); }} color={C.red} />
+      <EmptyState ionicon="alert-circle-outline" title="Erro ao carregar" description="Não foi possível carregar os proventos. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { refreshProventos(true); }} color={C.red} />
     </View>
   );
 
@@ -258,47 +300,59 @@ export default function ProventosScreen(props) {
             </TouchableOpacity>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={styles.title}>Proventos</Text>
-              <TouchableOpacity onPress={function() { setInfoModal({ title: 'Proventos', text: 'Dividendos, JCP, rendimentos de FIIs e amortizações. Sincronizar importa automaticamente de brapi + StatusInvest.' }); }}>
+              <TouchableOpacity onPress={function() { setInfoModal({ title: 'Proventos', text: 'Dividendos, JCP, rendimentos de FIIs e amortizações.\n\nTap no ícone de sync para importar novos.\nSegure para resincronizar ou adicionar manual.' }); }}>
                 <Text style={{ fontSize: 13, color: C.accent }}>ⓘ</Text>
               </TouchableOpacity>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-              <View style={{ alignItems: 'center' }}>
-                <TouchableOpacity onPress={handleSync} disabled={syncing} style={{ opacity: syncing ? 0.5 : 1, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  {syncing ? <ActivityIndicator size="small" color={C.accent} /> : null}
-                  <Text style={{ fontSize: 13, color: C.accent, fontWeight: '700', fontFamily: F.mono }}>
-                    {syncing ? 'Sincronizando...' : 'Sincronizar'}
-                  </Text>
-                </TouchableOpacity>
-                {lastSync ? (
-                  <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>
-                    {(function() { var p = (lastSync || '').split('-'); return p.length >= 3 ? p[2] + '/' + p[1] + '/' + p[0] : lastSync; })()}
-                  </Text>
-                ) : null}
-              </View>
+            {sub.canAccess('AUTO_SYNC_DIVIDENDS') ? (
+              <TouchableOpacity
+                onPress={handleSync}
+                onLongPress={function() {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  Alert.alert('Proventos', lastSync ? 'Último sync: ' + (function() { var p = (lastSync || '').split('-'); return p.length >= 3 ? p[2] + '/' + p[1] + '/' + p[0] : lastSync; })() : 'Nunca sincronizado', [
+                    { text: 'Cancelar', style: 'cancel' },
+                    { text: 'Adicionar manual', onPress: function() { navigation.navigate('AddProvento'); } },
+                    { text: 'Resincronizar', style: 'destructive', onPress: function() { handleResync(); } },
+                  ]);
+                }}
+                disabled={syncing}
+                style={{ opacity: syncing ? 0.5 : 1, padding: 6 }}
+                accessibilityLabel="Sincronizar proventos"
+                accessibilityHint="Segure para mais opções"
+              >
+                {syncing ? <ActivityIndicator size="small" color={C.accent} /> : <Ionicons name="sync-outline" size={20} color={C.accent} />}
+              </TouchableOpacity>
+            ) : (
               <TouchableOpacity onPress={function() { navigation.navigate('AddProvento'); }}>
                 <Text style={styles.addIcon}>+</Text>
               </TouchableOpacity>
-            </View>
+            )}
           </View>
         ) : (
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 14, paddingHorizontal: SIZE.padding }}>
-            <View style={{ alignItems: 'center' }}>
-              <TouchableOpacity onPress={handleSync} disabled={syncing} style={{ opacity: syncing ? 0.5 : 1, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                {syncing ? <ActivityIndicator size="small" color={C.accent} /> : null}
-                <Text style={{ fontSize: 13, color: C.accent, fontWeight: '700', fontFamily: F.mono }}>
-                  {syncing ? 'Sincronizando...' : 'Sincronizar'}
-                </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 10, paddingHorizontal: SIZE.padding }}>
+            {sub.canAccess('AUTO_SYNC_DIVIDENDS') ? (
+              <TouchableOpacity
+                onPress={handleSync}
+                onLongPress={function() {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  Alert.alert('Proventos', lastSync ? 'Último sync: ' + (function() { var p = (lastSync || '').split('-'); return p.length >= 3 ? p[2] + '/' + p[1] + '/' + p[0] : lastSync; })() : 'Nunca sincronizado', [
+                    { text: 'Cancelar', style: 'cancel' },
+                    { text: 'Adicionar manual', onPress: function() { navigation.navigate('AddProvento'); } },
+                    { text: 'Resincronizar', style: 'destructive', onPress: function() { handleResync(); } },
+                  ]);
+                }}
+                disabled={syncing}
+                style={{ opacity: syncing ? 0.5 : 1, padding: 6 }}
+                accessibilityLabel="Sincronizar proventos"
+                accessibilityHint="Segure para mais opções"
+              >
+                {syncing ? <ActivityIndicator size="small" color={C.accent} /> : <Ionicons name="sync-outline" size={20} color={C.accent} />}
               </TouchableOpacity>
-              {lastSync ? (
-                <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 2 }}>
-                  {(function() { var p = (lastSync || '').split('-'); return p.length >= 3 ? p[2] + '/' + p[1] + '/' + p[0] : lastSync; })()}
-                </Text>
-              ) : null}
-            </View>
-            <TouchableOpacity onPress={function() { navigation.navigate('AddProvento'); }}>
-              <Text style={styles.addIcon}>+</Text>
-            </TouchableOpacity>
+            ) : (
+              <TouchableOpacity onPress={function() { navigation.navigate('AddProvento'); }}>
+                <Text style={styles.addIcon}>+</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
@@ -328,7 +382,7 @@ export default function ProventosScreen(props) {
         <Glass glow={isPendente ? C.yellow : C.fiis} padding={16}>
           <Text style={styles.totalLabel}>{isPendente ? 'TOTAL A RECEBER' : 'TOTAL RECEBIDO'}</Text>
           <Text style={[styles.totalValue, isPendente && { color: C.yellow }, ps]}>
-            {'R$ ' + totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            {'R$ ' + totalGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </Text>
           <Text style={styles.totalCount}>
             {filtered.length + ' provento' + (filtered.length !== 1 ? 's' : '')}
@@ -358,9 +412,9 @@ export default function ProventosScreen(props) {
             description={isPendente
               ? 'Proventos a receber aparecerao aqui apos a sincronizacao.'
               : 'Proventos já pagos aparecem aqui para consulta.'}
-            cta={isPendente ? 'Sincronizar' : 'Registrar Provento'}
-            onCta={isPendente ? handleSync : function() { navigation.navigate('AddProvento'); }}
-            color={isPendente ? C.yellow : C.fiis}
+            cta={isPendente ? (sub.canAccess('AUTO_SYNC_DIVIDENDS') ? 'Sincronizar' : 'Registrar Provento') : 'Registrar Provento'}
+            onCta={isPendente ? (sub.canAccess('AUTO_SYNC_DIVIDENDS') ? handleSync : function() { navigation.navigate('AddProvento'); }) : function() { navigation.navigate('AddProvento'); }}
+            color={isPendente ? (sub.canAccess('AUTO_SYNC_DIVIDENDS') ? C.yellow : C.fiis) : C.fiis}
           />
         ) : null}
       </View>
@@ -379,7 +433,9 @@ export default function ProventosScreen(props) {
           {group.items.map(function(p, idx) {
             var tipoLabel = TIPO_LABELS[p.tipo_provento] || p.tipo_provento || 'DIV';
             var tipoColor = TIPO_COLORS[p.tipo_provento] || C.fiis;
-            var valorTotal = p.valor_total || 0;
+            var valorBruto = p.valor_total || 0;
+            // JCP tem 15% IR retido na fonte — mostrar valor liquido
+            var valorTotal = ((p.tipo_provento || '').toLowerCase() === 'jcp') ? valorBruto * 0.85 : valorBruto;
             var days = isPendente ? daysUntil(p.data_pagamento) : 0;
 
             return (

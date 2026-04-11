@@ -12,8 +12,8 @@ var formatDateBR = dateUtils.formatDateBR;
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { useAppStore } from '../../contexts/AppStoreContext';
-import { getRendaFixa, getPortfolios } from '../../services/database';
+import { useAppStore, useCarteira } from '../../contexts/AppStoreContext';
+import { getPortfolios } from '../../services/database';
 import { supabase } from '../../config/supabase';
 import { Glass, Badge, SectionLabel } from '../../components';
 import * as Haptics from 'expo-haptics';
@@ -55,39 +55,32 @@ function formatTaxa(taxa, indexador) {
 export default function RendaFixaScreen(props) {
   var navigation = props.navigation;
   var user = useAuth().user;
-  var s1 = useState([]); var items = s1[0]; var setItems = s1[1];
-  var s2 = useState(true); var loading = s2[0]; var setLoading = s2[1];
+  // Dataset via AppStoreContext — RF ja vem filtrado pelo selectedPortfolio global.
+  var carteira = useCarteira();
+  var items = carteira.rf;
+  var loading = carteira.loading;
+  var refreshCarteira = carteira.refresh;
   var s3 = useState(false); var refreshing = s3[0]; var setRefreshing = s3[1];
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
   var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfolios = _portfolios[1];
-  // selectedPortfolio unificado via AppStoreContext
   var appStore = useAppStore();
   var selPortfolio = appStore.selectedPortfolio;
   var setSelPortfolio = appStore.setSelectedPortfolio;
   var _showPortDD = useState(false); var showPortDD = _showPortDD[0]; var setShowPortDD = _showPortDD[1];
 
-  var load = async function() {
+  // Carrega a lista de portfolios (pro dropdown) e forca refresh do store
+  // no focus pra pegar mutations feitas em outras telas.
+  useFocusEffect(useCallback(function() {
     if (!user) return;
-    try {
-      var pfRes = await getPortfolios(user.id);
+    getPortfolios(user.id).then(function(pfRes) {
       setPortfolios(pfRes.data || []);
-    } catch (e) { /* ignore */ }
-
-    var dashPfId = selPortfolio || null;
-    var result = await getRendaFixa(user.id, dashPfId);
-    setItems(result.data || []);
-    setLoading(false);
-  };
-
-  useEffect(function() {
-    if (!user) return;
-    if (selPortfolio === undefined) return;
-    load();
-  }, [user, selPortfolio]);
+    }).catch(function() {});
+    refreshCarteira(true);
+  }, [user, refreshCarteira]));
 
   var onRefresh = async function() {
     setRefreshing(true);
-    await load();
+    try { await refreshCarteira(true); } catch (_) {}
     setRefreshing(false);
   };
 
@@ -110,7 +103,7 @@ export default function RendaFixaScreen(props) {
             var result = await supabase.from('renda_fixa').delete().eq('id', id);
             if (!result.error) {
               animateLayout();
-              setItems(items.filter(function(i) { return i.id !== id; }));
+              refreshCarteira(true);
             } else {
               Alert.alert('Erro', 'Falha ao excluir.');
             }
