@@ -1258,7 +1258,6 @@ export default function RendaHomeScreen(props) {
 
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
   var _potencial = useState(null); var potencial = _potencial[0]; var setPotencial = _potencial[1];
-  var _proventosList = useState([]); var proventosList = _proventosList[0]; var setProventosList = _proventosList[1];
   var _dashData = useState(null); var dashData = _dashData[0]; var setDashData = _dashData[1];
   var _chartPeriod = useState('ALL'); var chartPeriod = _chartPeriod[0]; var setChartPeriod = _chartPeriod[1];
 
@@ -1278,8 +1277,7 @@ export default function RendaHomeScreen(props) {
     computeRendaPotencial(user.id)
       .then(function(res) { setPotencial(res); })
       .catch(function(err) { console.warn('potencial error:', err && err.message); });
-    setProventosList(store.proventos || []);
-  }, [user, store.proventos]));
+  }, [user]));
 
   // Reage a mudancas de user/portfolio pra refetch o dashboard mesmo quando a
   // tela ja esta focada. useFocusEffect so dispara no evento de focus, nao
@@ -1311,7 +1309,7 @@ export default function RendaHomeScreen(props) {
     : computePatrimonio(positions, rf, saldos);
   var rendaMedia = (forecast && forecast.summary && forecast.summary.mediaProjetada) || 0;
   var meta = (profile && profile.meta_mensal) || 0;
-  var eventos7d = computeProximos7Dias(proventosList, opcoes);
+  var eventos7d = computeProximos7Dias(store.proventos || [], opcoes);
   var opsAtivas = countOpsAtivas(opcoes);
   var opsVenc7d = countOpsVenc7d(opcoes);
 
