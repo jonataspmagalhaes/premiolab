@@ -114,6 +114,49 @@ async function revokePro(userId: string, status: string) {
     .eq("id", userId);
 }
 
+// Cria/atualiza registro em pending_subscriptions para compras orfas.
+// Quando o user criar conta com esse email, AuthContext reconcilia.
+async function upsertPending(
+  email: string,
+  tier: string,
+  expiresAt: string,
+  externalId: string | undefined,
+  status: string,
+  rawPayload: any
+) {
+  // Supersede pendings anteriores do mesmo email
+  await supabase
+    .from("pending_subscriptions")
+    .update({ status: "superseded", updated_at: new Date().toISOString() })
+    .eq("email", email.toLowerCase())
+    .eq("status", "pending");
+
+  const { error } = await supabase.from("pending_subscriptions").insert({
+    email: email.toLowerCase(),
+    tier: tier,
+    subscription_source: "kiwify",
+    subscription_external_id: externalId || null,
+    subscription_status: status,
+    expires_at: expiresAt,
+    status: "pending",
+    raw_payload: rawPayload,
+  });
+  if (error) {
+    console.error("upsertPending insert error:", error.message);
+    throw error;
+  }
+}
+
+// Revoga pendings nao aplicados quando evento de revogacao chega pra
+// email sem conta no app.
+async function revokePending(email: string, reason: string) {
+  await supabase
+    .from("pending_subscriptions")
+    .update({ status: "revoked", subscription_status: reason, updated_at: new Date().toISOString() })
+    .eq("email", email.toLowerCase())
+    .eq("status", "pending");
+}
+
 Deno.serve(async (req) => {
   try {
     if (req.method !== "POST") {
@@ -198,13 +241,6 @@ Deno.serve(async (req) => {
     }
 
     const userId = await findUserByEmail(email);
-    if (!userId) {
-      console.warn("kiwify-webhook: user not found for email", email);
-      return new Response(JSON.stringify({ error: "user not found", email }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
 
     // Normalizar evento — Kiwify pode enviar em pt-br ou en
     const lower = eventType.toLowerCase().trim();
@@ -226,25 +262,49 @@ Deno.serve(async (req) => {
 
     if (grantEvents.indexOf(lower) !== -1) {
       const expiresAt = calcExpiresAt(frequency);
-      await grantPro(userId, expiresAt, externalId, "active");
-      console.log("kiwify-webhook: granted PRO to", email, "until", expiresAt);
+      if (userId) {
+        await grantPro(userId, expiresAt, externalId, "active");
+        console.log("kiwify-webhook: granted PRO to", email, "until", expiresAt);
+        return new Response(
+          JSON.stringify({ ok: true, action: "grant_pro", user_id: userId, email, expires_at: expiresAt }),
+          { headers: { "Content-Type": "application/json" } }
+        );
+      }
+      // Compra orfa — user ainda nao tem conta. Salva pra reconciliar no signup.
+      await upsertPending(email, "pro", expiresAt, externalId, "active", body);
+      console.log("kiwify-webhook: saved pending PRO for", email, "until", expiresAt);
       return new Response(
-        JSON.stringify({ ok: true, action: "grant_pro", user_id: userId, email, expires_at: expiresAt }),
+        JSON.stringify({
+          ok: true,
+          action: "pending",
+          email,
+          expires_at: expiresAt,
+          message: "saved for reconciliation on signup",
+        }),
         { headers: { "Content-Type": "application/json" } }
       );
     }
 
     if (revokeEvents.indexOf(lower) !== -1) {
-      await revokePro(userId, lower);
-      console.log("kiwify-webhook: revoked PRO from", email, "reason", lower);
+      if (userId) {
+        await revokePro(userId, lower);
+        console.log("kiwify-webhook: revoked PRO from", email, "reason", lower);
+        return new Response(
+          JSON.stringify({ ok: true, action: "revoke_pro", user_id: userId, email, reason: lower }),
+          { headers: { "Content-Type": "application/json" } }
+        );
+      }
+      // Revogacao de compra orfa — marca pendings do email como revogados.
+      await revokePending(email, lower);
+      console.log("kiwify-webhook: revoked pending for", email, "reason", lower);
       return new Response(
-        JSON.stringify({ ok: true, action: "revoke_pro", user_id: userId, email, reason: lower }),
+        JSON.stringify({ ok: true, action: "revoke_pending", email, reason: lower }),
         { headers: { "Content-Type": "application/json" } }
       );
     }
 
     // Evento nao reconhecido — apenas registra (nao falha)
-    console.log("kiwify-webhook: event not handled:", lower);
+    console.log("kiwify-webhook: event not handled:", lower, "user_found:", !!userId);
     return new Response(
       JSON.stringify({ ok: true, action: "noop", event: lower, message: "event not handled but webhook received" }),
       { headers: { "Content-Type": "application/json" } }
