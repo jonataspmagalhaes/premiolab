@@ -2563,7 +2563,7 @@ export default function CarteiraScreen(props) {
             classVals[pc] += positions[pi].quantidade * (positions[pi].preco_atual || positions[pi].pm);
           }
         }
-        var classTotal = totalValue;
+        var classTotal = totalInvestido;
         var classMetaTotal = 0;
         var classMetaCount = 0;
         var cmkKeys = Object.keys(classMetas);
