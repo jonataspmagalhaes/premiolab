@@ -26,6 +26,7 @@ var useEffect = React.useEffect;
 var useCallback = React.useCallback;
 var useRef = React.useRef;
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from './AuthContext';
 import {
   getPositions, getProventos, getOpcoes, getRendaFixa,
@@ -116,7 +117,39 @@ export function AppStoreProvider(props) {
   var _movimentacoes = useState([]); var movimentacoes = _movimentacoes[0]; var setMovimentacoes = _movimentacoes[1];
   var _portfolios = useState([]); var portfoliosS = _portfolios[0]; var setPortfoliosS = _portfolios[1];
   var _profile = useState(null); var profile = _profile[0]; var setProfile = _profile[1];
-  var _selectedPortfolio = useState(null); var selectedPortfolio = _selectedPortfolio[0]; var setSelectedPortfolio = _selectedPortfolio[1];
+  // selectedPortfolio: null = Todos, '__null__' = Padrao (portfolio_id IS NULL no DB), UUID = custom.
+  // Persistido em AsyncStorage por user pra sobreviver reinicios. Inicia como
+  // undefined ate terminar o load; nesse estado o auto-fetch nao dispara.
+  var _selectedPortfolio = useState(undefined); var selectedPortfolio = _selectedPortfolio[0]; var _rawSetSelectedPortfolio = _selectedPortfolio[1];
+  var setSelectedPortfolio = useCallback(function(value) {
+    _rawSetSelectedPortfolio(value);
+    if (user && user.id) {
+      var key = '@selected_portfolio_' + user.id;
+      if (value === null || value === undefined) {
+        AsyncStorage.removeItem(key).catch(function() {});
+      } else {
+        AsyncStorage.setItem(key, String(value)).catch(function() {});
+      }
+    }
+  }, [user]);
+
+  // Carrega o portfolio selecionado do AsyncStorage quando user muda.
+  useEffect(function() {
+    if (!user || !user.id) {
+      _rawSetSelectedPortfolio(null);
+      return;
+    }
+    var key = '@selected_portfolio_' + user.id;
+    AsyncStorage.getItem(key).then(function(stored) {
+      if (stored === null || stored === undefined) {
+        _rawSetSelectedPortfolio(null); // default: Todos
+      } else {
+        _rawSetSelectedPortfolio(stored);
+      }
+    }).catch(function() {
+      _rawSetSelectedPortfolio(null);
+    });
+  }, [user]);
 
   // Derived datasets
   var _forecast = useState(null); var forecast = _forecast[0]; var setForecast = _forecast[1];
@@ -269,8 +302,11 @@ export function AppStoreProvider(props) {
   // Auto-fetch inicial quando user autentica. Forca refresh na mudanca de
   // portfolio — o cache de 5min nao e chaveado por portfolioId, entao sem
   // force=true trocar de portfolio dentro da janela nao atualizava nada.
+  // Pula enquanto selectedPortfolio === undefined (load do AsyncStorage
+  // ainda em andamento) pra evitar double-fetch logo apos login.
   useEffect(function() {
     if (!user) return;
+    if (selectedPortfolio === undefined) return;
     refreshCarteira(true);
     refreshProventos(true);
     refreshFinancas(true);

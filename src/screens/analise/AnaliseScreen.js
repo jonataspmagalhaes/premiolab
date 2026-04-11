@@ -20,6 +20,7 @@ import Svg, {
 import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
+import { useAppStore } from '../../contexts/AppStoreContext';
 import {
   getDashboard, getProventos,
   getOperacoes, getProfile, getOpcoes,
@@ -4080,11 +4081,12 @@ export default function AnaliseScreen(props) {
   var _showDrawdown = useState(false); var showDrawdown = _showDrawdown[0]; var setShowDrawdown = _showDrawdown[1];
   var _showPnlClasse = useState(false); var showPnlClasse = _showPnlClasse[0]; var setShowPnlClasse = _showPnlClasse[1];
 
-  // Portfolio selector (standalone mode only)
+  // Portfolio selector (standalone mode only) — unificado via AppStoreContext
   var _anlPortfolios = useState([]); var anlPortfolios = _anlPortfolios[0]; var setAnlPortfolios = _anlPortfolios[1];
-  var _anlSelPortfolio = useState(null); var anlSelPortfolio = _anlSelPortfolio[0]; var setAnlSelPortfolio = _anlSelPortfolio[1];
+  var appStore = useAppStore();
+  var anlSelPortfolio = appStore.selectedPortfolio;
+  var setAnlSelPortfolio = appStore.setSelectedPortfolio;
   var _anlShowPortDD = useState(false); var anlShowPortDD = _anlShowPortDD[0]; var setAnlShowPortDD = _anlShowPortDD[1];
-  var _anlDefaultApplied = useState(false); var anlDefaultApplied = _anlDefaultApplied[0]; var setAnlDefaultApplied = _anlDefaultApplied[1];
 
   // Comparativo states
   var _compTickers = useState(routeInitialTickers || []); var compTickers = _compTickers[0]; var setCompTickers = _compTickers[1];
@@ -4111,24 +4113,17 @@ export default function AnaliseScreen(props) {
   var load = async function() {
     if (!user) return;
     try {
-      // Determine effective portfolioId
+      // Determine effective portfolioId — embedded usa o prop do parent (GestaoScreen),
+      // standalone le do store unificado. Ambos ja usam a convencao do DB:
+      // null = Todos, '__null__' = Padrao, UUID = custom.
       var effectivePortfolio = embedded ? propPortfolioId : anlSelPortfolio;
-      var dashPortfolioId = null;
-      if (effectivePortfolio === '__default__') dashPortfolioId = '__null__';
-      else if (effectivePortfolio) dashPortfolioId = effectivePortfolio;
+      var dashPortfolioId = effectivePortfolio || null;
 
       // Fetch portfolios for standalone selector
       if (!embedded) {
         try {
           var pfRes = await getPortfolios(user.id);
-          var pfs = pfRes.data || [];
-          setAnlPortfolios(pfs);
-          if (!anlDefaultApplied && pfs.length > 0) {
-            setAnlSelPortfolio('__default__');
-            setAnlDefaultApplied(true);
-            effectivePortfolio = '__default__';
-            dashPortfolioId = '__null__';
-          }
+          setAnlPortfolios(pfRes.data || []);
         } catch (e) { /* ignore */ }
       }
 
@@ -4200,14 +4195,12 @@ export default function AnaliseScreen(props) {
 
   useFocusEffect(useCallback(function() { load(); }, [user]));
 
-  // Reload when portfolio changes (standalone or embedded)
+  // Reload when portfolio changes (standalone via store, or embedded via prop)
   useEffect(function() {
     if (!user) return;
-    if (embedded) {
-      load();
-    } else if (anlDefaultApplied) {
-      load();
-    }
+    // Aguarda o store terminar o load inicial em modo standalone
+    if (!embedded && anlSelPortfolio === undefined) return;
+    load();
   }, [anlSelPortfolio, propPortfolioId]);
 
   // ── Derived: Performance ──
@@ -5840,7 +5833,7 @@ export default function AnaliseScreen(props) {
               var lbl = 'Todos';
               var clr = C.accent;
               var ico = 'people-outline';
-              if (anlSelPortfolio === '__default__') { lbl = 'Padrão'; ico = 'briefcase-outline'; }
+              if (anlSelPortfolio === '__null__') { lbl = 'Padrão'; ico = 'briefcase-outline'; }
               else if (anlSelPortfolio) {
                 for (var pi2 = 0; pi2 < anlPortfolios.length; pi2++) {
                   if (anlPortfolios[pi2].id === anlSelPortfolio) {
@@ -5868,11 +5861,11 @@ export default function AnaliseScreen(props) {
                 <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, !anlSelPortfolio && { color: C.accent }]}>Todos</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' }, anlSelPortfolio === '__default__' && { backgroundColor: C.accent + '11' }]}
-                onPress={function() { setAnlSelPortfolio('__default__'); setAnlShowPortDD(false); }}
+                style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' }, anlSelPortfolio === '__null__' && { backgroundColor: C.accent + '11' }]}
+                onPress={function() { setAnlSelPortfolio('__null__'); setAnlShowPortDD(false); }}
               >
-                <Ionicons name="briefcase-outline" size={14} color={anlSelPortfolio === '__default__' ? C.accent : 'rgba(255,255,255,0.3)'} />
-                <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, anlSelPortfolio === '__default__' && { color: C.accent }]}>Padrão</Text>
+                <Ionicons name="briefcase-outline" size={14} color={anlSelPortfolio === '__null__' ? C.accent : 'rgba(255,255,255,0.3)'} />
+                <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, anlSelPortfolio === '__null__' && { color: C.accent }]}>Padrão</Text>
               </TouchableOpacity>
               {anlPortfolios.map(function(p) {
                 var isAct = anlSelPortfolio === p.id;

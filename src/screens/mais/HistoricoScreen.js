@@ -3,13 +3,15 @@ import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   RefreshControl,
 } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOperacoes, getOpcoes, getProventos } from '../../services/database';
+import { useAppStore } from '../../contexts/AppStoreContext';
+import { getOperacoes, getOpcoes, getProventos, getPortfolios } from '../../services/database';
 import { Glass, Badge, Pill, SectionLabel, PeriodFilter } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 
-var CAT_COLORS = { acao: C.acoes, fii: C.fiis, etf: C.etfs, opcao: C.opcoes };
+var CAT_COLORS = { acao: C.acoes, fii: C.fiis, etf: C.etfs, opcao: C.opcoes, bdr: C.bdr, adr: C.adr, reit: C.reit, stock_int: C.stock_int };
 
 
 function fmt(v) {
@@ -29,15 +31,29 @@ export default function HistoricoScreen(props) {
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
   var _subFilter = useState('todos'); var subFilter = _subFilter[0]; var setSubFilter = _subFilter[1];
   var _dateRange = useState(null); var dateRange = _dateRange[0]; var setDateRange = _dateRange[1];
+  var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfolios = _portfolios[1];
+  // selectedPortfolio unificado via AppStoreContext
+  var appStore = useAppStore();
+  var selPortfolio = appStore.selectedPortfolio;
+  var setSelPortfolio = appStore.setSelectedPortfolio;
+  var _showPortDD = useState(false); var showPortDD = _showPortDD[0]; var setShowPortDD = _showPortDD[1];
 
   var load = async function() {
     if (!user) return;
     setLoadError(false);
+
+    try {
+      var pfRes = await getPortfolios(user.id);
+      setPortfolios(pfRes.data || []);
+    } catch (e) { /* ignore */ }
+
+    var dashPfId = selPortfolio || null;
+
     try {
       var results = await Promise.all([
-        getOperacoes(user.id),
-        getOpcoes(user.id),
-        getProventos(user.id),
+        getOperacoes(user.id, { portfolioId: dashPfId }),
+        getOpcoes(user.id, dashPfId),
+        getProventos(user.id, { portfolioId: dashPfId }),
       ]);
       setOperacoes(results[0].data || []);
       setOpcoes(results[1].data || []);
@@ -55,7 +71,11 @@ export default function HistoricoScreen(props) {
     setRefreshing(false);
   };
 
-  useEffect(function() { load(); }, []);
+  useEffect(function() {
+    if (!user) return;
+    if (selPortfolio === undefined) return;
+    load();
+  }, [user, selPortfolio]);
 
   // Build unified timeline
   var timeline = [];
@@ -210,6 +230,73 @@ export default function HistoricoScreen(props) {
           <Text style={styles.title}>Histórico</Text>
           <View style={{ width: 32 }} />
         </View>
+
+        {/* Portfolio selector */}
+        {portfolios.length > 0 ? (
+          <View style={{ marginBottom: 0, zIndex: 10 }}>
+            <TouchableOpacity
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', alignSelf: 'flex-start' }}
+              onPress={function() { setShowPortDD(!showPortDD); }}
+              activeOpacity={0.7}
+            >
+              {(function() {
+                var lbl = 'Todos';
+                var clr = C.accent;
+                var ico = 'people-outline';
+                if (selPortfolio === '__null__') { lbl = 'Padrão'; ico = 'briefcase-outline'; }
+                else if (selPortfolio) {
+                  for (var pi2 = 0; pi2 < portfolios.length; pi2++) {
+                    if (portfolios[pi2].id === selPortfolio) {
+                      lbl = portfolios[pi2].nome; clr = portfolios[pi2].cor || C.accent; ico = portfolios[pi2].icone || null;
+                      break;
+                    }
+                  }
+                }
+                return (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    {ico ? <Ionicons name={ico} size={14} color={clr} /> : <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: clr }} />}
+                    <Text style={{ fontSize: 12, fontFamily: F.body, color: C.text }}>{lbl}</Text>
+                    <Ionicons name={showPortDD ? 'chevron-up' : 'chevron-down'} size={14} color="rgba(255,255,255,0.3)" />
+                  </View>
+                );
+              })()}
+            </TouchableOpacity>
+            {showPortDD ? (
+              <View style={{ backgroundColor: C.bg, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', marginTop: 4, overflow: 'hidden' }}>
+                <TouchableOpacity
+                  style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' }, !selPortfolio && { backgroundColor: C.accent + '11' }]}
+                  onPress={function() { setSelPortfolio(null); setShowPortDD(false); }}
+                >
+                  <Ionicons name="people-outline" size={14} color={!selPortfolio ? C.accent : 'rgba(255,255,255,0.3)'} />
+                  <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, !selPortfolio && { color: C.accent }]}>Todos</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' }, selPortfolio === '__null__' && { backgroundColor: C.accent + '11' }]}
+                  onPress={function() { setSelPortfolio('__null__'); setShowPortDD(false); }}
+                >
+                  <Ionicons name="briefcase-outline" size={14} color={selPortfolio === '__null__' ? C.accent : 'rgba(255,255,255,0.3)'} />
+                  <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, selPortfolio === '__null__' && { color: C.accent }]}>Padrão</Text>
+                </TouchableOpacity>
+                {portfolios.map(function(p) {
+                  var isAct = selPortfolio === p.id;
+                  return (
+                    <TouchableOpacity key={p.id}
+                      style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' }, isAct && { backgroundColor: C.accent + '11' }]}
+                      onPress={function() { setSelPortfolio(p.id); setShowPortDD(false); }}
+                    >
+                      {p.icone ? (
+                        <Ionicons name={p.icone} size={14} color={isAct ? (p.cor || C.accent) : 'rgba(255,255,255,0.3)'} />
+                      ) : (
+                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.cor || C.accent }} />
+                      )}
+                      <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, isAct && { color: p.cor || C.accent }]}>{p.nome}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         <Glass glow={C.accent} padding={14}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>

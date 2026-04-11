@@ -1,8 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, Alert, Modal,
 } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { animateLayout } from '../../utils/a11y';
 var dateUtils = require('../../utils/dateUtils');
 var parseLocalDate = dateUtils.parseLocalDate;
@@ -11,7 +12,8 @@ var formatDateBR = dateUtils.formatDateBR;
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getRendaFixa } from '../../services/database';
+import { useAppStore } from '../../contexts/AppStoreContext';
+import { getRendaFixa, getPortfolios } from '../../services/database';
 import { supabase } from '../../config/supabase';
 import { Glass, Badge, SectionLabel } from '../../components';
 import * as Haptics from 'expo-haptics';
@@ -57,15 +59,31 @@ export default function RendaFixaScreen(props) {
   var s2 = useState(true); var loading = s2[0]; var setLoading = s2[1];
   var s3 = useState(false); var refreshing = s3[0]; var setRefreshing = s3[1];
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
+  var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfolios = _portfolios[1];
+  // selectedPortfolio unificado via AppStoreContext
+  var appStore = useAppStore();
+  var selPortfolio = appStore.selectedPortfolio;
+  var setSelPortfolio = appStore.setSelectedPortfolio;
+  var _showPortDD = useState(false); var showPortDD = _showPortDD[0]; var setShowPortDD = _showPortDD[1];
 
   var load = async function() {
     if (!user) return;
-    var result = await getRendaFixa(user.id);
+    try {
+      var pfRes = await getPortfolios(user.id);
+      setPortfolios(pfRes.data || []);
+    } catch (e) { /* ignore */ }
+
+    var dashPfId = selPortfolio || null;
+    var result = await getRendaFixa(user.id, dashPfId);
     setItems(result.data || []);
     setLoading(false);
   };
 
-  useFocusEffect(useCallback(function() { load(); }, [user]));
+  useEffect(function() {
+    if (!user) return;
+    if (selPortfolio === undefined) return;
+    load();
+  }, [user, selPortfolio]);
 
   var onRefresh = async function() {
     setRefreshing(true);
@@ -134,6 +152,73 @@ export default function RendaFixaScreen(props) {
             <Text style={styles.addIcon}>+</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Portfolio selector */}
+        {portfolios.length > 0 ? (
+          <View style={{ paddingHorizontal: 0, marginBottom: 8, zIndex: 10 }}>
+            <TouchableOpacity
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', alignSelf: 'flex-start' }}
+              onPress={function() { setShowPortDD(!showPortDD); }}
+              activeOpacity={0.7}
+            >
+              {(function() {
+                var lbl = 'Todos';
+                var clr = C.accent;
+                var ico = 'people-outline';
+                if (selPortfolio === '__null__') { lbl = 'Padrão'; ico = 'briefcase-outline'; }
+                else if (selPortfolio) {
+                  for (var pi2 = 0; pi2 < portfolios.length; pi2++) {
+                    if (portfolios[pi2].id === selPortfolio) {
+                      lbl = portfolios[pi2].nome; clr = portfolios[pi2].cor || C.accent; ico = portfolios[pi2].icone || null;
+                      break;
+                    }
+                  }
+                }
+                return (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    {ico ? <Ionicons name={ico} size={14} color={clr} /> : <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: clr }} />}
+                    <Text style={{ fontSize: 12, fontFamily: F.body, color: C.text }}>{lbl}</Text>
+                    <Ionicons name={showPortDD ? 'chevron-up' : 'chevron-down'} size={14} color="rgba(255,255,255,0.3)" />
+                  </View>
+                );
+              })()}
+            </TouchableOpacity>
+            {showPortDD ? (
+              <View style={{ backgroundColor: C.bg, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', marginTop: 4, overflow: 'hidden' }}>
+                <TouchableOpacity
+                  style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' }, !selPortfolio && { backgroundColor: C.accent + '11' }]}
+                  onPress={function() { setSelPortfolio(null); setShowPortDD(false); }}
+                >
+                  <Ionicons name="people-outline" size={14} color={!selPortfolio ? C.accent : 'rgba(255,255,255,0.3)'} />
+                  <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, !selPortfolio && { color: C.accent }]}>Todos</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' }, selPortfolio === '__null__' && { backgroundColor: C.accent + '11' }]}
+                  onPress={function() { setSelPortfolio('__null__'); setShowPortDD(false); }}
+                >
+                  <Ionicons name="briefcase-outline" size={14} color={selPortfolio === '__null__' ? C.accent : 'rgba(255,255,255,0.3)'} />
+                  <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, selPortfolio === '__null__' && { color: C.accent }]}>Padrão</Text>
+                </TouchableOpacity>
+                {portfolios.map(function(p) {
+                  var isAct = selPortfolio === p.id;
+                  return (
+                    <TouchableOpacity key={p.id}
+                      style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' }, isAct && { backgroundColor: C.accent + '11' }]}
+                      onPress={function() { setSelPortfolio(p.id); setShowPortDD(false); }}
+                    >
+                      {p.icone ? (
+                        <Ionicons name={p.icone} size={14} color={isAct ? (p.cor || C.accent) : 'rgba(255,255,255,0.3)'} />
+                      ) : (
+                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.cor || C.accent }} />
+                      )}
+                      <Text style={[{ fontSize: 13, fontFamily: F.body, color: C.text }, isAct && { color: p.cor || C.accent }]}>{p.nome}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         {/* Total */}
         <Glass glow={C.rf} padding={16}>

@@ -8,6 +8,7 @@ import Svg, { Line, Rect, Path, Text as SvgText } from 'react-native-svg';
 import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
+import { useAppStore } from '../../contexts/AppStoreContext';
 import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators, getProfile, updateProfile, addMovimentacaoComSaldo, addMovimentacao, getSavedAnalyses, addSavedAnalysis, deleteSavedAnalysis, updateOpcaoAlertaPL, getAlertasOpcoes, addAlertaOpcao, deleteAlertaOpcao, markAlertaDisparado, getPortfolios } from '../../services/database';
 var notifService = require('../../services/notificationService');
 var fractional = require('../../utils/fractional');
@@ -5890,10 +5891,11 @@ export default function OpcoesScreen() {
   var _histShowAll = useState(false); var histShowAll = _histShowAll[0]; var setHistShowAll = _histShowAll[1];
   var HIST_PAGE_SIZE = 20;
 
-  // Portfolio states
+  // Portfolio states — selectedPortfolio unificado via AppStoreContext
   var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfolios = _portfolios[1];
-  var _selPortfolio = useState(null); var selPortfolio = _selPortfolio[0]; var setSelPortfolio = _selPortfolio[1];
-  var _defaultApplied = useState(false); var defaultApplied = _defaultApplied[0]; var setDefaultApplied = _defaultApplied[1];
+  var appStore = useAppStore();
+  var selPortfolio = appStore.selectedPortfolio;
+  var setSelPortfolio = appStore.setSelectedPortfolio;
   var _showPortDD = useState(false); var showPortDD = _showPortDD[0]; var setShowPortDD = _showPortDD[1];
 
   // Radar -> Simulador bridge
@@ -6022,22 +6024,14 @@ export default function OpcoesScreen() {
     if (!user) return;
     setLoadError(false);
 
-    // Fetch portfolios
-    var portfolioId = selPortfolio;
+    // Fetch portfolios (apenas pra popular o dropdown; o selecionado vem do store)
     try {
       var pfRes = await getPortfolios(user.id);
-      var pfs = pfRes.data || [];
-      setPortfolios(pfs);
-      if (!defaultApplied && pfs.length > 0) {
-        setSelPortfolio('__default__');
-        setDefaultApplied(true);
-        portfolioId = '__default__';
-      }
+      setPortfolios(pfRes.data || []);
     } catch (e) {}
 
-    var effectivePortfolioId = null;
-    if (portfolioId === '__default__') effectivePortfolioId = '__null__';
-    else if (portfolioId) effectivePortfolioId = portfolioId;
+    // selPortfolio ja usa a convencao do DB: null = Todos, '__null__' = Padrao, UUID = custom
+    var effectivePortfolioId = selPortfolio || null;
 
     var results;
     try {
@@ -7174,7 +7168,7 @@ export default function OpcoesScreen() {
               var pLabel = 'Todos';
               var pColor = C.accent;
               var pIcon = 'people-outline';
-              if (selPortfolio === '__default__') {
+              if (selPortfolio === '__null__') {
                 pLabel = 'Padrão';
                 pIcon = 'briefcase-outline';
               } else if (selPortfolio) {
@@ -7210,11 +7204,11 @@ export default function OpcoesScreen() {
                 <Text style={{ fontSize: 13, fontFamily: F.body, color: !selPortfolio ? C.accent : C.text }}>Todos</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border }, selPortfolio === '__default__' && { backgroundColor: C.accent + '11' }]}
-                onPress={function() { setSelPortfolio('__default__'); setShowPortDD(false); }}
+                style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border }, selPortfolio === '__null__' && { backgroundColor: C.accent + '11' }]}
+                onPress={function() { setSelPortfolio('__null__'); setShowPortDD(false); }}
               >
-                <Ionicons name="briefcase-outline" size={14} color={selPortfolio === '__default__' ? C.accent : C.dim} />
-                <Text style={{ fontSize: 13, fontFamily: F.body, color: selPortfolio === '__default__' ? C.accent : C.text }}>Padrão</Text>
+                <Ionicons name="briefcase-outline" size={14} color={selPortfolio === '__null__' ? C.accent : C.dim} />
+                <Text style={{ fontSize: 13, fontFamily: F.body, color: selPortfolio === '__null__' ? C.accent : C.text }}>Padrão</Text>
               </TouchableOpacity>
               {portfolios.map(function(p) {
                 var isActive = selPortfolio === p.id;
@@ -7557,7 +7551,7 @@ export default function OpcoesScreen() {
                 ionicon="trending-up-outline" title="Nenhuma opção ativa"
                 description="Lance opções para começar a receber prêmios."
                 cta={subCtx.isAtLimit('options', ativas.length) && !subCtx.canAccess('OPTIONS_UNLIMITED') ? undefined : 'Nova opção'}
-                onCta={subCtx.isAtLimit('options', ativas.length) && !subCtx.canAccess('OPTIONS_UNLIMITED') ? undefined : function() { navigation.navigate('AddOpcao', { portfolio_id: selPortfolio && selPortfolio !== '__default__' ? selPortfolio : null }); }}
+                onCta={subCtx.isAtLimit('options', ativas.length) && !subCtx.canAccess('OPTIONS_UNLIMITED') ? undefined : function() { navigation.navigate('AddOpcao', { portfolio_id: selPortfolio && selPortfolio !== '__null__' ? selPortfolio : null }); }}
                 color={C.opcoes}
               />
               {subCtx.isAtLimit('options', ativas.length) && !subCtx.canAccess('OPTIONS_UNLIMITED') ? (
@@ -8078,7 +8072,7 @@ export default function OpcoesScreen() {
               ) : (
                 <TouchableOpacity
                   activeOpacity={0.8} style={styles.addBtn}
-                  onPress={function() { navigation.navigate('AddOpcao', { portfolio_id: selPortfolio && selPortfolio !== '__default__' ? selPortfolio : null }); }}
+                  onPress={function() { navigation.navigate('AddOpcao', { portfolio_id: selPortfolio && selPortfolio !== '__null__' ? selPortfolio : null }); }}
                 >
                   <Text style={styles.addBtnText}>+ Nova Opcao</Text>
                 </TouchableOpacity>
