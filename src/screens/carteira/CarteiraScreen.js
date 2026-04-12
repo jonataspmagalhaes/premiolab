@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, ActivityIndicator,
@@ -19,15 +19,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE, PRODUCT_COLORS } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getPositions, getSaldos, getRendaFixa, deleteRendaFixa, getOpcoes, getIndicatorByTicker, addSavedAnalysis, getPatrimonioSnapshots, getProfile, getRebalanceTargets, upsertRebalanceTargets } from '../../services/database';
+import { useCarteira, useFinancas, useAppStore } from '../../contexts/AppStoreContext';
+import { getPositions, deleteRendaFixa, getIndicatorByTicker, addSavedAnalysis, getPatrimonioSnapshots, getProfile, getRebalanceTargets, upsertRebalanceTargets } from '../../services/database';
 import { fetchFundamentals } from '../../services/fundamentalService';
-import { enrichPositionsWithPrices, fetchPriceHistory, fetchHistoryRouted, fetchPriceHistoryLong, fetchPriceHistoryRange, clearPriceCache, getLastPriceUpdate, fetchTickerProfile } from '../../services/priceService';
+import { fetchPriceHistory, fetchHistoryRouted, fetchPriceHistoryLong, fetchPriceHistoryRange, clearPriceCache, getLastPriceUpdate, fetchTickerProfile } from '../../services/priceService';
 import { fetchExchangeRates, convertToBRL, getSymbol } from '../../services/currencyService';
 import { Glass, Badge, Pill, SectionLabel, InfoTip, PressableCard, FundamentalAccordion, Fab, UpgradePrompt, AiAnalysisModal, AiConfirmModal } from '../../components';
 import InteractiveChart, { MiniLineChart } from '../../components/InteractiveChart';
 import Toast from 'react-native-toast-message';
 import { SkeletonCarteira, EmptyState } from '../../components/States';
-import { usePrivacyStyle } from '../../components/Sensitive';
+import Sensitive, { usePrivacyStyle } from '../../components/Sensitive';
 import { useSubscription } from '../../contexts/SubscriptionContext';
 var geminiService = require('../../services/geminiService');
 var TICKER_SECTORS = require('../../constants/tickerSectors').TICKER_SECTORS;
@@ -1032,12 +1033,24 @@ function RFCard(props) {
 // ══════════════════════════════════════════════════════
 export default function CarteiraScreen(props) {
   var navigation = props.navigation;
-  var portfolioId = props.portfolioId || null;
-  var portfoliosList = props.portfolios || [];
   var user = useAuth().user;
   var ps = usePrivacyStyle();
   var sub = useSubscription();
   var _navigating = useRef(false);
+
+  // Store hooks — dados centralizados
+  var carteira = useCarteira();
+  var financas = useFinancas();
+  var store = useAppStore();
+  var positions = carteira.positions;
+  var encerradas = carteira.encerradas;
+  var opcoes = carteira.opcoes;
+  var rfItems = carteira.rf;
+  var saldos = financas.saldos;
+  var portfolioId = carteira.selectedPortfolio;
+  var portfoliosList = carteira.portfolios;
+  var loading = carteira.loading;
+  var pricesLoading = carteira.loadingPrices;
 
   useFocusEffect(useCallback(function() { _navigating.current = false; }, []));
 
@@ -1047,8 +1060,6 @@ export default function CarteiraScreen(props) {
     navigation.navigate(screen, params);
   }
 
-  var _pos = useState([]); var positions = _pos[0]; var setPositions = _pos[1];
-  var _sal = useState([]); var saldos = _sal[0]; var setSaldos = _sal[1];
   var _fxRates = useState({ BRL: 1 }); var fxRates = _fxRates[0]; var setFxRates = _fxRates[1];
   var _fil = useState('todos'); var filter = _fil[0]; var setFilter = _fil[1];
   var _sort = useState('valor'); var sortKey = _sort[0]; var setSortKey = _sort[1];
@@ -1057,14 +1068,10 @@ export default function CarteiraScreen(props) {
   var _editingSector = useState(null); var editingSector = _editingSector[0]; var setEditingSector = _editingSector[1];
   var _sectorMetaInput = useState(''); var sectorMetaInput = _sectorMetaInput[0]; var setSectorMetaInput = _sectorMetaInput[1];
   var _corrFilter = useState(null); var corrFilter = _corrFilter[0]; var setCorrFilter = _corrFilter[1];
-  var _load = useState(true); var loading = _load[0]; var setLoading = _load[1];
   var _ref = useState(false); var refreshing = _ref[0]; var setRefreshing = _ref[1];
-  var _rf = useState([]); var rfItems = _rf[0]; var setRfItems = _rf[1];
-  var _pLoad = useState(false); var pricesLoading = _pLoad[0]; var setPricesLoading = _pLoad[1];
   var _hist = useState({}); var priceHistory = _hist[0]; var setPriceHistory = _hist[1];
   var _exp = useState(null); var expanded = _exp[0]; var setExpanded = _exp[1];
   var _infoModal = useState(null); var infoModal = _infoModal[0]; var setInfoModal = _infoModal[1];
-  var _enc = useState([]); var encerradas = _enc[0]; var setEncerradas = _enc[1];
   var _showEnc = useState(false); var showEnc = _showEnc[0]; var setShowEnc = _showEnc[1];
   var _showAllEnc = useState(false); var showAllEnc = _showAllEnc[0]; var setShowAllEnc = _showAllEnc[1];
   var _loadError = useState(false); var loadError = _loadError[0]; var setLoadError = _loadError[1];
@@ -1073,7 +1080,6 @@ export default function CarteiraScreen(props) {
   var _showSaldosDD = useState(false); var showSaldosDD = _showSaldosDD[0]; var setShowSaldosDD = _showSaldosDD[1];
   var _fund = useState({}); var fundamentals = _fund[0]; var setFundamentals = _fund[1];
   var _fundL = useState({}); var fundLoading = _fundL[0]; var setFundLoading = _fundL[1];
-  var _opc = useState([]); var opcoes = _opc[0]; var setOpcoes = _opc[1];
   var _indic = useState({}); var indicators = _indic[0]; var setIndicators = _indic[1];
   var _aiModalVisible = useState(false); var aiModalVisible = _aiModalVisible[0]; var setAiModalVisible = _aiModalVisible[1];
   var _aiResult = useState(null); var aiResult = _aiResult[0]; var setAiResult = _aiResult[1];
@@ -1257,120 +1263,58 @@ export default function CarteiraScreen(props) {
     }).catch(function() { setAiSaving(false); });
   };
 
-  var load = async function () {
-    if (!user) return;
+  // Dados locais que nao vem do store (screen-specific)
+  var loadLocalData = function() {
+    if (!user) return Promise.resolve();
     setLoadError(false);
-    var rawPos;
-    try {
-      var results = await Promise.all([
-        getPositions(user.id, portfolioId),
-        getSaldos(user.id),
-        getRendaFixa(user.id, portfolioId),
-        getOpcoes(user.id, portfolioId),
-      ]);
-      rawPos = results[0].data || [];
-      setEncerradas(results[0].encerradas || []);
-      var saldosArr = results[1].data || [];
-      setSaldos(saldosArr);
-      setRfItems(results[2].data || []);
-      setOpcoes(results[3].data || []);
-      setPositions(rawPos);
 
-      // Buscar câmbio para saldos em moeda estrangeira
-      var moedasEstr = [];
-      for (var mi2 = 0; mi2 < saldosArr.length; mi2++) {
-        var m2 = saldosArr[mi2].moeda || 'BRL';
-        if (m2 !== 'BRL' && moedasEstr.indexOf(m2) === -1) { moedasEstr.push(m2); }
-      }
-      if (moedasEstr.length > 0) {
-        try {
-          var rates = await fetchExchangeRates(moedasEstr);
-          setFxRates(rates);
-        } catch (e2) { /* fallback BRL:1 */ }
-      } else {
-        setFxRates({ BRL: 1 });
-      }
-      // Compute family breakdown when viewing "Todos" and portfolios exist
-      if (!portfolioId && portfoliosList.length > 0) {
-        try {
-          var pfPromises = [];
-          for (var pfIdx = 0; pfIdx < portfoliosList.length; pfIdx++) {
-            pfPromises.push(getPositions(user.id, portfoliosList[pfIdx].id));
-          }
-          pfPromises.push(getPositions(user.id, '__null__'));
-          var pfResults = await Promise.all(pfPromises);
-          var breakdown = [];
-          for (var pfr = 0; pfr < portfoliosList.length; pfr++) {
-            var pfPositions = pfResults[pfr].data || [];
-            var pfTotal = 0;
-            for (var pp = 0; pp < pfPositions.length; pp++) {
-              pfTotal += pfPositions[pp].quantidade * pfPositions[pp].pm;
-            }
-            breakdown.push({ id: portfoliosList[pfr].id, nome: portfoliosList[pfr].nome, cor: portfoliosList[pfr].cor || C.accent, icone: portfoliosList[pfr].icone, valor: pfTotal, ativos: pfPositions.length });
-          }
-          // "Sem portfólio" (last result)
-          var nullPositions = pfResults[pfResults.length - 1].data || [];
-          var nullTotal = 0;
-          for (var npi = 0; npi < nullPositions.length; npi++) {
-            nullTotal += nullPositions[npi].quantidade * nullPositions[npi].pm;
-          }
-          if (nullTotal > 0) {
-            breakdown.push({ id: null, nome: 'Padrão', cor: C.accent, icone: null, valor: nullTotal, ativos: nullPositions.length });
-          }
-          setFamilyBreakdown(breakdown);
-        } catch (e3) { console.warn('Family breakdown failed:', e3); }
-      } else {
-        setFamilyBreakdown(null);
-      }
-    } catch (e) {
-      console.warn('CarteiraScreen load failed:', e);
-      setLoadError(true);
-      setLoading(false);
-      return;
+    // Cambio para saldos multi-moeda
+    var saldosArr = saldos;
+    var moedasEstr = [];
+    for (var mi2 = 0; mi2 < saldosArr.length; mi2++) {
+      var m2 = saldosArr[mi2].moeda || 'BRL';
+      if (m2 !== 'BRL' && moedasEstr.indexOf(m2) === -1) { moedasEstr.push(m2); }
     }
-    setLoading(false);
+    if (moedasEstr.length > 0) {
+      fetchExchangeRates(moedasEstr).then(function(rates) {
+        setFxRates(rates);
+      }).catch(function() { /* fallback BRL:1 */ });
+    } else {
+      setFxRates({ BRL: 1 });
+    }
 
-    setPricesLoading(true);
-    try {
-      var tickers = rawPos.map(function (p) { return p.ticker; }).filter(Boolean);
-      var enriched = await enrichPositionsWithPrices(rawPos);
-      setPositions(enriched);
-      if (tickers.length > 0) {
-        // Construir mercadoMap para rotear BR vs INT
-        var mercadoMap = {};
-        for (var mi = 0; mi < enriched.length; mi++) {
-          if (enriched[mi].ticker && enriched[mi].mercado) {
-            mercadoMap[enriched[mi].ticker] = enriched[mi].mercado;
+    // Family breakdown quando viewing "Todos" e portfolios existem
+    if (!portfolioId && portfoliosList.length > 0) {
+      var pfPromises = [];
+      for (var pfIdx = 0; pfIdx < portfoliosList.length; pfIdx++) {
+        pfPromises.push(getPositions(user.id, portfoliosList[pfIdx].id));
+      }
+      pfPromises.push(getPositions(user.id, '__null__'));
+      Promise.all(pfPromises).then(function(pfResults) {
+        var breakdown = [];
+        for (var pfr = 0; pfr < portfoliosList.length; pfr++) {
+          var pfPositions = pfResults[pfr].data || [];
+          var pfTotal = 0;
+          for (var pp = 0; pp < pfPositions.length; pp++) {
+            pfTotal += pfPositions[pp].quantidade * pfPositions[pp].pm;
           }
+          breakdown.push({ id: portfoliosList[pfr].id, nome: portfoliosList[pfr].nome, cor: portfoliosList[pfr].cor || C.accent, icone: portfoliosList[pfr].icone, valor: pfTotal, ativos: pfPositions.length });
         }
-        var hist = await fetchHistoryRouted(tickers, mercadoMap);
-        setPriceHistory(hist || {});
-      }
-    } catch (e) { console.warn('Price enrichment failed:', e.message); }
-    setPricesLoading(false);
+        var nullPositions = pfResults[pfResults.length - 1].data || [];
+        var nullTotal = 0;
+        for (var npi = 0; npi < nullPositions.length; npi++) {
+          nullTotal += nullPositions[npi].quantidade * nullPositions[npi].pm;
+        }
+        if (nullTotal > 0) {
+          breakdown.push({ id: null, nome: 'Padrão', cor: C.accent, icone: null, valor: nullTotal, ativos: nullPositions.length });
+        }
+        setFamilyBreakdown(breakdown);
+      }).catch(function(e3) { console.warn('Family breakdown failed:', e3); });
+    } else {
+      setFamilyBreakdown(null);
+    }
 
-    // Fire-and-forget: enrich unknown tickers with sector data via brapi
-    try {
-      var unknownSectors = [];
-      for (var usi = 0; usi < posData.length; usi++) {
-        var usTicker = posData[usi].ticker;
-        if (usTicker && !TICKER_SECTORS[usTicker.toUpperCase()]) unknownSectors.push(usTicker);
-      }
-      if (unknownSectors.length > 0) {
-        fetchTickerProfile(unknownSectors).then(function(profiles) {
-          var pKeys = Object.keys(profiles);
-          for (var pk = 0; pk < pKeys.length; pk++) {
-            var sym = pKeys[pk];
-            var prof = profiles[sym];
-            if (!prof || !prof.sector) continue;
-            var mapped = _mapBrapiSector(prof.sector, prof.industry);
-            if (mapped) TICKER_SECTORS[sym] = mapped;
-          }
-        }).catch(function() {});
-      }
-    } catch (e) { /* silent */ }
-
-    // Fire-and-forget: load ticker metas (only _flat — absolute %)
+    // Rebalance targets
     getRebalanceTargets(user.id).then(function(rtRes) {
       if (rtRes.data) {
         _rebalTargetsRef.current = rtRes.data;
@@ -1390,7 +1334,7 @@ export default function CarteiraScreen(props) {
       }
     }).catch(function() {});
 
-    // Fire-and-forget: snapshots, selic, ibov for perf chart
+    // Snapshots, selic, ibov para perf chart
     var snapshotPfId = portfolioId || null;
     Promise.all([
       getPatrimonioSnapshots(user.id, snapshotPfId),
@@ -1400,7 +1344,6 @@ export default function CarteiraScreen(props) {
       var mapped = snaps.map(function(s) { return { date: s.data, value: s.valor }; });
       var weeklyCount = computeWeeklyReturns(mapped).length;
       if (weeklyCount < 4 && snapshotPfId) {
-        // Fallback: per-portfolio sem dados suficientes para grafico, usar snapshots globais
         getPatrimonioSnapshots(user.id, null).then(function(globalSnaps) {
           var gs = globalSnaps || [];
           setSnapshots(gs.map(function(s) { return { date: s.data, value: s.valor }; }));
@@ -1412,6 +1355,7 @@ export default function CarteiraScreen(props) {
       var prof = profResult && profResult.data;
       if (prof && prof.selic) setSelicRate(parseFloat(prof.selic) || 13.25);
     }).catch(function() {});
+
     fetchPriceHistoryLong(['^BVSP']).then(function(ibovData) {
       if (ibovData && ibovData['^BVSP']) {
         var closes = ibovData['^BVSP'];
@@ -1424,17 +1368,79 @@ export default function CarteiraScreen(props) {
         setIbovHist(ibovArr);
       }
     }).catch(function() {});
+
+    return Promise.resolve();
   };
 
-  useFocusEffect(useCallback(function () { load(); }, [user, portfolioId, portfoliosList.length]));
+  // Quando positions enriquecidas mudam (tem preco_atual), buscar sparklines + sector profiles
+  var _lastHistTickers = useRef('');
+  useEffect(function() {
+    if (!positions.length || positions[0].preco_atual === undefined) return;
+    var tickers = [];
+    for (var ti = 0; ti < positions.length; ti++) {
+      if (positions[ti].ticker) tickers.push(positions[ti].ticker);
+    }
+    var tickerKey = tickers.join(',');
+    if (tickerKey === _lastHistTickers.current) return;
+    _lastHistTickers.current = tickerKey;
 
-  var onRefresh = async function () {
+    if (tickers.length > 0) {
+      var mercadoMap = {};
+      for (var mi = 0; mi < positions.length; mi++) {
+        if (positions[mi].ticker && positions[mi].mercado) {
+          mercadoMap[positions[mi].ticker] = positions[mi].mercado;
+        }
+      }
+      fetchHistoryRouted(tickers, mercadoMap).then(function(hist) {
+        setPriceHistory(hist || {});
+      }).catch(function() {});
+    }
+
+    // Sector profiles
+    try {
+      var unknownSectors = [];
+      for (var usi = 0; usi < positions.length; usi++) {
+        var usTicker = positions[usi].ticker;
+        if (usTicker && !TICKER_SECTORS[usTicker.toUpperCase()]) unknownSectors.push(usTicker);
+      }
+      if (unknownSectors.length > 0) {
+        fetchTickerProfile(unknownSectors).then(function(profiles) {
+          var pKeys = Object.keys(profiles);
+          for (var pk = 0; pk < pKeys.length; pk++) {
+            var sym = pKeys[pk];
+            var prof = profiles[sym];
+            if (!prof || !prof.sector) continue;
+            var mapped = _mapBrapiSector(prof.sector, prof.industry);
+            if (mapped) TICKER_SECTORS[sym] = mapped;
+          }
+        }).catch(function() {});
+      }
+    } catch (e) { /* silent */ }
+  }, [positions]);
+
+  // Trigger store refresh + local data on focus
+  useFocusEffect(useCallback(function () {
+    carteira.refresh();
+    financas.refresh();
+    loadLocalData();
+  }, [user, portfolioId, portfoliosList.length]));
+
+  var onRefresh = function () {
     setRefreshing(true);
     clearPriceCache();
+    _lastHistTickers.current = '';
     setFundamentals({});
     setIndicators({});
-    await load();
-    setRefreshing(false);
+    Promise.all([
+      carteira.refresh(true),
+      financas.refresh(true),
+    ]).then(function() {
+      return loadLocalData();
+    }).then(function() {
+      setRefreshing(false);
+    }).catch(function() {
+      setRefreshing(false);
+    });
   };
 
   // ── DERIVED DATA ──
@@ -1717,7 +1723,7 @@ export default function CarteiraScreen(props) {
         onPress: async function () {
           var result = await deleteRendaFixa(rfId);
           if (!result.error) {
-            setRfItems(rfItems.filter(function (r) { return r.id !== rfId; }));
+            store.invalidate('carteira');
           } else {
             Alert.alert('Erro', 'Falha ao excluir.');
           }
@@ -1812,10 +1818,13 @@ export default function CarteiraScreen(props) {
     });
   };
 
-  if (loading) return <View style={styles.container}><SkeletonCarteira /></View>;
+  // Esperar ate precos reais chegarem — evita mostrar PM e depois "pular" pra preco real
+  var temPositions = positions.length > 0;
+  var precosCarregados = !temPositions || positions[0].preco_atual != null;
+  if (loading || pricesLoading || (temPositions && !precosCarregados)) return <View style={styles.container}><SkeletonCarteira /></View>;
   if (loadError) return (
     <View style={styles.container}>
-      <EmptyState ionicon="alert-circle-outline" title="Erro ao carregar" description="Não foi possível carregar a carteira. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { setLoading(true); load(); }} color={C.red} />
+      <EmptyState ionicon="alert-circle-outline" title="Erro ao carregar" description="Não foi possível carregar a carteira. Verifique sua conexão e tente novamente." cta="Tentar novamente" onCta={function() { carteira.refresh(true); financas.refresh(true); loadLocalData(); }} color={C.red} />
     </View>
   );
   if (positions.length === 0 && rfAtivos.length === 0 && saldos.length === 0) {
@@ -1835,17 +1844,18 @@ export default function CarteiraScreen(props) {
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />}>
 
-      {/* ══════ 1. HERO ══════ */}
+      {/* ══════ 1. HERO — INVESTIDO ══════ */}
       <Glass glow={C.acoes} padding={16}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <View>
-            <Text style={styles.heroLabel}>PATRIMÔNIO TOTAL</Text>
-            <Text style={[styles.heroValue, ps]}>R$ {fmt(totalValue)}</Text>
-          </View>
-          <View style={{ alignItems: 'flex-end' }}>
+        {/* Investido (hero principal) */}
+        <Text style={styles.heroLabel}>INVESTIDO</Text>
+        <Text style={[styles.heroValue, ps]}>R$ {fmt(totalInvestido)}</Text>
+
+        {/* P&L Aberto + Realizado lado a lado */}
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border }}>
+          <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Text style={styles.heroLabel}>P&L ABERTO</Text>
-              <InfoTip text="Ganho ou perda das posições que você ainda tem em carteira, comparando o preço atual com o preço médio de compra." size={12} />
+              <InfoTip text="Ganho ou perda das posicoes que voce ainda tem em carteira." size={12} />
             </View>
             <Text style={[styles.heroPL, { color: isPosTotal ? C.green : C.red }, ps]}>
               {isPosTotal ? '+' : '-'}R$ {fmt(Math.abs(totalPL))}
@@ -1854,18 +1864,12 @@ export default function CarteiraScreen(props) {
               {isPosTotal ? '▲' : '▼'} {Math.abs(totalPLPct).toFixed(1)}% geral
             </Text>
           </View>
-        </View>
-        {encerradas.length > 0 ? (
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-            marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border }}>
-            <View>
+          {encerradas.length > 0 ? (
+            <View style={{ flex: 1, alignItems: 'flex-end' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Text style={styles.heroLabel}>P&L REALIZADO</Text>
-                <InfoTip text="Lucro ou prejuízo das ações já vendidas. Calculado usando o preço médio de cada corretora, que reflete o resultado real de cada operação. O IR usa o preço médio geral (veja Relatórios > IR)." size={12} />
+                <InfoTip text="Lucro ou prejuizo das acoes ja vendidas." size={12} />
               </View>
-              <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono }}>{encerradas.length} encerrada(s) + vendas parciais</Text>
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
               <Text style={[styles.heroPL, { color: isPosRealizado ? C.green : C.red }, ps]}>
                 {isPosRealizado ? '+' : '-'}R$ {fmt(Math.abs(plRealizado))}
               </Text>
@@ -1873,52 +1877,24 @@ export default function CarteiraScreen(props) {
                 {isPosRealizado ? '▲' : '▼'} {Math.abs(plRealizadoPct).toFixed(1)}%
               </Text>
             </View>
-          </View>
-        ) : null}
-        <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View>
-              <Text style={styles.heroLabel}>INVESTIDO</Text>
-              <Text style={[{ fontSize: 15, color: C.text, fontFamily: F.mono }, ps]}>R$ {fmt(totalInvestido)}</Text>
-            </View>
-            <TouchableOpacity activeOpacity={0.7} onPress={function() { setShowSaldosDD(!showSaldosDD); }}>
-              <View style={{ alignItems: 'flex-end' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <InfoTip title="Patrimônio Livre" text={'Patrimônio Livre é o valor em caixa disponível nas suas contas de corretoras e bancos — ou seja, o dinheiro que não está investido em ativos (ações, FIIs, ETFs, renda fixa).' + '\n\n' + 'Cálculo: Patrimônio Total - Patrimônio Investido = Patrimônio Livre.' + '\n\n' + '⚠ Para que este valor seja preciso, mantenha os saldos de todas as suas contas atualizados na aba Caixa.'} size={12} />
-                  <Text style={styles.heroLabel}>PATRIMÔNIO LIVRE</Text>
-                  <Ionicons name={showSaldosDD ? 'chevron-up' : 'chevron-down'} size={11} color={C.dim} />
-                </View>
-                <Text style={[{ fontSize: 15, color: totalSaldos > 0 ? C.rf : C.dim, fontFamily: F.mono }, ps]}>R$ {fmt(totalSaldos)}</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-          {showSaldosDD && saldos.length > 0 ? (
-            <View style={{ marginTop: 10, borderRadius: 10, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, padding: 12 }}>
-              {saldos.map(function(conta, ci) {
-                var moeda = conta.moeda || 'BRL';
-                var sym = getSymbol(moeda);
-                var valBRL = convertToBRL(conta.saldo || 0, moeda, fxRates);
-                var isForeign = moeda !== 'BRL';
-                return (
-                  <View key={ci} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: ci > 0 ? 1 : 0, borderTopColor: C.border + '40' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: C.accent + '18', alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ fontSize: 10, fontWeight: '700', color: C.accent, fontFamily: F.mono }}>{(conta.corretora || '??').substring(0, 2).toUpperCase()}</Text>
-                      </View>
-                      <Text numberOfLines={1} style={{ fontSize: 13, color: C.text, fontFamily: F.body, maxWidth: 140 }}>{conta.corretora || 'Conta'}</Text>
-                    </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={[{ fontSize: 13, color: (conta.saldo || 0) > 0 ? C.rf : C.dim, fontFamily: F.mono, fontWeight: '600' }, ps]}>{sym + ' ' + fmt(conta.saldo || 0)}</Text>
-                      {isForeign ? (
-                        <Text style={[{ fontSize: 10, color: C.dim, fontFamily: F.mono }, ps]}>{'≈ R$ ' + fmt(valBRL)}</Text>
-                      ) : null}
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
           ) : null}
         </View>
+
+        {/* Grafico de evolucao do investido */}
+        {snapshots.length >= 2 ? (
+          <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border }}>
+            <Sensitive>
+              <InteractiveChart
+                data={snapshots}
+                height={100}
+                color={C.acoes}
+                label="Evolucao investido"
+              />
+            </Sensitive>
+          </View>
+        ) : null}
+
+        {/* Stats bottom */}
         <View style={styles.heroStats}>
           {[
             { l: 'ATIVOS', v: String(positions.length + rfAtivos.length), c: C.accent },
@@ -1936,11 +1912,11 @@ export default function CarteiraScreen(props) {
         {pricesLoading ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
             <ActivityIndicator size="small" color={C.accent} />
-            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>Atualizando cotações...</Text>
+            <Text style={{ fontSize: 11, color: C.dim, fontFamily: F.mono }}>Atualizando cotacoes...</Text>
           </View>
         ) : getLastPriceUpdate() ? (
           <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, marginTop: 6, textAlign: 'right' }}>
-            {'Cotações de ' + new Date(getLastPriceUpdate()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+            {'Cotacoes de ' + new Date(getLastPriceUpdate()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
           </Text>
         ) : null}
       </Glass>

@@ -29,15 +29,14 @@ import { Glass } from '../../components';
 import InteractiveChart from '../../components/InteractiveChart';
 import Fab from '../../components/Fab';
 import Sensitive, { usePrivacyStyle } from '../../components/Sensitive';
-import SnowballCard from '../../components/SnowballCard';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePrivacy } from '../../contexts/PrivacyContext';
 import { animateLayout } from '../../utils/a11y';
 import {
-  useAppStore, useIncome, useCarteira, useFinancas, useRefresh,
+  useAppStore, useIncome, useCarteira, useFinancas, useRefresh, useAnalytics,
 } from '../../contexts/AppStoreContext';
-import { computeRendaPotencial } from '../../services/rendaPotencialService';
-import { getDashboard } from '../../services/database';
+// potencial agora vem do store.analytics (modulo unificado)
+// dashboard agora vem do store.analytics (modulo unificado)
 
 var W = Dimensions.get('window').width;
 
@@ -280,36 +279,63 @@ function Sparkline(props) {
 
 // ─────────── Bars 12m ───────────
 function Bars12m(props) {
-  var data = props.data || [];
-  var width = props.width || (W - T.space.screenPad * 2 - T.space.cardPad * 2);
+  var projected = props.data || [];
+  var history = props.history || [];
+  var selected = props.selected;
+  var onSelect = props.onSelect;
   var height = props.height || 80;
-  if (data.length === 0) return null;
+  if (projected.length === 0) return null;
+
+  // Construir mapa de historico real por chave mes/ano
+  var realMap = {};
+  for (var hi = 0; hi < history.length; hi++) {
+    var hk = history[hi].year + '-' + history[hi].mes;
+    realMap[hk] = history[hi].total || 0;
+  }
+
   var maxV = 0;
-  for (var i = 0; i < data.length; i++) if (data[i].total > maxV) maxV = data[i].total;
+  for (var i = 0; i < projected.length; i++) {
+    if (projected[i].total > maxV) maxV = projected[i].total;
+    var rk = projected[i].year + '-' + projected[i].mes;
+    if (realMap[rk] && realMap[rk] > maxV) maxV = realMap[rk];
+  }
   if (maxV <= 0) maxV = 1;
-  var bw = Math.floor(width / data.length) - 3;
   var now = new Date();
 
   return (
-    <Svg width={width} height={height}>
-      {data.map(function(d, idx) {
-        var bh = (d.total / maxV) * (height - 16);
-        if (bh < 1 && d.total > 0) bh = 2;
+    <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: height, gap: 2 }}>
+      {projected.map(function(d, idx) {
+        var projH = (d.total / maxV) * (height - 16);
+        if (projH < 1 && d.total > 0) projH = 2;
+        var dk = d.year + '-' + d.mes;
+        var realVal = realMap[dk] || 0;
+        var realH = realVal > 0 ? (realVal / maxV) * (height - 16) : 0;
+        if (realH < 1 && realVal > 0) realH = 2;
+        var hasReal = realVal > 0;
         var isCurrent = d.mes === now.getMonth() && d.year === now.getFullYear();
+        var isSel = selected === idx;
+
         return (
-          <Rect
-            key={idx}
-            x={idx * (bw + 3)}
-            y={height - bh - 14}
-            width={bw}
-            height={bh}
-            rx={2}
-            fill={isCurrent ? T.color.income : T.color.accent}
-            opacity={isCurrent ? 1 : 0.7}
-          />
+          <TouchableOpacity key={idx} activeOpacity={0.7} style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center', height: height, gap: 1 }}
+            onPress={function() { if (onSelect) onSelect(isSel ? -1 : idx); }}>
+            {hasReal ? (
+              <View style={{
+                flex: 1, height: Math.max(2, realH), borderRadius: 2,
+                backgroundColor: isSel ? T.color.income : C.green,
+                opacity: isSel ? 1 : 0.8,
+              }} />
+            ) : null}
+            <View style={{
+              flex: 1, height: Math.max(2, projH), borderRadius: 2,
+              backgroundColor: isSel ? C.accent : isCurrent ? T.color.income : T.color.accent,
+              opacity: isSel ? 1 : hasReal ? 0.5 : 0.7,
+              borderWidth: isSel ? 1 : 0,
+              borderColor: C.accent,
+            }} />
+          </TouchableOpacity>
         );
       })}
-    </Svg>
+    </View>
   );
 }
 
@@ -438,6 +464,7 @@ function PortfolioSelector(props) {
 function PatrimonioHeroSection(props) {
   var patrimonio = props.patrimonio || 0;
   var rendaMedia = props.rendaMedia || 0;
+  var rendaReal = props.rendaReal || 0;
   var forecast = props.forecast;
   var patrimonioHistory = props.patrimonioHistory || [];
   var alloc = props.alloc || {};
@@ -451,10 +478,21 @@ function PatrimonioHeroSection(props) {
   var posicoesCount = props.posicoesCount || 0;
   var opsAtivas = props.opsAtivas || 0;
   var opsVenc7d = props.opsVenc7d || 0;
+  var totalInvestido = props.totalInvestido || 0;
+  var totalPL = props.totalPL || 0;
+  var totalSaldos = props.totalSaldos || 0;
+  var saldosArr = props.saldos || [];
+  var encerradas = props.encerradas || [];
+  var plRealizado = props.plRealizado || 0;
+  var dashData = props.dashData || null;
   var ps = usePrivacyStyle();
+  var _showSaldos = useState(false); var showSaldos = _showSaldos[0]; var setShowSaldos = _showSaldos[1];
 
   var deltaMes = (forecast && forecast.summary && forecast.summary.deltaMes) || 0;
   var deltaColor = deltaMes > 0 ? T.color.income : deltaMes < 0 ? T.color.danger : T.color.textMuted;
+  var totalPLPct = totalInvestido > 0 ? (totalPL / totalInvestido) * 100 : 0;
+  var isPosTotal = totalPL >= 0;
+  var plRealizadoPct = totalInvestido > 0 ? (plRealizado / totalInvestido) * 100 : 0;
   var deltaIcon = deltaMes > 0 ? 'trending-up' : deltaMes < 0 ? 'trending-down' : 'remove';
 
   var filteredChartData = filterChartByPeriod(patrimonioHistory, chartPeriod);
@@ -472,43 +510,66 @@ function PatrimonioHeroSection(props) {
       <View style={{ height: 3, borderTopLeftRadius: T.radius.md, borderTopRightRadius: T.radius.md, backgroundColor: T.color.income }} />
       <View style={{ padding: T.space.lg }}>
 
-        {/* Split KPIs — patrimonio + renda */}
-        <View style={{ flexDirection: 'row', gap: T.space.md, marginBottom: T.space.md }}>
-          <View style={{ flex: 1, borderRightWidth: 1, borderRightColor: T.color.border, paddingRight: T.space.md }}>
-            <Text style={[T.type.kpiLabel, { color: T.color.textMuted, marginBottom: T.space.xxs }]}>INVESTIDO</Text>
-            <Sensitive>
-              <Text
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.6}
-                style={[{ fontSize: 22, fontWeight: '800', color: T.color.textPrimary, fontFamily: F.mono }, ps]}
-              >
-                {'R$ ' + fmtInt(patrimonio)}
-              </Text>
-            </Sensitive>
+        {/* PATRIMONIO TOTAL — hero principal */}
+        <Sensitive>
+          <Text style={[T.type.kpiLabel, { color: T.color.textMuted, marginBottom: T.space.xxs }]}>PATRIMONIO TOTAL</Text>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}
+            style={[{ fontSize: 28, fontWeight: '800', color: T.color.textPrimary, fontFamily: F.mono, marginBottom: T.space.sm }, ps]}>
+            {'R$ ' + fmt(patrimonio)}
+          </Text>
+        </Sensitive>
+
+        {/* 3 KPIs: Renda Real + Projecao + Rentab Ano */}
+        <View style={{ flexDirection: 'row', gap: T.space.sm, marginBottom: T.space.md }}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: T.radius.sm, padding: T.space.xs, alignItems: 'center' }}>
+            <Text style={{ fontSize: 8, color: T.color.textMuted, fontFamily: F.mono }}>MEDIA REAL/MES</Text>
+            <Sensitive><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={[{ fontSize: 14, fontWeight: '700', color: T.color.income, fontFamily: F.mono }, ps]}>{'R$ ' + fmtInt(rendaReal)}</Text></Sensitive>
           </View>
-          <View style={{ flex: 1, paddingLeft: T.space.xs }}>
-            <Text style={[T.type.kpiLabel, { color: T.color.textMuted, marginBottom: T.space.xxs }]}>PROJ. 12M/MES</Text>
-            <Sensitive>
-              <Text
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.6}
-                style={[{ fontSize: 22, fontWeight: '800', color: T.color.income, fontFamily: F.mono }, ps]}
-              >
-                {'R$ ' + fmtInt(rendaMedia)}
-              </Text>
-            </Sensitive>
+          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: T.radius.sm, padding: T.space.xs, alignItems: 'center' }}>
+            <Text style={{ fontSize: 8, color: T.color.textMuted, fontFamily: F.mono }}>PROJ/MES</Text>
+            <Sensitive><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={[{ fontSize: 14, fontWeight: '700', color: C.accent, fontFamily: F.mono }, ps]}>{'R$ ' + fmtInt(rendaMedia)}</Text></Sensitive>
             {deltaMes !== 0 ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 2 }}>
-                <Ionicons name={deltaIcon} size={10} color={deltaColor} />
-                <Text style={{ fontSize: 10, color: deltaColor, fontFamily: F.mono, fontWeight: '700' }}>
-                  {(deltaMes >= 0 ? '+' : '') + deltaMes.toFixed(1) + '%'}
-                </Text>
-              </View>
+              <Text style={{ fontSize: 8, color: deltaColor, fontFamily: F.mono }}>{(deltaMes >= 0 ? '+' : '') + deltaMes.toFixed(1) + '%'}</Text>
             ) : null}
           </View>
+          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: T.radius.sm, padding: T.space.xs, alignItems: 'center' }}>
+            <Text style={{ fontSize: 8, color: T.color.textMuted, fontFamily: F.mono }}>RENTAB. ANO</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: rentAno > 0 ? T.color.income : rentAno < 0 ? T.color.danger : T.color.textMuted, fontFamily: F.mono }}>
+              {(rentAno >= 0 ? '+' : '') + rentAno.toFixed(1) + '%'}
+            </Text>
+          </View>
         </View>
+
+        {/* Investido + Patrimonio Livre */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: T.space.sm }}>
+          <View>
+            <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.mono }}>INVESTIDO</Text>
+            <Sensitive><Text style={[{ fontSize: 13, color: T.color.textPrimary, fontFamily: F.mono, fontWeight: '600' }, ps]}>{'R$ ' + fmtInt(totalInvestido)}</Text></Sensitive>
+          </View>
+          <TouchableOpacity activeOpacity={0.7} onPress={function() { setShowSaldos(!showSaldos); }}>
+            <View style={{ alignItems: 'flex-end' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.mono }}>PATRIMONIO LIVRE</Text>
+                <Ionicons name={showSaldos ? 'chevron-up' : 'chevron-down'} size={10} color={T.color.textMuted} />
+              </View>
+              <Sensitive><Text style={[{ fontSize: 13, color: '#06B6D4', fontFamily: F.mono, fontWeight: '600' }, ps]}>{'R$ ' + fmtInt(totalSaldos)}</Text></Sensitive>
+            </View>
+          </TouchableOpacity>
+        </View>
+        {/* Dropdown de contas */}
+        {showSaldos && saldosArr.length > 0 ? (
+          <View style={{ backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: T.radius.sm, padding: T.space.xs, marginBottom: T.space.sm }}>
+            {saldosArr.map(function(sal, si) {
+              var nome = sal.corretora || sal.name || 'Conta';
+              return (
+                <View key={si} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderTopWidth: si > 0 ? 1 : 0, borderTopColor: 'rgba(255,255,255,0.06)' }}>
+                  <Text style={{ fontSize: 10, color: T.color.textMuted, fontFamily: F.body }}>{nome}</Text>
+                  <Sensitive><Text style={[{ fontSize: 10, color: T.color.textPrimary, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(sal.saldo || 0)}</Text></Sensitive>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
 
         {/* KPI bar rentabilidade 7D / 1M / YTD / Total */}
         {patrimonioHistory.length >= 2 ? (
@@ -572,18 +633,48 @@ function PatrimonioHeroSection(props) {
           </View>
         ) : null}
 
-        {/* InteractiveChart */}
+        {/* InteractiveChart com overlays */}
         {hasRealChart ? (
           <View style={{ marginHorizontal: -6, marginBottom: T.space.sm }}>
-            <Sensitive>
-              <InteractiveChart
-                data={filteredChartData}
-                color="#0ea5e9"
-                height={130}
-                fontFamily={F.mono}
-                label="Evolucao do patrimonio"
-              />
-            </Sensitive>
+              {(function() {
+                // Usar series reais de investido/saldos se disponiveis nos snapshots
+                var investidoHist = (dashData && dashData.investidoHistory) || [];
+                var saldosHist = (dashData && dashData.saldosHistory) || [];
+                var chartOverlays = [];
+                if (investidoHist.length >= 2) {
+                  chartOverlays.push({ data: investidoHist, color: C.green, label: 'Investido' });
+                }
+                if (saldosHist.length >= 2) {
+                  chartOverlays.push({ data: saldosHist, color: '#06B6D4', label: 'Livre' });
+                }
+                return (
+                  <InteractiveChart
+                    data={filteredChartData}
+                    color="#0ea5e9"
+                    height={140}
+                    fontFamily={F.mono}
+                    label="Patrimonio total"
+                    overlays={chartOverlays}
+                  />
+                );
+              })()}
+            {/* Legenda das linhas (so mostra quando overlays disponiveis) */}
+            {dashData && dashData.investidoHistory && dashData.investidoHistory.length >= 2 ? (
+              <View style={{ flexDirection: 'row', gap: T.space.sm, marginTop: 4, justifyContent: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <View style={{ width: 10, height: 2, backgroundColor: '#0ea5e9', borderRadius: 1 }} />
+                  <Text style={{ fontSize: 8, color: T.color.textMuted, fontFamily: F.mono }}>Patrimonio</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <View style={{ width: 10, height: 2, backgroundColor: C.green, borderRadius: 1 }} />
+                  <Text style={{ fontSize: 8, color: T.color.textMuted, fontFamily: F.mono }}>Investido</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                  <View style={{ width: 10, height: 2, backgroundColor: '#06B6D4', borderRadius: 1 }} />
+                  <Text style={{ fontSize: 8, color: T.color.textMuted, fontFamily: F.mono }}>Livre</Text>
+                </View>
+              </View>
+            ) : null}
           </View>
         ) : (
           <View style={{
@@ -648,55 +739,18 @@ function PatrimonioHeroSection(props) {
 
         {/* 3 cards resumo: Rentab Ano / Posicoes / Opcoes */}
         <View style={{ flexDirection: 'row', gap: 6 }}>
-          <View style={{
-            flex: 1,
-            backgroundColor: 'rgba(255,255,255,0.035)',
-            borderRadius: 10,
-            padding: 10,
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.06)',
-          }}>
-            <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.mono, letterSpacing: 0.5 }}>RENTAB. ANO</Text>
-            <Text style={[{
-              fontSize: 14,
-              fontWeight: '800',
-              color: rentAno > 0 ? '#22c55e' : (rentAno < 0 ? '#ef4444' : T.color.textMuted),
-              fontFamily: F.mono,
-              marginTop: 2,
-            }, ps]}>
-              {(rentAno > 0 ? '+' : '') + rentAno.toFixed(2) + '%'}
-            </Text>
-          </View>
-          <View style={{
-            flex: 1,
-            backgroundColor: 'rgba(255,255,255,0.035)',
-            borderRadius: 10,
-            padding: 10,
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.06)',
-          }}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
             <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.mono, letterSpacing: 0.5 }}>POSICOES</Text>
-            <Text style={{ fontSize: 14, fontWeight: '800', color: T.color.textPrimary, fontFamily: F.mono, marginTop: 2 }}>
-              {posicoesCount}
-            </Text>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: T.color.textPrimary, fontFamily: F.mono, marginTop: 2 }}>{posicoesCount}</Text>
           </View>
-          <View style={{
-            flex: 1,
-            backgroundColor: 'rgba(255,255,255,0.035)',
-            borderRadius: 10,
-            padding: 10,
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.06)',
-          }}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
             <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.mono, letterSpacing: 0.5 }}>OPCOES</Text>
-            <Text style={{ fontSize: 14, fontWeight: '800', color: P.opcao.color, fontFamily: F.mono, marginTop: 2 }}>
-              {opsAtivas}
-            </Text>
-            {opsVenc7d > 0 ? (
-              <Text style={{ fontSize: 9, color: '#ef4444', fontFamily: F.mono }}>
-                {opsVenc7d + ' vence 7d'}
-              </Text>
-            ) : null}
+            <Text style={{ fontSize: 14, fontWeight: '800', color: P.opcao.color, fontFamily: F.mono, marginTop: 2 }}>{opsAtivas}</Text>
+            {opsVenc7d > 0 ? <Text style={{ fontSize: 9, color: '#ef4444', fontFamily: F.mono }}>{opsVenc7d + ' vence 7d'}</Text> : null}
+          </View>
+          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.035)', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' }}>
+            <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.mono, letterSpacing: 0.5 }}>CONTAS</Text>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: '#06B6D4', fontFamily: F.mono, marginTop: 2 }}>{saldosArr.length || 1}</Text>
           </View>
         </View>
       </View>
@@ -1042,121 +1096,58 @@ function EstaSemanaSection(props) {
 // ═══════════════════════════════════════════════════════════
 function ComoCrescerSection(props) {
   var potencial = props.potencial;
-  var rendaAtual = props.rendaAtual;
   var navigation = props.navigation;
-  var userId = props.userId;
   var ps = usePrivacyStyle();
 
   if (!potencial) return null;
 
   var captura = potencial.capturaPct || 0;
   var gap = potencial.gap || 0;
-  var gaps = potencial.gaps || [];
-  var topGaps = gaps.slice(0, 3);
+  var gapsCount = (potencial.gaps || []).length;
 
   return (
-    <Glass padding={T.space.cardPad} glow="rgba(34,197,94,0.12)" style={{ marginBottom: T.space.gap, borderColor: 'rgba(34,197,94,0.22)' }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: T.space.xs, marginBottom: T.space.sm }}>
-        <Text style={{ fontSize: 14 }}>🚀</Text>
-        <Text style={{ fontSize: 13, color: T.color.textPrimary, fontFamily: F.display, fontWeight: '700' }}>
-          Como Crescer
-        </Text>
-      </View>
-
-      {gap > 0 ? (
-        <View style={{
-          backgroundColor: T.color.incomeBg,
-          borderRadius: T.radius.sm,
-          padding: T.space.sm,
-          marginBottom: T.space.sm,
-        }}>
-          <Sensitive>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 2 }}>
-              <Text style={[{ fontSize: 11, color: T.color.income, fontFamily: F.mono, fontWeight: '700' }, ps]}>+R$ </Text>
-              <Text style={[{ fontSize: 24, color: T.color.income, fontFamily: F.mono, fontWeight: '800', lineHeight: 28 }, ps]}>
-                {fmtInt(gap)}
-              </Text>
-              <Text style={[{ fontSize: 12, color: T.color.income, fontFamily: F.mono, fontWeight: '600' }, ps]}>/mes</Text>
-            </View>
-          </Sensitive>
-          <Text style={{ fontSize: 11, color: T.color.textSecondary, fontFamily: F.body, marginBottom: T.space.xs }}>
-            {'de potencial nao capturado  ·  voce captura ' + captura.toFixed(0) + '%'}
-          </Text>
-          <View style={{ height: 4, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 2 }}>
-            <View style={{
-              height: 4, borderRadius: 2, backgroundColor: T.color.income,
-              width: Math.min(100, captura) + '%',
-            }} />
+    <TouchableOpacity
+      activeOpacity={0.85}
+      onPress={function() { navigation.navigate('Acoes'); }}
+    >
+      <Glass padding={T.space.cardPad} glow="rgba(34,197,94,0.10)" style={{ marginBottom: T.space.gap, borderColor: 'rgba(34,197,94,0.20)' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: T.space.sm }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: T.space.xs }}>
+            <Ionicons name="bulb-outline" size={14} color={T.color.income} />
+            <Text style={{ fontSize: 12, color: T.color.textPrimary, fontFamily: F.display, fontWeight: '700' }}>
+              Estrategias
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Text style={{ fontSize: 11, color: T.color.income, fontFamily: F.mono, fontWeight: '700' }}>
+              {captura.toFixed(0) + '% capturado'}
+            </Text>
+            <Ionicons name="chevron-forward" size={14} color={T.color.textMuted} />
           </View>
         </View>
-      ) : null}
 
-      {topGaps.length > 0 ? (
-        <View style={{ marginBottom: T.space.sm }}>
-          {topGaps.map(function(g, idx) {
-            return (
-              <TouchableOpacity
-                key={'gap' + idx}
-                activeOpacity={0.7}
-                onPress={function() { if (g.rota) navigation.navigate(g.rota); }}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  paddingVertical: T.space.xs,
-                  borderBottomWidth: idx < topGaps.length - 1 ? 1 : 0,
-                  borderBottomColor: T.color.border,
-                }}
-              >
-                <View style={{
-                  width: 28, height: 28, borderRadius: 14,
-                  backgroundColor: T.color.incomeBgStrong,
-                  alignItems: 'center', justifyContent: 'center',
-                  marginRight: T.space.sm,
-                }}>
-                  <Text style={{ fontSize: 11, color: T.color.income, fontFamily: F.mono, fontWeight: '800' }}>
-                    {idx + 1}
-                  </Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 12, color: T.color.textPrimary, fontFamily: F.body, fontWeight: '600' }} numberOfLines={1}>
-                    {g.titulo}
-                  </Text>
-                  <Sensitive>
-                    <Text style={[{ fontSize: 10, color: T.color.textMuted, fontFamily: F.mono }, ps]} numberOfLines={1}>
-                      {'+R$ ' + fmt(g.ganhoMensal) + '/mes  ·  ' + g.acao}
-                    </Text>
-                  </Sensitive>
-                </View>
-                <Ionicons name="chevron-forward" size={14} color={T.color.textMuted} />
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      ) : null}
+        {gap > 0 ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: T.space.sm }}>
+            <View style={{ flex: 1 }}>
+              <View style={{ height: 4, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 2 }}>
+                <View style={{ height: 4, borderRadius: 2, backgroundColor: T.color.income, width: Math.min(100, captura) + '%' }} />
+              </View>
+            </View>
+            <Sensitive>
+              <Text style={[{ fontSize: 11, color: T.color.income, fontFamily: F.mono, fontWeight: '700' }, ps]}>
+                {'+R$ ' + fmtInt(gap) + '/mes'}
+              </Text>
+            </Sensitive>
+          </View>
+        ) : null}
 
-      <TouchableOpacity
-        activeOpacity={0.8}
-        onPress={function() { navigation.navigate('Acoes'); }}
-        style={{
-          backgroundColor: T.color.incomeBgStrong,
-          paddingVertical: T.space.sm,
-          borderRadius: T.radius.sm,
-          alignItems: 'center',
-          flexDirection: 'row',
-          justifyContent: 'center',
-          gap: T.space.xxs,
-        }}
-      >
-        <Text style={{ fontSize: 12, color: T.color.income, fontFamily: F.display, fontWeight: '700' }}>
-          Abrir ferramentas de crescimento
-        </Text>
-        <Ionicons name="chevron-forward" size={14} color={T.color.income} />
-      </TouchableOpacity>
-
-      <View style={{ marginTop: T.space.sm }}>
-        <SnowballCard userId={userId} rendaAtual={rendaAtual} />
-      </View>
-    </Glass>
+        {gapsCount > 0 ? (
+          <Text style={{ fontSize: 10, color: T.color.textMuted, fontFamily: F.body, marginTop: T.space.xs }}>
+            {gapsCount + ' oportunidades de otimizacao identificadas'}
+          </Text>
+        ) : null}
+      </Glass>
+    </TouchableOpacity>
   );
 }
 
@@ -1166,6 +1157,7 @@ function ComoCrescerSection(props) {
 function BreakdownSection(props) {
   var forecast = props.forecast;
   var ps = usePrivacyStyle();
+  var _selBar = useState(-1); var selBar = _selBar[0]; var setSelBar = _selBar[1];
 
   if (!forecast || !forecast.monthly) return null;
 
@@ -1181,6 +1173,9 @@ function BreakdownSection(props) {
     { k: 'rf', label: 'Renda Fixa', color: T.color.rf, val: bySource.rf || 0 },
   ];
 
+  // Dados do mes selecionado
+  var selData = selBar >= 0 && selBar < monthly.length ? monthly[selBar] : null;
+
   return (
     <Glass padding={T.space.cardPad} style={{ marginBottom: T.space.gap }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: T.space.xs, marginBottom: T.space.sm }}>
@@ -1190,8 +1185,8 @@ function BreakdownSection(props) {
         </Text>
       </View>
 
-      <Bars12m data={monthly} />
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: T.space.sm }}>
+      <Bars12m data={monthly} history={forecast.historyMonthly || []} selected={selBar} onSelect={function(idx) { setSelBar(idx); }} />
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: T.space.xs }}>
         <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.mono }}>
           {monthly[0] ? MESES[monthly[0].mes] : ''}
         </Text>
@@ -1199,6 +1194,135 @@ function BreakdownSection(props) {
           {monthly.length > 0 ? MESES[monthly[monthly.length - 1].mes] : ''}
         </Text>
       </View>
+
+      {/* Legenda */}
+      <View style={{ flexDirection: 'row', gap: T.space.md, marginBottom: T.space.xs }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: C.green }} />
+          <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.mono }}>Real</Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: T.color.accent }} />
+          <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.mono }}>Projetado</Text>
+        </View>
+      </View>
+
+      {/* Tooltip do mes selecionado */}
+      {selData ? (
+        <Sensitive>
+          {(function() {
+            var histMap2 = {};
+            var hist2 = forecast.historyMonthly || [];
+            for (var h2i = 0; h2i < hist2.length; h2i++) {
+              histMap2[hist2[h2i].year + '-' + hist2[h2i].mes] = hist2[h2i];
+            }
+            var realData = histMap2[selData.year + '-' + selData.mes];
+            var realTotal = realData ? realData.total : 0;
+            var hasReal = realTotal > 0;
+            var diff = hasReal ? realTotal - selData.total : 0;
+            var diffPct = selData.total > 0 && hasReal ? ((realTotal / selData.total) - 1) * 100 : 0;
+            return (
+              <View style={{ backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: T.radius.sm, padding: T.space.sm, marginBottom: T.space.sm }}>
+                <Text style={[{ fontSize: 13, color: T.color.textPrimary, fontFamily: F.display, fontWeight: '700', marginBottom: T.space.sm }, ps]}>
+                  {MESES[selData.mes] + '/' + selData.year}
+                </Text>
+
+                {/* Projetado */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: hasReal ? T.space.xs : 0 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: C.accent }} />
+                    <Text style={{ fontSize: 11, color: T.color.textMuted, fontFamily: F.body }}>Projetado</Text>
+                  </View>
+                  <Text style={[{ fontSize: 13, color: C.accent, fontFamily: F.mono, fontWeight: '700' }, ps]}>{'R$ ' + fmt(selData.total)}</Text>
+                </View>
+
+                {/* Real */}
+                {hasReal ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: T.space.xs }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: C.green }} />
+                      <Text style={{ fontSize: 11, color: T.color.textMuted, fontFamily: F.body }}>Recebido</Text>
+                    </View>
+                    <Text style={[{ fontSize: 13, color: C.green, fontFamily: F.mono, fontWeight: '700' }, ps]}>{'R$ ' + fmt(realTotal)}</Text>
+                  </View>
+                ) : null}
+
+                {/* Diferenca */}
+                {hasReal ? (
+                  <View style={{ backgroundColor: (diff >= 0 ? C.green : C.red) + '12', borderRadius: T.radius.sm, padding: T.space.xs, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ fontSize: 10, color: diff >= 0 ? C.green : C.red, fontFamily: F.body }}>
+                      {diff >= 0 ? 'Acima do projetado' : 'Abaixo do projetado'}
+                    </Text>
+                    <Text style={[{ fontSize: 11, color: diff >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '700' }, ps]}>
+                      {(diff >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(diff)) + ' (' + (diffPct >= 0 ? '+' : '') + Math.round(diffPct) + '%)'}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {/* Detalhamento por ticker — projetado vs real */}
+                <View style={{ marginTop: T.space.sm, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)', paddingTop: T.space.xs }}>
+                  {/* Projetado por ticker */}
+                  <Text style={{ fontSize: 9, color: C.accent, fontFamily: F.mono, marginBottom: 4 }}>PROJETADO POR TICKER (baseado no historico)</Text>
+                  {(function() {
+                    var projItems = selData.items || [];
+                    // Agrupar por ticker
+                    var projMap = {};
+                    for (var pi2 = 0; pi2 < projItems.length; pi2++) {
+                      var ptk = projItems[pi2].ticker || '?';
+                      if (!projMap[ptk]) projMap[ptk] = { ticker: ptk, tipo: projItems[pi2].tipo, valor: 0, fonte: projItems[pi2].fonte || null };
+                      projMap[ptk].valor += projItems[pi2].valor || 0;
+                      if (projItems[pi2].fonte) projMap[ptk].fonte = projItems[pi2].fonte;
+                    }
+                    var projList = Object.keys(projMap).map(function(k) { return projMap[k]; });
+                    projList.sort(function(a, b) { return b.valor - a.valor; });
+                    if (projList.length === 0) return <Text style={{ fontSize: 10, color: T.color.textMuted, fontFamily: F.mono }}>Nenhum</Text>;
+                    return projList.map(function(p, pi3) {
+                      var tColor = p.tipo === 'fii' ? T.color.fii : p.tipo === 'opcao' ? T.color.opcao : p.tipo === 'rf' ? T.color.rf : T.color.acao;
+                      var fonteLabel = p.fonte === 'si_12m' ? 'DPA 12m' : p.fonte === 'si_5y' ? 'DPA 5 anos' : p.fonte === 'user_hist' ? 'Seu historico' : p.tipo === 'fii' ? 'DY 12m' : '';
+                      return (
+                        <View key={pi3} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 1 }}>
+                          <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: tColor, marginRight: 6 }} />
+                          <Text style={{ fontSize: 10, color: T.color.textMuted, fontFamily: F.mono, width: 55 }}>{p.ticker}</Text>
+                          <Text style={[{ fontSize: 10, color: C.accent, fontFamily: F.mono, flex: 1 }, ps]}>{'R$ ' + fmt(p.valor)}</Text>
+                          {fonteLabel ? <Text style={{ fontSize: 8, color: T.color.textMuted, fontFamily: F.mono }}>{fonteLabel}</Text> : null}
+                        </View>
+                      );
+                    });
+                  })()}
+
+                  {/* Real por ticker */}
+                  {hasReal && realData && realData.items && realData.items.length > 0 ? (
+                    <View style={{ marginTop: T.space.sm }}>
+                      <Text style={{ fontSize: 9, color: C.green, fontFamily: F.mono, marginBottom: 4 }}>RECEBIDO POR TICKER</Text>
+                      {(function() {
+                        var realItems = realData.items || [];
+                        var realMap3 = {};
+                        for (var ri2 = 0; ri2 < realItems.length; ri2++) {
+                          var rtk = realItems[ri2].ticker || '?';
+                          if (!realMap3[rtk]) realMap3[rtk] = { ticker: rtk, tipo: realItems[ri2].tipo, valor: 0 };
+                          realMap3[rtk].valor += realItems[ri2].valor || 0;
+                        }
+                        var realList = Object.keys(realMap3).map(function(k) { return realMap3[k]; });
+                        realList.sort(function(a, b) { return b.valor - a.valor; });
+                        return realList.map(function(r, ri3) {
+                          var tColor2 = r.tipo === 'fii' ? T.color.fii : r.tipo === 'opcao' ? T.color.opcao : r.tipo === 'rf' ? T.color.rf : T.color.acao;
+                          return (
+                            <View key={ri3} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 1 }}>
+                              <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: tColor2, marginRight: 6 }} />
+                              <Text style={{ fontSize: 10, color: T.color.textMuted, fontFamily: F.mono, width: 55 }}>{r.ticker}</Text>
+                              <Text style={[{ fontSize: 10, color: C.green, fontFamily: F.mono }, ps]}>{'R$ ' + fmt(r.valor)}</Text>
+                            </View>
+                          );
+                        });
+                      })()}
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })()}
+        </Sensitive>
+      ) : null}
 
       <View style={{ borderTopWidth: 1, borderTopColor: T.color.border, paddingTop: T.space.sm }}>
         <Text style={[T.type.kpiLabel, { color: T.color.textMuted, marginBottom: T.space.xs }]}>
@@ -1257,57 +1381,38 @@ export default function RendaHomeScreen(props) {
   var profile = store.profile;
 
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
-  var _potencial = useState(null); var potencial = _potencial[0]; var setPotencial = _potencial[1];
-  var _dashData = useState(null); var dashData = _dashData[0]; var setDashData = _dashData[1];
+  var _analyticsHook = useAnalytics();
+  var potencial = _analyticsHook.potencial;
+  var dashData = _analyticsHook.dashboard;
   var _chartPeriod = useState('ALL'); var chartPeriod = _chartPeriod[0]; var setChartPeriod = _chartPeriod[1];
-
-  function loadDashboard() {
-    if (!user) return Promise.resolve();
-    var pfArg = selectedPortfolio || undefined;
-    return getDashboard(user.id, pfArg).then(function(res) {
-      // getDashboard retorna o objeto de dados direto (nao envolvido em {data, error}).
-      if (res) setDashData(res);
-    }).catch(function(err) {
-      console.warn('getDashboard error:', err && err.message);
-    });
-  }
-
-  useFocusEffect(useCallback(function() {
-    if (!user) return;
-    computeRendaPotencial(user.id)
-      .then(function(res) { setPotencial(res); })
-      .catch(function(err) { console.warn('potencial error:', err && err.message); });
-  }, [user]));
-
-  // Reage a mudancas de user/portfolio pra refetch o dashboard mesmo quando a
-  // tela ja esta focada. useFocusEffect so dispara no evento de focus, nao
-  // quando deps mudam in-place.
-  useEffect(function() {
-    if (!user) return;
-    loadDashboard();
-  }, [user, selectedPortfolio]);
 
   function onRefresh() {
     setRefreshing(true);
     refresh().then(function() {
-      if (user) {
-        return Promise.all([
-          computeRendaPotencial(user.id).then(function(res) { setPotencial(res); }),
-          loadDashboard(),
-        ]);
-      }
+      return _analyticsHook.refresh(true);
     }).catch(function() {}).then(function() {
       setRefreshing(false);
     });
   }
 
-  // Derivados — prefere patrimonio do getDashboard (ja aplica a regra
-  // 'saldos globais so entram em Todos' e faz FX pra posicoes INT).
-  // Fallback local enquanto dashData carrega.
-  var patrimonio = (dashData && typeof dashData.patrimonio === 'number')
-    ? dashData.patrimonio
-    : computePatrimonio(positions, rf, saldos);
+  // Patrimonio total = investido (mercado) + saldos livres
+  // Calculado DEPOIS de totalInvestido e totalSaldos abaixo
   var rendaMedia = (forecast && forecast.summary && forecast.summary.mediaProjetada) || 0;
+  // Media real dos ultimos 3 meses COMPLETOS (exclui mes atual que eh parcial)
+  var rendaReal = 0;
+  if (forecast && forecast.historyMonthly && forecast.historyMonthly.length > 1) {
+    var now = new Date();
+    var mesAtualKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    var mesesCompletos = [];
+    for (var hmi = 0; hmi < forecast.historyMonthly.length; hmi++) {
+      var hm = forecast.historyMonthly[hmi];
+      var hmKey = hm.year + '-' + String(hm.mes + 1).padStart(2, '0');
+      if (hmKey !== mesAtualKey) mesesCompletos.push(hm);
+    }
+    var ultHist = mesesCompletos.slice(-3);
+    for (var rri = 0; rri < ultHist.length; rri++) { rendaReal += ultHist[rri].total || 0; }
+    rendaReal = ultHist.length > 0 ? rendaReal / ultHist.length : 0;
+  }
   var meta = (profile && profile.meta_mensal) || 0;
   var eventos7d = computeProximos7Dias(store.proventos || [], opcoes);
   var opsAtivas = countOpsAtivas(opcoes);
@@ -1325,7 +1430,32 @@ export default function RendaHomeScreen(props) {
 
   var posicoesCount = positions.length + rf.length;
 
-  var loadingInicial = income.loading && !forecast;
+  // P&L e saldos pra o hero de patrimonio total
+  // totalInvestido = valor de mercado (preco_atual * qty) + RF — consistente com Carteira
+  var totalInvestido = 0;
+  var totalCusto = 0;
+  var totalPL = 0;
+  for (var pli = 0; pli < positions.length; pli++) {
+    var plPos = positions[pli];
+    var plPreco = plPos.preco_atual || plPos.pm || 0;
+    totalInvestido += plPreco * (plPos.quantidade || 0);
+    totalCusto += (plPos.pm || 0) * (plPos.quantidade || 0);
+    if (plPos.pl != null) totalPL += plPos.pl;
+  }
+  totalInvestido += rfTotalAplicado;
+  var totalSaldos = 0;
+  for (var tsi = 0; tsi < saldos.length; tsi++) totalSaldos += saldos[tsi].saldo || 0;
+  var patrimonio = totalInvestido + totalSaldos;
+  var encerradas = carteira.encerradas || [];
+  var plRealizado = 0;
+  for (var eri = 0; eri < encerradas.length; eri++) {
+    var enc = encerradas[eri];
+    plRealizado += ((enc.preco_venda || 0) - (enc.pm || 0)) * (enc.quantidade || 0);
+  }
+
+  // Mostrar loading ate precos carregarem (evita "pulo" de PM pra preco real)
+  var precosCarregados = positions.length === 0 || (positions.length > 0 && positions[0].preco_atual != null);
+  var loadingInicial = (income.loading && !forecast) || carteira.loading || carteira.loadingPrices || (!precosCarregados && positions.length > 0);
 
   return (
     <View style={{ flex: 1, backgroundColor: T.color.bg }}>
@@ -1397,7 +1527,9 @@ export default function RendaHomeScreen(props) {
           <PatrimonioHeroSection
             patrimonio={patrimonio}
             rendaMedia={rendaMedia}
+            rendaReal={rendaReal}
             forecast={forecast}
+            dashData={dashData}
             patrimonioHistory={patrimonioHistory}
             alloc={alloc}
             totalAlloc={totalAlloc}
@@ -1410,6 +1542,13 @@ export default function RendaHomeScreen(props) {
             posicoesCount={posicoesCount}
             opsAtivas={opsAtivas}
             opsVenc7d={opsVenc7d}
+            totalInvestido={totalInvestido}
+            totalPL={totalPL}
+            totalSaldos={totalSaldos}
+            saldos={saldos}
+            fxRates={{}}
+            encerradas={encerradas}
+            plRealizado={plRealizado}
           />
 
           <RendaDoMesSection
@@ -1425,8 +1564,6 @@ export default function RendaHomeScreen(props) {
 
           <ComoCrescerSection
             potencial={potencial}
-            rendaAtual={rendaMedia}
-            userId={user && user.id}
             navigation={navigation}
           />
 

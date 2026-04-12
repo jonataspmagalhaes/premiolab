@@ -167,10 +167,11 @@ export async function detectIncomeAlerts(userId, opts) {
   var limiarCortePct = opts.limiarCortePct || 15;
   var limiarProjecaoPct = opts.limiarProjecaoPct || 15;
 
+  var pfId = opts.portfolioId || undefined;
   var results = await Promise.all([
-    getProventos(userId, { limit: 2000 }),
-    getOpcoes(userId),
-    buildIncomeForecast(userId).catch(function() { return null; }),
+    getProventos(userId, { limit: 2000, portfolioId: pfId }),
+    getOpcoes(userId, pfId),
+    buildIncomeForecast(userId, { portfolioId: opts.portfolioId }).catch(function() { return null; }),
   ]);
   var proventos = (results[0] && results[0].data) || [];
   var opcoes = (results[1] && results[1].data) || [];

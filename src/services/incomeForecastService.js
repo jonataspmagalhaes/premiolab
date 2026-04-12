@@ -192,6 +192,32 @@ function buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiC
     tickerMonthlyHist[tk].months[mk] += val;
   }
 
+  // Funcao auxiliar: calcular fator de tendencia por ticker
+  // Compara 2o semestre (recente) vs 1o semestre (antigo) dos 12m
+  function calcTrendFactor(tk) {
+    var hist = tickerMonthlyHist[tk];
+    if (!hist) return 1;
+    var histMonths = Object.keys(hist.months).sort();
+    if (histMonths.length < 4) return 1;
+    var mid = Math.floor(histMonths.length / 2);
+    // Usar medias (nao somas) pra compensar numero diferente de meses
+    var soma1 = 0;
+    var soma2 = 0;
+    var count1 = mid;
+    var count2 = histMonths.length - mid;
+    for (var t1 = 0; t1 < mid; t1++) soma1 += hist.months[histMonths[t1]];
+    for (var t2 = mid; t2 < histMonths.length; t2++) soma2 += hist.months[histMonths[t2]];
+    var media1 = count1 > 0 ? soma1 / count1 : 0;
+    var media2 = count2 > 0 ? soma2 / count2 : 0;
+    if (media1 <= 0) return 1;
+    var growthSem = ((media2 / media1) - 1);
+    // Limitar entre -15% e +20% (conservador)
+    if (growthSem > 0.20) growthSem = 0.20;
+    if (growthSem < -0.15) growthSem = -0.15;
+    // Aplicar metade da tendencia (conservador)
+    return 1 + (growthSem * 0.5);
+  }
+
   // 1) FIIs: usa fiiCharts (dividendo por cota por mes, 12m) × qty atual
   var posKeys = Object.keys(posMap);
   for (var pk = 0; pk < posKeys.length; pk++) {
@@ -201,9 +227,10 @@ function buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiC
     if (FII_CATS[cat]) {
       var chart = fiiCharts[tk2];
       if (chart && chart.length === 12) {
-        // Projecao = mesma distribuicao dos ultimos 12m × qty atual
+        // Projecao = mesma distribuicao dos ultimos 12m × qty atual × fator tendencia
+        var trendFii = calcTrendFactor(tk2);
         for (var m = 0; m < 12; m++) {
-          var valMes = (chart[m] || 0) * pos.quantidade;
+          var valMes = (chart[m] || 0) * pos.quantidade * trendFii;
           if (valMes <= 0) continue;
           projecao[m].total += valMes;
           projecao[m].fii += valMes;
@@ -211,9 +238,21 @@ function buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiC
         }
       } else {
         // Fallback: usa proventos historicos do proprio usuario
+        // Corrigido: converte pra DPC (dividendo por cota) e multiplica pela qty atual
         var hist = tickerMonthlyHist[tk2];
         if (hist) {
-          var media = hist.sum / 12;
+          // Estimar qty historica: valor_total / valor_por_cota dos proventos originais
+          var histQty = 0;
+          var histQtyCount = 0;
+          for (var hqi = 0; hqi < proventos.length; hqi++) {
+            if ((proventos[hqi].ticker || '').toUpperCase() === tk2 && proventos[hqi].quantidade > 0) {
+              histQty += proventos[hqi].quantidade;
+              histQtyCount++;
+            }
+          }
+          var avgHistQty = histQtyCount > 0 ? histQty / histQtyCount : pos.quantidade;
+          var qtyFator = avgHistQty > 0 ? pos.quantidade / avgHistQty : 1;
+          var media = (hist.sum / 12) * qtyFator;
           for (var m2 = 0; m2 < 12; m2++) {
             projecao[m2].total += media;
             projecao[m2].fii += media;
@@ -240,8 +279,8 @@ function buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiC
       var qtyAtual = pos.quantidade || 0;
 
       if (acaoChartTotal > 0 && qtyAtual > 0) {
-        // T1: chart × qty_atual, mapeando mes do chart (passado) pro mesmo
-        // mes na janela futura.
+        // T1: chart × qty_atual × fator tendencia
+        var trendAcao = calcTrendFactor(tk2);
         var nowMonthIdx = now.getMonth();
         for (var ci = 0; ci < 12; ci++) {
           var dpaMes = siChart[ci] || 0;
@@ -253,7 +292,7 @@ function buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiC
           var chartMonthIdx = ((nowMonthIdx - (11 - ci)) % 12 + 12) % 12;
           for (var fm1 = 0; fm1 < 12; fm1++) {
             if (projecao[fm1].mes === chartMonthIdx) {
-              var valV = dpaMes * qtyAtual;
+              var valV = dpaMes * qtyAtual * trendAcao;
               projecao[fm1].total += valV;
               projecao[fm1].acao += valV;
               projecao[fm1].items.push({ tipo: 'acao', ticker: tk2, valor: valV, fonte: 'si_12m' });
@@ -270,16 +309,28 @@ function buildProjectionFromHistory(positions, proventos, opcoesAtivas, rf, fiiC
           projecao[fm2].items.push({ tipo: 'acao', ticker: tk2, valor: mensalLinear, fonte: 'si_5y' });
         }
       } else {
-        // T3: historico proprio da tabela proventos
+        // T3: historico proprio da tabela proventos, corrigido pela qty atual
         var hist2 = tickerMonthlyHist[tk2];
         if (hist2) {
+          // Estimar fator de correcao qty
+          var histQty2 = 0;
+          var histQtyCount2 = 0;
+          for (var hqi2 = 0; hqi2 < proventos.length; hqi2++) {
+            if ((proventos[hqi2].ticker || '').toUpperCase() === tk2 && proventos[hqi2].quantidade > 0) {
+              histQty2 += proventos[hqi2].quantidade;
+              histQtyCount2++;
+            }
+          }
+          var avgHistQty2 = histQtyCount2 > 0 ? histQty2 / histQtyCount2 : qtyAtual;
+          var qtyFator2 = avgHistQty2 > 0 ? qtyAtual / avgHistQty2 : 1;
+
           var histKeys = Object.keys(hist2.months);
           for (var hk = 0; hk < histKeys.length; hk++) {
             var parts = histKeys[hk].split('-');
             var histMonthIdx = parseInt(parts[1], 10) - 1;
             for (var fm3 = 0; fm3 < 12; fm3++) {
               if (projecao[fm3].mes === histMonthIdx) {
-                var v = hist2.months[histKeys[hk]];
+                var v = hist2.months[histKeys[hk]] * qtyFator2;
                 projecao[fm3].total += v;
                 projecao[fm3].acao += v;
                 projecao[fm3].items.push({ tipo: cat === 'etf' ? 'etf' : 'acao', ticker: tk2, valor: v, fonte: 'user_hist' });

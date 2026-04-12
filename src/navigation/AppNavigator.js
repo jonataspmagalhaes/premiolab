@@ -207,7 +207,7 @@ function MainTabs() {
           component={AcoesScreen}
           options={{
             tabBarIcon: function(p) {
-              return <TabIcon iconFocused="rocket" iconDefault="rocket-outline" label="Ações" focused={p.focused} />;
+              return <TabIcon iconFocused="bulb" iconDefault="bulb-outline" label="Estrategias" focused={p.focused} />;
             },
           }}
         />

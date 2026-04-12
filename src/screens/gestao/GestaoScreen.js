@@ -6,8 +6,7 @@ import { C, F, SIZE } from '../../theme';
 import { Pill, UpgradePrompt } from '../../components';
 import { useSubscription } from '../../contexts/SubscriptionContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { useAppStore } from '../../contexts/AppStoreContext';
-import { getPortfolios } from '../../services/database';
+import { useAppStore, useCarteira } from '../../contexts/AppStoreContext';
 import CarteiraScreen from '../carteira/CarteiraScreen';
 import FinanceiroView from './financeiro/FinanceiroView';
 import AnaliseScreen from '../analise/AnaliseScreen';
@@ -41,22 +40,14 @@ export default function GestaoScreen(props) {
   var subscription = useSubscription();
   var user = useAuth().user;
 
-  var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfolios = _portfolios[1];
-  // selectedPortfolio unificado via AppStoreContext — sincroniza com todas as outras abas.
-  // null = Todos | '__null__' = Padrao (portfolio_id IS NULL) | UUID = custom
+  // selectedPortfolio + portfolios unificados via AppStoreContext
+  var _carteira = useCarteira();
+  var portfolios = _carteira.portfolios;
   var store = useAppStore();
   var selPortfolio = store.selectedPortfolio;
   var setSelPortfolio = store.setSelectedPortfolio;
   var _showPortDD = useState(false); var showPortDD = _showPortDD[0]; var setShowPortDD = _showPortDD[1];
   var _showAnaliseDD = useState(false); var showAnaliseDD = _showAnaliseDD[0]; var setShowAnaliseDD = _showAnaliseDD[1];
-
-  useFocusEffect(useCallback(function() {
-    if (!user) return;
-    getPortfolios(user.id).then(function(res) {
-      var pfs = res.data || [];
-      setPortfolios(pfs);
-    }).catch(function() {});
-  }, [user]));
 
   var hasPortfolios = portfolios.length > 0;
 
@@ -187,7 +178,7 @@ export default function GestaoScreen(props) {
           </View>
         )
       ) : (
-        <CarteiraScreen navigation={navigation} portfolioId={selPortfolio} portfolios={portfolios} />
+        <CarteiraScreen navigation={navigation} />
       )}
     </View>
   );

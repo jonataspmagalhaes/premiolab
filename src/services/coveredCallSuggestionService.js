@@ -116,15 +116,23 @@ export async function suggestCoveredCalls(userId, opts) {
   var portfolioId = opts.portfolioId || null;
   var limit = opts.limit || 10;
 
-  var results = await Promise.all([
-    getPositions(userId, portfolioId || undefined),
-    getOpcoes(userId, portfolioId || undefined),
-    getProfile(userId),
-  ]);
-  var positions = (results[0] && results[0].data) || [];
-  var opcoes = (results[1] && results[1].data) || [];
-  var profile = (results[2] && results[2].data) || {};
-  var selic = profile.selic || 13.25;
+  // Aceita dados pre-carregados ou busca do banco
+  var positions, opcoes, selic;
+  if (opts.positions && opts.opcoes) {
+    positions = opts.positions;
+    opcoes = opts.opcoes;
+    selic = opts.selic || 13.25;
+  } else {
+    var results = await Promise.all([
+      getPositions(userId, portfolioId || undefined),
+      getOpcoes(userId, portfolioId || undefined),
+      getProfile(userId),
+    ]);
+    positions = (results[0] && results[0].data) || [];
+    opcoes = (results[1] && results[1].data) || [];
+    var profile = (results[2] && results[2].data) || {};
+    selic = profile.selic || 13.25;
+  }
 
   // Filtrar acoes BR com qty disponivel
   var elegiveis = [];
@@ -187,12 +195,47 @@ export async function suggestCoveredCalls(userId, opts) {
         }
       }
     } catch (err) {
+      // Fallback: estimar premio conservador (0.8% do preco por mes, OTM 5%)
       console.warn('suggestCoveredCalls chain error for ' + el.ticker + ':', err.message || err);
+      var estPremio = precoAtual * 0.008;
+      var estStrike = Math.round(precoAtual * 1.05 * 100) / 100;
+      var lotesFb = Math.floor(el.qty_disponivel / 100);
+      sugestoes.push({
+        ticker: el.ticker,
+        qty_disponivel: el.qty_disponivel,
+        lotes: lotesFb,
+        preco_atual: precoAtual,
+        pm: el.pm,
+        estimado: true,
+        sugestao: {
+          symbol: el.ticker + ' ~C' + estStrike,
+          strike: estStrike,
+          vencimento: null,
+          dias: 30,
+          premio: estPremio,
+          premio_total_por_lote: estPremio * 100,
+          yield_mensal: precoAtual > 0 ? (estPremio / precoAtual) * 100 : 0,
+          delta: null,
+          iv: null,
+          oom_pct: 5,
+          score: 0,
+        },
+        comparativo: {
+          renda_sem: 0,
+          renda_com: estPremio * 100 * lotesFb,
+          valor_imobilizado: precoAtual * el.qty_disponivel,
+          yield_mensal_carteira: precoAtual > 0 ? (estPremio * 100 * lotesFb) / (precoAtual * el.qty_disponivel) * 100 : 0,
+        },
+      });
     }
     if (sugestoes.length >= limit) break;
   }
 
   // Ordenar por yield mensal desc
   sugestoes.sort(function(a, b) { return b.sugestao.yield_mensal - a.sugestao.yield_mensal; });
+
+  // Retorno enriquecido: inclui elegiveis pra UI explicar quando nao tem sugestao
+  sugestoes._elegiveis = elegiveis;
+  sugestoes._elegiveisCount = elegiveis.length;
   return sugestoes;
 }

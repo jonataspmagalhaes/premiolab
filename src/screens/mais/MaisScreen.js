@@ -4,6 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../contexts/AuthContext';
+import { useAppStore } from '../../contexts/AppStoreContext';
 import { useSubscription } from '../../contexts/SubscriptionContext';
 import { getOperacoes, getProventos, getOpcoes, getAlertasConfig, updateAlertasConfig, getProfile, updateProfile } from '../../services/database';
 import { Glass, Badge } from '../../components';
@@ -45,6 +46,8 @@ export default function MaisScreen(props) {
   var _auth = useAuth();
   var signOut = _auth.signOut;
   var user = _auth.user;
+  var _store = useAppStore();
+  var _selPortfolio = _store.selectedPortfolio;
   var sub = useSubscription();
 
   var _exAuto = useState(false); var exAuto = _exAuto[0]; var setExAuto = _exAuto[1];
@@ -95,10 +98,11 @@ export default function MaisScreen(props) {
   var handleExportCSV = async function() {
     try {
       if (!user) return;
+      var pfArg = _selPortfolio || undefined;
       var results = await Promise.all([
-        getOperacoes(user.id),
-        getOpcoes(user.id),
-        getProventos(user.id),
+        getOperacoes(user.id, { portfolioId: pfArg }),
+        getOpcoes(user.id, pfArg),
+        getProventos(user.id, { portfolioId: pfArg }),
       ]);
       var ops = results[0].data || [];
       var opcoes = results[1].data || [];

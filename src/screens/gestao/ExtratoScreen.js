@@ -8,8 +8,9 @@ import { animateLayout } from '../../utils/a11y';
 import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
+import { useFinancas, useAppStore } from '../../contexts/AppStoreContext';
 import Toast from 'react-native-toast-message';
-import { getSaldos, getMovimentacoes, deleteMovimentacao, upsertSaldo, addMovimentacaoComSaldo } from '../../services/database';
+import { getMovimentacoes, deleteMovimentacao, upsertSaldo, addMovimentacaoComSaldo } from '../../services/database';
 import { Glass, Pill, Badge, SectionLabel, SwipeableRow, PeriodFilter } from '../../components';
 import { LoadingScreen } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
@@ -22,9 +23,9 @@ function fmt(v) {
 }
 
 var CAT_LABELS = finCats.CAT_LABELS;
+var CAT_IONICONS = finCats.CAT_IONICONS;
 
 var MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-
 
 // Auto-generated movs (from integrations) should not be deletable
 var AUTO_CATEGORIAS = finCats.AUTO_CATEGORIAS;
@@ -38,15 +39,23 @@ export default function ExtratoScreen(props) {
 
   var initConta = (route && route.params && route.params.conta) ? route.params.conta : 'todos';
 
-  var _movs = useState([]); var movs = _movs[0]; var setMovs = _movs[1];
-  var _saldos = useState([]); var saldos = _saldos[0]; var setSaldos = _saldos[1];
-  var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
-  var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
-  var _loadingMore = useState(false); var loadingMore = _loadingMore[0]; var setLoadingMore = _loadingMore[1];
-  var _hasMore = useState(true); var hasMore = _hasMore[0]; var setHasMore = _hasMore[1];
+  // Store hooks
+  var financas = useFinancas();
+  var store = useAppStore();
+  var saldos = financas.saldos;
+
   var _contaFilter = useState(initConta); var contaFilter = _contaFilter[0]; var setContaFilter = _contaFilter[1];
   var _dateRange = useState(null); var dateRange = _dateRange[0]; var setDateRange = _dateRange[1];
+  // Quando dateRange ativo, busca direto (store nao suporta filtro por data)
+  var _localMovs = useState(null); var localMovs = _localMovs[0]; var setLocalMovs = _localMovs[1];
+  var _localHasMore = useState(true); var localHasMore = _localHasMore[0]; var setLocalHasMore = _localHasMore[1];
+  var _loadingMore = useState(false); var loadingMore = _loadingMore[0]; var setLoadingMore = _loadingMore[1];
+  var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
   var ps = usePrivacyStyle();
+
+  var movs = dateRange ? (localMovs || []) : financas.movimentacoes;
+  var hasMore = dateRange ? localHasMore : financas.movimentacoesHasMore;
+  var loading = dateRange ? (localMovs === null) : financas.loading;
 
   function buildFilters(offset) {
     var filters = {};
@@ -59,37 +68,58 @@ export default function ExtratoScreen(props) {
     return filters;
   }
 
-  var load = async function() {
+  var load = function() {
     if (!user) return;
-    var results = await Promise.all([
-      getMovimentacoes(user.id, buildFilters(0)),
-      getSaldos(user.id),
-    ]);
-    var newMovs = results[0].data || [];
-    setMovs(newMovs);
-    setSaldos(results[1].data || []);
-    setHasMore(newMovs.length >= PAGE_SIZE);
-    setLoading(false);
+    if (dateRange) {
+      // Fetch filtrado direto (store nao suporta dateRange)
+      setLocalMovs(null);
+      getMovimentacoes(user.id, buildFilters(0)).then(function(res) {
+        var newMovs = (res && res.data) || [];
+        setLocalMovs(newMovs);
+        setLocalHasMore(newMovs.length >= PAGE_SIZE);
+      }).catch(function() { setLocalMovs([]); });
+    } else {
+      // Usa store
+      setLocalMovs(null);
+      financas.refresh();
+    }
   };
 
-  var loadMore = async function() {
+  var loadMore = function() {
     if (loadingMore || !hasMore || !user) return;
     setLoadingMore(true);
-    var result = await getMovimentacoes(user.id, buildFilters(movs.length));
-    var newMovs = result.data || [];
-    if (newMovs.length > 0) {
-      setMovs(movs.concat(newMovs));
+    if (dateRange) {
+      getMovimentacoes(user.id, buildFilters(movs.length)).then(function(res) {
+        var newMovs = (res && res.data) || [];
+        if (newMovs.length > 0) {
+          setLocalMovs((localMovs || []).concat(newMovs));
+        }
+        setLocalHasMore(newMovs.length >= PAGE_SIZE);
+        setLoadingMore(false);
+      }).catch(function() { setLoadingMore(false); });
+    } else {
+      financas.loadMoreMovimentacoes().then(function() {
+        setLoadingMore(false);
+      }).catch(function() { setLoadingMore(false); });
     }
-    setHasMore(newMovs.length >= PAGE_SIZE);
-    setLoadingMore(false);
   };
 
   useFocusEffect(useCallback(function() { load(); }, [user, dateRange]));
 
-  var onRefresh = async function() {
+  var onRefresh = function() {
     setRefreshing(true);
-    await load();
-    setRefreshing(false);
+    if (dateRange) {
+      getMovimentacoes(user.id, buildFilters(0)).then(function(res) {
+        var newMovs = (res && res.data) || [];
+        setLocalMovs(newMovs);
+        setLocalHasMore(newMovs.length >= PAGE_SIZE);
+        setRefreshing(false);
+      }).catch(function() { setRefreshing(false); });
+    } else {
+      financas.refresh(true).then(function() {
+        setRefreshing(false);
+      }).catch(function() { setRefreshing(false); });
+    }
   };
 
   // Filter by conta (case-insensitive)
@@ -161,7 +191,7 @@ export default function ExtratoScreen(props) {
     };
     if (saved.ticker) movPayload.ticker = saved.ticker;
     await addMovimentacaoComSaldo(user.id, movPayload);
-    load();
+    store.invalidate('financas');
   };
 
   function handleDelete(mov) {
@@ -208,7 +238,7 @@ export default function ExtratoScreen(props) {
                 }).then(function() {
                   undoRef.current = mov;
                   animateLayout();
-                  load();
+                  store.invalidate('financas');
                   Toast.show({
                     type: 'undo',
                     text1: 'Movimentação excluída',
@@ -220,7 +250,7 @@ export default function ExtratoScreen(props) {
               } else {
                 undoRef.current = mov;
                 animateLayout();
-                setMovs(movs.filter(function(x) { return x.id !== mov.id; }));
+                store.invalidate('financas');
                 Toast.show({
                   type: 'undo',
                   text1: 'Movimentação excluída',
@@ -335,31 +365,37 @@ export default function ExtratoScreen(props) {
           {group.movs.map(function(mov, mi) {
             var isEntrada = mov.tipo === 'entrada';
             var isTransf = mov.tipo === 'transferencia' || mov.categoria === 'transferencia';
-            var movColor = isEntrada ? C.green : isTransf ? C.accent : C.red;
-            var movIcon = isEntrada ? '↓' : isTransf ? '→' : '↑';
+            var isPix = mov.meio_pagamento === 'pix';
+            var subcatMeta = mov.subcategoria ? finCats.SUBCATEGORIAS[mov.subcategoria] : null;
+            var movColor = isPix ? C.green : subcatMeta ? subcatMeta.color : (isEntrada ? C.green : isTransf ? C.accent : C.red);
+            var movIconName = isPix ? 'flash-outline' : subcatMeta ? subcatMeta.icon : (CAT_IONICONS[mov.categoria] || (isEntrada ? 'arrow-down-circle-outline' : isTransf ? 'swap-horizontal-outline' : 'arrow-up-circle-outline'));
             var isAuto = AUTO_CATEGORIAS.indexOf(mov.categoria) >= 0;
+            var movLabel = mov.descricao || (subcatMeta ? subcatMeta.l : (CAT_LABELS[mov.categoria] || mov.categoria));
 
             return (
               <SwipeableRow key={mov.id || mi} enabled={!isAuto} onDelete={function() { handleDelete(mov); }}>
                 <View style={[styles.movRow, mi > 0 && { borderTopWidth: 1, borderTopColor: C.border }, { backgroundColor: C.cardSolid }]}>
-                  <View style={[styles.movIconWrap, { backgroundColor: movColor + '12' }]}>
-                    <Text style={[styles.movIconText, { color: movColor }]}>{movIcon}</Text>
+                  <View style={[styles.movIconWrap, { backgroundColor: movColor + '18' }]}>
+                    <Ionicons name={movIconName} size={16} color={movColor} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.movDesc} numberOfLines={1}>
-                      {mov.descricao || CAT_LABELS[mov.categoria] || mov.categoria}
+                      {movLabel}
                     </Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <Text style={styles.movDate}>{formatDate(mov.data)}</Text>
                       <Badge text={mov.conta} color={C.dim} />
                       {mov.ticker ? <Badge text={mov.ticker} color={C.acoes} /> : null}
                       {isAuto ? <Badge text="auto" color={C.accent} /> : null}
+                      {isPix ? <Badge text="PIX" color={C.green} /> : null}
+                      {mov.parcela_atual && mov.parcela_total ? <Badge text={mov.parcela_atual + '/' + mov.parcela_total} color={C.etfs} /> : null}
                       {mov.cartao_id ? (
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                           <Ionicons name="card-outline" size={10} color={C.accent} />
                           <Text style={{ fontSize: 9, color: C.accent, fontFamily: F.body }}>{'CARTÃO'}</Text>
                         </View>
                       ) : null}
+                      {subcatMeta && !mov.descricao ? <Badge text={finCats.getGrupoMeta(subcatMeta.grupo).label} color={movColor} /> : null}
                     </View>
                   </View>
                   <View style={{ alignItems: 'flex-end', flexDirection: 'row', gap: 8 }}>

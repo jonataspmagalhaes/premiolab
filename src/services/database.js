@@ -3,6 +3,283 @@ import { enrichPositionsWithPrices } from './priceService';
 import { fetchExchangeRates, convertToBRL } from './currencyService';
 var dateUtils = require('../utils/dateUtils');
 var parseLocalDate = dateUtils.parseLocalDate;
+var fractional = require('../utils/fractional');
+var decMul = fractional.decMul;
+var decDiv = fractional.decDiv;
+var decAdd = fractional.decAdd;
+var decSub = fractional.decSub;
+
+// Helper: aplica filtro de portfolio na query Supabase (server-side)
+function applyPortfolioFilter(query, portfolioId) {
+  if (!portfolioId) return query;
+  if (portfolioId === '__null__') {
+    return query.is('portfolio_id', null);
+  }
+  return query.eq('portfolio_id', portfolioId);
+}
+
+// ═══════════ PORTFOLIOS ═══════════
+export async function getPortfolios(userId) {
+  var result = await supabase
+    .from('portfolios')
+    .select('*')
+    .eq('user_id', userId)
+    .order('ordem', { ascending: true });
+  return { data: result.data || [], error: result.error };
+}
+
+export async function addPortfolio(userId, data) {
+  var payload = { user_id: userId };
+  var keys = Object.keys(data);
+  for (var i = 0; i < keys.length; i++) {
+    payload[keys[i]] = data[keys[i]];
+  }
+  var result = await supabase
+    .from('portfolios')
+    .insert(payload)
+    .select()
+    .single();
+  return { data: result.data, error: result.error };
+}
+
+export async function updatePortfolio(userId, id, data) {
+  var result = await supabase
+    .from('portfolios')
+    .update(data)
+    .eq('id', id)
+    .eq('user_id', userId)
+    .select()
+    .single();
+  return { data: result.data, error: result.error };
+}
+
+export async function deletePortfolio(id, deleteData) {
+  if (deleteData) {
+    // Snapshot all data before deleting (backup 30 dias)
+    await backupPortfolioData(id);
+    // Delete all related records permanently
+    await supabase.from('movimentacoes').delete().eq('portfolio_id', id);
+    await supabase.from('proventos').delete().eq('portfolio_id', id);
+    await supabase.from('opcoes').delete().eq('portfolio_id', id);
+    await supabase.from('operacoes').delete().eq('portfolio_id', id);
+    await supabase.from('renda_fixa').delete().eq('portfolio_id', id);
+    await supabase.from('saldos_corretora').delete().eq('portfolio_id', id);
+    await supabase.from('cartoes_credito').delete().eq('portfolio_id', id);
+  } else {
+    // Set portfolio_id to NULL on all related records (move to Padrão)
+    await supabase.from('operacoes').update({ portfolio_id: null }).eq('portfolio_id', id);
+    await supabase.from('opcoes').update({ portfolio_id: null }).eq('portfolio_id', id);
+    await supabase.from('renda_fixa').update({ portfolio_id: null }).eq('portfolio_id', id);
+    await supabase.from('proventos').update({ portfolio_id: null }).eq('portfolio_id', id);
+    await supabase.from('movimentacoes').update({ portfolio_id: null }).eq('portfolio_id', id);
+    await supabase.from('saldos_corretora').update({ portfolio_id: null }).eq('portfolio_id', id);
+    await supabase.from('cartoes_credito').update({ portfolio_id: null }).eq('portfolio_id', id);
+  }
+  var result = await supabase.from('portfolios').delete().eq('id', id);
+  return { error: result.error };
+}
+
+// Snapshot completo do portfolio antes de excluir (retencao 30 dias)
+async function backupPortfolioData(portfolioId) {
+  try {
+    // Buscar portfolio info
+    var pfRes = await supabase.from('portfolios').select('*').eq('id', portfolioId).single();
+    if (!pfRes.data) return;
+    var pf = pfRes.data;
+
+    // Buscar todos os dados vinculados em paralelo
+    var results = await Promise.all([
+      supabase.from('operacoes').select('*').eq('portfolio_id', portfolioId),
+      supabase.from('opcoes').select('*').eq('portfolio_id', portfolioId),
+      supabase.from('renda_fixa').select('*').eq('portfolio_id', portfolioId),
+      supabase.from('proventos').select('*').eq('portfolio_id', portfolioId),
+      supabase.from('movimentacoes').select('*').eq('portfolio_id', portfolioId),
+      supabase.from('saldos_corretora').select('*').eq('portfolio_id', portfolioId),
+      supabase.from('cartoes_credito').select('*').eq('portfolio_id', portfolioId),
+    ]);
+
+    var dados = {
+      portfolio: pf,
+      operacoes: (results[0].data || []),
+      opcoes: (results[1].data || []),
+      renda_fixa: (results[2].data || []),
+      proventos: (results[3].data || []),
+      movimentacoes: (results[4].data || []),
+      saldos: (results[5].data || []),
+      cartoes: (results[6].data || []),
+    };
+
+    await supabase.from('portfolio_backups').insert({
+      user_id: pf.user_id,
+      portfolio_id: portfolioId,
+      portfolio_nome: pf.nome,
+      dados: dados,
+    });
+  } catch (e) {
+    console.warn('backupPortfolioData failed:', e);
+    // Nao bloqueia a exclusao se backup falhar
+  }
+}
+
+export async function getPortfolioBackups(userId) {
+  var result = await supabase
+    .from('portfolio_backups')
+    .select('id, portfolio_id, portfolio_nome, deleted_at, expires_at')
+    .eq('user_id', userId)
+    .gt('expires_at', new Date().toISOString())
+    .order('deleted_at', { ascending: false });
+  return { data: result.data || [], error: result.error };
+}
+
+export async function restorePortfolioBackup(backupId) {
+  // Buscar backup completo
+  var bkRes = await supabase.from('portfolio_backups').select('*').eq('id', backupId).single();
+  if (bkRes.error || !bkRes.data) return { error: bkRes.error || { message: 'Backup não encontrado' } };
+  var bk = bkRes.data;
+  var dados = bk.dados;
+  var userId = bk.user_id;
+
+  try {
+    // Recriar portfolio
+    var pfData = dados.portfolio;
+    var pfInsert = await supabase.from('portfolios').insert({
+      user_id: userId,
+      nome: pfData.nome,
+      cor: pfData.cor,
+      icone: pfData.icone,
+      ordem: pfData.ordem || 0,
+      operacoes_contas: pfData.operacoes_contas !== false,
+    }).select().single();
+    if (pfInsert.error) return { error: pfInsert.error };
+    var newPfId = pfInsert.data.id;
+
+    // Helper: re-insert array com novo portfolio_id (remove id e timestamps originais)
+    var reinsert = async function(table, rows) {
+      if (!rows || rows.length === 0) return;
+      var cleaned = [];
+      for (var i = 0; i < rows.length; i++) {
+        var row = {};
+        var keys = Object.keys(rows[i]);
+        for (var k = 0; k < keys.length; k++) {
+          if (keys[k] === 'id' || keys[k] === 'created_at') continue;
+          row[keys[k]] = rows[i][keys[k]];
+        }
+        row.portfolio_id = newPfId;
+        row.user_id = userId;
+        cleaned.push(row);
+      }
+      await supabase.from(table).insert(cleaned);
+    };
+
+    await reinsert('operacoes', dados.operacoes);
+    await reinsert('opcoes', dados.opcoes);
+    await reinsert('renda_fixa', dados.renda_fixa);
+    await reinsert('proventos', dados.proventos);
+    await reinsert('movimentacoes', dados.movimentacoes);
+    await reinsert('saldos_corretora', dados.saldos);
+    await reinsert('cartoes_credito', dados.cartoes);
+
+    // Remover backup apos restaurar
+    await supabase.from('portfolio_backups').delete().eq('id', backupId);
+
+    return { data: pfInsert.data, error: null };
+  } catch (e) {
+    return { error: { message: e.message || 'Falha ao restaurar' } };
+  }
+}
+
+// ═══════════ USER BACKUPS (DIARIO) ═══════════
+export async function getUserBackups(userId) {
+  var result = await supabase
+    .from('user_backups')
+    .select('id, backup_date, tabelas_count, size_bytes, created_at')
+    .eq('user_id', userId)
+    .order('backup_date', { ascending: false });
+  return { data: result.data || [], error: result.error };
+}
+
+export async function getUserBackupDetail(backupId) {
+  var result = await supabase
+    .from('user_backups')
+    .select('*')
+    .eq('id', backupId)
+    .single();
+  return { data: result.data, error: result.error };
+}
+
+// Restaurar backup completo: substitui TODOS os dados do usuario pelo snapshot
+export async function restoreUserBackup(userId, backupId) {
+  // 1. Buscar backup
+  var bkRes = await supabase.from('user_backups').select('*').eq('id', backupId).eq('user_id', userId).single();
+  if (bkRes.error || !bkRes.data) return { error: bkRes.error || { message: 'Backup não encontrado' } };
+  var dados = bkRes.data.dados;
+
+  var TABLES_ORDER = [
+    'alertas_opcoes', 'indicators', 'rebalance_targets', 'alertas_config',
+    'transacoes_recorrentes', 'orcamentos',
+    'movimentacoes', 'proventos', 'opcoes', 'operacoes', 'renda_fixa',
+    'cartoes_credito', 'saldos_corretora', 'portfolios',
+  ];
+
+  try {
+    // 2. Deletar dados atuais (ordem reversa de dependencias)
+    for (var di = 0; di < TABLES_ORDER.length; di++) {
+      await supabase.from(TABLES_ORDER[di]).delete().eq('user_id', userId);
+    }
+
+    // 3. Re-inserir dados do backup (ordem de dependencias: portfolios primeiro)
+    var INSERT_ORDER = [
+      'portfolios',
+      'saldos_corretora', 'cartoes_credito',
+      'operacoes', 'opcoes', 'renda_fixa', 'proventos', 'movimentacoes',
+      'orcamentos', 'transacoes_recorrentes',
+      'alertas_config', 'indicators', 'rebalance_targets', 'alertas_opcoes',
+    ];
+
+    var inserted = {};
+    for (var ii = 0; ii < INSERT_ORDER.length; ii++) {
+      var table = INSERT_ORDER[ii];
+      var rows = dados[table];
+      if (!rows || rows.length === 0) {
+        inserted[table] = 0;
+        continue;
+      }
+      // Limpar campos auto-gerados
+      var cleaned = [];
+      for (var ri = 0; ri < rows.length; ri++) {
+        var row = {};
+        var keys = Object.keys(rows[ri]);
+        for (var ki = 0; ki < keys.length; ki++) {
+          // Preservar id original para manter referencias (portfolio_id, referencia_id, etc)
+          if (keys[ki] === 'created_at') continue;
+          row[keys[ki]] = rows[ri][keys[ki]];
+        }
+        cleaned.push(row);
+      }
+      var insRes = await supabase.from(table).insert(cleaned);
+      if (insRes.error) {
+        console.warn('Restore insert error on ' + table + ':', insRes.error.message);
+      }
+      inserted[table] = cleaned.length;
+    }
+
+    // 4. Restaurar profile (update, nao insert — profile ja existe)
+    if (dados.profiles && dados.profiles.length > 0) {
+      var prof = dados.profiles[0];
+      var profUpdate = {};
+      var profKeys = Object.keys(prof);
+      for (var pk = 0; pk < profKeys.length; pk++) {
+        if (profKeys[pk] === 'id' || profKeys[pk] === 'created_at') continue;
+        profUpdate[profKeys[pk]] = prof[profKeys[pk]];
+      }
+      await supabase.from('profiles').update(profUpdate).eq('id', userId);
+    }
+
+    return { data: { inserted: inserted }, error: null };
+  } catch (e) {
+    return { error: { message: e.message || 'Falha ao restaurar backup' } };
+  }
+}
 
 // ═══════════ PROFILES ═══════════
 export async function getProfile(userId) {
@@ -38,9 +315,11 @@ export async function getOperacoes(userId, filters) {
 
   if (filters.tipo) query = query.eq('tipo', filters.tipo);
   if (filters.limit) query = query.limit(filters.limit);
+  query = applyPortfolioFilter(query, filters.portfolioId);
 
   var result = await query;
   var data = result.data || [];
+
   if (filters.ticker) {
     var normalTicker = filters.ticker.toUpperCase().trim();
     data = data.filter(function(op) {
@@ -220,13 +499,17 @@ export async function deleteOperacaoComMovimentacoes(userId, operacaoId) {
 }
 
 // ═══════════ POSIÇÕES (computed view) ═══════════
-export async function getPositions(userId) {
-  var result = await supabase
+export async function getPositions(userId, portfolioId) {
+  var query = supabase
     .from('operacoes')
     .select('*')
     .eq('user_id', userId)
     .in('tipo', ['compra', 'venda'])
     .order('data', { ascending: true });
+
+  query = applyPortfolioFilter(query, portfolioId);
+
+  var result = await query;
 
   if (result.error) return { data: [], error: result.error };
 
@@ -246,6 +529,7 @@ export async function getPositions(userId) {
         pm: 0,
         por_corretora: {},
         custo_por_corretora: {},
+        portfolio_ids: [],
         total_comprado: 0,
         custo_compras: 0,
         total_vendido: 0,
@@ -257,45 +541,51 @@ export async function getPositions(userId) {
       };
     }
     var p = positions[tickerKey];
+    var opPortId = op.portfolio_id || null;
+    if (p.portfolio_ids.indexOf(opPortId) === -1) {
+      p.portfolio_ids.push(opPortId);
+    }
     var corr = (op.corretora || 'Sem corretora').toUpperCase().trim();
     if (!p.por_corretora[corr]) {
       p.por_corretora[corr] = 0;
       p.custo_por_corretora[corr] = 0;
     }
     if (op.tipo === 'compra') {
-      var custos = (op.custo_corretagem || 0) + (op.custo_emolumentos || 0) + (op.custo_impostos || 0);
-      var custoOp = op.quantidade * op.preco + custos;
-      p.custo_total += custoOp;
-      p.quantidade += op.quantidade;
-      p.por_corretora[corr] += op.quantidade;
-      p.custo_por_corretora[corr] += custoOp;
-      p.total_comprado += op.quantidade;
-      p.custo_compras += custoOp;
+      var custos = decAdd(decAdd(op.custo_corretagem || 0, op.custo_emolumentos || 0), op.custo_impostos || 0);
+      var custoOp = decAdd(decMul(op.quantidade, op.preco), custos);
+      p.custo_total = decAdd(p.custo_total, custoOp);
+      p.quantidade = decAdd(p.quantidade, op.quantidade);
+      p.por_corretora[corr] = decAdd(p.por_corretora[corr], op.quantidade);
+      p.custo_por_corretora[corr] = decAdd(p.custo_por_corretora[corr], custoOp);
+      p.total_comprado = decAdd(p.total_comprado, op.quantidade);
+      p.custo_compras = decAdd(p.custo_compras, custoOp);
       // Acumular custo em BRL para INT (usando taxa_cambio da operacao)
       if ((op.mercado === 'INT') && op.taxa_cambio) {
-        p._custo_brl += custoOp * op.taxa_cambio;
+        p._custo_brl = decAdd(p._custo_brl, decMul(custoOp, op.taxa_cambio));
       }
     } else {
-      var custosVenda = (op.custo_corretagem || 0) + (op.custo_emolumentos || 0) + (op.custo_impostos || 0);
-      var receitaLiq = op.quantidade * op.preco - custosVenda;
+      var custosVenda = decAdd(decAdd(op.custo_corretagem || 0, op.custo_emolumentos || 0), op.custo_impostos || 0);
+      var receitaLiq = decSub(decMul(op.quantidade, op.preco), custosVenda);
       // PM por corretora para P&L real
-      var pmCorr = p.por_corretora[corr] > 0 ? p.custo_por_corretora[corr] / p.por_corretora[corr] : p.pm;
-      p.pl_realizado += op.quantidade * (op.preco - pmCorr) - custosVenda;
+      var pmCorr = p.por_corretora[corr] > 0 ? decDiv(p.custo_por_corretora[corr], p.por_corretora[corr]) : p.pm;
+      p.pl_realizado = decAdd(p.pl_realizado, decSub(decMul(op.quantidade, decSub(op.preco, pmCorr)), custosVenda));
       // PM geral para IR
-      p.pl_realizado_ir += op.quantidade * (op.preco - p.pm) - custosVenda;
-      p.receita_vendas += receitaLiq;
-      p.total_vendido += op.quantidade;
+      p.pl_realizado_ir = decAdd(p.pl_realizado_ir, decSub(decMul(op.quantidade, decSub(op.preco, p.pm)), custosVenda));
+      p.receita_vendas = decAdd(p.receita_vendas, receitaLiq);
+      p.total_vendido = decAdd(p.total_vendido, op.quantidade);
       // Reduzir custo proporcional ao PM da corretora
-      p.custo_por_corretora[corr] -= op.quantidade * pmCorr;
-      p.por_corretora[corr] -= op.quantidade;
+      p.custo_por_corretora[corr] = decSub(p.custo_por_corretora[corr], decMul(op.quantidade, pmCorr));
+      p.por_corretora[corr] = decSub(p.por_corretora[corr], op.quantidade);
       // Reduzir custo geral pelo PM geral
-      p.custo_total -= op.quantidade * p.pm;
-      p.quantidade -= op.quantidade;
+      p.custo_total = decSub(p.custo_total, decMul(op.quantidade, p.pm));
+      p.quantidade = decSub(p.quantidade, op.quantidade);
     }
-    p.pm = p.quantidade > 0 ? p.custo_total / p.quantidade : 0;
+    // Threshold zero: evita posições fantasma por imprecisão
+    if (Math.abs(p.quantidade) < 0.000001) p.quantidade = 0;
+    p.pm = p.quantidade > 0 ? decDiv(p.custo_total, p.quantidade) : 0;
     // Calcular taxa_cambio_media para INT
     if (p.mercado === 'INT' && p.custo_total > 0 && p._custo_brl > 0) {
-      p.taxa_cambio_media = p._custo_brl / p.custo_total;
+      p.taxa_cambio_media = decDiv(p._custo_brl, p.custo_total);
     }
   }
 
@@ -327,9 +617,11 @@ export async function getProventos(userId, filters) {
     var pOffset = filters.offset || 0;
     query = query.range(pOffset, pOffset + pLimit - 1);
   }
+  query = applyPortfolioFilter(query, filters.portfolioId);
 
   var result = await query;
   var data = result.data || [];
+
   if (filters.ticker) {
     var normalTicker = filters.ticker.toUpperCase().trim();
     data = data.filter(function(p) {
@@ -363,13 +655,19 @@ export async function addProvento(userId, provento) {
 }
 
 // ═══════════ OPÇÕES ═══════════
-export async function getOpcoes(userId) {
-  var result = await supabase
+export async function getOpcoes(userId, portfolioId) {
+  var query = supabase
     .from('opcoes')
     .select('*')
     .eq('user_id', userId)
     .order('vencimento', { ascending: true });
-  return { data: result.data || [], error: result.error };
+
+  query = applyPortfolioFilter(query, portfolioId);
+
+  var result = await query;
+  var data = result.data || [];
+
+  return { data: data, error: result.error };
 }
 
 export async function addOpcao(userId, opcao) {
@@ -386,6 +684,16 @@ export async function addOpcao(userId, opcao) {
   return { data: result.data, error: result.error };
 }
 
+export async function updateOpcao(opcaoId, fields) {
+  var result = await supabase
+    .from('opcoes')
+    .update(fields)
+    .eq('id', opcaoId)
+    .select()
+    .single();
+  return { data: result.data, error: result.error };
+}
+
 export async function updateOpcaoAlertaPL(opcaoId, valor) {
   var result = await supabase
     .from('opcoes')
@@ -395,13 +703,19 @@ export async function updateOpcaoAlertaPL(opcaoId, valor) {
 }
 
 // ═══════════ RENDA FIXA ═══════════
-export async function getRendaFixa(userId) {
-  var result = await supabase
+export async function getRendaFixa(userId, portfolioId) {
+  var query = supabase
     .from('renda_fixa')
     .select('*')
     .eq('user_id', userId)
     .order('vencimento', { ascending: true });
-  return { data: result.data || [], error: result.error };
+
+  query = applyPortfolioFilter(query, portfolioId);
+
+  var result = await query;
+  var data = result.data || [];
+
+  return { data: data, error: result.error };
 }
 
 export async function addRendaFixa(userId, rf) {
@@ -426,12 +740,35 @@ export async function deleteRendaFixa(id) {
   return { error: result.error };
 }
 
+// ═══════════ PROVENTOS UPDATE ═══════════
+export async function updateProvento(id, fields) {
+  var result = await supabase
+    .from('proventos')
+    .update(fields)
+    .eq('id', id);
+  return { error: result.error };
+}
+
 // ═══════════ PROVENTOS DELETE ═══════════
 export async function deleteProvento(id) {
   var result = await supabase
     .from('proventos')
     .delete()
     .eq('id', id);
+  return { error: result.error };
+}
+
+export async function deleteAllProventos(userId, portfolioId, cutoffDate) {
+  var q = supabase.from('proventos').delete().eq('user_id', userId);
+  if (portfolioId && portfolioId !== '__null__') {
+    q = q.eq('portfolio_id', portfolioId);
+  } else if (portfolioId === '__null__') {
+    q = q.is('portfolio_id', null);
+  }
+  if (cutoffDate) {
+    q = q.gte('data_pagamento', cutoffDate);
+  }
+  var result = await q;
   return { error: result.error };
 }
 
@@ -469,12 +806,15 @@ export async function incrementCorretora(userId, name) {
 
 // ═══════════ SALDOS CORRETORA ═══════════
 export async function getSaldos(userId) {
-  var result = await supabase
+  // Saldos sao globais (nao tem portfolio_id) — contas sao as mesmas em todos portfolios
+  var query = supabase
     .from('saldos_corretora')
     .select('*')
     .eq('user_id', userId)
     .order('corretora', { ascending: true })
     .order('moeda', { ascending: true });
+
+  var result = await query;
   return { data: result.data || [], error: result.error };
 }
 
@@ -489,6 +829,9 @@ export async function upsertSaldo(userId, data) {
   }
   if (data.tipo) {
     payload.tipo = data.tipo;
+  }
+  if (data.portfolio_id !== undefined) {
+    payload.portfolio_id = data.portfolio_id;
   }
   var result = await supabase
     .from('saldos_corretora')
@@ -647,24 +990,82 @@ export async function upsertIndicatorsBatch(userId, indicatorsList) {
 }
 
 // ═══════════ PATRIMONIO SNAPSHOTS ═══════════
-export async function getPatrimonioSnapshots(userId) {
-  var result = await supabase
+// UUID sentinela para snapshots do portfolio "Padrao" (ops sem portfolio_id)
+var PADRAO_SNAPSHOT_ID = '00000000-0000-0000-0000-000000000001';
+
+// Converte portfolioId do app para portfolio_id do banco
+// null/undefined = global (IS NULL), '__null__' = Padrao (sentinela UUID), uuid = portfolio custom
+function snapshotPortfolioId(portfolioId) {
+  if (!portfolioId) return null; // global
+  if (portfolioId === '__null__') return PADRAO_SNAPSHOT_ID; // padrao
+  return portfolioId; // portfolio custom
+}
+
+export async function getPatrimonioSnapshots(userId, portfolioId) {
+  var query = supabase
     .from('patrimonio_snapshots')
     .select('*')
     .eq('user_id', userId)
     .order('data', { ascending: true });
-  return result.data || [];
+  var pfId = snapshotPortfolioId(portfolioId);
+  if (pfId) {
+    query = query.eq('portfolio_id', pfId);
+  } else {
+    query = query.is('portfolio_id', null);
+  }
+  var result = await query;
+  var raw = result.data || [];
+  // Filtrar snapshots invalidos na leitura
+  var filtered = [];
+  for (var fi = 0; fi < raw.length; fi++) {
+    if (raw[fi].valor > 0 && raw[fi].valor === raw[fi].valor) {
+      filtered.push(raw[fi]);
+    }
+  }
+  return filtered;
 }
 
-export async function upsertPatrimonioSnapshot(userId, data, valor) {
-  var result = await supabase
+export async function upsertPatrimonioSnapshot(userId, data, valor, portfolioId) {
+  // Validacao: nunca salvar valor invalido
+  if (!valor || valor <= 0 || valor !== valor) {
+    console.warn('upsertPatrimonioSnapshot: valor invalido ignorado:', valor);
+    return { error: null };
+  }
+  var pfId = snapshotPortfolioId(portfolioId);
+  // Try update first
+  var query = supabase
     .from('patrimonio_snapshots')
-    .upsert({
-      user_id: userId,
-      data: data,
-      valor: valor,
-    }, { onConflict: 'user_id,data' });
+    .update({ valor: valor })
+    .eq('user_id', userId)
+    .eq('data', data);
+  if (pfId) {
+    query = query.eq('portfolio_id', pfId);
+  } else {
+    query = query.is('portfolio_id', null);
+  }
+  var result = await query.select();
+  // If no rows updated, insert
+  if (!result.error && (!result.data || result.data.length === 0)) {
+    var payload = { user_id: userId, data: data, valor: valor };
+    if (pfId) payload.portfolio_id = pfId;
+    result = await supabase.from('patrimonio_snapshots').insert(payload);
+  }
   return { error: result.error };
+}
+
+export async function deletePatrimonioSnapshot(userId, data, portfolioId) {
+  var pfId = snapshotPortfolioId(portfolioId);
+  var query = supabase
+    .from('patrimonio_snapshots')
+    .delete()
+    .eq('user_id', userId)
+    .eq('data', data);
+  if (pfId) {
+    query = query.eq('portfolio_id', pfId);
+  } else {
+    query = query.is('portfolio_id', null);
+  }
+  return await query;
 }
 
 // ═══════════ MOVIMENTAÇÕES (Fluxo de Caixa) ═══════════
@@ -843,9 +1244,12 @@ export async function getMovimentacoes(userId, filters) {
   var limit = filters.limit || 1000;
   var offset = filters.offset || 0;
   query = query.range(offset, offset + limit - 1);
+  query = applyPortfolioFilter(query, filters.portfolioId);
 
   var result = await query;
-  return { data: result.data || [], error: result.error };
+  var movData = result.data || [];
+
+  return { data: movData, error: result.error };
 }
 
 export async function addMovimentacao(userId, mov) {
@@ -1076,42 +1480,24 @@ export async function getMovimentacoesSummary(userId, mes, ano) {
 }
 
 // ═══════════ DASHBOARD AGGREGATES ═══════════
-export async function getDashboard(userId) {
+// computeDashboardFromData — funcao pura que computa o dashboard a partir de dados pre-carregados.
+// Usada pelo store (dados ja em memoria) e por getDashboard (busca do banco).
+export async function computeDashboardFromData(inputs) {
+  var posData = inputs.positions || [];
+  var posEncerradas = inputs.encerradas || [];
+  var proventosData = inputs.proventos || [];
+  var opcoesData = inputs.opcoes || [];
+  var rfData = inputs.rf || [];
+  var saldosData = inputs.saldos || [];
+  var profileData = inputs.profile || {};
+  var snapshotsData = inputs.snapshots || [];
+  var portfolioId = inputs.portfolioId || null;
+  var userId = inputs.userId || null;
+
   try {
-    var results = await Promise.all([
-      getPositions(userId),
-      getProventos(userId, { limit: 1000 }),
-      getOpcoes(userId),
-      getRendaFixa(userId),
-      getSaldos(userId),
-      getProfile(userId),
-      getPatrimonioSnapshots(userId),
-    ]);
-
-    var positions = results[0];
-    var proventos = results[1];
-    var opcoes = results[2];
-    var rendaFixa = results[3];
-    var saldos = results[4];
-    var profile = results[5];
-    var snapshots = results[6];
-
     var now = new Date();
     var mesAtual = now.getMonth();
     var anoAtual = now.getFullYear();
-
-    // ── Posições ──
-    var posDataRaw = positions.data || [];
-    var posEncerradas = positions.encerradas || [];
-
-    // Buscar preços atuais e calcular variação
-    var posData;
-    try {
-      posData = await enrichPositionsWithPrices(posDataRaw);
-    } catch (e) {
-      console.warn('Price fetch failed, using positions without prices');
-      posData = posDataRaw;
-    }
 
     var patrimonioAcoes = 0;
     for (var pi = 0; pi < posData.length; pi++) {
@@ -1119,7 +1505,6 @@ export async function getDashboard(userId) {
     }
 
     // ── Renda Fixa ──
-    var rfData = rendaFixa.data || [];
     var rfTotalAplicado = 0;
     for (var ri = 0; ri < rfData.length; ri++) {
       rfTotalAplicado += (rfData[ri].valor_aplicado || 0);
@@ -1134,7 +1519,6 @@ export async function getDashboard(userId) {
     }
 
     // ── Saldo livre (corretoras/bancos) com conversão multi-moeda ──
-    var saldosData = saldos.data || [];
     var moedasEstrangeiras = [];
     for (var mi = 0; mi < saldosData.length; mi++) {
       var moedaItem = saldosData[mi].moeda || 'BRL';
@@ -1154,7 +1538,8 @@ export async function getDashboard(userId) {
     }
 
     // ── Patrimônio total ──
-    var patrimonio = patrimonioAcoes + rfTotalAplicado + saldoLivreTotal;
+    // Saldos só entram no patrimônio global (sem filtro de portfolio)
+    var patrimonio = patrimonioAcoes + rfTotalAplicado + (portfolioId ? 0 : saldoLivreTotal);
 
     // ── Mes anterior ──
     var mesAnterior = mesAtual === 0 ? 11 : mesAtual - 1;
@@ -1169,16 +1554,30 @@ export async function getDashboard(userId) {
     var prefixMesAtual = anoAtual + '-' + mesAtualStr;
     var prefixMesAnterior = anoMesAnterior + '-' + mesAntStr;
 
-    var proventosData = proventos.data || [];
+    // proventosData ja vem dos inputs
     var dividendosMes = 0;
     var dividendosMesAnterior = 0;
     var dividendosRecebidosMes = 0;
     var dividendosAReceberMes = 0;
     var proventosMesDetalhe = [];
     var todayDateStr = now.toISOString().substring(0, 10);
+
+    // posCategoria: ticker → categoria (precisa ser criado antes do loop de proventos)
+    var posCategoria = {};
+    var posDataRawForCat = posData;
+    for (var pcii = 0; pcii < posDataRawForCat.length; pcii++) {
+      posCategoria[(posDataRawForCat[pcii].ticker || '').toUpperCase().trim()] = posDataRawForCat[pcii].categoria || 'acao';
+    }
+    // Helper: JCP tem 15% IR retido na fonte — mostrar valor liquido
+    function provValLiquido(prov) {
+      var bruto = (prov.valor_por_cota || 0) * (prov.quantidade || 0);
+      var tipo = (prov.tipo_provento || prov.tipo || '').toLowerCase();
+      if (tipo === 'jcp') return bruto * 0.85;
+      return bruto;
+    }
     for (var di = 0; di < proventosData.length; di++) {
       var provDateStr = (proventosData[di].data_pagamento || '').substring(0, 10);
-      var provVal = (proventosData[di].valor_por_cota || 0) * (proventosData[di].quantidade || 0);
+      var provVal = provValLiquido(proventosData[di]);
       if (provDateStr.substring(0, 7) === prefixMesAtual) {
         dividendosMes += provVal;
         if (provDateStr <= todayDateStr) {
@@ -1186,12 +1585,20 @@ export async function getDashboard(userId) {
         } else {
           dividendosAReceberMes += provVal;
         }
+        var provTicker = (proventosData[di].ticker || '').toUpperCase().trim();
         proventosMesDetalhe.push({
-          ticker: (proventosData[di].ticker || '').toUpperCase().trim(),
+          ticker: provTicker,
           tipo: proventosData[di].tipo_provento || proventosData[di].tipo || 'dividendo',
           valor: provVal,
           data: provDateStr,
           recebido: provDateStr <= todayDateStr,
+          valor_por_cota: proventosData[di].valor_por_cota || 0,
+          quantidade: proventosData[di].quantidade || 0,
+          por_corretora: proventosData[di].por_corretora || null,
+          corretora: proventosData[di].corretora || null,
+          data_com: proventosData[di].data_com || null,
+          data_pagamento: proventosData[di].data_pagamento || null,
+          categoria: posCategoria[provTicker] || 'acao',
         });
       } else if (provDateStr.substring(0, 7) === prefixMesAnterior) {
         dividendosMesAnterior += provVal;
@@ -1205,7 +1612,7 @@ export async function getDashboard(userId) {
     for (var dy12 = 0; dy12 < proventosData.length; dy12++) {
       var dy12Date = (proventosData[dy12].data_pagamento || '').substring(0, 10);
       if (dy12Date >= cutoff12m && dy12Date <= todayDateStr) {
-        dividendos12m += (proventosData[dy12].valor_por_cota || 0) * (proventosData[dy12].quantidade || 0);
+        dividendos12m += provValLiquido(proventosData[dy12]);
       }
     }
     var dyCarteira = patrimonioAcoes > 0 ? (dividendos12m / patrimonioAcoes) * 100 : 0;
@@ -1221,12 +1628,9 @@ export async function getDashboard(userId) {
     }
 
     // ── Dividendos por categoria (mes atual e anterior) ──
-    var dividendosCatMes = { acao: 0, fii: 0, etf: 0, stock_int: 0 };
-    var dividendosCatMesAnt = { acao: 0, fii: 0, etf: 0, stock_int: 0 };
-    var posCategoria = {};
-    for (var pci = 0; pci < posDataRaw.length; pci++) {
-      posCategoria[(posDataRaw[pci].ticker || '').toUpperCase().trim()] = posDataRaw[pci].categoria || 'acao';
-    }
+    var dividendosCatMes = { acao: 0, fii: 0, etf: 0, stock_int: 0, bdr: 0, adr: 0, reit: 0 };
+    var dividendosCatMesAnt = { acao: 0, fii: 0, etf: 0, stock_int: 0, bdr: 0, adr: 0, reit: 0 };
+    // Enriquecer posCategoria com posicoes encerradas
     for (var pei = 0; pei < posEncerradas.length; pei++) {
       var peKey = (posEncerradas[pei].ticker || '').toUpperCase().trim();
       if (!posCategoria[peKey]) {
@@ -1235,9 +1639,9 @@ export async function getDashboard(userId) {
     }
     for (var dci = 0; dci < proventosData.length; dci++) {
       var dcDateStr = (proventosData[dci].data_pagamento || '').substring(0, 10);
-      var dcVal = (proventosData[dci].valor_por_cota || 0) * (proventosData[dci].quantidade || 0);
+      var dcVal = provValLiquido(proventosData[dci]);
       var dcCat = posCategoria[(proventosData[dci].ticker || '').toUpperCase().trim()] || 'acao';
-      if (dcCat !== 'acao' && dcCat !== 'fii' && dcCat !== 'etf' && dcCat !== 'stock_int') dcCat = 'acao';
+      if (dcCat !== 'acao' && dcCat !== 'fii' && dcCat !== 'etf' && dcCat !== 'stock_int' && dcCat !== 'bdr' && dcCat !== 'adr' && dcCat !== 'reit') dcCat = 'acao';
       if (dcDateStr.substring(0, 7) === prefixMesAtual) {
         dividendosCatMes[dcCat] += dcVal;
       } else if (dcDateStr.substring(0, 7) === prefixMesAnterior) {
@@ -1246,7 +1650,7 @@ export async function getDashboard(userId) {
     }
 
     // ── Opções ──
-    var todasOpcoes = opcoes.data || [];
+    var todasOpcoes = opcoesData;
     var opsAtivas = [];
     for (var oi = 0; oi < todasOpcoes.length; oi++) {
       if (parseLocalDate(todasOpcoes[oi].vencimento) > now) {
@@ -1350,6 +1754,24 @@ export async function getDashboard(userId) {
       count3m++;
     }
     plMedia3m = count3m > 0 ? soma3m / count3m : 0;
+
+    // Media 3 meses de dividendos
+    var divMensal3m = {};
+    for (var dm3i = 0; dm3i < proventosData.length; dm3i++) {
+      var dm3Date = (proventosData[dm3i].data_pagamento || '').substring(0, 10);
+      var dm3Month = dm3Date.substring(0, 7);
+      if (!divMensal3m[dm3Month]) divMensal3m[dm3Month] = 0;
+      divMensal3m[dm3Month] += provValLiquido(proventosData[dm3i]);
+    }
+    var dividendosMedia3m = 0;
+    var somaDm3 = 0;
+    var countDm3 = 0;
+    for (var dm3j = 0; dm3j < meses3m.length; dm3j++) {
+      somaDm3 += (divMensal3m[meses3m[dm3j]] || 0);
+      countDm3++;
+    }
+    dividendosMedia3m = countDm3 > 0 ? somaDm3 / countDm3 : 0;
+
     var plMes = premiosMes - recompraMes;
     var plMesAnterior = premiosMesAnterior - recompraMesAnterior;
 
@@ -1372,7 +1794,7 @@ export async function getDashboard(userId) {
       var daDateStr = (proventosData[dai].data_pagamento || '').substring(0, 10);
       if (daDateStr.substring(0, 4) === prefixAno && daDateStr <= todayStr) {
         var daMonth = daDateStr.substring(0, 7);
-        var daVal = (proventosData[dai].valor_por_cota || 0) * (proventosData[dai].quantidade || 0);
+        var daVal = provValLiquido(proventosData[dai]);
         if (!rendaAnualByMonth[daMonth]) rendaAnualByMonth[daMonth] = 0;
         rendaAnualByMonth[daMonth] += daVal;
       }
@@ -1472,16 +1894,43 @@ export async function getDashboard(userId) {
       });
     }
 
+    // Proventos futuros (proximos 30 dias)
+    var futureLimit = new Date(now);
+    futureLimit.setDate(futureLimit.getDate() + 30);
+    var futureLimitStr = futureLimit.toISOString().substring(0, 10);
+    for (var epv = 0; epv < proventosData.length; epv++) {
+      var pEvt = proventosData[epv];
+      var pDate = (pEvt.data_pagamento || '').substring(0, 10);
+      if (pDate > todayDateStr && pDate <= futureLimitStr) {
+        var dProv = parseLocalDate(pDate);
+        var pTicker = (pEvt.ticker || '').toUpperCase().trim();
+        var pTipo = (pEvt.tipo_provento || pEvt.tipo || 'dividendo').toUpperCase();
+        var pLabel = pTipo === 'JCP' ? 'JCP' : pTipo === 'RENDIMENTO' ? 'REND' : 'DIV';
+        var pValor = provValLiquido(pEvt);
+        eventos.push({
+          data: pDate,
+          dia: dProv.getDate().toString(),
+          diaSemana: diasSemana[dProv.getDay()],
+          titulo: pLabel + ' ' + pTicker,
+          detalhe: 'R$ ' + pValor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' · ' + (pEvt.quantidade || 0) + ' cotas',
+          tipo: 'dividendo',
+        });
+      }
+    }
+
     eventos.sort(function(a, b) { return new Date(a.data) - new Date(b.data); });
 
     // ── Histórico real do patrimônio ──
-    var allOpsResult = await supabase
+    var histOpsQuery = supabase
       .from('operacoes')
-      .select('data, tipo, ticker, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos')
+      .select('data, tipo, ticker, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, portfolio_id')
       .eq('user_id', userId)
       .in('tipo', ['compra', 'venda'])
       .order('data', { ascending: true });
 
+    histOpsQuery = applyPortfolioFilter(histOpsQuery, portfolioId);
+
+    var allOpsResult = await histOpsQuery;
     var allOps = allOpsResult.data || [];
     var equityTimeline = [];
     var runningPositions = {};
@@ -1560,42 +2009,135 @@ export async function getDashboard(userId) {
       patrimonioHistory.push({ date: curDate, value: lastEquity + rfAtDate });
     }
 
-    // Merge snapshots (real market value from past sessions)
-    var snapshotByDate = {};
-    for (var sn = 0; sn < snapshots.length; sn++) {
-      snapshotByDate[snapshots[sn].data] = snapshots[sn].valor;
+    // Merge snapshots (per-portfolio or global depending on portfolioId filter)
+    if (snapshotsData.length > 0) {
+      var snapshotByDate = {};
+      for (var sn = 0; sn < snapshotsData.length; sn++) {
+        snapshotByDate[snapshotsData[sn].data] = snapshotsData[sn].valor;
+      }
+
+      // Build final timeline: prefer snapshot values (real market) over cost-based
+      var historyByDate = {};
+      for (var ph = 0; ph < patrimonioHistory.length; ph++) {
+        historyByDate[patrimonioHistory[ph].date] = patrimonioHistory[ph].value;
+      }
+
+      // Add snapshot dates that dont exist in history
+      var snKeys = Object.keys(snapshotByDate);
+      for (var sk = 0; sk < snKeys.length; sk++) {
+        historyByDate[snKeys[sk]] = snapshotByDate[snKeys[sk]];
+      }
+
+      // Override cost-based values with snapshot values where available
+      // Filter out anomalous snapshots (>40% drop from neighbors = likely incomplete price data)
+      var mergedDates = Object.keys(historyByDate).sort();
+      var mergedHistory = [];
+      for (var mh = 0; mh < mergedDates.length; mh++) {
+        var mDate = mergedDates[mh];
+        var mVal = snapshotByDate[mDate] !== undefined ? snapshotByDate[mDate] : historyByDate[mDate];
+        mergedHistory.push({ date: mDate, value: mVal });
+      }
+      // Filtro robusto de snapshots anomalos:
+      // 1. Remove valores zero/negativos/NaN
+      // 2. Remove quedas >30% de um dia pro outro (precos incompletos)
+      // 3. Remove picos >50% de um dia pro outro (precos duplicados)
+      // 4. Interpola linearmente os pontos removidos
+      if (mergedHistory.length > 2) {
+        // Passo 1: remover valores invalidos
+        var validHistory = [];
+        for (var vh = 0; vh < mergedHistory.length; vh++) {
+          var vVal = mergedHistory[vh].value;
+          if (!vVal || vVal <= 0 || vVal !== vVal) continue; // NaN check
+          validHistory.push(mergedHistory[vh]);
+        }
+
+        // Passo 2: calcular mediana pra ter referencia estavel
+        var valoresOrdenados = [];
+        for (var vo = 0; vo < validHistory.length; vo++) {
+          valoresOrdenados.push(validHistory[vo].value);
+        }
+        valoresOrdenados.sort(function(a, b) { return a - b; });
+        var mediana = valoresOrdenados.length > 0 ? valoresOrdenados[Math.floor(valoresOrdenados.length / 2)] : 0;
+
+        // Passo 3: remover outliers (mais de 50% abaixo ou 100% acima da mediana)
+        if (mediana > 0 && validHistory.length > 4) {
+          var cleanHistory = [];
+          for (var ch = 0; ch < validHistory.length; ch++) {
+            var chVal = validHistory[ch].value;
+            // Permitir variacao de 50% abaixo a 100% acima da mediana
+            if (chVal < mediana * 0.5 || chVal > mediana * 2.0) {
+              // Outlier — pular (exceto primeiro e ultimo ponto que podem ser crescimento real)
+              if (ch > 2 && ch < validHistory.length - 2) continue;
+            }
+            cleanHistory.push(validHistory[ch]);
+          }
+          // So aplica se nao removeu tudo
+          if (cleanHistory.length >= 2) {
+            validHistory = cleanHistory;
+          }
+        }
+
+        // Passo 4: remover variacoes diarias impossiveis (>30% queda ou >40% subida em 1 dia)
+        if (validHistory.length > 2) {
+          var smoothHistory = [validHistory[0]];
+          for (var sh = 1; sh < validHistory.length; sh++) {
+            var prevVal = smoothHistory[smoothHistory.length - 1].value;
+            var curVal = validHistory[sh].value;
+            if (prevVal > 0) {
+              var variacao = (curVal / prevVal) - 1;
+              if (variacao < -0.30 || variacao > 0.40) {
+                // Variacao impossivel — interpolar entre anterior e proximo valido
+                continue;
+              }
+            }
+            smoothHistory.push(validHistory[sh]);
+          }
+          validHistory = smoothHistory;
+        }
+
+        mergedHistory = validHistory;
+      }
+
+      // Replace today's point with real market value
+      if (mergedHistory.length > 0 && mergedHistory[mergedHistory.length - 1].date === todayStr) {
+        mergedHistory[mergedHistory.length - 1].value = patrimonio;
+      }
+
+      patrimonioHistory = mergedHistory;
+    } else {
+      // No snapshots available: just add today's point with current value
+      var todayExists = false;
+      for (var tci = 0; tci < patrimonioHistory.length; tci++) {
+        if (patrimonioHistory[tci].date === todayStr) {
+          patrimonioHistory[tci].value = patrimonio;
+          todayExists = true;
+          break;
+        }
+      }
+      if (!todayExists && patrimonio > 0) {
+        patrimonioHistory.push({ date: todayStr, value: patrimonio });
+      }
     }
 
-    // Build final timeline: prefer snapshot values (real market) over cost-based
-    var historyByDate = {};
-    for (var ph = 0; ph < patrimonioHistory.length; ph++) {
-      historyByDate[patrimonioHistory[ph].date] = patrimonioHistory[ph].value;
+    // Construir series de investido e saldos a partir dos snapshots com campos novos
+    var investidoHistory = [];
+    var saldosHistory = [];
+    for (var ihi = 0; ihi < snapshotsData.length; ihi++) {
+      var ihSnap = snapshotsData[ihi];
+      if (ihSnap.valor_investido != null) {
+        investidoHistory.push({ date: ihSnap.data, value: ihSnap.valor_investido });
+      }
+      if (ihSnap.valor_saldos != null) {
+        saldosHistory.push({ date: ihSnap.data, value: ihSnap.valor_saldos });
+      }
+    }
+    // Adicionar ponto de hoje com valores atuais
+    if (investidoHistory.length > 0 || saldosHistory.length > 0) {
+      investidoHistory.push({ date: todayStr, value: patrimonioAcoes + rfTotalAplicado });
+      saldosHistory.push({ date: todayStr, value: saldoTotal });
     }
 
-    // Add snapshot dates that dont exist in history
-    var snKeys = Object.keys(snapshotByDate);
-    for (var sk = 0; sk < snKeys.length; sk++) {
-      historyByDate[snKeys[sk]] = snapshotByDate[snKeys[sk]];
-    }
-
-    // Override cost-based values with snapshot values where available
-    var mergedDates = Object.keys(historyByDate).sort();
-    var mergedHistory = [];
-    for (var mh = 0; mh < mergedDates.length; mh++) {
-      var mDate = mergedDates[mh];
-      var mVal = snapshotByDate[mDate] !== undefined ? snapshotByDate[mDate] : historyByDate[mDate];
-      mergedHistory.push({ date: mDate, value: mVal });
-    }
-
-    // Replace today's point with real market value
-    if (mergedHistory.length > 0 && mergedHistory[mergedHistory.length - 1].date === todayStr) {
-      mergedHistory[mergedHistory.length - 1].value = patrimonio;
-    }
-
-    patrimonioHistory = mergedHistory;
-
-    var metaMensal = (profile.data && profile.data.meta_mensal) ? profile.data.meta_mensal : 6000;
-
+    var metaMensal = profileData.meta_mensal || 6000;
     return {
       patrimonio: patrimonio,
       patrimonioAcoes: patrimonioAcoes,
@@ -1606,6 +2148,7 @@ export async function getDashboard(userId) {
       rendaTotalMes: rendaTotalMes,
       rentabilidadeMes: rentabilidadeMes,
       opsAtivas: opsAtivas.length,
+      opsAtivasData: opsAtivas,
       opsProxVenc: opsProxVenc.length,
       opsVenc7d: opsVenc7d.length,
       opsVenc15d: opsVenc15d.length,
@@ -1618,6 +2161,8 @@ export async function getDashboard(userId) {
       rendaFixa: rfData,
       eventos: eventos,
       patrimonioHistory: patrimonioHistory,
+      investidoHistory: investidoHistory,
+      saldosHistory: saldosHistory,
       dividendosMesAnterior: dividendosMesAnterior,
       premiosMesAnterior: premiosMesAnterior,
       rendaTotalMesAnterior: rendaTotalMesAnterior,
@@ -1629,13 +2174,17 @@ export async function getDashboard(userId) {
       plMes: plMes,
       plMesAnterior: plMesAnterior,
       plMedia3m: plMedia3m,
+      dividendosMedia3m: dividendosMedia3m,
       rendaMediaAnual: rendaMediaAnual,
+      rendaAnualByMonth: rendaAnualByMonth,
       recompraMes: recompraMes,
       proventosMesDetalhe: proventosMesDetalhe,
       premiosMesDetalhe: premiosMesDetalhe,
       recompraMesDetalhe: recompraMesDetalhe,
       dividendos12m: dividendos12m,
       dyCarteira: dyCarteira,
+      lastDividendSync: profileData.last_dividend_sync || null,
+      selic: profileData.selic || null,
     };
   } catch (err) {
     console.error('Dashboard error:', err);
@@ -1643,19 +2192,20 @@ export async function getDashboard(userId) {
       patrimonio: 0, patrimonioAcoes: 0, rfTotalAplicado: 0,
       rfRendaMensal: 0, dividendosMes: 0, premiosMes: 0,
       rendaTotalMes: 0, rentabilidadeMes: 0,
-      opsAtivas: 0, opsProxVenc: 0, meta: 6000,
+      opsAtivas: 0, opsAtivasData: [], opsProxVenc: 0, meta: 6000,
       positions: [], saldos: [], saldoTotal: 0,
       rendaFixa: [], eventos: [],
       patrimonioHistory: [],
       dividendosMesAnterior: 0, premiosMesAnterior: 0, rendaTotalMesAnterior: 0,
-      dividendosCatMes: { acao: 0, fii: 0, etf: 0, stock_int: 0 },
-      dividendosCatMesAnt: { acao: 0, fii: 0, etf: 0, stock_int: 0 },
+      dividendosCatMes: { acao: 0, fii: 0, etf: 0, stock_int: 0, bdr: 0, adr: 0, reit: 0 },
+      dividendosCatMesAnt: { acao: 0, fii: 0, etf: 0, stock_int: 0, bdr: 0, adr: 0, reit: 0 },
       proventosHoje: [],
       dividendosRecebidosMes: 0,
       dividendosAReceberMes: 0,
       plMes: 0,
       plMesAnterior: 0,
       plMedia3m: 0,
+      dividendosMedia3m: 0,
       rendaMediaAnual: 0,
       recompraMes: 0,
       proventosMesDetalhe: [],
@@ -1665,6 +2215,75 @@ export async function getDashboard(userId) {
       dyCarteira: 0,
     };
   }
+}
+
+export async function getDashboard(userId, portfolioId) {
+  try {
+    var results = await Promise.all([
+      getPositions(userId, portfolioId || undefined),
+      getProventos(userId, { limit: 1000, portfolioId: portfolioId || undefined }),
+      getOpcoes(userId, portfolioId || undefined),
+      getRendaFixa(userId, portfolioId || undefined),
+      getSaldos(userId),
+      getProfile(userId),
+      getPatrimonioSnapshots(userId, portfolioId || undefined),
+    ]);
+    var posDataRaw = results[0].data || [];
+    var posData;
+    try {
+      posData = await enrichPositionsWithPrices(posDataRaw);
+    } catch (e) {
+      posData = posDataRaw;
+    }
+    return computeDashboardFromData({
+      userId: userId,
+      positions: posData,
+      encerradas: results[0].encerradas || [],
+      proventos: (results[1] && results[1].data) || [],
+      opcoes: (results[2] && results[2].data) || [],
+      rf: (results[3] && results[3].data) || [],
+      saldos: (results[4] && results[4].data) || {},
+      profile: (results[5] && results[5].data) || {},
+      snapshots: results[6] || [],
+      portfolioId: portfolioId,
+    });
+  } catch (err) {
+    console.error('Dashboard error:', err);
+    return computeDashboardFromData({});
+  }
+}
+
+// ═══════════ LIGHTWEIGHT PORTFOLIO PATRIMONIOS ═══════════
+// Returns { portfolioId: patrimonio } without full getDashboard overhead
+// Reuses priceMap from already-enriched positions to avoid extra API calls
+export async function getPortfolioPatrimonios(userId, portfolioIds, priceMap) {
+  var result = {};
+  var promises = [];
+  for (var i = 0; i < portfolioIds.length; i++) {
+    (function(pfId) {
+      var actualId = pfId === '__null__' ? '__null__' : pfId;
+      var p = Promise.all([
+        getPositions(userId, actualId),
+        getRendaFixa(userId, actualId),
+      ]).then(function(res) {
+        var posData = res[0].data || [];
+        var rfData = res[1].data || [];
+        var total = 0;
+        for (var pi = 0; pi < posData.length; pi++) {
+          var ticker = (posData[pi].ticker || '').toUpperCase().trim();
+          var price = (priceMap && priceMap[ticker]) || posData[pi].pm || 0;
+          total += posData[pi].quantidade * price;
+        }
+        for (var ri = 0; ri < rfData.length; ri++) {
+          total += (rfData[ri].valor_aplicado || 0);
+        }
+        result[pfId] = total;
+      }).catch(function() { result[pfId] = 0; });
+      promises.push(p);
+    })(portfolioIds[i]);
+  }
+  await Promise.all(promises);
+  return result;
 }
 
 // ═══════════ IR PAGAMENTOS ═══════════
@@ -1846,27 +2465,54 @@ export async function getFinancasSummary(userId, mes, ano) {
   var porGrupo = {};
   var porGrupoEntrada = {};
   var porSubcategoria = {};
+  var porMeioPagamento = {};
   var movsPessoais = [];
+  // Opcoes: resultado liquido (premios - recompras)
+  var opcoesEntradas = 0;
+  var opcoesSaidas = 0;
+
+  // Categorias de renda passiva (contam como entradas pessoais)
+  var RENDA_PASSIVA = { dividendo: true, jcp: true, rendimento_fii: true, rendimento_rf: true };
+  // Categorias de opcoes (resultado liquido)
+  var OPCOES_CAT = { premio_opcao: true, recompra_opcao: true, exercicio_opcao: true };
+  // Operacoes de sistema (excluir de pessoais)
+  var SISTEMA_CAT = { transferencia: true, ajuste_manual: true, pagamento_fatura: true, deposito: true };
+  // Operacoes de compra/venda de ativos (excluir de pessoais)
+  var TRADE_CAT = { compra_ativo: true, venda_ativo: true };
 
   for (var i = 0; i < movs.length; i++) {
     var m = movs[i];
     var isAuto = AUTO_CATS_SET[m.categoria] || false;
+    var cat = m.categoria || '';
 
     if (m.tipo === 'entrada') totalEntradas += (m.valor || 0);
     else if (m.tipo === 'saida') totalSaidas += (m.valor || 0);
 
-    // Pessoais = exclui auto-categorias de investimento
-    // Transferencias e ajustes nao contam como despesas pessoais
-    var isSistemaOp = m.categoria === 'transferencia' || m.categoria === 'ajuste_manual' || m.categoria === 'pagamento_fatura';
-    if (!isAuto) {
+    // Renda passiva: sempre conta como entrada pessoal
+    if (RENDA_PASSIVA[cat]) {
+      totalEntradasPessoais += (m.valor || 0);
+      movsPessoais.push(m);
+    }
+    // Opcoes: acumular para resultado liquido
+    else if (OPCOES_CAT[cat]) {
+      if (m.tipo === 'entrada') opcoesEntradas += (m.valor || 0);
+      else opcoesSaidas += (m.valor || 0);
+      movsPessoais.push(m);
+    }
+    // Sistema ou trades: excluir de pessoais
+    else if (SISTEMA_CAT[cat] || TRADE_CAT[cat]) {
+      // nao conta como pessoal
+    }
+    // Tudo mais: despesas, salario, etc
+    else {
       if (m.tipo === 'entrada') totalEntradasPessoais += (m.valor || 0);
-      else if (m.tipo === 'saida' && !isSistemaOp) totalSaidasPessoais += (m.valor || 0);
+      else if (m.tipo === 'saida') totalSaidasPessoais += (m.valor || 0);
       movsPessoais.push(m);
     }
 
     // Agrupar por grupo (exclui transferencia/ajuste_manual que sao operacoes de sistema)
     var grupo = finCats.getGrupo(m.categoria, m.subcategoria);
-    var isSistema = m.categoria === 'transferencia' || m.categoria === 'ajuste_manual' || m.categoria === 'pagamento_fatura';
+    var isSistema = SISTEMA_CAT[cat] || false;
     if (m.tipo === 'saida' && !isSistema) {
       if (!porGrupo[grupo]) porGrupo[grupo] = 0;
       porGrupo[grupo] += (m.valor || 0);
@@ -1881,7 +2527,19 @@ export async function getFinancasSummary(userId, mes, ano) {
       if (!porSubcategoria[m.subcategoria]) porSubcategoria[m.subcategoria] = 0;
       if (m.tipo === 'saida') porSubcategoria[m.subcategoria] += (m.valor || 0);
     }
+
+    // Agrupar por meio de pagamento (saidas pessoais)
+    if (m.tipo === 'saida' && !isSistema) {
+      var meio = m.meio_pagamento || 'outro';
+      if (!porMeioPagamento[meio]) porMeioPagamento[meio] = 0;
+      porMeioPagamento[meio] += (m.valor || 0);
+    }
   }
+
+  // Resultado liquido de opcoes: positivo = entrada, negativo = saida
+  var opcoesLiquido = opcoesEntradas - opcoesSaidas;
+  if (opcoesLiquido > 0) totalEntradasPessoais += opcoesLiquido;
+  else if (opcoesLiquido < 0) totalSaidasPessoais += Math.abs(opcoesLiquido);
 
   return {
     totalEntradas: totalEntradas,
@@ -1893,7 +2551,9 @@ export async function getFinancasSummary(userId, mes, ano) {
     porGrupo: porGrupo,
     porGrupoEntrada: porGrupoEntrada,
     porSubcategoria: porSubcategoria,
+    porMeioPagamento: porMeioPagamento,
     movsPessoais: movsPessoais,
+    opcoesLiquido: opcoesLiquido,
     total: movs.length,
   };
 }
@@ -1968,13 +2628,17 @@ function calcProximoVencimento(dataAtual, frequencia, diaVenc) {
 
 // ═══════════ CARTÕES DE CRÉDITO ═══════════
 
-export async function getCartoes(userId) {
-  var result = await supabase
+export async function getCartoes(userId, portfolioId) {
+  var query = supabase
     .from('cartoes_credito')
     .select('*')
     .eq('user_id', userId)
     .eq('ativo', true)
     .order('created_at');
+
+  query = applyPortfolioFilter(query, portfolioId);
+
+  var result = await query;
   return { data: result.data || [], error: result.error };
 }
 
@@ -1992,6 +2656,9 @@ export async function addCartao(userId, data) {
     tipo_beneficio: data.tipo_beneficio,
     programa_nome: data.programa_nome,
   };
+  if (data.portfolio_id !== undefined) {
+    payload.portfolio_id = data.portfolio_id;
+  }
   var result = await supabase
     .from('cartoes_credito')
     .insert(payload)
@@ -2091,16 +2758,19 @@ export async function getFatura(userId, cartaoId, mes, ano) {
     .order('data', { ascending: false });
   var movs = movsResult.data || [];
 
-  // 5. Somar total da fatura
-  var total = 0;
+  // 5. Somar total dos gastos do ciclo
+  var totalCiclo = 0;
   for (var i = 0; i < movs.length; i++) {
-    total += (movs[i].valor || 0);
+    totalCiclo += (movs[i].valor || 0);
   }
 
-  // 6. Calcular data de vencimento (mes seguinte ao fechamento)
+  // Total final = gastos do ciclo
+  var total = totalCiclo;
+
+  // 6. Calcular data de vencimento (mes seguinte ao fechamento por padrao)
   var dueMonth = mes === 12 ? 1 : mes + 1;
   var dueYear = mes === 12 ? ano + 1 : ano;
-  // Se dia_vencimento < dia_fechamento, vencimento e no mesmo mes do fechamento
+  // Se dia_vencimento > dia_fechamento, vencimento e no mesmo mes do fechamento
   if (diaVenc > diaFech) {
     dueMonth = mes;
     dueYear = ano;
@@ -2111,7 +2781,7 @@ export async function getFatura(userId, cartaoId, mes, ano) {
 
   // 7. Verificar se fatura foi paga (pagamento_fatura com referencia ao cartao no periodo de pagamento)
   var pagWindow = new Date(cycleEndDate.getTime());
-  pagWindow.setDate(pagWindow.getDate() + 35);
+  pagWindow.setDate(pagWindow.getDate() + 60);
   var pagResult = await supabase
     .from('movimentacoes')
     .select('id, valor')
@@ -2142,25 +2812,92 @@ export async function getFatura(userId, cartaoId, mes, ano) {
 }
 
 export async function addMovimentacaoCartao(userId, mov) {
-  var payload = {
-    user_id: userId,
-    cartao_id: mov.cartao_id,
-    tipo: 'saida',
-    categoria: mov.categoria,
-    subcategoria: mov.subcategoria,
-    conta: mov.conta || ('CARTÃO ' + (mov.bandeira || '').toUpperCase() + ' •' + (mov.ultimos_digitos || '')),
-    valor: mov.valor,
-    descricao: mov.descricao,
-    data: mov.data,
-  };
-  if (mov.moeda_original) payload.moeda_original = mov.moeda_original;
-  if (mov.valor_original) payload.valor_original = mov.valor_original;
-  if (mov.taxa_cambio_mov) payload.taxa_cambio_mov = mov.taxa_cambio_mov;
+  var parcelas = mov.parcelas || 1;
+  var grupoId = null;
+  if (parcelas > 1) {
+    grupoId = crypto && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).substring(2, 10));
+  }
+
+  var valorParcela = parcelas > 1 ? Math.round((mov.valor / parcelas) * 100) / 100 : mov.valor;
+  var contaLabel = mov.conta || '';
+
+  // Se não tem conta label mas tem cartao_id, buscar dados do cartão
+  if (!contaLabel && mov.cartao_id) {
+    var cardLookup = await supabase
+      .from('cartoes_credito')
+      .select('bandeira, ultimos_digitos, apelido')
+      .eq('id', mov.cartao_id)
+      .single();
+    if (cardLookup.data) {
+      contaLabel = (cardLookup.data.apelido || (cardLookup.data.bandeira || '').toUpperCase()) + ' ••' + (cardLookup.data.ultimos_digitos || '');
+    } else {
+      contaLabel = 'CARTÃO ' + (mov.bandeira || '').toUpperCase() + ' ••' + (mov.ultimos_digitos || '');
+    }
+  } else if (!contaLabel) {
+    contaLabel = 'CARTÃO ' + (mov.bandeira || '').toUpperCase() + ' ••' + (mov.ultimos_digitos || '');
+  }
+
+  var baseDesc = mov.descricao || '';
+
+  var payloads = [];
+  for (var p = 0; p < parcelas; p++) {
+    // Calcula data de cada parcela (mes a mes a partir da data original)
+    var parcelaDate = mov.data;
+    if (p > 0) {
+      var dt = new Date(mov.data + 'T12:00:00Z');
+      dt.setMonth(dt.getMonth() + p);
+      parcelaDate = dt.toISOString().substring(0, 10);
+    }
+
+    // Ultima parcela absorve centavos residuais
+    var vp = valorParcela;
+    if (p === parcelas - 1 && parcelas > 1) {
+      vp = Math.round((mov.valor - valorParcela * (parcelas - 1)) * 100) / 100;
+    }
+
+    var descParcela = parcelas > 1 ? (baseDesc + ' (' + (p + 1) + '/' + parcelas + ')') : baseDesc;
+
+    var payload = {
+      user_id: userId,
+      cartao_id: mov.cartao_id,
+      tipo: 'saida',
+      categoria: mov.categoria,
+      subcategoria: mov.subcategoria,
+      conta: contaLabel,
+      valor: vp,
+      descricao: descParcela,
+      data: parcelaDate,
+      meio_pagamento: mov.meio_pagamento || 'credito',
+    };
+    if (mov.moeda_original) payload.moeda_original = mov.moeda_original;
+    if (mov.valor_original && parcelas > 1) {
+      payload.valor_original = Math.round((mov.valor_original / parcelas) * 100) / 100;
+    } else if (mov.valor_original) {
+      payload.valor_original = mov.valor_original;
+    }
+    if (mov.taxa_cambio_mov) payload.taxa_cambio_mov = mov.taxa_cambio_mov;
+    if (parcelas > 1) {
+      payload.parcela_atual = p + 1;
+      payload.parcela_total = parcelas;
+      payload.parcela_grupo_id = grupoId;
+    }
+    payloads.push(payload);
+  }
+
+  if (payloads.length === 1) {
+    var result = await supabase
+      .from('movimentacoes')
+      .insert(payloads[0])
+      .select()
+      .single();
+    return { data: result.data, error: result.error };
+  }
+
+  // Batch insert for parcelas
   var result = await supabase
     .from('movimentacoes')
-    .insert(payload)
-    .select()
-    .single();
+    .insert(payloads)
+    .select();
   return { data: result.data, error: result.error };
 }
 
@@ -2256,13 +2993,271 @@ export async function executeGastoRapido(userId, preset) {
   var dd = padTwo(now.getDate());
   var dateStr = yyyy + '-' + mm + '-' + dd;
 
-  var mov = {
-    cartao_id: preset.cartao_id,
+  var meio = preset.meio_pagamento || 'credito';
+
+  if (meio === 'pix' || meio === 'debito') {
+    // PIX ou débito: debita do saldo da conta
+    var mov = {
+      conta: preset.conta || '',
+      moeda: preset.conta_moeda || 'BRL',
+      tipo: 'saida',
+      categoria: preset.categoria || 'despesa_variavel',
+      subcategoria: preset.subcategoria || null,
+      valor: preset.valor,
+      descricao: preset.label || 'Gasto rápido',
+      data: dateStr,
+      meio_pagamento: meio,
+    };
+    return await addMovimentacaoComSaldo(userId, mov);
+  }
+
+  // Cartão de crédito (fluxo original)
+  var cartaoIdFinal = preset.cartao_id || null;
+
+  // Se não tem cartao_id, tenta cartão principal do profile
+  if (!cartaoIdFinal) {
+    var profileRes = await getProfile(userId);
+    if (profileRes.data && profileRes.data.cartao_principal) {
+      cartaoIdFinal = profileRes.data.cartao_principal;
+    }
+  }
+
+  if (!cartaoIdFinal) {
+    return { error: { message: 'Nenhum cartão configurado para este gasto rápido' } };
+  }
+
+  // Validar que o cartão existe
+  var cardCheck = await supabase
+    .from('cartoes_credito')
+    .select('id, bandeira, ultimos_digitos')
+    .eq('id', cartaoIdFinal)
+    .eq('user_id', userId)
+    .single();
+
+  if (!cardCheck.data) {
+    return { error: { message: 'Cartão não encontrado' } };
+  }
+
+  var movCartao = {
+    cartao_id: cartaoIdFinal,
     categoria: preset.categoria || 'despesa_variavel',
     subcategoria: preset.subcategoria || null,
     valor: preset.valor,
     descricao: preset.label || 'Gasto rápido',
     data: dateStr,
+    meio_pagamento: 'credito',
   };
-  return await addMovimentacaoCartao(userId, mov);
+  return await addMovimentacaoCartao(userId, movCartao);
+}
+
+// ═══════════ VIP OVERRIDES ═══════════
+
+export async function checkVipOverride(email) {
+  if (!email) return { data: null };
+  try {
+    var result = await supabase.rpc('check_vip_override', { user_email: email });
+    if (result.data && result.data.length > 0) {
+      return { data: result.data[0].tier };
+    }
+    return { data: null };
+  } catch (e) {
+    return { data: null, error: e };
+  }
+}
+
+// ═══════════ REFERRALS ═══════════
+
+export async function getReferralsByReferrer(referrerId) {
+  var result = await supabase
+    .from('referrals')
+    .select('*')
+    .eq('referrer_id', referrerId)
+    .order('created_at', { ascending: false });
+  return { data: result.data || [], error: result.error };
+}
+
+export async function getReferralCount(referrerId, status) {
+  var query = supabase
+    .from('referrals')
+    .select('id', { count: 'exact', head: true })
+    .eq('referrer_id', referrerId);
+  if (status) query = query.eq('status', status);
+  var result = await query;
+  return { count: result.count || 0, error: result.error };
+}
+
+export async function addReferral(referrerId, referredId, referredEmail, deviceId) {
+  var payload = {
+    referrer_id: referrerId,
+    referred_id: referredId,
+    referred_email: referredEmail,
+    status: 'pending',
+  };
+  if (deviceId) payload.device_id = deviceId;
+  var result = await supabase
+    .from('referrals')
+    .insert(payload)
+    .select()
+    .single();
+  return { data: result.data, error: result.error };
+}
+
+export async function activateReferral(referredId) {
+  var now = new Date().toISOString();
+  var result = await supabase
+    .from('referrals')
+    .update({ status: 'active', activated_at: now })
+    .eq('referred_id', referredId)
+    .eq('status', 'pending');
+  return { data: result.data, error: result.error };
+}
+
+export async function findReferrerByCode(code) {
+  if (!code) return { data: null };
+  var result = await supabase
+    .from('profiles')
+    .select('id, nome, referral_code')
+    .eq('referral_code', code.toUpperCase().trim())
+    .single();
+  return { data: result.data, error: result.error };
+}
+
+export async function applyReferralReward(userId, rewardTier, rewardDays) {
+  var endDate = new Date();
+  endDate.setDate(endDate.getDate() + rewardDays);
+  var endStr = endDate.toISOString().substring(0, 10);
+  return await updateProfile(userId, {
+    referral_reward_tier: rewardTier,
+    referral_reward_end: endStr,
+  });
+}
+
+// ═══════════ REFERRAL ANTI-FRAUD ═══════════
+
+export async function checkReferralRateLimit(referrerId) {
+  try {
+    var result = await supabase.rpc('check_referral_rate_limit', { p_referrer_id: referrerId });
+    return { count: result.data || 0, error: result.error };
+  } catch (e) {
+    return { count: 0, error: e };
+  }
+}
+
+export async function checkReferralDevice(referrerId, deviceId) {
+  if (!deviceId) return { count: 0 };
+  try {
+    var result = await supabase.rpc('check_referral_device', { p_referrer_id: referrerId, p_device_id: deviceId });
+    return { count: result.data || 0, error: result.error };
+  } catch (e) {
+    return { count: 0, error: e };
+  }
+}
+
+export async function saveDeviceId(userId, deviceId) {
+  if (!userId || !deviceId) return;
+  return await updateProfile(userId, { device_id: deviceId });
+}
+
+// ═══════════ ALERTAS OPCOES ═══════════
+
+export async function getAlertasOpcoes(userId) {
+  var result = await supabase
+    .from('alertas_opcoes')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('ativo', true)
+    .order('criado_em', { ascending: false });
+  return { data: result.data || [], error: result.error };
+}
+
+export async function addAlertaOpcao(userId, data) {
+  var row = {
+    user_id: userId,
+    ticker_opcao: data.ticker_opcao,
+    ativo_base: data.ativo_base,
+    tipo_alerta: data.tipo_alerta,
+    valor_alvo: data.valor_alvo,
+    direcao: data.direcao,
+    tipo_opcao: data.tipo_opcao || null,
+    strike: data.strike || null,
+    vencimento: data.vencimento || null,
+  };
+  var result = await supabase
+    .from('alertas_opcoes')
+    .insert(row)
+    .select()
+    .single();
+  return { data: result.data, error: result.error };
+}
+
+export async function deleteAlertaOpcao(id) {
+  var result = await supabase
+    .from('alertas_opcoes')
+    .delete()
+    .eq('id', id);
+  return { error: result.error };
+}
+
+export async function markAlertaDisparado(id) {
+  var now = new Date().toISOString();
+  var result = await supabase
+    .from('alertas_opcoes')
+    .update({ disparado: true, disparado_em: now })
+    .eq('id', id);
+  return { error: result.error };
+}
+
+export async function deactivateAlertaOpcao(id) {
+  var result = await supabase
+    .from('alertas_opcoes')
+    .update({ ativo: false })
+    .eq('id', id);
+  return { error: result.error };
+}
+
+// ═══════════ PUSH TOKENS ═══════════
+
+export async function savePushToken(userId, token, platform) {
+  var result = await supabase
+    .from('push_tokens')
+    .upsert({
+      user_id: userId,
+      token: token,
+      platform: platform || 'ios',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,token' });
+  return { error: result.error };
+}
+
+// ═══════════ AI SUMMARIES ═══════════
+
+export async function getLatestAiSummary(userId) {
+  var result = await supabase
+    .from('ai_summaries')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return { data: result.data, error: result.error };
+}
+
+export async function getAiSummaries(userId, limit, offset) {
+  var lim = limit || 20;
+  var off = offset || 0;
+  var result = await supabase
+    .from('ai_summaries')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .range(off, off + lim - 1);
+  return { data: result.data || [], error: result.error };
+}
+
+export async function markSummaryRead(summaryId) {
+  var result = await supabase
+    .from('ai_summaries')
+    .update({ lido: true })
+    .eq('id', summaryId);
+  return { error: result.error };
 }

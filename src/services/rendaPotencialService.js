@@ -28,7 +28,7 @@ var YIELD_IDEAL = {
   etf: 8.0,
   etf_int: 6.0,
   rf_min: 12.0,       // selic base
-  caixa: 12.0,        // deveria ser aplicado → selic
+  caixa: 0.5,         // conta corrente/poupanca rende ~0.5% a.a.
   opcao: 0,           // ja computado no real
 };
 
@@ -84,7 +84,7 @@ export async function computeRendaPotencial(userId, opts) {
     if ((o.direcao || 'venda') === 'compra') continue;
     var base = (o.ativo_base || '').toUpperCase();
     if (!tickersComCC[base]) tickersComCC[base] = 0;
-    tickersComCC[base] += o.qty || 0;
+    tickersComCC[base] += o.quantidade || 0;
   }
 
   // Acoes e FIIs paradas — para detectar gap de covered call
@@ -137,8 +137,8 @@ export async function computeRendaPotencial(userId, opts) {
     var indexador = (rfItem.indexador || '').toUpperCase();
     var taxaEfetiva = taxa;
     if (indexador === 'CDI' || indexador.indexOf('CDI') !== -1) {
-      // taxa pos-fixada: Y% CDI × (selic-0.1) = taxa real anual
-      taxaEfetiva = (taxa / 100) * (selic - 0.1);
+      // taxa pos-fixada: Y% do CDI × selic = taxa real anual
+      taxaEfetiva = (taxa / 100) * selic;
     }
     totais.rf += valorRf;
     if (taxaEfetiva < selic * LIMIAR_RF_BAIXA_PCT) {
@@ -167,17 +167,39 @@ export async function computeRendaPotencial(userId, opts) {
   var keys = Object.keys(totais);
   for (var k = 0; k < keys.length; k++) patrimonio += totais[keys[k]];
 
-  var rendaReal = forecast && forecast.summary ? forecast.summary.mediaProjetada : 0;
+  // Renda real = media dos ultimos 3 meses completos (nao projecao)
+  var rendaReal = 0;
+  if (forecast && forecast.historyMonthly && forecast.historyMonthly.length > 1) {
+    var nowRR = new Date();
+    var mesAtualRR = nowRR.getFullYear() + '-' + String(nowRR.getMonth() + 1).padStart(2, '0');
+    var mesesCompletosRR = [];
+    for (var rrh = 0; rrh < forecast.historyMonthly.length; rrh++) {
+      var rrItem = forecast.historyMonthly[rrh];
+      var rrKey = rrItem.year + '-' + String(rrItem.mes + 1).padStart(2, '0');
+      if (rrKey !== mesAtualRR) mesesCompletosRR.push(rrItem);
+    }
+    var rrUlt = mesesCompletosRR.slice(-3);
+    for (var rri2 = 0; rri2 < rrUlt.length; rri2++) { rendaReal += rrUlt[rri2].total || 0; }
+    rendaReal = rrUlt.length > 0 ? rendaReal / rrUlt.length : 0;
+  }
+  if (rendaReal <= 0 && forecast && forecast.summary) {
+    rendaReal = forecast.summary.lastMonth || 0;
+  }
 
   // ─── Renda potencial = soma(total_classe * yield_ideal / 12) ───
   var rendaPotencial = 0;
   rendaPotencial += totais.fii * YIELD_IDEAL.fii / 100 / 12;
   rendaPotencial += totais.acao_com_cc * YIELD_IDEAL.acao_com_cc / 100 / 12;
-  rendaPotencial += totais.acao_sem_cc * YIELD_IDEAL.acao_com_cc / 100 / 12; // assume que PODERIA ter CC
+  rendaPotencial += totais.acao_sem_cc * YIELD_IDEAL.acao_sem_cc / 100 / 12;
   rendaPotencial += totais.etf * YIELD_IDEAL.etf / 100 / 12;
   rendaPotencial += totais.etf_int * YIELD_IDEAL.etf_int / 100 / 12;
-  rendaPotencial += totais.rf * selic / 100 / 12; // assume RF rendendo selic
-  rendaPotencial += totais.caixa * selic / 100 / 12;
+  // RF: boa rende selic, baixa rende a taxa real (nao inflacionar potencial)
+  var rfBoa = totais.rf - totais.rf_baixa;
+  rendaPotencial += rfBoa * selic / 100 / 12;
+  // RF baixa: potencial = migrar pra selic
+  rendaPotencial += totais.rf_baixa * selic / 100 / 12;
+  // Caixa: nao rende selic (esta em conta corrente), potencial se aplicar
+  rendaPotencial += totais.caixa * YIELD_IDEAL.caixa / 100 / 12;
 
   var gap = Math.max(0, rendaPotencial - rendaReal);
   var capturaPct = rendaPotencial > 0 ? (rendaReal / rendaPotencial) * 100 : 0;
@@ -208,8 +230,8 @@ export async function computeRendaPotencial(userId, opts) {
     var ganhoCC = 0;
     for (var ai = 0; ai < acoesSemCC.length; ai++) {
       totalAcoesLivre += acoesSemCC[ai].valor;
-      // Assume 0.8% a.m. de premio em venda coberta (conservador)
-      ganhoCC += acoesSemCC[ai].valor * 0.008;
+      // Assume 0.4% a.m. de premio em venda coberta OTM (realista)
+      ganhoCC += acoesSemCC[ai].valor * 0.004;
     }
     var topAcoes = acoesSemCC.slice().sort(function(x, y) { return y.valor - x.valor; }).slice(0, 3);
     var tickersLista = topAcoes.map(function(a) { return a.ticker; }).join(', ');

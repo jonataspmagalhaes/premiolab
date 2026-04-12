@@ -95,13 +95,16 @@ async function fetchUsdRate(): Promise<number> {
   return 5.0; // fallback
 }
 
+// UUID sentinela para snapshot do portfolio "Padrao" (ops sem portfolio_id)
+const PADRAO_SNAPSHOT_ID = "00000000-0000-0000-0000-000000000001";
+
 async function generateSnapshots() {
   const today = new Date().toISOString().substring(0, 10);
 
-  // 1. Buscar todos os tickers unicos com posicao positiva
+  // 1. Buscar todos os tickers unicos com posicao positiva (inclui portfolio_id)
   const { data: ops, error: opsErr } = await supabase
     .from("operacoes")
-    .select("user_id, ticker, tipo, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, mercado");
+    .select("user_id, ticker, tipo, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, mercado, portfolio_id");
 
   if (opsErr) {
     console.error("Error fetching operacoes:", opsErr);
@@ -199,49 +202,138 @@ async function generateSnapshots() {
     rfByUser[rf.user_id] += rf.valor_aplicado || 0;
   }
 
-  // 5. Calcular patrimonio real por usuario
+  // 5. Buscar portfolios de todos os usuarios
+  const { data: portfoliosData } = await supabase
+    .from("portfolios")
+    .select("id, user_id");
+  const portfoliosByUser: Record<string, string[]> = {};
+  for (const pf of portfoliosData || []) {
+    if (!portfoliosByUser[pf.user_id]) portfoliosByUser[pf.user_id] = [];
+    portfoliosByUser[pf.user_id].push(pf.id);
+  }
+
+  // 5b. Agregar posicoes por usuario+portfolio+ticker
+  const userPortfolioPositions: Record<string, Record<string, Record<string, { qty: number; custoTotal: number; mercado: string }>>> = {};
+  for (const op of ops || []) {
+    const uid = op.user_id;
+    const ticker = (op.ticker || "").toUpperCase().trim();
+    if (!ticker) continue;
+    const pfId = op.portfolio_id || "__null__";
+    if (!userPortfolioPositions[uid]) userPortfolioPositions[uid] = {};
+    if (!userPortfolioPositions[uid][pfId]) userPortfolioPositions[uid][pfId] = {};
+    if (!userPortfolioPositions[uid][pfId][ticker])
+      userPortfolioPositions[uid][pfId][ticker] = { qty: 0, custoTotal: 0, mercado: op.mercado || "BR" };
+    const pos = userPortfolioPositions[uid][pfId][ticker];
+    const custos = (op.custo_corretagem || 0) + (op.custo_emolumentos || 0) + (op.custo_impostos || 0);
+    if (op.tipo === "compra") {
+      pos.custoTotal += op.quantidade * op.preco + custos;
+      pos.qty += op.quantidade;
+    } else if (op.tipo === "venda") {
+      if (pos.qty > 0) { const pm = pos.custoTotal / pos.qty; pos.custoTotal -= op.quantidade * pm; }
+      pos.qty -= op.quantidade;
+      if (pos.qty <= 0) { pos.qty = 0; pos.custoTotal = 0; }
+    }
+  }
+
+  // 5c. Buscar RF por usuario+portfolio
+  const { data: rfDataPf } = await supabase
+    .from("renda_fixa")
+    .select("user_id, valor_aplicado, portfolio_id");
+  const rfByUserPortfolio: Record<string, Record<string, number>> = {};
+  for (const rf of rfDataPf || []) {
+    const uid = rf.user_id;
+    const pfId = rf.portfolio_id || "__null__";
+    if (!rfByUserPortfolio[uid]) rfByUserPortfolio[uid] = {};
+    if (!rfByUserPortfolio[uid][pfId]) rfByUserPortfolio[uid][pfId] = 0;
+    rfByUserPortfolio[uid][pfId] += rf.valor_aplicado || 0;
+  }
+
+  // 6. Calcular patrimonio real por usuario (global + per-portfolio)
   const allUsers = new Set([
     ...Object.keys(userPositions),
     ...Object.keys(rfByUser),
   ]);
 
-  const snapshots: { user_id: string; data: string; valor: number }[] = [];
+  const snapshots: { user_id: string; data: string; valor: number; valor_investido: number; valor_saldos: number; portfolio_id: string | null }[] = [];
+
+  // Buscar saldos por user
+  const saldosRes = await supabase.from('saldos_corretora').select('user_id, saldo');
+  const saldosByUser: Record<string, number> = {};
+  for (const s of (saldosRes.data || [])) {
+    if (!saldosByUser[s.user_id]) saldosByUser[s.user_id] = 0;
+    saldosByUser[s.user_id] += (s.saldo || 0);
+  }
 
   for (const uid of allUsers) {
+    // Global snapshot (portfolio_id = null)
     let equity = 0;
     const positions = userPositions[uid] || {};
-
     for (const ticker of Object.keys(positions)) {
       const pos = positions[ticker];
       if (pos.qty <= 0) continue;
-
-      // Usar preco real se disponivel, senao PM
       const preco = prices[ticker] || pos.custoTotal / (pos.qty || 1);
       equity += pos.qty * preco;
     }
-
     const rf = rfByUser[uid] || 0;
-    const total = equity + rf;
-
+    const investido = equity + rf;
+    const saldosUser = saldosByUser[uid] || 0;
+    const total = investido + saldosUser;
     if (total > 0) {
-      snapshots.push({ user_id: uid, data: today, valor: total });
+      snapshots.push({ user_id: uid, data: today, valor: total, valor_investido: investido, valor_saldos: saldosUser, portfolio_id: null });
+    }
+
+    // Per-portfolio snapshots
+    const pfPositions = userPortfolioPositions[uid] || {};
+    const pfRf = rfByUserPortfolio[uid] || {};
+    const allPfIds = new Set([...Object.keys(pfPositions), ...Object.keys(pfRf)]);
+    for (const pfId of allPfIds) {
+      let pfEquity = 0;
+      const pfTickers = pfPositions[pfId] || {};
+      for (const ticker of Object.keys(pfTickers)) {
+        const pos = pfTickers[ticker];
+        if (pos.qty <= 0) continue;
+        const preco = prices[ticker] || pos.custoTotal / (pos.qty || 1);
+        pfEquity += pos.qty * preco;
+      }
+      const pfRfVal = pfRf[pfId] || 0;
+      const pfTotal = pfEquity + pfRfVal;
+      if (pfTotal > 0) {
+        snapshots.push({
+          user_id: uid,
+          data: today,
+          valor: pfTotal,
+          valor_investido: pfTotal,
+          valor_saldos: 0,
+          portfolio_id: pfId === "__null__" ? PADRAO_SNAPSHOT_ID : pfId,
+        });
+      }
     }
   }
 
-  // 6. Upsert snapshots
-  if (snapshots.length > 0) {
-    const { error: upsertErr } = await supabase
+  // 7. Save snapshots (update existing, insert new)
+  let savedCount = 0;
+  for (const snap of snapshots) {
+    let query = supabase
       .from("patrimonio_snapshots")
-      .upsert(snapshots, { onConflict: "user_id,data" });
-
-    if (upsertErr) {
-      console.error("Upsert error:", upsertErr);
-      return { error: upsertErr.message };
+      .update({ valor: snap.valor, valor_investido: snap.valor_investido, valor_saldos: snap.valor_saldos })
+      .eq("user_id", snap.user_id)
+      .eq("data", snap.data);
+    if (snap.portfolio_id) {
+      query = query.eq("portfolio_id", snap.portfolio_id);
+    } else {
+      query = query.is("portfolio_id", null);
     }
+    const updateResult = await query.select();
+    if (!updateResult.error && (!updateResult.data || updateResult.data.length === 0)) {
+      const payload: any = { user_id: snap.user_id, data: snap.data, valor: snap.valor, valor_investido: snap.valor_investido, valor_saldos: snap.valor_saldos };
+      if (snap.portfolio_id) payload.portfolio_id = snap.portfolio_id;
+      await supabase.from("patrimonio_snapshots").insert(payload);
+    }
+    savedCount++;
   }
 
-  console.log("Saved", snapshots.length, "snapshots for", today);
-  return { ok: true, count: snapshots.length, date: today };
+  console.log("Saved", savedCount, "snapshots for", today);
+  return { ok: true, count: savedCount, date: today };
 }
 
 Deno.serve(async (req) => {

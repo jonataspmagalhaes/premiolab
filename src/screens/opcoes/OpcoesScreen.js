@@ -8,12 +8,12 @@ import Svg, { Line, Rect, Path, Text as SvgText } from 'react-native-svg';
 import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { useAppStore } from '../../contexts/AppStoreContext';
-import { getOpcoes, getPositions, getSaldos, addOperacao, getAlertasConfig, getIndicators, getProfile, updateProfile, addMovimentacaoComSaldo, addMovimentacao, getSavedAnalyses, addSavedAnalysis, deleteSavedAnalysis, updateOpcaoAlertaPL, getAlertasOpcoes, addAlertaOpcao, deleteAlertaOpcao, markAlertaDisparado, getPortfolios } from '../../services/database';
+import { useAppStore, useCarteira, useFinancas } from '../../contexts/AppStoreContext';
+import { addOperacao, getAlertasConfig, getIndicators, getProfile, updateProfile, addMovimentacaoComSaldo, addMovimentacao, getSavedAnalyses, addSavedAnalysis, deleteSavedAnalysis, updateOpcaoAlertaPL, getAlertasOpcoes, addAlertaOpcao, deleteAlertaOpcao, markAlertaDisparado } from '../../services/database';
 var notifService = require('../../services/notificationService');
 var fractional = require('../../utils/fractional');
 var formatQty = fractional.formatQty;
-import { enrichPositionsWithPrices, clearPriceCache, fetchPrices, fetchPriceHistoryRange } from '../../services/priceService';
+import { clearPriceCache, fetchPrices, fetchPriceHistoryRange } from '../../services/priceService';
 import { analyzeTechnicals, buildTechnicalSummary } from '../../services/technicalAnalysisService';
 var fundamentalServiceMod = require('../../services/fundamentalService');
 var fetchFundamentals = fundamentalServiceMod.fetchFundamentals;
@@ -5856,8 +5856,17 @@ export default function OpcoesScreen() {
   var scrollRef = useRef(null);
   useScrollToTop(scrollRef);
 
+  // Store hooks — dados centralizados
+  var carteira = useCarteira();
+  var financas = useFinancas();
+  var storePositions = carteira.positions;
+  var storeOpcoes = carteira.opcoes;
+  var saldos = financas.saldos;
+  var storePortfolios = carteira.portfolios;
+
   // Fase F: Calc como protagonista — default sub-tab e 'sim' (Simulador BS)
   var s1 = useState('sim'); var sub = s1[0]; var setSub = s1[1];
+  // opcoes e positions locais — processados com expired/auto-exercise/synthetic
   var s2 = useState([]); var opcoes = s2[0]; var setOpcoes = s2[1];
   var s3 = useState(true); var loading = s3[0]; var setLoading = s3[1];
   var s4 = useState(false); var refreshing = s4[0]; var setRefreshing = s4[1];
@@ -5865,7 +5874,6 @@ export default function OpcoesScreen() {
 
   var s6 = useState(false); var pricesAvailable = s6[0]; var setPricesAvailable = s6[1];
   var s7 = useState([]); var expired = s7[0]; var setExpired = s7[1];
-  var s8 = useState([]); var saldos = s8[0]; var setSaldos = s8[1];
   var s9 = useState(false); var exercicioAuto = s9[0]; var setExercicioAuto = s9[1];
   var s10 = useState({}); var indicators = s10[0]; var setIndicators = s10[1];
   var _selicSt = useState(13.25); var selicRate = _selicSt[0]; var setSelicRate = _selicSt[1];
@@ -5892,7 +5900,7 @@ export default function OpcoesScreen() {
   var HIST_PAGE_SIZE = 20;
 
   // Portfolio states — selectedPortfolio unificado via AppStoreContext
-  var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfolios = _portfolios[1];
+  var portfolios = storePortfolios;
   var appStore = useAppStore();
   var selPortfolio = appStore.selectedPortfolio;
   var setSelPortfolio = appStore.setSelectedPortfolio;
@@ -6024,21 +6032,14 @@ export default function OpcoesScreen() {
     if (!user) return;
     setLoadError(false);
 
-    // Fetch portfolios (apenas pra popular o dropdown; o selecionado vem do store)
-    try {
-      var pfRes = await getPortfolios(user.id);
-      setPortfolios(pfRes.data || []);
-    } catch (e) {}
+    // Trigger store refresh (positions, opcoes, saldos, portfolios, rf)
+    carteira.refresh(true);
+    financas.refresh(true);
 
-    // selPortfolio ja usa a convencao do DB: null = Todos, '__null__' = Padrao, UUID = custom
-    var effectivePortfolioId = selPortfolio || null;
-
+    // Fetch screen-specific data: indicators + profile
     var results;
     try {
       results = await Promise.all([
-        getOpcoes(user.id, effectivePortfolioId),
-        getPositions(user.id, effectivePortfolioId),
-        getSaldos(user.id),
         getIndicators(user.id),
         getProfile(user.id),
       ]);
@@ -6049,7 +6050,7 @@ export default function OpcoesScreen() {
       return;
     }
 
-    var prof = results[4] && results[4].data ? results[4].data : null;
+    var prof = results[1] && results[1].data ? results[1].data : null;
     if (prof && prof.selic) setSelicRate(prof.selic);
     // Only set from server on initial load (empty local state), don't overwrite user's pending changes
     if (Object.keys(garantiasConfig).length === 0 && prof && prof.garantias_config) {
@@ -6057,7 +6058,7 @@ export default function OpcoesScreen() {
     }
 
     // Build indicators map by ticker
-    var indData = results[3].data || [];
+    var indData = results[0].data || [];
     var indMap = {};
     for (var ii = 0; ii < indData.length; ii++) {
       indMap[indData[ii].ticker] = indData[ii];
@@ -6083,11 +6084,34 @@ export default function OpcoesScreen() {
         console.warn('Indicator calc failed:', e);
       });
     }
-    var allOpcoes = results[0].data || [];
-    var rawPos = results[1].data || [];
-    setSaldos(results[2].data || []);
-    setPositions(rawPos);
     setLoading(false);
+    // Screen-specific processing (expired/auto-exercise/synthetic) runs
+    // via useEffect on storeOpcoes/storePositions changes below.
+
+    // Fire-and-forget: load price alerts for options
+    getAlertasOpcoes(user.id).then(function(alertResult) {
+      setPriceAlerts(alertResult.data || []);
+    }).catch(function() {});
+
+    // Fire-and-forget: load AI usage summary for Premium users
+    if (subCtx.canAccess('AI_ANALYSIS')) {
+      aiUsageService.getAiUsageSummary(user.id).then(function(summary) {
+        setAiUsage(summary);
+      }).catch(function() {});
+    }
+  };
+
+  // Process store opcoes: expired detection + auto-exercise + synthetic positions
+  var _lastProcessedOpcoes = useRef('');
+  var _autoExerciseDone = useRef({});
+  useEffect(function() {
+    if (!user || storeOpcoes.length === 0) return;
+    // Dedup: skip if same opcoes list (by length + first id)
+    var opKey = storeOpcoes.length + '_' + (storeOpcoes[0] && storeOpcoes[0].id || '');
+    if (opKey === _lastProcessedOpcoes.current) return;
+    _lastProcessedOpcoes.current = opKey;
+
+    var allOpcoes = storeOpcoes;
 
     // Detect expired options (ativa + vencimento D+1 <= hoje)
     var today = new Date();
@@ -6106,172 +6130,172 @@ export default function OpcoesScreen() {
     }
 
     // Auto-exercise: resolve expired options automatically if enabled
-    var alertasResult = await getAlertasConfig(user.id);
-    var alertasConfig = alertasResult.data || {};
-    setExercicioAuto(!!alertasConfig.exercicio_auto);
-    if (alertasConfig.exercicio_auto && expiredList.length > 0) {
-      // Fetch spot prices for expired option base tickers
-      var autoTickers = [];
-      for (var at = 0; at < expiredList.length; at++) {
-        var atBase = expiredList[at].ativo_base;
-        if (atBase && autoTickers.indexOf(atBase) === -1) {
-          autoTickers.push(atBase);
+    getAlertasConfig(user.id).then(function(alertasResult) {
+      var alertasConfig = alertasResult.data || {};
+      setExercicioAuto(!!alertasConfig.exercicio_auto);
+      if (alertasConfig.exercicio_auto && expiredList.length > 0) {
+        // Filter out already auto-exercised in this session
+        var toProcess = [];
+        for (var tp = 0; tp < expiredList.length; tp++) {
+          if (!_autoExerciseDone.current[expiredList[tp].id]) {
+            toProcess.push(expiredList[tp]);
+          }
         }
-      }
-      var autoSpots = {};
-      if (autoTickers.length > 0) {
-        try {
-          var autoPrices = await fetchPrices(autoTickers);
+        if (toProcess.length === 0) {
+          setExpired(expiredList);
+          setOpcoes(nonExpiredOpcoes);
+          return;
+        }
+        // Fetch spot prices for expired option base tickers
+        var autoTickers = [];
+        for (var at = 0; at < toProcess.length; at++) {
+          var atBase = toProcess[at].ativo_base;
+          if (atBase && autoTickers.indexOf(atBase) === -1) {
+            autoTickers.push(atBase);
+          }
+        }
+        var spotsPromise = autoTickers.length > 0 ? fetchPrices(autoTickers) : Promise.resolve({});
+        spotsPromise.then(function(autoPricesMap) {
+          var autoSpots = {};
           for (var ap = 0; ap < autoTickers.length; ap++) {
             var apTk = autoTickers[ap];
-            if (autoPrices[apTk] && autoPrices[apTk].price) {
-              autoSpots[apTk] = autoPrices[apTk].price;
+            if (autoPricesMap[apTk] && autoPricesMap[apTk].price) {
+              autoSpots[apTk] = autoPricesMap[apTk].price;
             }
           }
-        } catch (e) {
+
+          var resolvePromises = [];
+          var autoResolved = [];
+          var autoSkipped = [];
+          for (var ae = 0; ae < toProcess.length; ae++) {
+            (function(autoOp) {
+              var autoTipo = (autoOp.tipo || 'call').toUpperCase();
+              var autoStrike = autoOp.strike || 0;
+              var autoSpot = autoSpots[autoOp.ativo_base] || 0;
+              var autoItm = false;
+              if (autoSpot > 0) {
+                if (autoTipo === 'CALL') { autoItm = autoSpot >= autoStrike; }
+                else { autoItm = autoSpot <= autoStrike; }
+              }
+              if (autoItm) {
+                var autoIsVenda = autoOp.direcao === 'venda' || autoOp.direcao === 'lancamento';
+                var autoOpTipo = '';
+                if (autoTipo === 'CALL') { autoOpTipo = autoIsVenda ? 'venda' : 'compra'; }
+                else { autoOpTipo = autoIsVenda ? 'compra' : 'venda'; }
+                resolvePromises.push(
+                  supabase.from('opcoes').update({ status: 'exercida' }).eq('id', autoOp.id).then(function(autoResult) {
+                    if (!autoResult.error) {
+                      _autoExerciseDone.current[autoOp.id] = true;
+                      addOperacao(user.id, {
+                        ticker: autoOp.ativo_base, tipo: autoOpTipo, categoria: 'acao',
+                        quantidade: autoOp.quantidade, preco: autoOp.strike,
+                        corretora: autoOp.corretora || 'Clear',
+                        data: new Date().toISOString().split('T')[0],
+                      }).catch(function() {});
+                      var autoExValor = (autoOp.strike || 0) * (autoOp.quantidade || 0);
+                      if (autoExValor > 0 && autoOp.corretora && canLogMov(autoOp)) {
+                        addMovimentacaoComSaldo(user.id, {
+                          conta: autoOp.corretora, moeda: 'BRL',
+                          tipo: autoOpTipo === 'compra' ? 'saida' : 'entrada',
+                          categoria: 'exercicio_opcao', valor: autoExValor,
+                          descricao: 'Exercício auto ' + (autoOp.tipo || '').toUpperCase() + ' ' + (autoOp.ativo_base || ''),
+                          ticker: autoOp.ativo_base || null, referencia_tipo: 'opcao',
+                          data: new Date().toISOString().substring(0, 10),
+                        }).catch(function() {});
+                      }
+                      var autoCopy = {};
+                      var autoKeys = Object.keys(autoOp);
+                      for (var ak = 0; ak < autoKeys.length; ak++) { autoCopy[autoKeys[ak]] = autoOp[autoKeys[ak]]; }
+                      autoCopy.status = 'exercida';
+                      autoResolved.push(autoCopy);
+                    }
+                  })
+                );
+              } else if (autoSpot > 0) {
+                resolvePromises.push(
+                  supabase.from('opcoes').update({ status: 'expirou_po' }).eq('id', autoOp.id).then(function(poResult) {
+                    if (!poResult.error) {
+                      _autoExerciseDone.current[autoOp.id] = true;
+                      var poCopy = {};
+                      var poKeys = Object.keys(autoOp);
+                      for (var pk = 0; pk < poKeys.length; pk++) { poCopy[poKeys[pk]] = autoOp[poKeys[pk]]; }
+                      poCopy.status = 'expirou_po';
+                      autoResolved.push(poCopy);
+                    }
+                  })
+                );
+              } else {
+                autoSkipped.push(autoOp);
+              }
+            })(toProcess[ae]);
+          }
+          Promise.all(resolvePromises).then(function() {
+            setExpired(autoSkipped);
+            setOpcoes(nonExpiredOpcoes.concat(autoResolved));
+            if (autoResolved.length > 0) {
+              var exCount = autoResolved.filter(function(r) { return r.status === 'exercida'; }).length;
+              var poCount = autoResolved.filter(function(r) { return r.status === 'expirou_po'; }).length;
+              var msg = '';
+              if (exCount > 0) msg = msg + exCount + ' exercida(s)';
+              if (exCount > 0 && poCount > 0) msg = msg + ', ';
+              if (poCount > 0) msg = msg + poCount + ' virou pó';
+              Alert.alert('Exercício automático', msg);
+              appStore.invalidate('carteira');
+            }
+          }).catch(function() {});
+        }).catch(function(e) {
           console.warn('Auto-exercise price fetch failed:', e.message);
-        }
+          setExpired(expiredList);
+          setOpcoes(nonExpiredOpcoes);
+        });
+      } else {
+        setExpired(expiredList);
+        setOpcoes(nonExpiredOpcoes);
       }
-
-      var autoResolved = [];
-      var autoSkipped = [];
-      for (var ae = 0; ae < expiredList.length; ae++) {
-        var autoOp = expiredList[ae];
-        var autoTipo = (autoOp.tipo || 'call').toUpperCase();
-        var autoStrike = autoOp.strike || 0;
-        var autoSpot = autoSpots[autoOp.ativo_base] || 0;
-
-        // Determinar se esta ITM: CALL spot >= strike, PUT spot <= strike
-        var autoItm = false;
-        if (autoSpot > 0) {
-          if (autoTipo === 'CALL') {
-            autoItm = autoSpot >= autoStrike;
-          } else {
-            autoItm = autoSpot <= autoStrike;
-          }
-        }
-
-        if (autoItm) {
-          // ITM: exercicio — criar operacao na carteira
-          var autoIsVenda = autoOp.direcao === 'venda' || autoOp.direcao === 'lancamento';
-          var autoOpTipo = '';
-          if (autoTipo === 'CALL') {
-            autoOpTipo = autoIsVenda ? 'venda' : 'compra';
-          } else {
-            autoOpTipo = autoIsVenda ? 'compra' : 'venda';
-          }
-          var autoResult = await supabase
-            .from('opcoes')
-            .update({ status: 'exercida' })
-            .eq('id', autoOp.id);
-          if (!autoResult.error) {
-            await addOperacao(user.id, {
-              ticker: autoOp.ativo_base,
-              tipo: autoOpTipo,
-              categoria: 'acao',
-              quantidade: autoOp.quantidade,
-              preco: autoOp.strike,
-              corretora: autoOp.corretora || 'Clear',
-              data: new Date().toISOString().split('T')[0],
-            });
-            // Log movimentacao no caixa — so se portfolio permite
-            var autoExValor = (autoOp.strike || 0) * (autoOp.quantidade || 0);
-            if (autoExValor > 0 && autoOp.corretora && canLogMov(autoOp)) {
-              addMovimentacaoComSaldo(user.id, {
-                conta: autoOp.corretora,
-                moeda: 'BRL',
-                tipo: autoOpTipo === 'compra' ? 'saida' : 'entrada',
-                categoria: 'exercicio_opcao',
-                valor: autoExValor,
-                descricao: 'Exercício auto ' + (autoOp.tipo || '').toUpperCase() + ' ' + (autoOp.ativo_base || ''),
-                ticker: autoOp.ativo_base || null,
-                referencia_tipo: 'opcao',
-                data: new Date().toISOString().substring(0, 10),
-              }).catch(function(e) { console.warn('Mov auto-exercicio failed:', e); });
-            }
-            var autoCopy = {};
-            var autoKeys = Object.keys(autoOp);
-            for (var ak = 0; ak < autoKeys.length; ak++) { autoCopy[autoKeys[ak]] = autoOp[autoKeys[ak]]; }
-            autoCopy.status = 'exercida';
-            autoResolved.push(autoCopy);
-          }
-        } else if (autoSpot > 0) {
-          // OTM: expirou sem valor (PO)
-          var poResult = await supabase
-            .from('opcoes')
-            .update({ status: 'expirou_po' })
-            .eq('id', autoOp.id);
-          if (!poResult.error) {
-            var poCopy = {};
-            var poKeys = Object.keys(autoOp);
-            for (var pk = 0; pk < poKeys.length; pk++) { poCopy[poKeys[pk]] = autoOp[poKeys[pk]]; }
-            poCopy.status = 'expirou_po';
-            autoResolved.push(poCopy);
-          }
-        } else {
-          // Sem preco disponivel — nao resolve, manda pra pendentes
-          autoSkipped.push(autoOp);
-        }
-      }
-      setExpired(autoSkipped);
-      setOpcoes(nonExpiredOpcoes.concat(autoResolved));
-      if (autoResolved.length > 0) {
-        var exCount = autoResolved.filter(function(r) { return r.status === 'exercida'; }).length;
-        var poCount = autoResolved.filter(function(r) { return r.status === 'expirou_po'; }).length;
-        var msg = '';
-        if (exCount > 0) msg = msg + exCount + ' exercida(s)';
-        if (exCount > 0 && poCount > 0) msg = msg + ', ';
-        if (poCount > 0) msg = msg + poCount + ' virou pó';
-        Alert.alert('Exercício automático', msg);
-      }
-    } else {
+    }).catch(function() {
       setExpired(expiredList);
       setOpcoes(nonExpiredOpcoes);
+    });
+
+    // Use store positions (already enriched) + synthetic for option base tickers
+    var enriched = storePositions.slice();
+    var posTickerSet = {};
+    for (var pt = 0; pt < enriched.length; pt++) {
+      posTickerSet[enriched[pt].ticker] = true;
     }
-
-    // Two-phase: enrich with real prices
-    try {
-      var enriched = await enrichPositionsWithPrices(rawPos);
-
-      // Find option base tickers that are NOT in positions
-      var posTickerSet = {};
-      for (var pt = 0; pt < enriched.length; pt++) {
-        posTickerSet[enriched[pt].ticker] = true;
+    var extraTickers = [];
+    for (var xt = 0; xt < allOpcoes.length; xt++) {
+      var ab = allOpcoes[xt].ativo_base;
+      if (ab && !posTickerSet[ab] && extraTickers.indexOf(ab) === -1) {
+        extraTickers.push(ab);
       }
-      var extraTickers = [];
-      for (var xt = 0; xt < allOpcoes.length; xt++) {
-        var ab = allOpcoes[xt].ativo_base;
-        if (ab && !posTickerSet[ab] && extraTickers.indexOf(ab) === -1) {
-          extraTickers.push(ab);
-        }
-      }
-
-      // Fetch prices for extra tickers and add as synthetic positions
-      if (extraTickers.length > 0) {
-        var extraPrices = await fetchPrices(extraTickers);
+    }
+    if (extraTickers.length > 0) {
+      fetchPrices(extraTickers).then(function(extraPrices) {
+        var withExtra = storePositions.slice();
         for (var ep = 0; ep < extraTickers.length; ep++) {
           var etk = extraTickers[ep];
           var eq = extraPrices[etk];
-          enriched.push({
-            ticker: etk,
-            categoria: 'acao',
-            quantidade: 0,
-            pm: 0,
+          withExtra.push({
+            ticker: etk, categoria: 'acao', quantidade: 0, pm: 0,
             preco_atual: eq ? eq.price : null,
             change_day: eq ? eq.changePercent : null,
           });
         }
-      }
-
+        setPositions(withExtra);
+        var hasAnyPrice = false;
+        for (var i = 0; i < withExtra.length; i++) {
+          if (withExtra[i].preco_atual != null) { hasAnyPrice = true; break; }
+        }
+        setPricesAvailable(hasAnyPrice);
+      }).catch(function() {});
+    } else {
       setPositions(enriched);
       var hasAnyPrice = false;
       for (var i = 0; i < enriched.length; i++) {
         if (enriched[i].preco_atual != null) { hasAnyPrice = true; break; }
       }
       setPricesAvailable(hasAnyPrice);
-    } catch (e) {
-      console.warn('OpcoesScreen price enrichment failed:', e.message);
-      setPricesAvailable(false);
     }
 
     // Prefetch OpLab chains for active options (fire-and-forget)
@@ -6292,19 +6316,7 @@ export default function OpcoesScreen() {
         setChainsReady(Date.now());
       }).catch(function() {});
     }
-
-    // Fire-and-forget: load price alerts for options
-    getAlertasOpcoes(user.id).then(function(alertResult) {
-      setPriceAlerts(alertResult.data || []);
-    }).catch(function() {});
-
-    // Fire-and-forget: load AI usage summary for Premium users
-    if (subCtx.canAccess('AI_ANALYSIS')) {
-      aiUsageService.getAiUsageSummary(user.id).then(function(summary) {
-        setAiUsage(summary);
-      }).catch(function() {});
-    }
-  };
+  }, [storeOpcoes, storePositions]);
 
   useFocusEffect(useCallback(function() { load(); }, [user, selPortfolio]));
 
@@ -6398,12 +6410,20 @@ export default function OpcoesScreen() {
     }
   }, [chainsReady, priceAlerts]);
 
-  var onRefresh = async function() {
+  var onRefresh = function() {
     setRefreshing(true);
     clearPriceCache();
     clearOplabCache();
-    await load();
-    setRefreshing(false);
+    _lastProcessedOpcoes.current = '';
+    Promise.all([
+      carteira.refresh(true),
+      financas.refresh(true),
+      load(),
+    ]).then(function() {
+      setRefreshing(false);
+    }).catch(function() {
+      setRefreshing(false);
+    });
   };
 
   var handleToggleGarantia = function(corretora, ticker) {
@@ -6678,7 +6698,7 @@ export default function OpcoesScreen() {
                     newSaldos.push(saldos[sj]);
                   }
                 }
-                setSaldos(newSaldos);
+                appStore.invalidate('financas');
                 Alert.alert('Saldo atualizado', corretora + ': R$ ' + fmt(saldoAtual) + ' → R$ ' + fmt(novoSaldo));
               }
             },
@@ -6829,7 +6849,7 @@ export default function OpcoesScreen() {
                     newSaldos.push(saldos[sj]);
                   }
                 }
-                setSaldos(newSaldos);
+                appStore.invalidate('financas');
                 Alert.alert('Saldo atualizado', firstCorretora + ': R$ ' + fmt(saldoAtual) + ' → R$ ' + fmt(novoSaldo));
               }
             },
