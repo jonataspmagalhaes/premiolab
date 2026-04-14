@@ -5,11 +5,11 @@ import Image from 'next/image';
 import { AssetClassIcon } from './AssetClassIcon';
 
 // ─── Util ──────────────────────────────────────────────────
-// StatusInvest hospeda logo da empresa por ticker base (sem digito).
-// Ex: PETR4 -> petr, BBAS3 -> bbas, MXRF11 -> mxrf
-function statusInvestLogoUrl(ticker: string): string {
-  var base = ticker.replace(/\d+[BF]?$/, '').toLowerCase();
-  return 'https://statusinvest.com.br/img/company/bottom/' + base + '.png';
+// brapi.dev hospeda icons SVG por ticker (gratis, sem token).
+// Funciona pra acoes BR, ETFs BR e tickers INT. FIIs caem no fallback.
+// Ex: PETR4 -> https://icons.brapi.dev/icons/PETR4.svg
+function brapiIconUrl(ticker: string): string {
+  return 'https://icons.brapi.dev/icons/' + ticker.toUpperCase() + '.svg';
 }
 
 function pickIconSize(box: number): 'sm' | 'md' | 'lg' {
@@ -38,13 +38,13 @@ export function TickerLogo({ ticker, categoria, size, className }: Props) {
     return <AssetClassIcon classe={categoria} size={pickIconSize(s)} className={className} />;
   }
 
-  // Logo real (StatusInvest). Wrapper neutro pra contraste com o png.
+  // Logo real (brapi icons). Wrapper branco suave pra contrastar com SVGs coloridos.
   var wrapStyle: React.CSSProperties = {
     width: s,
     height: s,
     borderRadius: Math.round(s * 0.28),
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.06)',
+    background: '#FFFFFF',
+    border: '1px solid rgba(255,255,255,0.08)',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -52,14 +52,16 @@ export function TickerLogo({ ticker, categoria, size, className }: Props) {
     flexShrink: 0,
   };
 
+  var inner = Math.round(s * 0.72);
+
   return (
     <span style={wrapStyle} className={className}>
       <Image
-        src={statusInvestLogoUrl(ticker)}
+        src={brapiIconUrl(ticker)}
         alt={ticker}
-        width={s - 8}
-        height={s - 8}
-        className="rounded-md object-contain"
+        width={inner}
+        height={inner}
+        className="object-contain"
         onError={function () { setFailed(true); }}
         unoptimized
       />

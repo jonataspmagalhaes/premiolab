@@ -7,6 +7,7 @@ const nextConfig = {
   // Imagens externas (StatusInvest favicons etc) — adicionar conforme necessário
   images: {
     remotePatterns: [
+      { protocol: 'https', hostname: 'icons.brapi.dev' },
       { protocol: 'https', hostname: 'statusinvest.com.br' },
       { protocol: 'https', hostname: 'zephynezarjsxzselozi.supabase.co' },
     ],
