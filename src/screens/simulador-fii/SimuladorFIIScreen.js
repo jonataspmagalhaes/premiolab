@@ -532,8 +532,19 @@ export default function SimuladorFIIScreen(props) {
     fetchData(extras);
   }
 
-  // Carrega carteira teorica do AsyncStorage uma vez
+  // Carrega carteira teorica do AsyncStorage (ou preselectedFiis do Gerador de Renda)
   useEffect(function() {
+    var preselected = params.preselectedFiis;
+    if (preselected && preselected.length > 0) {
+      // Gerador de Renda enviou FIIs sugeridos — pre-popular carteira teorica
+      var preList = [];
+      for (var pi = 0; pi < preselected.length; pi++) {
+        preList.push({ ticker: preselected[pi], qty: 10 });
+      }
+      setTeoricaList(preList);
+      setTeoricaLoaded(true);
+      return;
+    }
     AsyncStorage.getItem(TEORICA_STORAGE_KEY).then(function(raw) {
       if (raw) {
         try {

@@ -2,18 +2,24 @@ import React from 'react';
 var useState = React.useState;
 var useEffect = React.useEffect;
 var useRef = React.useRef;
+var useCallback = React.useCallback;
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet,
   Alert, Keyboard, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { Glass, Pill, CurrencyPicker } from '../../components';
 import { useAuth } from '../../contexts/AuthContext';
-import { addCartao, updateCartao, getSaldos, addRegraPontos, getRegrasPontos, deleteRegraPontos } from '../../services/database';
+import { addCartao, updateCartao, getSaldos, addRegraPontos, getRegrasPontos, deleteRegraPontos, getPortfolios } from '../../services/database';
 import { getSymbol } from '../../services/currencyService';
 import { C, F, SIZE } from '../../theme';
+import { animateLayout } from '../../utils/a11y';
 import Toast from 'react-native-toast-message';
 import * as Haptics from 'expo-haptics';
+import widgetBridge from '../../services/widgetBridge';
+import * as databaseModule from '../../services/database';
+import * as currencyServiceModule from '../../services/currencyService';
 
 var BANDEIRAS = ['Visa', 'Mastercard', 'Elo', 'Amex', 'Hipercard', 'Outro'];
 var MOEDAS_PILLS = ['BRL', 'USD', 'EUR', 'GBP'];
@@ -61,6 +67,10 @@ export default function AddCartaoScreen(props) {
   var _regrasOriginais = useState([]);
   var regrasOriginais = _regrasOriginais[0]; var setRegrasOriginais = _regrasOriginais[1];
 
+  // Avançado: abrir auto se editando com campos avançados preenchidos
+  var hasAdvancedData = isEdit && (apelido || (moeda && moeda !== 'BRL') || contaVinc || tipoBenef !== 'nenhum');
+  var _showAdvanced = useState(hasAdvancedData); var showAdvanced = _showAdvanced[0]; var setShowAdvanced = _showAdvanced[1];
+
   // ── UI state ──
   var _contas = useState([]);
   var contas = _contas[0]; var setContas = _contas[1];
@@ -70,6 +80,16 @@ export default function AddCartaoScreen(props) {
   var submitted = _submitted[0]; var setSubmitted = _submitted[1];
   var _showCurrencyPicker = useState(false);
   var showCurrencyPicker = _showCurrencyPicker[0]; var setShowCurrencyPicker = _showCurrencyPicker[1];
+
+  // ── Portfolio state ──
+  var defaultPortfolio = route && route.params && route.params.defaultPortfolio !== undefined ? route.params.defaultPortfolio : (isEdit ? (cartaoEdit.portfolio_id || null) : null);
+  var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfoliosState = _portfolios[1];
+  var _selPortfolioId = useState(defaultPortfolio); var selPortfolioId = _selPortfolioId[0]; var setSelPortfolioId = _selPortfolioId[1];
+
+  useFocusEffect(useCallback(function() {
+    if (!user) return;
+    getPortfolios(user.id).then(function(res) { setPortfoliosState(res.data || []); }).catch(function() {});
+  }, [user]));
 
   // ── Init limite from edit data ──
   useEffect(function() {
@@ -200,6 +220,7 @@ export default function AddCartaoScreen(props) {
         conta_vinculada: contaVinc || null,
         tipo_beneficio: tipoBenef === 'nenhum' ? null : tipoBenef,
         programa_nome: (tipoBenef !== 'nenhum' && programaNome.trim()) ? programaNome.trim() : null,
+        portfolio_id: selPortfolioId || null,
       };
 
       var cartaoId = null;
@@ -265,6 +286,7 @@ export default function AddCartaoScreen(props) {
       savedRef.current = true;
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Toast.show({ type: 'success', text1: isEdit ? 'Cartão atualizado' : 'Cartão registrado' });
+      widgetBridge.updateWidgetFromContext(user.id, databaseModule, currencyServiceModule).catch(function() {});
       navigation.goBack();
     } catch (err) {
       Alert.alert('Erro', 'Falha ao salvar cartão.');
@@ -278,7 +300,7 @@ export default function AddCartaoScreen(props) {
   var previewDigitos = digitos || '----';
   var previewFech = diaFech || '--';
   var previewVenc = diaVenc || '--';
-  var previewText = previewBandeira + ' •••• ' + previewDigitos + '  —  Fech. ' + previewFech + '  ·  Venc. ' + previewVenc;
+  var previewText = previewBandeira + ' •••• ' + previewDigitos + '  —  Fechamento ' + previewFech + '  ·  Vencimento ' + previewVenc;
 
   var simbolo = getSymbol(moeda);
 
@@ -324,17 +346,6 @@ export default function AddCartaoScreen(props) {
           );
         })}
       </View>
-
-      {/* ── Apelido ── */}
-      <Text style={styles.label}>APELIDO (OPCIONAL)</Text>
-      <TextInput
-        value={apelido}
-        onChangeText={setApelido}
-        placeholder="Ex: Nubank Ultravioleta"
-        placeholderTextColor={C.dim}
-        returnKeyType="next"
-        style={styles.input}
-      />
 
       {/* ── Dia fechamento ── */}
       <View style={styles.rowFields}>
@@ -388,6 +399,32 @@ export default function AddCartaoScreen(props) {
         />
       </View>
 
+      {/* ── Toggle Avançado ── */}
+      <TouchableOpacity
+        onPress={function() { animateLayout(); setShowAdvanced(!showAdvanced); }}
+        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, marginTop: 4 }}
+        activeOpacity={0.7}
+      >
+        <Ionicons name={showAdvanced ? 'chevron-up' : 'chevron-down'} size={16} color={C.accent} />
+        <Text style={{ fontSize: 13, color: C.accent, fontFamily: F.body, marginLeft: 6 }}>
+          {showAdvanced ? 'Menos opções' : 'Mais opções'}
+        </Text>
+      </TouchableOpacity>
+
+      {showAdvanced ? (
+        <View>
+
+      {/* ── Apelido ── */}
+      <Text style={styles.label}>APELIDO (OPCIONAL)</Text>
+      <TextInput
+        value={apelido}
+        onChangeText={setApelido}
+        placeholder="Ex: Nubank Ultravioleta"
+        placeholderTextColor={C.dim}
+        returnKeyType="next"
+        style={styles.input}
+      />
+
       {/* ── Moeda ── */}
       <Text style={styles.label}>MOEDA DO CARTÃO</Text>
       <View style={styles.pillRow}>
@@ -427,6 +464,26 @@ export default function AddCartaoScreen(props) {
           );
         })}
       </View>
+
+      {/* ── Portfólio — so exibe se usuario tem portfolios customizados ── */}
+      {portfolios.length > 0 ? (
+        <View>
+          <Text style={styles.label}>PORTFÓLIO</Text>
+          <View style={styles.pillRow}>
+            <Pill active={!selPortfolioId} color={C.accent} onPress={function() { setSelPortfolioId(null); }}>Padrão</Pill>
+            {portfolios.map(function(pf) {
+              return (
+                <Pill key={pf.id} active={selPortfolioId === pf.id} color={pf.cor || C.accent} onPress={function() { setSelPortfolioId(pf.id); }}>
+                  {pf.nome}
+                </Pill>
+              );
+            })}
+            {portfolios.length < 4 ? (
+              <Pill active={false} color={C.dim} onPress={function() { navigation.navigate('ConfigPortfolios'); }}>+ Novo</Pill>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
 
       {/* ── Benefícios ── */}
       <Text style={styles.label}>BENEFÍCIOS</Text>
@@ -518,6 +575,9 @@ export default function AddCartaoScreen(props) {
             <Ionicons name="add-circle-outline" size={18} color={C.accent} />
             <Text style={styles.addRuleText}>Adicionar regra</Text>
           </TouchableOpacity>
+        </View>
+      ) : null}
+
         </View>
       ) : null}
 

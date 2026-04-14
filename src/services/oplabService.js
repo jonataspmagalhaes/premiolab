@@ -1,16 +1,24 @@
 // oplabService.js — Client service para cadeia de opcoes real via Edge Function
-// Cache 5min em memoria. Fallback gracioso se API falhar.
+// Cache 2min em memoria. Fallback gracioso se API falhar.
 
 var supabaseModule = require('../config/supabase');
 var supabase = supabaseModule.supabase;
+var marketStatusModule = require('./marketStatusService');
+var isB3Open = marketStatusModule.isB3Open;
 
 var CACHE = {};
-var CACHE_TTL = 300000; // 5 min
+var CACHE_TTL = 120000; // 2 min
+var CACHE_TTL_CLOSED = 1800000; // 30 min quando bolsa fechada
 
 var MESES_SHORT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
-function clearOplabCache() {
-  CACHE = {};
+function clearOplabCache(ticker) {
+  if (ticker) {
+    var key = ticker.toUpperCase().trim();
+    delete CACHE[key];
+  } else {
+    CACHE = {};
+  }
 }
 
 function formatSeriesLabel(dueDate) {
@@ -65,6 +73,7 @@ function normalizeOption(opt) {
     symbol: opt.symbol || '',
     bid: opt.bid || 0,
     ask: opt.ask || 0,
+    last: opt.last || 0,
     close: opt.close || 0,
     volume: opt.volume || 0,
     financial_volume: opt.financial_volume || 0,
@@ -112,9 +121,10 @@ function fetchOptionsChain(ticker, selic) {
     var key = ticker.toUpperCase().trim();
     var now = Date.now();
 
-    // Check cache
+    // Check cache (TTL mais longo quando bolsa fechada)
+    var ttl = isB3Open() ? CACHE_TTL : CACHE_TTL_CLOSED;
     var cached = CACHE[key];
-    if (cached && (now - cached.ts < CACHE_TTL)) {
+    if (cached && (now - cached.ts < ttl)) {
       resolve(cached.result);
       return;
     }
@@ -187,7 +197,8 @@ function getCachedChain(ticker) {
   if (!ticker) return null;
   var key = ticker.toUpperCase().trim();
   var cached = CACHE[key];
-  if (cached && (Date.now() - cached.ts < CACHE_TTL)) return cached.result;
+  var ttl = isB3Open() ? CACHE_TTL : CACHE_TTL_CLOSED;
+  if (cached && (Date.now() - cached.ts < ttl)) return cached.result;
   return null;
 }
 

@@ -56,6 +56,7 @@ export default function ConfigPerfilInvestidorScreen(props) {
       perfil_investidor: perfil,
       objetivo_investimento: objetivo,
       horizonte_investimento: horizonte,
+      perfil_investidor_updated_at: new Date().toISOString(),
     }).then(function() {
       setSaving(false);
       savedRef.current = true;

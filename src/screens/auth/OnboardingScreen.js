@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ScrollView, Alert,
@@ -7,6 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
+import { getProfile } from '../../services/database';
 import { Pill } from '../../components/Primitives';
 import { getInstitutionMeta } from '../../components/CorretoraSelector';
 import { getSymbol } from '../../services/currencyService';
@@ -26,10 +27,24 @@ var MOEDAS_PILLS = ['BRL', 'USD', 'EUR', 'GBP'];
 var METAS_RAPIDAS = [3000, 5000, 6000, 8000, 10000, 15000];
 
 export default function OnboardingScreen() {
-  var _auth = useAuth(); var completeOnboarding = _auth.completeOnboarding;
+  var _auth = useAuth(); var completeOnboarding = _auth.completeOnboarding; var user = _auth.user;
   var _step = useState(0); var step = _step[0]; var setStep = _step[1];
   var _nome = useState(''); var nome = _nome[0]; var setNome = _nome[1];
   var _meta = useState('6000'); var meta = _meta[0]; var setMeta = _meta[1];
+
+  // Pre-fill nome from profile (saved during registration via user_metadata)
+  useEffect(function() {
+    if (!user) return;
+    getProfile(user.id).then(function(result) {
+      if (result.data && result.data.nome && !nome) {
+        setNome(result.data.nome);
+      }
+    }).catch(function() {});
+    // Also check user_metadata as fallback
+    if (user.user_metadata && user.user_metadata.nome && !nome) {
+      setNome(user.user_metadata.nome);
+    }
+  }, [user]);
 
   // Step 2 — contas
   var _contas = useState([]); var contas = _contas[0]; var setContas = _contas[1];

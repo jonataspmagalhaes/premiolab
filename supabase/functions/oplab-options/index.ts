@@ -98,10 +98,12 @@ Deno.serve(async (req) => {
     }
 
     // 5. Return raw data (client normalizes)
+    // Spot priority: last (ultimo negocio) > bid > close (fechamento anterior)
+    const spot = data.last || data.bid || data.close || 0;
     return ok({
       symbol: data.symbol || ticker,
       name: data.name || "",
-      spot: data.close || data.bid || 0,
+      spot: spot,
       bid: data.bid || 0,
       ask: data.ask || 0,
       volume: data.volume || 0,

@@ -86,7 +86,7 @@ function buildCarteiraPrompt(data: any): { system: string; prompt: string; secti
     for (let i = 0; i < keys.length; i++) {
       if (i > 0) p += ", ";
       const k = keys[i];
-      const label = k === "acao" ? "Ações" : k === "fii" ? "FIIs" : k === "etf" ? "ETFs" : k === "stock_int" ? "Stocks INT" : k === "rf" ? "Renda Fixa" : k === "opcao" ? "Opções" : k === "saldo" ? "Caixa" : k;
+      const label = k === "acao" ? "Ações" : k === "fii" ? "FIIs" : k === "etf" ? "ETFs" : k === "bdr" ? "BDRs" : k === "stock_int" ? "Stocks INT" : k === "adr" ? "ADRs" : k === "reit" ? "REITs" : k === "rf" ? "Renda Fixa" : k === "opcao" ? "Opções" : k === "saldo" ? "Caixa" : k;
       p += label + " " + fmtPct(data.alocacao[k]);
     }
     p += "\n";
@@ -248,8 +248,12 @@ function buildAtivoPrompt(data: any): { system: string; prompt: string; sections
 
   if (data.categoria === "fii") {
     p += "NOTA: este é um FII. Foque em D.Y., vacância, gestão, qualidade dos ativos do fundo. Compare D.Y. com Selic (~13.25%).\n";
-  } else if (data.categoria === "stock_int") {
+  } else if (data.categoria === "stock_int" || data.categoria === "adr") {
     p += "NOTA: ativo internacional. Considere risco cambial USD/BRL. Valores em USD convertidos para BRL.\n";
+  } else if (data.categoria === "bdr") {
+    p += "NOTA: BDR negociado na B3 em BRL. Considere risco cambial embutido e spread vs ativo original.\n";
+  } else if (data.categoria === "reit") {
+    p += "NOTA: REIT internacional. Foque em D.Y., FFO, ocupação, qualidade do portfólio imobiliário. Considere risco cambial USD/BRL.\n";
   }
 
   p += buildProfileContext(data);
@@ -292,7 +296,7 @@ function buildResumoPrompt(data: any): { system: string; prompt: string; section
     for (let i = 0; i < keys.length; i++) {
       if (i > 0) p += ", ";
       const k = keys[i];
-      const label = k === "acao" ? "Ações" : k === "fii" ? "FIIs" : k === "etf" ? "ETFs" : k === "stock_int" ? "Stocks" : k === "rf" ? "RF" : k === "opcao" ? "Opções" : k === "saldo" ? "Caixa" : k;
+      const label = k === "acao" ? "Ações" : k === "fii" ? "FIIs" : k === "etf" ? "ETFs" : k === "bdr" ? "BDRs" : k === "stock_int" ? "Stocks" : k === "adr" ? "ADRs" : k === "reit" ? "REITs" : k === "rf" ? "RF" : k === "opcao" ? "Opções" : k === "saldo" ? "Caixa" : k;
       p += label + " " + fmtPct(data.alocacao[k]);
     }
     p += "\n";

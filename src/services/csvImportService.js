@@ -223,6 +223,8 @@ function detectCategory(ticker) {
   if (KNOWN_ETFS.indexOf(t) >= 0) return 'etf';
   // FIIs terminam em 11
   if (/^[A-Z]{4}11$/.test(t)) return 'fii';
+  // BDRs terminam em 34, 35 ou 39
+  if (/^[A-Z]{4,5}3[459]$/.test(t)) return 'bdr';
   // Default acao
   return 'acao';
 }
@@ -632,7 +634,10 @@ function parseGeneric(headers, rows) {
     if (catRaw === 'acao' || catRaw === 'ação' || catRaw === 'stock') categoria = 'acao';
     else if (catRaw === 'fii') categoria = 'fii';
     else if (catRaw === 'etf') categoria = 'etf';
+    else if (catRaw === 'bdr') categoria = 'bdr';
     else if (catRaw === 'stock_int') categoria = 'stock_int';
+    else if (catRaw === 'adr') categoria = 'adr';
+    else if (catRaw === 'reit') categoria = 'reit';
     else categoria = detectCategory(ticker);
 
     ops.push({

@@ -10,6 +10,9 @@ import { fetchExchangeRates, convertToBRL } from './currencyService';
 var BRAPI_URL = 'https://brapi.dev/api/quote/';
 var BRAPI_TOKEN = 'tEU8wyBixv8hCi7J3NCjsi';
 
+var marketStatusModule = require('./marketStatusService');
+var isB3Open = marketStatusModule.isB3Open;
+
 // ══════════ CACHE ══════════
 var _cache = {
   prices: {},
@@ -18,7 +21,9 @@ var _cache = {
   lastHistory: null,
 };
 var CACHE_PRICES_MS = 60000;   // 60s
+var CACHE_PRICES_CLOSED_MS = 1800000; // 30min quando fechado
 var CACHE_HISTORY_MS = 300000; // 5min
+var CACHE_HISTORY_CLOSED_MS = 7200000; // 2h quando fechado
 
 // ══════════ HELPERS ══════════
 function buildUrl(tickerStr, params) {
@@ -48,11 +53,14 @@ function allTickersInCache(tickers, cacheObj) {
 }
 
 // ══════════ FETCH PRICES ══════════
+var CHUNK_SIZE = 15;
+
 export async function fetchPrices(tickers) {
   if (!tickers || tickers.length === 0) return {};
 
-  // Check cache
-  if (isCacheValid(_cache.lastPrices, CACHE_PRICES_MS) && allTickersInCache(tickers, _cache.prices)) {
+  // Check cache (TTL mais longo quando bolsa fechada)
+  var pricesTTL = isB3Open() ? CACHE_PRICES_MS : CACHE_PRICES_CLOSED_MS;
+  if (isCacheValid(_cache.lastPrices, pricesTTL) && allTickersInCache(tickers, _cache.prices)) {
     var cached = {};
     for (var c = 0; c < tickers.length; c++) {
       cached[tickers[c]] = _cache.prices[tickers[c]];
@@ -60,50 +68,55 @@ export async function fetchPrices(tickers) {
     return cached;
   }
 
-  try {
-    var tickerStr = tickers.join(',');
-    var url = buildUrl(tickerStr, {});
-    var response = await fetch(url, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
+  var prices = {};
 
-    if (!response.ok) return {};
+  // Buscar em chunks para nao exceder limite da brapi
+  for (var ci = 0; ci < tickers.length; ci += CHUNK_SIZE) {
+    var chunk = tickers.slice(ci, ci + CHUNK_SIZE);
+    try {
+      var tickerStr = chunk.join(',');
+      var url = buildUrl(tickerStr, {});
+      var response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
 
-    var json = await response.json();
-    var results = json.results || [];
+      if (!response.ok) continue;
 
-    var prices = {};
-    for (var i = 0; i < results.length; i++) {
-      var r = results[i];
-      if (r.symbol && r.regularMarketPrice != null) {
-        var entry = {
-          price: r.regularMarketPrice,
-          change: r.regularMarketChange || 0,
-          changePercent: r.regularMarketChangePercent || 0,
-          previousClose: r.regularMarketPreviousClose || 0,
-          updatedAt: r.regularMarketTime || null,
-          marketCap: r.marketCap || 0,
-        };
-        prices[r.symbol] = entry;
-        _cache.prices[r.symbol] = entry;
+      var json = await response.json();
+      var results = json.results || [];
+
+      for (var i = 0; i < results.length; i++) {
+        var r = results[i];
+        if (r.symbol && r.regularMarketPrice != null) {
+          var entry = {
+            price: r.regularMarketPrice,
+            change: r.regularMarketChange || 0,
+            changePercent: r.regularMarketChangePercent || 0,
+            previousClose: r.regularMarketPreviousClose || 0,
+            updatedAt: r.regularMarketTime || null,
+            marketCap: r.marketCap || 0,
+          };
+          prices[r.symbol] = entry;
+          _cache.prices[r.symbol] = entry;
+        }
       }
+    } catch (err) {
+      console.warn('fetchPrices chunk error:', err.message);
     }
-
-    _cache.lastPrices = Date.now();
-    return prices;
-  } catch (err) {
-    console.warn('fetchPrices error:', err.message);
-    return {};
   }
+
+  _cache.lastPrices = Date.now();
+  return prices;
 }
 
 // ══════════ FETCH HISTORY ══════════
 export async function fetchPriceHistory(tickers) {
   if (!tickers || tickers.length === 0) return {};
 
-  // Check cache
-  if (isCacheValid(_cache.lastHistory, CACHE_HISTORY_MS) && allTickersInCache(tickers, _cache.history)) {
+  // Check cache (TTL mais longo quando bolsa fechada)
+  var histTTL = isB3Open() ? CACHE_HISTORY_MS : CACHE_HISTORY_CLOSED_MS;
+  if (isCacheValid(_cache.lastHistory, histTTL) && allTickersInCache(tickers, _cache.history)) {
     var cached = {};
     for (var c = 0; c < tickers.length; c++) {
       cached[tickers[c]] = _cache.history[tickers[c]];
@@ -111,49 +124,54 @@ export async function fetchPriceHistory(tickers) {
     return cached;
   }
 
-  try {
-    var tickerStr = tickers.join(',');
-    var url = buildUrl(tickerStr, { range: '1mo', interval: '1d' });
-    var response = await fetch(url, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
+  var history = {};
 
-    if (!response.ok) return {};
+  for (var ci = 0; ci < tickers.length; ci += CHUNK_SIZE) {
+    var chunk = tickers.slice(ci, ci + CHUNK_SIZE);
+    try {
+      var tickerStr = chunk.join(',');
+      var url = buildUrl(tickerStr, { range: '1mo', interval: '1d' });
+      var response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
 
-    var json = await response.json();
-    var results = json.results || [];
-    var history = {};
+      if (!response.ok) continue;
 
-    for (var i = 0; i < results.length; i++) {
-      var r = results[i];
-      if (r.symbol && r.historicalDataPrice && r.historicalDataPrice.length > 0) {
-        var closes = [];
-        for (var j = 0; j < r.historicalDataPrice.length; j++) {
-          var closeVal = r.historicalDataPrice[j].close;
-          if (closeVal != null) closes.push(closeVal);
+      var json = await response.json();
+      var results = json.results || [];
+
+      for (var i = 0; i < results.length; i++) {
+        var r = results[i];
+        if (r.symbol && r.historicalDataPrice && r.historicalDataPrice.length > 0) {
+          var closes = [];
+          for (var j = 0; j < r.historicalDataPrice.length; j++) {
+            var closeVal = r.historicalDataPrice[j].close;
+            if (closeVal != null) closes.push(closeVal);
+          }
+          history[r.symbol] = closes;
+          _cache.history[r.symbol] = closes;
         }
-        history[r.symbol] = closes;
-        _cache.history[r.symbol] = closes;
       }
+    } catch (err) {
+      console.warn('fetchPriceHistory chunk error:', err.message);
     }
-
-    _cache.lastHistory = Date.now();
-    return history;
-  } catch (err) {
-    console.warn('fetchPriceHistory error:', err.message);
-    return {};
   }
+
+  _cache.lastHistory = Date.now();
+  return history;
 }
 
 // ══════════ FETCH HISTORY LONG (6 months OHLCV) ══════════
 var CACHE_HISTORY_LONG_MS = 3600000; // 1h
+var CACHE_HISTORY_LONG_CLOSED_MS = 14400000; // 4h quando fechado
 
 export async function fetchPriceHistoryLong(tickers) {
   if (!tickers || tickers.length === 0) return {};
 
-  // Check cache
-  if (isCacheValid(_cache.lastHistoryLong, CACHE_HISTORY_LONG_MS) && allTickersInCache(tickers, _cache.historyLong || {})) {
+  // Check cache (TTL mais longo quando bolsa fechada)
+  var histLongTTL = isB3Open() ? CACHE_HISTORY_LONG_MS : CACHE_HISTORY_LONG_CLOSED_MS;
+  if (isCacheValid(_cache.lastHistoryLong, histLongTTL) && allTickersInCache(tickers, _cache.historyLong || {})) {
     var cached = {};
     for (var c = 0; c < tickers.length; c++) {
       cached[tickers[c]] = _cache.historyLong[tickers[c]];
@@ -210,6 +228,7 @@ export async function fetchPriceHistoryLong(tickers) {
 // ══════════ FETCH HISTORY RANGE (variable period OHLCV) ══════════
 var _rangeCache = {};
 var CACHE_RANGE_MS = 3600000; // 1h
+var CACHE_RANGE_CLOSED_MS = 14400000; // 4h quando fechado
 
 export async function fetchPriceHistoryRange(tickers, range) {
   if (!tickers || tickers.length === 0) return {};
@@ -220,7 +239,8 @@ export async function fetchPriceHistoryRange(tickers, range) {
   for (var ck = 0; ck < tickers.length; ck++) {
     var ckey = tickers[ck] + ':' + rng;
     var entry = _rangeCache[ckey];
-    if (!entry || (Date.now() - entry.ts > CACHE_RANGE_MS)) {
+    var rangeTTL = isB3Open() ? CACHE_RANGE_MS : CACHE_RANGE_CLOSED_MS;
+    if (!entry || (Date.now() - entry.ts > rangeTTL)) {
       allCached = false;
       break;
     }
@@ -395,6 +415,10 @@ export async function enrichPositionsWithPrices(positions) {
     enrichedItem.marketCap = quote.marketCap || 0;
     enrichedItem.moeda = isInt ? 'USD' : 'BRL';
     enrichedItem.taxa_cambio = isInt ? usdRate : null;
+    // Reclassificar stock_int como etf quando Yahoo diz que e ETF
+    if (isInt && quote.instrumentType === 'ETF' && enrichedItem.categoria === 'stock_int') {
+      enrichedItem.categoria = 'etf';
+    }
     enriched.push(enrichedItem);
   }
 

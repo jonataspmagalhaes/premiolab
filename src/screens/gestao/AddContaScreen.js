@@ -6,7 +6,7 @@ import {
 import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { upsertSaldo, addMovimentacao, buildMovDescricao, getSaldos } from '../../services/database';
+import { upsertSaldo, addMovimentacao, buildMovDescricao, getSaldos, getPortfolios } from '../../services/database';
 import { Glass, Pill, getInstitutionMeta } from '../../components';
 import { MOEDAS, getSymbol } from '../../services/currencyService';
 import * as Haptics from 'expo-haptics';
@@ -28,7 +28,9 @@ var MOEDAS_PRINCIPAIS = ['BRL', 'USD', 'EUR', 'GBP', 'QAR'];
 
 export default function AddContaScreen(props) {
   var navigation = props.navigation;
+  var route = props.route;
   var user = useAuth().user;
+  var defaultPortfolio = route && route.params && route.params.defaultPortfolio !== undefined ? route.params.defaultPortfolio : null;
 
   var _nome = useState(''); var nome = _nome[0]; var setNome = _nome[1];
   var _tipo = useState('corretora'); var tipo = _tipo[0]; var setTipo = _tipo[1];
@@ -38,6 +40,16 @@ export default function AddContaScreen(props) {
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
   var _showAllMoedas = useState(false); var showAllMoedas = _showAllMoedas[0]; var setShowAllMoedas = _showAllMoedas[1];
   var _sugestoes = useState(SUGESTOES_DEFAULT); var sugestoes = _sugestoes[0]; var setSugestoes = _sugestoes[1];
+  var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfolios = _portfolios[1];
+  var _selPortfolio = useState(defaultPortfolio); var selPortfolio = _selPortfolio[0]; var setSelPortfolio = _selPortfolio[1];
+
+  // Fetch portfolios
+  useEffect(function() {
+    if (!user) return;
+    getPortfolios(user.id).then(function(res) {
+      setPortfolios(res.data || []);
+    }).catch(function() {});
+  }, [user]);
 
   // Fetch user corretoras and merge into suggestions
   useEffect(function() {
@@ -107,12 +119,16 @@ export default function AddContaScreen(props) {
       var nomeNorm = nome.toUpperCase().trim();
       var saldoNum = parseSaldo();
 
-      var result = await upsertSaldo(user.id, {
+      var saldoData = {
         corretora: nomeNorm,
         saldo: saldoNum,
         moeda: moeda,
         tipo: tipo,
-      });
+      };
+      if (selPortfolio) {
+        saldoData.portfolio_id = selPortfolio;
+      }
+      var result = await upsertSaldo(user.id, saldoData);
 
       if (result.error) {
         Alert.alert('Erro', result.error.message || 'Falha ao criar conta.');
@@ -225,6 +241,27 @@ export default function AddContaScreen(props) {
           </TouchableOpacity>
         ) : null}
       </View>
+
+      {/* Portfolio */}
+      {portfolios.length > 0 ? (
+        <>
+          <Text style={styles.label}>PORTFÓLIO</Text>
+          <View style={styles.pillRow}>
+            <Pill active={!selPortfolio} color={C.accent}
+              onPress={function() { setSelPortfolio(null); }}>
+              Padrão
+            </Pill>
+            {portfolios.map(function(p) {
+              return (
+                <Pill key={p.id} active={selPortfolio === p.id} color={p.cor || C.accent}
+                  onPress={function() { setSelPortfolio(p.id); }}>
+                  {p.nome}
+                </Pill>
+              );
+            })}
+          </View>
+        </>
+      ) : null}
 
       {/* Saldo inicial */}
       <Text style={styles.label}>SALDO INICIAL (OPCIONAL)</Text>

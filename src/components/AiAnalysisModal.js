@@ -86,8 +86,20 @@ function AiAnalysisModal(props) {
             {loading ? (
               <View style={st.loadingWrap}>
                 <ActivityIndicator size="large" color={C.accent} />
-                <Text style={st.loadingText}>Analisando com IA...</Text>
-                <Text style={st.loadingSubtext}>Isso pode levar alguns segundos</Text>
+                <Text style={st.loadingText}>{props.streamingText ? 'Gerando análise...' : 'Analisando com IA...'}</Text>
+                {props.streamingText ? (
+                  <View style={[st.sectionCard, { marginTop: 12, width: '100%' }]}>
+                    <View style={st.sectionHeader}>
+                      <View style={[st.sectionIcon, { backgroundColor: C.accent + '18', borderColor: C.accent + '30' }]}>
+                        <Ionicons name="sparkles" size={16} color={C.accent} />
+                      </View>
+                      <Text style={[st.sectionTitle, { color: C.accent }]}>Resposta</Text>
+                    </View>
+                    <Text style={st.sectionContent}>{props.streamingText}<Text style={st.cursor}>|</Text></Text>
+                  </View>
+                ) : (
+                  <Text style={st.loadingSubtext}>Isso pode levar alguns segundos</Text>
+                )}
               </View>
             ) : error ? (
               <View style={st.errorWrap}>
@@ -283,6 +295,11 @@ var st = StyleSheet.create({
     color: 'rgba(255,255,255,0.8)',
     fontFamily: F.body,
     lineHeight: 20,
+  },
+  cursor: {
+    color: C.accent,
+    fontWeight: '700',
+    fontSize: 14,
   },
   metaText: {
     fontSize: 9,

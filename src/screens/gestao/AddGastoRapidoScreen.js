@@ -10,9 +10,12 @@ import Toast from 'react-native-toast-message';
 import * as Haptics from 'expo-haptics';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getCartoes, getGastosRapidos, saveGastosRapidos } from '../../services/database';
+import { getCartoes, getSaldos, getGastosRapidos, saveGastosRapidos } from '../../services/database';
 import { getSymbol } from '../../services/currencyService';
 import { Glass, Pill, SectionLabel, Field } from '../../components';
+import widgetBridge from '../../services/widgetBridge';
+import * as databaseModule from '../../services/database';
+import * as currencyServiceModule from '../../services/currencyService';
 var finCats = require('../../constants/financeCategories');
 var FINANCE_GROUPS = finCats.FINANCE_GROUPS;
 var SUBCATS_SAIDA = finCats.SUBCATS_SAIDA;
@@ -88,6 +91,18 @@ export default function AddGastoRapidoScreen(props) {
   var _icone = useState(editPreset ? (editPreset.icone || 'restaurant-outline') : 'restaurant-outline');
   var icone = _icone[0]; var setIcone = _icone[1];
 
+  var _meioPagamento = useState(editPreset ? (editPreset.meio_pagamento || 'credito') : 'credito');
+  var meioPagamento = _meioPagamento[0]; var setMeioPagamento = _meioPagamento[1];
+
+  var _contaNome = useState(editPreset ? (editPreset.conta || '') : '');
+  var contaNome = _contaNome[0]; var setContaNome = _contaNome[1];
+
+  var _contaMoeda = useState(editPreset ? (editPreset.conta_moeda || 'BRL') : 'BRL');
+  var contaMoeda = _contaMoeda[0]; var setContaMoeda = _contaMoeda[1];
+
+  var _saldos = useState([]);
+  var saldos = _saldos[0]; var setSaldos = _saldos[1];
+
   var _submitted = useState(false);
   var submitted = _submitted[0]; var setSubmitted = _submitted[1];
 
@@ -100,28 +115,59 @@ export default function AddGastoRapidoScreen(props) {
   // Fetch cartoes and existing presets on focus
   useFocusEffect(useCallback(function() {
     if (!user) return;
+    var profilePromise = databaseModule.getProfile(user.id);
     getCartoes(user.id).then(function(res) {
       var data = res.data || [];
       setCartoes(data);
-      // Auto-select card if only 1
-      if (data.length === 1 && !cartaoId) {
-        setCartaoId(data[0].id);
-        var lbl = (data[0].apelido || data[0].bandeira.toUpperCase()) + ' ••' + data[0].ultimos_digitos;
-        setCartaoLabel(lbl);
-      }
-      // Pre-select card from route params or edit preset
-      if (cartaoId) {
-        for (var ci = 0; ci < data.length; ci++) {
-          if (data[ci].id === cartaoId) {
-            var cLabel = (data[ci].apelido || data[ci].bandeira.toUpperCase()) + ' ••' + data[ci].ultimos_digitos;
-            setCartaoLabel(cLabel);
-            break;
-          }
+
+      // Validate that editPreset cartão still exists
+      if (editPreset && editPreset.cartao_id) {
+        var cartaoExists = false;
+        for (var vi = 0; vi < data.length; vi++) {
+          if (data[vi].id === editPreset.cartao_id) { cartaoExists = true; break; }
+        }
+        if (!cartaoExists) {
+          setCartaoId(null);
+          setCartaoLabel('');
+          Toast.show({ type: 'info', text1: 'Cartão removido', text2: 'Selecione outro cartão' });
         }
       }
+
+      // Priority: editPreset.cartao_id > presetCartaoId > profile.cartao_principal > first card
+      profilePromise.then(function(profileRes) {
+        var principal = profileRes.data && profileRes.data.cartao_principal;
+        var effectiveId = cartaoId;
+
+        if (!effectiveId && principal) {
+          // Check principal exists in card list
+          for (var pi = 0; pi < data.length; pi++) {
+            if (data[pi].id === principal) {
+              effectiveId = principal;
+              break;
+            }
+          }
+        }
+        if (!effectiveId && data.length === 1) {
+          effectiveId = data[0].id;
+        }
+
+        if (effectiveId) {
+          setCartaoId(effectiveId);
+          for (var ci = 0; ci < data.length; ci++) {
+            if (data[ci].id === effectiveId) {
+              var cLabel = (data[ci].apelido || data[ci].bandeira.toUpperCase()) + ' ••' + data[ci].ultimos_digitos;
+              setCartaoLabel(cLabel);
+              break;
+            }
+          }
+        }
+      }).catch(function() {});
     });
     getGastosRapidos(user.id).then(function(res) {
       setPresets(res.data || []);
+    });
+    getSaldos(user.id).then(function(res) {
+      setSaldos(res.data || []);
     });
   }, [user]));
 
@@ -163,9 +209,11 @@ export default function AddGastoRapidoScreen(props) {
   }
 
   var valorNum = parseBR(valor);
-  var canSubmit = label.trim().length > 0 && valorNum > 0 && cartaoId;
+  var canSubmitCartao = label.trim().length > 0 && valorNum > 0 && cartaoId;
+  var canSubmitConta = label.trim().length > 0 && valorNum > 0 && contaNome;
+  var canSubmit = meioPagamento === 'credito' ? canSubmitCartao : canSubmitConta;
 
-  // Get card moeda for prefix
+  // Get moeda for prefix
   var cardMoeda = 'BRL';
   if (cartaoId && cartoes.length > 0) {
     for (var ci2 = 0; ci2 < cartoes.length; ci2++) {
@@ -175,7 +223,7 @@ export default function AddGastoRapidoScreen(props) {
       }
     }
   }
-  var currSymbol = getSymbol(cardMoeda);
+  var currSymbol = getSymbol(meioPagamento === 'credito' ? cardMoeda : contaMoeda);
 
   var handleSubmit = async function() {
     Keyboard.dismiss();
@@ -188,12 +236,16 @@ export default function AddGastoRapidoScreen(props) {
         updatedPresets.push(presets[pi]);
       }
 
+      var usaConta = meioPagamento === 'pix' || meioPagamento === 'debito';
       var presetData = {
         id: isEdit ? editPreset.id : (Date.now().toString() + '_' + Math.random().toString(36).substring(2, 8)),
         label: label.trim(),
         valor: valorNum,
-        cartao_id: cartaoId,
-        cartao_label: cartaoLabel,
+        meio_pagamento: meioPagamento,
+        cartao_id: meioPagamento === 'credito' ? cartaoId : null,
+        cartao_label: meioPagamento === 'credito' ? cartaoLabel : null,
+        conta: usaConta ? contaNome : null,
+        conta_moeda: usaConta ? contaMoeda : null,
         grupo: grupo || null,
         subcategoria: subcategoria || null,
         categoria: grupo ? resolveCategoria() : 'despesa_variavel',
@@ -229,6 +281,7 @@ export default function AddGastoRapidoScreen(props) {
           text1: isEdit ? 'Gasto rápido atualizado' : 'Gasto rápido criado',
           visibilityTime: 2000,
         });
+        widgetBridge.updateWidgetFromContext(user.id, databaseModule, currencyServiceModule).catch(function() {});
         navigation.goBack();
       }
     } catch (err) {
@@ -280,31 +333,78 @@ export default function AddGastoRapidoScreen(props) {
         />
       </View>
 
-      {/* CARTÃO */}
-      <SectionLabel>CARTÃO *</SectionLabel>
-      {cartoes.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            {cartoes.map(function(c) {
-              var cLabel = (c.apelido || c.bandeira.toUpperCase()) + ' ••' + c.ultimos_digitos;
-              var cMoeda = c.moeda || 'BRL';
-              return (
-                <Pill key={c.id} active={cartaoId === c.id} color={C.accent}
-                  onPress={function() {
-                    setCartaoId(c.id);
-                    setCartaoLabel(cLabel);
-                  }}>
-                  {cMoeda !== 'BRL' ? cLabel + ' (' + cMoeda + ')' : cLabel}
-                </Pill>
-              );
-            })}
-          </View>
-        </ScrollView>
-      ) : (
-        <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>
-          Nenhum cartão cadastrado. Cadastre um cartão primeiro.
-        </Text>
-      )}
+      {/* MÉTODO DE PAGAMENTO */}
+      <SectionLabel>MÉTODO *</SectionLabel>
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+        <Pill active={meioPagamento === 'credito'} color={C.accent}
+          onPress={function() { setMeioPagamento('credito'); }}>
+          Cartão
+        </Pill>
+        <Pill active={meioPagamento === 'debito'} color={C.rf}
+          onPress={function() { setMeioPagamento('debito'); }}>
+          Débito
+        </Pill>
+        <Pill active={meioPagamento === 'pix'} color={C.green}
+          onPress={function() { setMeioPagamento('pix'); }}>
+          PIX
+        </Pill>
+      </View>
+
+      {/* CARTÃO (quando método = cartão) */}
+      {meioPagamento === 'credito' ? (
+        <View>
+          <SectionLabel>CARTÃO *</SectionLabel>
+          {cartoes.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {cartoes.map(function(c) {
+                  var cLabel = (c.apelido || c.bandeira.toUpperCase()) + ' ••' + c.ultimos_digitos;
+                  var cMoeda = c.moeda || 'BRL';
+                  return (
+                    <Pill key={c.id} active={cartaoId === c.id} color={C.accent}
+                      onPress={function() {
+                        setCartaoId(c.id);
+                        setCartaoLabel(cLabel);
+                      }}>
+                      {cMoeda !== 'BRL' ? cLabel + ' (' + cMoeda + ')' : cLabel}
+                    </Pill>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          ) : (
+            <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>
+              Nenhum cartão cadastrado. Cadastre um cartão primeiro.
+            </Text>
+          )}
+        </View>
+      ) : null}
+
+      {/* CONTA (quando método = PIX ou Débito) */}
+      {meioPagamento === 'pix' || meioPagamento === 'debito' ? (
+        <View>
+          <SectionLabel>CONTA *</SectionLabel>
+          {saldos.length > 0 ? (
+            <View style={styles.pillRow}>
+              {saldos.map(function(s) {
+                var sName = s.corretora || s.name || '';
+                var sMoeda = s.moeda || 'BRL';
+                var pillLabel = sMoeda !== 'BRL' ? sName + ' (' + sMoeda + ')' : sName;
+                return (
+                  <Pill key={s.id} active={contaNome === sName && contaMoeda === sMoeda} color={C.green}
+                    onPress={function() { setContaNome(sName); setContaMoeda(sMoeda); }}>
+                    {pillLabel}
+                  </Pill>
+                );
+              })}
+            </View>
+          ) : (
+            <Text style={{ fontSize: 12, color: C.sub, fontFamily: F.body }}>
+              Nenhuma conta cadastrada. Crie uma conta primeiro.
+            </Text>
+          )}
+        </View>
+      ) : null}
 
       {/* CATEGORIA */}
       <SectionLabel>CATEGORIA</SectionLabel>
@@ -376,7 +476,11 @@ export default function AddGastoRapidoScreen(props) {
               <Text style={styles.previewLabel} numberOfLines={1}>
                 {label.trim() || 'Nome do gasto'}
               </Text>
-              {cartaoLabel ? (
+              {meioPagamento === 'pix' && contaNome ? (
+                <Text style={styles.previewCartao} numberOfLines={1}>{'PIX · ' + contaNome}</Text>
+              ) : meioPagamento === 'debito' && contaNome ? (
+                <Text style={styles.previewCartao} numberOfLines={1}>{'Débito · ' + contaNome}</Text>
+              ) : cartaoLabel ? (
                 <Text style={styles.previewCartao} numberOfLines={1}>{cartaoLabel}</Text>
               ) : null}
             </View>

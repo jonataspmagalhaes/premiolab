@@ -3,8 +3,8 @@ module.exports = function(config) {
   return {
     type: 'widget',
     name: 'PremioLabWidget',
-    displayName: 'PremioLab Gastos',
-    deploymentTarget: '16.0',
+    displayName: 'PremioLab Widgets',
+    deploymentTarget: '17.0',
     frameworks: ['SwiftUI', 'WidgetKit'],
     entitlements: {
       'com.apple.security.application-groups': [

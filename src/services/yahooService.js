@@ -100,6 +100,7 @@ export async function fetchYahooPrices(tickers) {
         updatedAt: meta.regularMarketTime || null,
         marketCap: 0, // Yahoo v8 chart nao retorna marketCap
         currency: meta.currency || 'USD',
+        instrumentType: meta.instrumentType || '',
       };
       prices[ticker] = entry;
       _cache.prices[ticker] = entry;

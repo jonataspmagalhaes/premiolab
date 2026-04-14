@@ -133,14 +133,18 @@ function normalizeBrapi(json) {
   // Histórico 5 anos
   var historico = buildHistorico(incomeStmts, balanceStmts);
 
-  // D.Y. — pegar de earningsPerShare e priceEarnings
+  // D.Y. — defaultKeyStatistics.dividendYield (decimal, ex: 0.06 = 6%)
   var dy = safeNum(stock.dividendYield);
+  if (dy == null && ks.dividendYield != null) {
+    dy = safeNum(ks.dividendYield);
+    if (dy != null) dy = dy * 100;
+  }
   if (dy == null && ks.trailingAnnualDividendYield != null) {
     dy = safeNum(ks.trailingAnnualDividendYield);
     if (dy != null) dy = dy * 100;
   }
 
-  return {
+  var result = {
     valuation: {
       pl: safeNum(ks.trailingPE) || safeNum(stock.priceEarnings),
       pvp: safeNum(ks.priceToBook),
@@ -177,6 +181,9 @@ function normalizeBrapi(json) {
     },
     historico: historico,
   };
+
+  result._unavailable = detectUnavailable(result);
+  return result;
 }
 
 function normalizeYahoo(json) {
@@ -257,7 +264,7 @@ function normalizeYahoo(json) {
     });
   }
 
-  return {
+  var result = {
     valuation: {
       pl: safeNum(raw(ks.trailingPE)),
       pvp: safeNum(raw(ks.priceToBook)),
@@ -295,6 +302,89 @@ function normalizeYahoo(json) {
     },
     historico: buildHistorico(adaptedIncome, adaptedBalance),
   };
+
+  result._unavailable = detectUnavailable(result);
+  return result;
+}
+
+// ═══════════════════════════════════════
+// DETECT UNAVAILABLE — explica métricas faltantes por setor
+// ═══════════════════════════════════════
+function detectUnavailable(data) {
+  var val = data.valuation || {};
+  var end = data.endividamento || {};
+  var efi = data.eficiencia || {};
+  var rent = data.rentabilidade || {};
+  var cresc = data.crescimento || {};
+  var unavail = {};
+
+  // Detectar tipo de empresa pelo padrão de dados
+  var hasROE = rent.roe != null;
+  var hasEbitda = efi.mEbitda != null || val.evEbitda != null;
+  var hasGrossMargin = efi.mBruta != null;
+  var hasDebtToEquity = end.divLiqPl != null;
+  var hasProfitMargin = efi.mLiquida != null;
+
+  // Banco: tem ROE mas não tem EBITDA, margens operacionais, dívida tradicional
+  var isBank = hasROE && !hasEbitda && !hasDebtToEquity;
+  // Seguradora/holding: não tem margens mas pode ter EBITDA
+  var isInsurer = !hasGrossMargin && !hasProfitMargin && hasROE;
+  // Financeiro genérico
+  var isFinancial = isBank || isInsurer;
+
+  var bankReason = 'Bancos não possuem este indicador. Receita vem de spread de juros e tarifas, não de vendas tradicionais.';
+  var insurerReason = 'Seguradoras e holdings financeiras têm estrutura contábil diferente. Este indicador não se aplica.';
+  var financialDebtReason = 'Em instituições financeiras, depósitos de clientes não são dívida corporativa. Métricas tradicionais de endividamento não se aplicam.';
+  var noDataReason = 'Dado não disponível na fonte de dados para este ativo.';
+
+  // Mapear cada métrica que está null
+  var checks = [
+    { key: 'evEbitda', section: 'valuation', field: val.evEbitda },
+    { key: 'evEbit', section: 'valuation', field: val.evEbit },
+    { key: 'psr', section: 'valuation', field: val.psr },
+    { key: 'peg', section: 'valuation', field: val.peg },
+    { key: 'pAtivo', section: 'valuation', field: val.pAtivo },
+    { key: 'divLiqPl', section: 'endividamento', field: end.divLiqPl },
+    { key: 'divLiqEbitda', section: 'endividamento', field: end.divLiqEbitda },
+    { key: 'passivosAtivos', section: 'endividamento', field: end.passivosAtivos },
+    { key: 'plAtivos', section: 'endividamento', field: end.plAtivos },
+    { key: 'mBruta', section: 'eficiencia', field: efi.mBruta },
+    { key: 'mEbitda', section: 'eficiencia', field: efi.mEbitda },
+    { key: 'mEbit', section: 'eficiencia', field: efi.mEbit },
+    { key: 'mLiquida', section: 'eficiencia', field: efi.mLiquida },
+    { key: 'roic', section: 'rentabilidade', field: rent.roic },
+    { key: 'giroAtivos', section: 'rentabilidade', field: rent.giroAtivos },
+    { key: 'cagrReceitas', section: 'crescimento', field: cresc.cagrReceitas },
+    { key: 'cagrLucros', section: 'crescimento', field: cresc.cagrLucros },
+  ];
+
+  for (var i = 0; i < checks.length; i++) {
+    var c = checks[i];
+    if (c.field != null) continue; // dados disponíveis, pular
+
+    var reason = noDataReason;
+    if (isBank) {
+      if (c.key === 'evEbitda' || c.key === 'evEbit' || c.key === 'mEbitda' || c.key === 'mEbit' || c.key === 'psr') {
+        reason = bankReason;
+      } else if (c.key === 'divLiqPl' || c.key === 'divLiqEbitda' || c.key === 'passivosAtivos' || c.key === 'plAtivos') {
+        reason = financialDebtReason;
+      } else if (c.key === 'mBruta') {
+        reason = bankReason;
+      }
+    } else if (isInsurer) {
+      if (c.key === 'mBruta' || c.key === 'mEbit' || c.key === 'mLiquida' || c.key === 'psr') {
+        reason = insurerReason;
+      }
+    }
+
+    unavail[c.key] = reason;
+  }
+
+  if (isFinancial) {
+    unavail._sectorType = isBank ? 'banco' : 'seguradora';
+  }
+
+  return unavail;
 }
 
 // ═══════════════════════════════════════

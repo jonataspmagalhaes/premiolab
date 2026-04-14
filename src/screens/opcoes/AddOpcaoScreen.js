@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { addOpcao, incrementCorretora, addMovimentacaoComSaldo, buildMovDescricao, getPositions } from '../../services/database';
+import { addOpcao, incrementCorretora, addMovimentacaoComSaldo, buildMovDescricao, getPositions, getPortfolios } from '../../services/database';
 import { Glass, Pill, Badge, TickerInput, CorretoraSelector } from '../../components';
 import { searchTickers } from '../../services/tickerSearchService';
 import * as Haptics from 'expo-haptics';
@@ -67,16 +68,17 @@ export default function AddOpcaoScreen(props) {
   var params = (route && route.params) ? route.params : {};
   var user = useAuth().user;
 
-  var _tipo = useState('call'); var tipo = _tipo[0]; var setTipo = _tipo[1];
-  var _direcao = useState('venda'); var direcao = _direcao[0]; var setDirecao = _direcao[1];
+  var fromRolagem = params.fromRolagem || false;
+  var _tipo = useState(params.tipo || 'call'); var tipo = _tipo[0]; var setTipo = _tipo[1];
+  var _direcao = useState(params.direcao || 'venda'); var direcao = _direcao[0]; var setDirecao = _direcao[1];
   var _ativoBase = useState(params.ativo_base || ''); var ativoBase = _ativoBase[0]; var setAtivoBase = _ativoBase[1];
   var _tickerOpcao = useState(''); var tickerOpcao = _tickerOpcao[0]; var setTickerOpcao = _tickerOpcao[1];
-  var _strike = useState(''); var strike = _strike[0]; var setStrike = _strike[1];
+  var _strike = useState(params.strike || ''); var strike = _strike[0]; var setStrike = _strike[1];
   var _premio = useState(''); var premio = _premio[0]; var setPremio = _premio[1];
-  var _qtd = useState(''); var quantidade = _qtd[0]; var setQuantidade = _qtd[1];
-  var _venc = useState(''); var vencimento = _venc[0]; var setVencimento = _venc[1];
+  var _qtd = useState(params.quantidade || ''); var quantidade = _qtd[0]; var setQuantidade = _qtd[1];
+  var _venc = useState(params.vencimento || ''); var vencimento = _venc[0]; var setVencimento = _venc[1];
   var _dataAbertura = useState(todayBr()); var dataAbertura = _dataAbertura[0]; var setDataAbertura = _dataAbertura[1];
-  var _corretora = useState(''); var corretora = _corretora[0]; var setCorretora = _corretora[1];
+  var _corretora = useState(params.corretora || ''); var corretora = _corretora[0]; var setCorretora = _corretora[1];
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
 
   var qty = parseInt(quantidade) || 0;
@@ -100,6 +102,13 @@ export default function AddOpcaoScreen(props) {
 
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
   var _tickers = useState([]); var tickers = _tickers[0]; var setTickers = _tickers[1];
+  var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfoliosState = _portfolios[1];
+  var _selPortfolioId = useState(params.portfolio_id || null); var selPortfolioId = _selPortfolioId[0]; var setSelPortfolioId = _selPortfolioId[1];
+
+  useFocusEffect(useCallback(function() {
+    if (!user) return;
+    getPortfolios(user.id).then(function(res) { setPortfoliosState(res.data || []); }).catch(function() {});
+  }, [user]));
 
   useEffect(function() {
     if (!user) return;
@@ -125,6 +134,102 @@ export default function AddOpcaoScreen(props) {
     });
   }, [navigation, submitted, strike, premio]);
 
+  var resetFields = function() {
+    setAtivoBase('');
+    setTickerOpcao('');
+    setStrike('');
+    setPremio('');
+    setQuantidade('');
+    setVencimento('');
+    setDataAbertura(todayBr());
+    setSubmitted(false);
+  };
+
+  var doInsertNew = async function(isoDate, isoAbertura) {
+    var opcaoPayload = {
+      ativo_base: ativoBase.toUpperCase(),
+      ticker_opcao: tickerOpcao.toUpperCase() || null,
+      tipo: tipo,
+      direcao: direcao,
+      strike: parseFloat(strike),
+      premio: prem,
+      quantidade: qty,
+      vencimento: isoDate,
+      data_abertura: isoAbertura,
+      status: 'ativa',
+      corretora: corretora,
+    };
+    if (selPortfolioId) opcaoPayload.portfolio_id = selPortfolioId;
+    var result = await addOpcao(user.id, opcaoPayload);
+    if (result.error) {
+      Alert.alert('Erro', result.error.message);
+      setSubmitted(false);
+      setLoading(false);
+      return;
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (corretora) await incrementCorretora(user.id, corretora);
+    showPremioAlert();
+  };
+
+  var showPremioAlert = function() {
+    var successButtons = fromRolagem
+      ? [{ text: 'Concluir', onPress: function() { navigation.goBack(); } }]
+      : [
+          { text: 'Adicionar outra', onPress: resetFields },
+          { text: 'Concluir', onPress: function() { navigation.goBack(); } },
+        ];
+    var successMsg = fromRolagem ? 'Rolagem concluída!' : 'Sucesso!';
+
+    // Checar se portfolio tem operacoes_contas desabilitado
+    var portOpContas = true;
+    if (selPortfolioId) {
+      for (var pci = 0; pci < portfolios.length; pci++) {
+        if (portfolios[pci].id === selPortfolioId && portfolios[pci].operacoes_contas === false) {
+          portOpContas = false;
+          break;
+        }
+      }
+    }
+
+    if ((direcao === 'venda' || direcao === 'lancamento') && portOpContas) {
+      var opDesc = 'Prêmio ' + tipo.toUpperCase() + ' ' + ativoBase.toUpperCase();
+      Alert.alert(
+        'Opção registrada!',
+        'Creditar prêmio R$ ' + fmt(premioTotal) + ' em ' + corretora + '?\n\nObs: valor bruto — o líquido pode ser menor devido a impostos e taxas.',
+        [
+          {
+            text: 'Não',
+            style: 'cancel',
+            onPress: function() {
+              Alert.alert(successMsg, 'Opção registrada.', successButtons);
+            },
+          },
+          {
+            text: 'Sim, creditar',
+            onPress: function() {
+              addMovimentacaoComSaldo(user.id, {
+                conta: corretora,
+                moeda: 'BRL',
+                tipo: 'entrada',
+                categoria: 'premio_opcao',
+                valor: premioTotal,
+                descricao: opDesc,
+                ticker: ativoBase.toUpperCase(),
+                referencia_tipo: 'opcao',
+                data: brToIso(dataAbertura) || new Date().toISOString().substring(0, 10),
+              }).catch(function(e) { console.warn('Mov premio failed:', e); });
+              Alert.alert(successMsg, 'Opção + prêmio creditado.', successButtons);
+            },
+          },
+        ]
+      );
+    } else {
+      Alert.alert(successMsg, 'Opção registrada.', successButtons);
+    }
+    setLoading(false);
+  };
+
   var handleSubmit = async function() {
     Keyboard.dismiss();
     if (!canSubmit || submitted) return;
@@ -137,87 +242,13 @@ export default function AddOpcaoScreen(props) {
     try {
       var isoDate = brToIso(vencimento);
       var isoAbertura = brToIso(dataAbertura);
-      var result = await addOpcao(user.id, {
-        ativo_base: ativoBase.toUpperCase(),
-        ticker_opcao: tickerOpcao.toUpperCase() || null,
-        tipo: tipo,
-        direcao: direcao,
-        strike: parseFloat(strike),
-        premio: prem,
-        quantidade: qty,
-        vencimento: isoDate,
-        data_abertura: isoAbertura,
-        status: 'ativa',
-        corretora: corretora,
-      });
-      if (result.error) {
-        Alert.alert('Erro', result.error.message);
-        setSubmitted(false);
-      } else {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        if (corretora) await incrementCorretora(user.id, corretora);
-        var resetFields = function() {
-          setAtivoBase('');
-          setTickerOpcao('');
-          setStrike('');
-          setPremio('');
-          setQuantidade('');
-          setVencimento('');
-          setDataAbertura(todayBr());
-          setSubmitted(false);
-        };
 
-        // Oferecer creditar prêmio no saldo (apenas para venda/lançamento)
-        if (direcao === 'venda' || direcao === 'lancamento') {
-          var opDesc = 'Prêmio ' + tipo.toUpperCase() + ' ' + ativoBase.toUpperCase();
-          Alert.alert(
-            'Opção registrada!',
-            'Creditar prêmio R$ ' + fmt(premioTotal) + ' em ' + corretora + '?\n\nObs: valor bruto — o líquido pode ser menor devido a impostos e taxas.',
-            [
-              {
-                text: 'Não',
-                style: 'cancel',
-                onPress: function() {
-                  Alert.alert('Sucesso!', 'Opção registrada.', [
-                    { text: 'Adicionar outra', onPress: resetFields },
-                    { text: 'Concluir', onPress: function() { navigation.goBack(); } },
-                  ]);
-                },
-              },
-              {
-                text: 'Sim, creditar',
-                onPress: function() {
-                  addMovimentacaoComSaldo(user.id, {
-                    conta: corretora,
-                    moeda: 'BRL',
-                    tipo: 'entrada',
-                    categoria: 'premio_opcao',
-                    valor: premioTotal,
-                    descricao: opDesc,
-                    ticker: ativoBase.toUpperCase(),
-                    referencia_tipo: 'opcao',
-                    data: brToIso(dataAbertura) || new Date().toISOString().substring(0, 10),
-                  }).catch(function(e) { console.warn('Mov premio failed:', e); });
-                  Alert.alert('Sucesso!', 'Opção + prêmio creditado.', [
-                    { text: 'Adicionar outra', onPress: resetFields },
-                    { text: 'Concluir', onPress: function() { navigation.goBack(); } },
-                  ]);
-                },
-              },
-            ]
-          );
-        } else {
-          Alert.alert('Sucesso!', 'Opção registrada.', [
-            { text: 'Adicionar outra', onPress: resetFields },
-            { text: 'Concluir', onPress: function() { navigation.goBack(); } },
-          ]);
-        }
-      }
+      await doInsertNew(isoDate, isoAbertura);
     } catch (err) {
       Alert.alert('Erro', 'Falha ao salvar.');
       setSubmitted(false);
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -227,9 +258,26 @@ export default function AddOpcaoScreen(props) {
         <TouchableOpacity onPress={function() { navigation.goBack(); }} accessibilityLabel="Voltar" accessibilityRole="button">
           <Text style={styles.back}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Nova Opção</Text>
+        <Text style={styles.title}>{fromRolagem ? 'Nova Opção (Rolagem)' : 'Nova Opção'}</Text>
         <View style={{ width: 32 }} />
       </View>
+
+      {/* Rolagem info banner */}
+      {fromRolagem ? (
+        <View style={{ backgroundColor: C.rf + '12', borderWidth: 1, borderColor: C.rf + '30', borderRadius: 10, padding: 12, marginBottom: 14 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: C.rf, fontFamily: 'DMSans-Bold' }}>ROLAGEM</Text>
+            {params.tickerAnterior ? (
+              <View style={{ backgroundColor: C.opcoes + '20', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                <Text style={{ fontSize: 11, color: C.opcoes, fontFamily: 'JetBrainsMono-Regular', fontWeight: '600' }}>{params.tickerAnterior}</Text>
+              </View>
+            ) : null}
+          </View>
+          <Text style={{ fontSize: 11, color: C.sub, fontFamily: 'DMSans-Medium', lineHeight: 16 }}>
+            {'Opção anterior encerrada' + (params.strikeAnterior ? ' (strike R$ ' + params.strikeAnterior + ')' : '') + '. Preencha o código da nova opção abaixo.'}
+          </Text>
+        </View>
+      ) : null}
 
       {/* Tipo */}
       <Text style={styles.label}>TIPO</Text>
@@ -359,6 +407,26 @@ export default function AddOpcaoScreen(props) {
       )}
       {/* Corretora */}
       <CorretoraSelector value={corretora} onSelect={function(name) { setCorretora(name); }} userId={user.id} mercado="BR" color={C.acoes} label="CORRETORA *" />
+
+      {/* Portfolio — so exibe se usuario tem portfolios customizados */}
+      {portfolios.length > 0 ? (
+        <View>
+          <Text style={styles.label}>PORTFÓLIO</Text>
+          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+            <Pill active={!selPortfolioId} color={C.accent} onPress={function() { setSelPortfolioId(null); }}>Padrão</Pill>
+            {portfolios.map(function(pf) {
+              return (
+                <Pill key={pf.id} active={selPortfolioId === pf.id} color={pf.cor || C.accent} onPress={function() { setSelPortfolioId(pf.id); }}>
+                  {pf.nome}
+                </Pill>
+              );
+            })}
+            {portfolios.length < 4 ? (
+              <Pill active={false} color={C.dim} onPress={function() { navigation.navigate('ConfigPortfolios'); }}>+ Novo</Pill>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
 
       {/* Submit */}
       <TouchableOpacity onPress={handleSubmit} disabled={!canSubmit || loading} activeOpacity={0.8} style={[styles.submitBtn, !canSubmit && { opacity: 0.4 }]}

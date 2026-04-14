@@ -42,7 +42,7 @@ function computeIncomeXray(userId, opts) {
     var porTicker = {};
     var total12m = 0;
     for (var j = 0; j < recentes.length; j++) {
-      var tk = recentes[j].ticker || 'Outros';
+      var tk = (recentes[j].ticker || 'Outros').toUpperCase();
       var val = recentes[j].valor_total || 0;
       if (!porTicker[tk]) porTicker[tk] = 0;
       porTicker[tk] += val;
@@ -88,10 +88,24 @@ function computeIncomeXray(userId, opts) {
     }
     var mediaGeral = mesesComDados > 0 ? totalSazon / mesesComDados : 0;
 
-    // Meses fracos (< 60% da media)
+    // Mediana dos meses com dados (robusta contra outliers como JCP dezembro)
+    var mediasOrdenadas = [];
+    for (var mo = 0; mo < 12; mo++) {
+      if (sazonalidade[mo].ocorrencias > 0) mediasOrdenadas.push(sazonalidade[mo].media);
+    }
+    mediasOrdenadas.sort(function(a, b) { return a - b; });
+    var medianaGeral = 0;
+    if (mediasOrdenadas.length > 0) {
+      var midIdx = Math.floor(mediasOrdenadas.length / 2);
+      medianaGeral = mediasOrdenadas.length % 2 === 1
+        ? mediasOrdenadas[midIdx]
+        : (mediasOrdenadas[midIdx - 1] + mediasOrdenadas[midIdx]) / 2;
+    }
+
+    // Meses fracos (< 60% da mediana)
     var mesesFracos = [];
     for (var mf = 0; mf < 12; mf++) {
-      if (sazonalidade[mf].media < mediaGeral * 0.6 && mediaGeral > 0) {
+      if (sazonalidade[mf].media < medianaGeral * 0.6 && medianaGeral > 0) {
         mesesFracos.push(MESES[mf]);
       }
     }
@@ -135,7 +149,7 @@ function computeIncomeXray(userId, opts) {
     for (var pts = 0; pts < proventos.length; pts++) {
       var ptsd = new Date(proventos[pts].data_pagamento);
       if (ptsd < limite24m) continue;
-      var ptsTk = proventos[pts].ticker || 'Outros';
+      var ptsTk = (proventos[pts].ticker || 'Outros').toUpperCase();
       var ptsRecente = ptsd >= limite12m;
       if (!porTickerSem[ptsTk]) porTickerSem[ptsTk] = { recente: 0, anterior: 0 };
       if (ptsRecente) {
@@ -151,7 +165,8 @@ function computeIncomeXray(userId, opts) {
       if (tcData && tcData.anterior > 0 && tcData.recente > 0) {
         concentracao[tc].tendencia = ((tcData.recente / tcData.anterior) - 1) * 100;
       } else if (tcData && tcData.recente > 0 && tcData.anterior === 0) {
-        concentracao[tc].tendencia = 100; // novo pagador
+        concentracao[tc].tendencia = null;
+        concentracao[tc].novoTicker = true;
       } else {
         concentracao[tc].tendencia = null;
       }
@@ -216,7 +231,7 @@ function computeIncomeXray(userId, opts) {
     // Meses fortes (> 130% da media)
     var mesesFortes = [];
     for (var mfo = 0; mfo < 12; mfo++) {
-      if (sazonalidade[mfo].media > mediaGeral * 1.3 && mediaGeral > 0) {
+      if (sazonalidade[mfo].media > medianaGeral * 1.3 && medianaGeral > 0) {
         mesesFortes.push(MESES[mfo]);
       }
     }
@@ -232,6 +247,7 @@ function computeIncomeXray(userId, opts) {
     return {
       total12m: total12m,
       mediaMensal: total12m / 12,
+      medianaGeral: medianaGeral,
       concentracao: concentracao,
       top3Pct: top3Pct,
       sazonalidade: sazonalidade,
@@ -272,6 +288,7 @@ function computeIncomeXray(userId, opts) {
               dyIdeal: sMinDy,
               renda12m: sRenda12m,
               deficit: (sMinDy - sDy) * sValor / 100 / 12,
+              semDados: sRenda12m === 0,
             });
           }
         }
@@ -680,16 +697,63 @@ function computeSnowballEffect(userId, opts) {
 }
 
 // ══════════ 5. PILOTO AUTOMATICO ══════════
-// Dado o valor dos dividendos recebidos, sugerir alocacao otima de reinvestimento.
-// So sugere tickers reais com score de renda > 0 e DY razoavel.
-function computeReinvestmentPlan(dividendosMes, positions, scoreByTicker, gaps) {
+// Plano de reinvestimento inteligente: considera score, DY, concentracao, risco de corte,
+// meses fracos da sazonalidade, e gera razoes especificas por ticker.
+function computeReinvestmentPlan(dividendosMes, positions, scoreByTicker, gaps, proventos) {
   if (!dividendosMes || dividendosMes <= 0) return null;
   if (!positions || positions.length === 0) return null;
 
-  var sugestoes = [];
-  var restante = dividendosMes;
+  // ── Calcular valor total da carteira pra medir concentracao ──
+  var valorTotalCarteira = 0;
+  for (var vi = 0; vi < positions.length; vi++) {
+    if ((positions[vi].quantidade || 0) <= 0) continue;
+    valorTotalCarteira += (positions[vi].preco_atual || positions[vi].pm || 0) * positions[vi].quantidade;
+  }
 
-  // Montar candidatos: tickers com bom score e DY calculavel
+  // ── Descobrir meses fracos da sazonalidade (usando proventos) ──
+  var mesesFracos = {};
+  if (proventos && proventos.length > 0) {
+    var mesSoma = [0,0,0,0,0,0,0,0,0,0,0,0];
+    var mesCount = [0,0,0,0,0,0,0,0,0,0,0,0];
+    for (var si = 0; si < proventos.length; si++) {
+      var sd = new Date(proventos[si].data_pagamento);
+      if (sd && !isNaN(sd.getTime())) {
+        var mIdx = sd.getMonth();
+        mesSoma[mIdx] += proventos[si].valor_total || 0;
+        mesCount[mIdx]++;
+      }
+    }
+    var mediasS = [];
+    for (var ms = 0; ms < 12; ms++) {
+      mediasS.push(mesCount[ms] > 0 ? mesSoma[ms] / mesCount[ms] : 0);
+    }
+    var mediasOrdenadas = mediasS.filter(function(v) { return v > 0; }).sort(function(a, b) { return a - b; });
+    var mediana = 0;
+    if (mediasOrdenadas.length > 0) {
+      var mid = Math.floor(mediasOrdenadas.length / 2);
+      mediana = mediasOrdenadas.length % 2 === 1 ? mediasOrdenadas[mid] : (mediasOrdenadas[mid - 1] + mediasOrdenadas[mid]) / 2;
+    }
+    for (var mf = 0; mf < 12; mf++) {
+      if (mediasS[mf] < mediana * 0.6 && mediana > 0) mesesFracos[mf] = true;
+    }
+  }
+
+  // ── Descobrir em quais meses cada ticker paga (ultimos 24m) ──
+  var tickerMeses = {};
+  if (proventos && proventos.length > 0) {
+    var now24 = new Date();
+    var cutoff24 = new Date(now24.getFullYear() - 2, now24.getMonth(), 1);
+    for (var tm = 0; tm < proventos.length; tm++) {
+      var tmd = new Date(proventos[tm].data_pagamento);
+      if (!tmd || isNaN(tmd.getTime()) || tmd < cutoff24) continue;
+      var tmTk = (proventos[tm].ticker || '').toUpperCase();
+      if (!tmTk) continue;
+      if (!tickerMeses[tmTk]) tickerMeses[tmTk] = {};
+      tickerMeses[tmTk][tmd.getMonth()] = true;
+    }
+  }
+
+  // ── Montar candidatos ──
   var candidatos = [];
   for (var i = 0; i < positions.length; i++) {
     var pos = positions[i];
@@ -697,82 +761,228 @@ function computeReinvestmentPlan(dividendosMes, positions, scoreByTicker, gaps) 
     if (pos.categoria === 'rf') continue;
 
     var score = scoreByTicker && scoreByTicker[pos.ticker] ? scoreByTicker[pos.ticker] : null;
-    if (!score || score.score < 30) continue; // Ignorar tickers com score ruim
+    if (!score || score.score < 30) continue;
 
     var preco = pos.preco_atual || pos.pm || 0;
     if (preco <= 0) continue;
 
-    // DY = renda 12m / valor de mercado atual (preco_atual * qty)
     var valorMercado = preco * (pos.quantidade || 1);
     var dy = valorMercado > 0 && score.sum12m ? (score.sum12m / valorMercado) * 100 : 0;
 
-    // Sanity check: DY fora da faixa razoavel por categoria
     var maxDy = pos.categoria === 'fii' ? 18 : 12;
     if (dy > maxDy) dy = 0;
+
+    // Concentracao atual do ticker na carteira
+    var pctCarteira = valorTotalCarteira > 0 ? (valorMercado / valorTotalCarteira) * 100 : 0;
+
+    // Detectar risco de corte (sinais do score)
+    var riscoCorte = false;
+    var sinaisRisco = [];
+    if (score.tendencia < 30) { riscoCorte = true; sinaisRisco.push('tendencia de queda'); }
+    if (score.regularidade < 50) { riscoCorte = true; sinaisRisco.push('pagamento irregular'); }
+    if (score.growth12m < -30) { riscoCorte = true; sinaisRisco.push('renda caiu ' + Math.abs(Math.round(score.growth12m)) + '%'); }
+
+    // Meses em que esse ticker paga
+    var mesesPaga = tickerMeses[pos.ticker.toUpperCase()] || {};
+    var pagaEmMesFraco = false;
+    var mesesFracosKeys = Object.keys(mesesFracos);
+    for (var mfk = 0; mfk < mesesFracosKeys.length; mfk++) {
+      if (mesesPaga[parseInt(mesesFracosKeys[mfk])]) { pagaEmMesFraco = true; break; }
+    }
 
     candidatos.push({
       ticker: pos.ticker,
       preco: preco,
       score: score.score,
       regularidade: score.regularidade || 0,
+      consistencia: score.consistencia || 0,
       categoria: pos.categoria,
       dy: dy,
+      pctCarteira: pctCarteira,
+      riscoCorte: riscoCorte,
+      sinaisRisco: sinaisRisco,
+      pagaEmMesFraco: pagaEmMesFraco,
+      mesesPaga: mesesPaga,
+      growth12m: score.growth12m || 0,
     });
   }
 
   if (candidatos.length === 0) return null;
 
-  // Ordenar: score alto + regularidade alta + DY razoavel
-  candidatos.sort(function(a, b) {
-    var scoreA = a.score * 0.4 + a.regularidade * 0.3 + Math.min(15, a.dy) * 2;
-    var scoreB = b.score * 0.4 + b.regularidade * 0.3 + Math.min(15, b.dy) * 2;
-    return scoreB - scoreA;
-  });
+  // ── Analisar gaps pra ajustar scoring ──
+  var temGapCaixa = false;
+  var categoriasComGap = {};
+  if (gaps && gaps.length > 0) {
+    for (var gi = 0; gi < gaps.length; gi++) {
+      if (gaps[gi].tipo === 'caixa_ociosa') temGapCaixa = true;
+    }
+  }
+  // Detectar deficit de FII vs acoes na carteira (proporcao simples)
+  var totalFii = 0;
+  var totalAcao = 0;
+  for (var di = 0; di < positions.length; di++) {
+    if ((positions[di].quantidade || 0) <= 0) continue;
+    var dVal = (positions[di].preco_atual || positions[di].pm || 0) * positions[di].quantidade;
+    if (positions[di].categoria === 'fii') totalFii += dVal;
+    else if (positions[di].categoria !== 'rf') totalAcao += dVal;
+  }
+  var totalEquity = totalFii + totalAcao;
+  var pctFii = totalEquity > 0 ? totalFii / totalEquity * 100 : 50;
+  var fiiAbaixoIdeal = pctFii < 35; // ideal ~40% FII pra renda
 
-  // Alocar nos top 3 candidatos
-  var topN = Math.min(3, candidatos.length);
-  for (var t = 0; t < topN; t++) {
+  // ── Scoring composto com penalizacoes ──
+  for (var ci = 0; ci < candidatos.length; ci++) {
+    var c = candidatos[ci];
+    var scoreComposto = c.score * 0.35 + c.regularidade * 0.25 + Math.min(15, c.dy) * 2;
+    // Bonus: paga em mes fraco da carteira
+    if (c.pagaEmMesFraco) scoreComposto += 10;
+    // Bonus: DY acima de 6% (gerador de renda forte)
+    if (c.dy >= 6) scoreComposto += 5;
+    // Bonus: FII quando carteira tem deficit de FII
+    if (fiiAbaixoIdeal && c.categoria === 'fii') {
+      scoreComposto += 12;
+      c.reequilibra = true;
+    }
+    // Bonus: caixa ociosa → priorizar DY imediato
+    if (temGapCaixa && c.dy >= 8) scoreComposto += 5;
+    // Penalizacao: concentracao alta (>20% da carteira)
+    if (c.pctCarteira > 20) scoreComposto -= 15;
+    if (c.pctCarteira > 30) scoreComposto -= 15;
+    // Penalizacao: risco de corte
+    if (c.riscoCorte) scoreComposto -= 20;
+    // Penalizacao: renda caindo
+    if (c.growth12m < -15) scoreComposto -= 10;
+    c.scoreComposto = scoreComposto;
+  }
+
+  candidatos.sort(function(a, b) { return b.scoreComposto - a.scoreComposto; });
+
+  // ── Alocacao proporcional ao score (nao fixa 50/30/20) ──
+  var topN = Math.min(5, candidatos.length);
+  var topCandidatos = candidatos.slice(0, topN);
+  // Filtrar candidatos com risco de corte dos top (mas manter pra mostrar aviso)
+  var candidatosSeguros = [];
+  var candidatosRisco = [];
+  for (var fi = 0; fi < topCandidatos.length; fi++) {
+    if (topCandidatos[fi].riscoCorte) {
+      candidatosRisco.push(topCandidatos[fi]);
+    } else {
+      candidatosSeguros.push(topCandidatos[fi]);
+    }
+  }
+  // Usar seguros pra alocacao, limitar a 5
+  var paraAlocar = candidatosSeguros.slice(0, 5);
+  if (paraAlocar.length === 0) paraAlocar = topCandidatos.slice(0, 3); // fallback
+
+  var somaScores = 0;
+  for (var ss = 0; ss < paraAlocar.length; ss++) {
+    somaScores += Math.max(1, paraAlocar[ss].scoreComposto);
+  }
+
+  var sugestoes = [];
+  var restante = dividendosMes;
+  for (var t = 0; t < paraAlocar.length; t++) {
     if (restante <= 30) break;
-    var cand = candidatos[t];
-    var alocPct = t === 0 ? 0.5 : t === 1 ? 0.3 : 0.2;
+    var cand = paraAlocar[t];
+    var alocPct = somaScores > 0 ? Math.max(1, cand.scoreComposto) / somaScores : 1 / paraAlocar.length;
     var alocValor = Math.min(restante, dividendosMes * alocPct);
     var qtdCotas = Math.floor(alocValor / cand.preco);
     if (qtdCotas <= 0) continue;
     var valorReal = qtdCotas * cand.preco;
 
-    var motivo = 'Score ' + cand.score.toFixed(0) + '/100';
-    if (cand.regularidade >= 80) motivo = motivo + ', paga regularmente';
-    if (cand.dy > 0) motivo = motivo + ', DY ' + cand.dy.toFixed(1) + '%';
+    // ── Razoes especificas ──
+    var razoes = [];
+    if (cand.dy >= 8) { razoes.push('DY ' + cand.dy.toFixed(1) + '% — gerador forte'); }
+    else if (cand.dy >= 5) { razoes.push('DY ' + cand.dy.toFixed(1) + '% — bom rendimento'); }
+    else if (cand.dy > 0) { razoes.push('DY ' + cand.dy.toFixed(1) + '%'); }
+    if (cand.regularidade >= 90) { razoes.push('Paga todo mes'); }
+    else if (cand.regularidade >= 70) { razoes.push('Pagador regular'); }
+    if (cand.pagaEmMesFraco) { razoes.push('Cobre meses fracos'); }
+    if (cand.growth12m > 10) { razoes.push('Renda crescendo ' + Math.round(cand.growth12m) + '%'); }
+    if (cand.consistencia >= 80) { razoes.push('Pagamentos consistentes'); }
+    if (cand.pctCarteira < 5) { razoes.push('Diversifica a carteira'); }
+    if (cand.reequilibra) { razoes.push('Reequilibra FIIs (abaixo do ideal)'); }
+    if (razoes.length === 0) { razoes.push('Score ' + Math.round(cand.score) + '/100'); }
+
     sugestoes.push({
       tipo: 'reinvestir',
       ticker: cand.ticker,
       qtdCotas: qtdCotas,
       precoUnitario: cand.preco,
       valor: valorReal,
+      pctAlocacao: Math.round(alocPct * 100),
       score: cand.score,
       regularidade: cand.regularidade,
       dy: cand.dy,
-      motivo: motivo,
+      categoria: cand.categoria,
+      razoes: razoes,
+      riscoCorte: cand.riscoCorte,
+      sinaisRisco: cand.sinaisRisco,
+      pctCarteira: cand.pctCarteira,
+      growth12m: cand.growth12m,
     });
     restante -= valorReal;
   }
 
-  // Calcular renda adicional estimada
-  // Se investir X, e o yield medio da carteira eh Y% a.a., renda mensal = X * Y / 12
+  // ── Projecao 12 meses: renda com vs sem reinvestimento ──
   var totalAlocado = dividendosMes - restante;
-  // Usar yield medio dos candidatos sugeridos (nao assumir 10% fixo)
   var yieldMedio = 0;
   var yieldCount = 0;
   for (var yi = 0; yi < sugestoes.length; yi++) {
     if (sugestoes[yi].dy > 0) { yieldMedio += sugestoes[yi].dy; yieldCount++; }
   }
   yieldMedio = yieldCount > 0 ? yieldMedio / yieldCount : 8;
-  var rendaAdicionalMes = totalAlocado * yieldMedio / 100 / 12;
-  // Em 12 meses de reinvestimento mensal: soma geometrica
-  // Cada mes reinveste dividendosMes, que gera yield. Total = sum(i=1..12) dividendosMes * yield/12 * (12-i)/12
-  var rendaAdicional12m = 0;
+
+  var projecao12m = [];
+  var rendaAcumulada = 0;
+  var rendaSemReinv = dividendosMes;
   for (var ri = 0; ri < 12; ri++) {
-    rendaAdicional12m += dividendosMes * yieldMedio / 100 / 12 * (12 - ri) / 12;
+    var rendaDoMes = dividendosMes * (ri + 1) * yieldMedio / 100 / 12;
+    rendaAcumulada += rendaDoMes;
+    projecao12m.push({
+      mes: ri + 1,
+      semReinvestir: rendaSemReinv,
+      comReinvestir: rendaSemReinv + rendaDoMes,
+      adicional: rendaDoMes,
+    });
+  }
+
+  var rendaAdicionalMes = totalAlocado * yieldMedio / 100 / 12;
+  var rendaAdicional12m = rendaAcumulada;
+
+  // ── Impacto na carteira ──
+  var novoValorTotal = valorTotalCarteira + totalAlocado;
+  var concentracaoAntes = 0;
+  var concentracaoDepois = 0;
+  // Top 3 concentracao antes e depois
+  var posConc = [];
+  for (var pc = 0; pc < positions.length; pc++) {
+    if ((positions[pc].quantidade || 0) <= 0) continue;
+    var pcVal = (positions[pc].preco_atual || positions[pc].pm || 0) * positions[pc].quantidade;
+    posConc.push({ ticker: positions[pc].ticker, valor: pcVal });
+  }
+  posConc.sort(function(a, b) { return b.valor - a.valor; });
+  for (var pc3 = 0; pc3 < Math.min(3, posConc.length); pc3++) {
+    concentracaoAntes += valorTotalCarteira > 0 ? posConc[pc3].valor / valorTotalCarteira * 100 : 0;
+  }
+  // Depois: adicionar valor alocado aos tickers sugeridos
+  var posMapDepois = {};
+  for (var pmd = 0; pmd < posConc.length; pmd++) {
+    posMapDepois[posConc[pmd].ticker] = posConc[pmd].valor;
+  }
+  for (var sug = 0; sug < sugestoes.length; sug++) {
+    var sugTk = sugestoes[sug].ticker;
+    if (!posMapDepois[sugTk]) posMapDepois[sugTk] = 0;
+    posMapDepois[sugTk] += sugestoes[sug].valor;
+  }
+  var posDepois = [];
+  var pdKeys = Object.keys(posMapDepois);
+  for (var pd = 0; pd < pdKeys.length; pd++) {
+    posDepois.push({ ticker: pdKeys[pd], valor: posMapDepois[pdKeys[pd]] });
+  }
+  posDepois.sort(function(a, b) { return b.valor - a.valor; });
+  for (var pd3 = 0; pd3 < Math.min(3, posDepois.length); pd3++) {
+    concentracaoDepois += novoValorTotal > 0 ? posDepois[pd3].valor / novoValorTotal * 100 : 0;
   }
 
   return {
@@ -782,6 +992,12 @@ function computeReinvestmentPlan(dividendosMes, positions, scoreByTicker, gaps) 
     restante: restante,
     rendaAdicionalMes: rendaAdicionalMes,
     rendaAdicional12m: rendaAdicional12m,
+    yieldMedio: yieldMedio,
+    projecao12m: projecao12m,
+    concentracaoAntes: concentracaoAntes,
+    concentracaoDepois: concentracaoDepois,
+    candidatosRisco: candidatosRisco,
+    totalCandidatos: candidatos.length,
   };
 }
 

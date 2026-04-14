@@ -9,8 +9,13 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getSaldos, addMovimentacaoComSaldo, buildMovDescricao, getOrcamentos, getFinancasSummary, getCartoes, addMovimentacaoCartao } from '../../services/database';
 import { getSymbol, fetchExchangeRates } from '../../services/currencyService';
 import { Glass, Pill, Badge, SectionLabel, CurrencyPicker } from '../../components';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { animateLayout } from '../../utils/a11y';
 import * as Haptics from 'expo-haptics';
 import Toast from 'react-native-toast-message';
+import widgetBridge from '../../services/widgetBridge';
+import * as databaseModule from '../../services/database';
+import * as currencyServiceModule from '../../services/currencyService';
 var finCats = require('../../constants/financeCategories');
 
 function fmt(v) {
@@ -75,6 +80,10 @@ export default function AddMovimentacaoScreen(props) {
   var _taxaCambio = useState(''); var taxaCambio = _taxaCambio[0]; var setTaxaCambio = _taxaCambio[1];
   var _showCurrencyPicker = useState(false); var showCurrencyPicker = _showCurrencyPicker[0]; var setShowCurrencyPicker = _showCurrencyPicker[1];
   var _cartaoMoeda = useState('BRL'); var cartaoMoeda = _cartaoMoeda[0]; var setCartaoMoeda = _cartaoMoeda[1];
+  var _parcelas = useState(1); var parcelas = _parcelas[0]; var setParcelas = _parcelas[1];
+
+  // Detalhes extras colapsável — abrir auto se preenchido via params
+  var _showDetails = useState(false); var showDetails = _showDetails[0]; var setShowDetails = _showDetails[1];
 
   var presetCartaoId = route && route.params && route.params.presetCartaoId;
   var presetPayMethod = route && route.params && route.params.presetPayMethod;
@@ -98,6 +107,8 @@ export default function AddMovimentacaoScreen(props) {
               break;
             }
           }
+        } else if (presetPayMethod === 'pix') {
+          setPayMethod('pix');
         } else if (presetPayMethod === 'cartao' && res.data.length > 0) {
           setPayMethod('cartao');
           var first = res.data[0];
@@ -129,7 +140,7 @@ export default function AddMovimentacaoScreen(props) {
   var valorNum = parseVal();
   var canSubmitConta = conta && valorNum > 0 && isoDate;
   var canSubmitCartao = cartaoId && isoDate && (valorNum > 0 || (moedaOriginal && moedaOriginal !== cartaoMoeda && parseBR(valorOriginal) > 0 && parseFloat(taxaCambio) > 0));
-  var canSubmit = (payMethod === 'cartao') ? canSubmitCartao : canSubmitConta;
+  var canSubmit = (payMethod === 'cartao') ? canSubmitCartao : canSubmitConta; // PIX uses same check as Conta
 
   var valorValid = valorNum > 0;
   var valorError = valor.length > 0 && valorNum <= 0;
@@ -282,6 +293,8 @@ export default function AddMovimentacaoScreen(props) {
           data: isoDate,
           ticker: ticker ? ticker.toUpperCase().trim() : null,
           cartao_id: cartaoId,
+          meio_pagamento: 'credito',
+          parcelas: parcelas > 1 ? parcelas : 1,
         };
         if (moedaOriginal && moedaOriginal !== cartaoMoeda) {
           movCartao.moeda_original = moedaOriginal;
@@ -294,7 +307,7 @@ export default function AddMovimentacaoScreen(props) {
         }
         result = await addMovimentacaoCartao(user.id, movCartao);
       } else {
-        // ── Existing conta-based flow ──
+        // ── Existing conta-based flow (conta ou PIX) ──
         var autoDesc = descricao || buildMovDescricao(categoria, ticker || null, null);
         var movPayload = {
           conta: conta,
@@ -305,6 +318,7 @@ export default function AddMovimentacaoScreen(props) {
           descricao: autoDesc,
           ticker: ticker ? ticker.toUpperCase().trim() : null,
           data: isoDate,
+          meio_pagamento: payMethod === 'pix' ? 'pix' : 'debito',
         };
         if (subcategoria) { movPayload.subcategoria = subcategoria; }
         result = await addMovimentacaoComSaldo(user.id, movPayload);
@@ -315,6 +329,9 @@ export default function AddMovimentacaoScreen(props) {
         setSubmitted(false);
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+        // Fire-and-forget: sync widget data
+        widgetBridge.updateWidgetFromContext(user.id, databaseModule, currencyServiceModule).catch(function() {});
 
         // Budget alert: check if expense group is near/over budget limit
         if (tipo === 'saida') {
@@ -335,13 +352,14 @@ export default function AddMovimentacaoScreen(props) {
               setContaId(null);
               setSubcategoria(null);
               setSubcatGrupo(null);
+              setParcelas(1);
               // Reset card fields
               setMoedaOriginal('');
               setValorOriginal('');
               setTaxaCambio('');
             },
           },
-          { text: 'Concluir', onPress: function() { navigation.goBack(); } },
+          { text: 'Concluir', onPress: function() { if (navigation.canGoBack()) { navigation.goBack(); } else { navigation.navigate('MainTabs'); } } },
         ]);
       }
     } catch (err) {
@@ -371,7 +389,7 @@ export default function AddMovimentacaoScreen(props) {
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
       <View style={styles.header}>
-        <TouchableOpacity onPress={function() { navigation.goBack(); }} accessibilityLabel="Voltar" accessibilityRole="button">
+        <TouchableOpacity onPress={function() { if (navigation.canGoBack()) { navigation.goBack(); } else { navigation.navigate('MainTabs'); } }} accessibilityLabel="Voltar" accessibilityRole="button">
           <Text style={styles.back}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Nova Movimentação</Text>
@@ -405,101 +423,140 @@ export default function AddMovimentacaoScreen(props) {
         })}
       </View>
 
-      {/* Subcategoria picker — saídas: despesa_fixa / despesa_variavel */}
-      {tipo === 'saida' && (categoria === 'despesa_fixa' || categoria === 'despesa_variavel') ? (
-        <View style={{ gap: 6 }}>
-          <Text style={styles.label}>SUBCATEGORIA</Text>
-          <View style={styles.pillRow}>
+      {/* Subcategoria picker — saídas: despesa_fixa / despesa_variavel / outro */}
+      {tipo === 'saida' && (categoria === 'despesa_fixa' || categoria === 'despesa_variavel' || categoria === 'outro') ? (
+        <View style={{ gap: 8 }}>
+          <Text style={styles.label}>ONDE GASTOU?</Text>
+          {/* Grid de grupos com ícone */}
+          <View style={styles.grupoGrid}>
             {SUBCATS_SAIDA.map(function(grp) {
               var grpMeta = null;
               for (var gi = 0; gi < FINANCE_GROUPS.length; gi++) {
                 if (FINANCE_GROUPS[gi].k === grp.grupo) { grpMeta = FINANCE_GROUPS[gi]; break; }
               }
+              var isActive = subcatGrupo === grp.grupo;
+              var gColor = grpMeta ? grpMeta.color : C.dim;
+              var gIcon = grpMeta ? grpMeta.icon : 'ellipse-outline';
+              var gLabel = grpMeta ? grpMeta.l : grp.grupo;
               return (
-                <Pill key={grp.grupo} active={subcatGrupo === grp.grupo}
-                  color={grpMeta ? grpMeta.color : C.dim}
+                <TouchableOpacity key={grp.grupo} activeOpacity={0.7}
                   onPress={function() {
                     var g = grp.grupo;
                     if (subcatGrupo === g) { setSubcatGrupo(null); setSubcategoria(null); }
                     else { setSubcatGrupo(g); setSubcategoria(null); }
-                  }}>
-                  {grpMeta ? grpMeta.l : grp.grupo}
-                </Pill>
+                  }}
+                  style={[styles.grupoCard, isActive && { borderColor: gColor + '80', backgroundColor: gColor + '14' }]}>
+                  <View style={[styles.grupoIconWrap, { backgroundColor: gColor + (isActive ? '28' : '14') }]}>
+                    <Ionicons name={gIcon} size={16} color={isActive ? gColor : C.dim} />
+                  </View>
+                  <Text style={[styles.grupoLabel, isActive && { color: gColor }]} numberOfLines={1}>{gLabel}</Text>
+                </TouchableOpacity>
               );
             })}
           </View>
+          {/* Subcategorias do grupo selecionado */}
           {subcatGrupo ? (
-            <View style={styles.pillRow}>
+            <Glass padding={12} style={{ marginTop: 2 }}>
               {(function() {
+                var grpMeta2 = null;
+                for (var gi2 = 0; gi2 < FINANCE_GROUPS.length; gi2++) {
+                  if (FINANCE_GROUPS[gi2].k === subcatGrupo) { grpMeta2 = FINANCE_GROUPS[gi2]; break; }
+                }
+                var gColor2 = grpMeta2 ? grpMeta2.color : C.dim;
+                var gLabel2 = grpMeta2 ? grpMeta2.l : subcatGrupo;
                 var items = [];
                 for (var si = 0; si < SUBCATS_SAIDA.length; si++) {
                   if (SUBCATS_SAIDA[si].grupo === subcatGrupo) { items = SUBCATS_SAIDA[si].items; break; }
                 }
-                return items.map(function(sc) {
-                  var grpMeta2 = null;
-                  for (var gi2 = 0; gi2 < FINANCE_GROUPS.length; gi2++) {
-                    if (FINANCE_GROUPS[gi2].k === subcatGrupo) { grpMeta2 = FINANCE_GROUPS[gi2]; break; }
-                  }
-                  return (
-                    <Pill key={sc.k} active={subcategoria === sc.k}
-                      color={grpMeta2 ? grpMeta2.color : C.dim}
-                      onPress={function() { setSubcategoria(sc.k); }}>
-                      {sc.l}
-                    </Pill>
-                  );
-                });
+                return (
+                  <View style={{ gap: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name={grpMeta2 ? grpMeta2.icon : 'ellipse-outline'} size={14} color={gColor2} />
+                      <Text style={{ fontSize: 11, fontFamily: F.mono, color: gColor2, fontWeight: '600', letterSpacing: 0.5 }}>{gLabel2.toUpperCase()}</Text>
+                    </View>
+                    <View style={styles.pillRow}>
+                      {items.map(function(sc) {
+                        return (
+                          <Pill key={sc.k} active={subcategoria === sc.k}
+                            color={gColor2}
+                            onPress={function() { setSubcategoria(sc.k); }}>
+                            {sc.l}
+                          </Pill>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
               })()}
-            </View>
+            </Glass>
           ) : null}
         </View>
       ) : null}
 
-      {/* Subcategoria picker — entradas: salario / outro */}
-      {tipo === 'entrada' && (categoria === 'salario' || categoria === 'outro') ? (
-        <View style={{ gap: 6 }}>
-          <Text style={styles.label}>SUBCATEGORIA</Text>
-          <View style={styles.pillRow}>
-            {SUBCATS_ENTRADA.map(function(grp) {
-              var grpMeta3 = null;
-              for (var gi3 = 0; gi3 < FINANCE_GROUPS.length; gi3++) {
-                if (FINANCE_GROUPS[gi3].k === grp.grupo) { grpMeta3 = FINANCE_GROUPS[gi3]; break; }
-              }
-              return grp.items.map(function(sc) {
-                return (
-                  <Pill key={sc.k} active={subcategoria === sc.k}
-                    color={grpMeta3 ? grpMeta3.color : C.dim}
-                    onPress={function() { setSubcategoria(sc.k); }}>
-                    {sc.l}
-                  </Pill>
-                );
-              });
-            })}
-          </View>
+      {/* Subcategoria picker — entradas: salario / deposito / outro */}
+      {tipo === 'entrada' && (categoria === 'salario' || categoria === 'deposito' || categoria === 'outro') ? (
+        <View style={{ gap: 8 }}>
+          <Text style={styles.label}>TIPO DE RENDA</Text>
+          {SUBCATS_ENTRADA.map(function(grp) {
+            var grpMeta3 = null;
+            for (var gi3 = 0; gi3 < FINANCE_GROUPS.length; gi3++) {
+              if (FINANCE_GROUPS[gi3].k === grp.grupo) { grpMeta3 = FINANCE_GROUPS[gi3]; break; }
+            }
+            var gColor3 = grpMeta3 ? grpMeta3.color : C.dim;
+            var gIcon3 = grpMeta3 ? grpMeta3.icon : 'ellipse-outline';
+            var gLabel3 = grpMeta3 ? grpMeta3.l : grp.grupo;
+            return (
+              <Glass key={grp.grupo} padding={12}>
+                <View style={{ gap: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name={gIcon3} size={14} color={gColor3} />
+                    <Text style={{ fontSize: 11, fontFamily: F.mono, color: gColor3, fontWeight: '600', letterSpacing: 0.5 }}>{gLabel3.toUpperCase()}</Text>
+                  </View>
+                  <View style={styles.pillRow}>
+                    {grp.items.map(function(sc) {
+                      return (
+                        <Pill key={sc.k} active={subcategoria === sc.k}
+                          color={gColor3}
+                          onPress={function() { setSubcategoria(sc.k); }}>
+                          {sc.l}
+                        </Pill>
+                      );
+                    })}
+                  </View>
+                </View>
+              </Glass>
+            );
+          })}
         </View>
       ) : null}
 
       {/* Payment method toggle (only for saída) */}
-      {tipo === 'saida' && cartoes.length > 0 ? (
+      {tipo === 'saida' ? (
         <View>
           <Text style={styles.label}>MÉTODO DE PAGAMENTO</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
             <Pill active={payMethod === 'conta'} onPress={function() { setPayMethod('conta'); setCartaoId(null); setCartaoLabel(''); setMoedaOriginal(''); setValorOriginal(''); setTaxaCambio(''); }} color={C.accent}>
-              Conta
+              Débito
             </Pill>
-            <Pill active={payMethod === 'cartao'} onPress={function() {
-              setPayMethod('cartao');
-              if (cartoes.length === 1) {
-                var c = cartoes[0];
-                var lbl = (c.apelido || c.bandeira.toUpperCase()) + ' ••' + c.ultimos_digitos;
-                setCartaoId(c.id);
-                setCartaoLabel(lbl);
-                setCartaoMoeda(c.moeda || 'BRL');
-              } else if (cartoes.length > 1) {
-                Toast.show({ type: 'info', text1: 'Selecione um cartão', text2: 'Escolha o cartão para esta movimentação', visibilityTime: 3000 });
-              }
-            }} color={C.accent}>
-              Cartão
+            <Pill active={payMethod === 'pix'} onPress={function() { setPayMethod('pix'); setCartaoId(null); setCartaoLabel(''); setMoedaOriginal(''); setValorOriginal(''); setTaxaCambio(''); }} color={C.green}>
+              PIX
             </Pill>
+            {cartoes.length > 0 ? (
+              <Pill active={payMethod === 'cartao'} onPress={function() {
+                setPayMethod('cartao');
+                if (cartoes.length === 1) {
+                  var c = cartoes[0];
+                  var lbl = (c.apelido || c.bandeira.toUpperCase()) + ' ••' + c.ultimos_digitos;
+                  setCartaoId(c.id);
+                  setCartaoLabel(lbl);
+                  setCartaoMoeda(c.moeda || 'BRL');
+                } else if (cartoes.length > 1) {
+                  Toast.show({ type: 'info', text1: 'Selecione um cartão', text2: 'Escolha o cartão para esta movimentação', visibilityTime: 3000 });
+                }
+              }} color={C.accent}>
+                Cartão
+              </Pill>
+            ) : null}
           </View>
         </View>
       ) : null}
@@ -593,8 +650,34 @@ export default function AddMovimentacaoScreen(props) {
         </View>
       ) : null}
 
-      {/* Conta (only when payMethod === 'conta') */}
-      {payMethod === 'conta' ? (
+      {/* Parcelas (when payMethod === 'cartao') */}
+      {payMethod === 'cartao' && cartaoId ? (
+        <View style={{ marginBottom: 12 }}>
+          <Text style={styles.label}>PARCELAS</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(function(n) {
+                  return (
+                    <Pill key={n} active={parcelas === n} color={C.accent}
+                      onPress={function() { setParcelas(n); }}>
+                      {n === 1 ? 'À vista' : n + 'x'}
+                    </Pill>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
+          {parcelas > 1 && valorNum > 0 ? (
+            <Text style={{ color: C.dim, fontSize: 11, fontFamily: F.mono, marginTop: 4 }}>
+              {parcelas + 'x de ' + getSymbol(effectiveMoeda) + ' ' + (valorNum / parcelas).toFixed(2) + ' (total ' + getSymbol(effectiveMoeda) + ' ' + valorNum.toFixed(2) + ')'}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Conta (when payMethod === 'conta' or 'pix') */}
+      {payMethod === 'conta' || payMethod === 'pix' ? (
         <View>
           <Text style={styles.label}>CONTA *</Text>
           {saldos.length > 0 ? (
@@ -636,30 +719,48 @@ export default function AddMovimentacaoScreen(props) {
         />
       </View>
 
-      {/* Ticker (conditional) */}
-      {showTicker ? (
+      {/* ── Toggle Mais Detalhes (ticker + descrição) ── */}
+      {showTicker || !showDetails ? (
+        <TouchableOpacity
+          onPress={function() { animateLayout(); setShowDetails(!showDetails); }}
+          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, marginTop: 2 }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name={showDetails ? 'chevron-up' : 'chevron-down'} size={16} color={C.accent} />
+          <Text style={{ fontSize: 13, color: C.accent, fontFamily: F.body, marginLeft: 6 }}>
+            {showDetails ? 'Menos detalhes' : 'Mais detalhes'}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {showDetails ? (
         <View>
-          <Text style={styles.label}>TICKER</Text>
+          {/* Ticker (conditional) */}
+          {showTicker ? (
+            <View>
+              <Text style={styles.label}>TICKER</Text>
+              <TextInput
+                value={ticker}
+                onChangeText={function(t) { setTicker(t.toUpperCase()); }}
+                placeholder="Ex: PETR4"
+                placeholderTextColor={C.dim}
+                autoCapitalize="characters"
+                style={styles.input}
+              />
+            </View>
+          ) : null}
+
+          {/* Descrição */}
+          <Text style={styles.label}>DESCRIÇÃO</Text>
           <TextInput
-            value={ticker}
-            onChangeText={function(t) { setTicker(t.toUpperCase()); }}
-            placeholder="Ex: PETR4"
+            value={descricao}
+            onChangeText={setDescricao}
+            placeholder="Descrição opcional"
             placeholderTextColor={C.dim}
-            autoCapitalize="characters"
             style={styles.input}
           />
         </View>
       ) : null}
-
-      {/* Descrição */}
-      <Text style={styles.label}>DESCRIÇÃO</Text>
-      <TextInput
-        value={descricao}
-        onChangeText={setDescricao}
-        placeholder="Descrição opcional"
-        placeholderTextColor={C.dim}
-        style={styles.input}
-      />
 
       {/* Data */}
       <Text style={styles.label}>DATA *</Text>
@@ -688,7 +789,7 @@ export default function AddMovimentacaoScreen(props) {
             </Text>
           </View>
           <View style={styles.resumoRow}>
-            <Text style={styles.resumoLabel}>{payMethod === 'cartao' ? 'CARTÃO' : 'CONTA'}</Text>
+            <Text style={styles.resumoLabel}>{payMethod === 'cartao' ? 'CARTÃO' : payMethod === 'pix' ? 'PIX' : 'DÉBITO'}</Text>
             <Text style={styles.resumoSmall}>{payMethod === 'cartao' ? (cartaoLabel || '—') : (conta || '—')}</Text>
           </View>
           {moedaOriginal && moedaOriginal !== cartaoMoeda && parseBR(valorOriginal) > 0 ? (
@@ -745,6 +846,19 @@ var styles = StyleSheet.create({
   toggleRow: { flexDirection: 'row', gap: 8 },
   toggleBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: 'center', backgroundColor: C.cardSolid },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  grupoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  grupoCard: {
+    width: '30%', flexGrow: 1, minWidth: 95, maxWidth: '32%',
+    paddingVertical: 10, paddingHorizontal: 8,
+    borderRadius: 10, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.cardSolid, alignItems: 'center', gap: 5,
+  },
+  grupoIconWrap: {
+    width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center',
+  },
+  grupoLabel: {
+    fontSize: 10, fontFamily: F.body, color: C.sub, fontWeight: '600', textAlign: 'center',
+  },
   resumoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 },
   resumoLabel: { fontSize: 11, color: C.dim, fontFamily: F.mono, letterSpacing: 0.5 },
   resumoValue: { fontSize: 18, fontWeight: '800', fontFamily: F.display },

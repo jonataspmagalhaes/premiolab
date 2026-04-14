@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { addProvento, incrementCorretora, getPositions } from '../../services/database';
+import { addProvento, incrementCorretora, getPositions, getPortfolios, addMovimentacaoComSaldo, getSaldos } from '../../services/database';
 import { Glass, Pill, Badge, TickerInput, CorretoraSelector } from '../../components';
 import { searchTickers } from '../../services/tickerSearchService';
 import * as Haptics from 'expo-haptics';
@@ -82,6 +83,13 @@ export default function AddProventoScreen(props) {
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
   var _tickers = useState([]); var tickers = _tickers[0]; var setTickers = _tickers[1];
+  var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfoliosState = _portfolios[1];
+  var _selPortfolioId = useState(null); var selPortfolioId = _selPortfolioId[0]; var setSelPortfolioId = _selPortfolioId[1];
+
+  useFocusEffect(useCallback(function() {
+    if (!user) return;
+    getPortfolios(user.id).then(function(res) { setPortfoliosState(res.data || []); }).catch(function() {});
+  }, [user]));
 
   useEffect(function() {
     if (!user) return;
@@ -96,7 +104,7 @@ export default function AddProventoScreen(props) {
   }, [user]);
 
   var valorNum = parseBR(valor);
-  var qtdNum = parseInt(qtd) || 0;
+  var qtdNum = parseFloat(qtd) || 0;
   var valorPorCota = qtdNum > 0 ? valorNum / qtdNum : 0;
 
   var canSubmit = ticker.length >= 4 && valorNum > 0 && isValidDate(data);
@@ -144,6 +152,7 @@ export default function AddProventoScreen(props) {
       if (corretora) {
         payload.corretora = corretora;
       }
+      if (selPortfolioId) payload.portfolio_id = selPortfolioId;
       var result = await addProvento(user.id, payload);
       if (result.error) {
         Alert.alert('Erro', result.error.message);
@@ -151,7 +160,8 @@ export default function AddProventoScreen(props) {
       } else {
         if (corretora) await incrementCorretora(user.id, corretora);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Sucesso!', 'Provento registrado.', [
+
+        var successButtons = [
           {
             text: 'Adicionar outro',
             onPress: function() {
@@ -163,7 +173,49 @@ export default function AddProventoScreen(props) {
             },
           },
           { text: 'Concluir', onPress: function() { navigation.goBack(); } },
-        ]);
+        ];
+
+        // Se tem corretora e data de pagamento eh hoje ou passada, perguntar se quer creditar
+        var isoDate2 = brToIso(data);
+        var todayIso = new Date().toISOString().substring(0, 10);
+        var dataPassed = isoDate2 && isoDate2 <= todayIso;
+        if (corretora && valorNum > 0 && dataPassed) {
+          var tipoDesc = tipo === 'jcp' ? 'JCP' : tipo === 'rendimento' ? 'Rendimento' : tipo === 'amortizacao' ? 'Amortizacao' : tipo === 'juros_rf' ? 'Juros RF' : 'Dividendo';
+          var movCat = tipo === 'jcp' ? 'jcp' : tipo === 'rendimento' ? 'rendimento_fii' : 'dividendo';
+          Alert.alert(
+            'Creditar na conta?',
+            'Deseja creditar R$ ' + fmt(valorNum) + ' na conta ' + corretora + '?',
+            [
+              {
+                text: 'Nao',
+                style: 'cancel',
+                onPress: function() {
+                  Alert.alert('Sucesso!', 'Provento registrado.', successButtons);
+                },
+              },
+              {
+                text: 'Sim, creditar',
+                onPress: function() {
+                  addMovimentacaoComSaldo(user.id, {
+                    conta: corretora,
+                    moeda: 'BRL',
+                    tipo: 'entrada',
+                    categoria: movCat,
+                    valor: valorNum,
+                    descricao: tipoDesc + ' ' + ticker.toUpperCase(),
+                    ticker: ticker.toUpperCase(),
+                    referencia_tipo: 'provento',
+                    data: brToIso(data) || new Date().toISOString().substring(0, 10),
+                    portfolio_id: selPortfolioId,
+                  }).catch(function(e) { console.warn('Mov provento failed:', e); });
+                  Alert.alert('Sucesso!', 'Provento + saldo creditado.', successButtons);
+                },
+              },
+            ]
+          );
+        } else {
+          Alert.alert('Sucesso!', 'Provento registrado.', successButtons);
+        }
       }
     } catch (err) {
       Alert.alert('Erro', 'Falha ao salvar. Tente novamente.');
@@ -270,6 +322,26 @@ export default function AddProventoScreen(props) {
 
       {/* Corretora */}
       <CorretoraSelector value={corretora} onSelect={function(name) { setCorretora(name); }} userId={user.id} mercado="BR" color={C.acoes} label="CORRETORA" />
+
+      {/* Portfolio — so exibe se usuario tem portfolios customizados */}
+      {portfolios.length > 0 ? (
+        <View>
+          <Text style={styles.label}>PORTFÓLIO</Text>
+          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+            <Pill active={!selPortfolioId} color={C.accent} onPress={function() { setSelPortfolioId(null); }}>Padrão</Pill>
+            {portfolios.map(function(pf) {
+              return (
+                <Pill key={pf.id} active={selPortfolioId === pf.id} color={pf.cor || C.accent} onPress={function() { setSelPortfolioId(pf.id); }}>
+                  {pf.nome}
+                </Pill>
+              );
+            })}
+            {portfolios.length < 4 ? (
+              <Pill active={false} color={C.dim} onPress={function() { navigation.navigate('ConfigPortfolios'); }}>+ Novo</Pill>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
 
       {/* Preview */}
       {canSubmit && (

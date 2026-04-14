@@ -6,12 +6,21 @@
   "build": {
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
       "ios": {
         "simulator": true
       }
     },
+    "testflight": {
+      "distribution": "store",
+      "channel": "production",
+      "ios": {
+        "buildConfiguration": "Release"
+      }
+    },
     "production": {
-      "distribution": "store"
+      "distribution": "store",
+      "channel": "production"
     }
   },
   "submit": {

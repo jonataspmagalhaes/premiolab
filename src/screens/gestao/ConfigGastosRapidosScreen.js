@@ -9,9 +9,12 @@ import Toast from 'react-native-toast-message';
 import * as Haptics from 'expo-haptics';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { getGastosRapidos, saveGastosRapidos, getCartoes } from '../../services/database';
+import { getGastosRapidos, saveGastosRapidos, getCartoes, getProfile, updateProfile } from '../../services/database';
 import { Glass, EmptyState, SwipeableRow, Badge } from '../../components';
 import { getSymbol } from '../../services/currencyService';
+import widgetBridge from '../../services/widgetBridge';
+import * as databaseModule from '../../services/database';
+import * as currencyServiceModule from '../../services/currencyService';
 var finCats = require('../../constants/financeCategories');
 
 function formatValor(num) {
@@ -32,19 +35,25 @@ export default function ConfigGastosRapidosScreen(props) {
   var _cartoes = useState([]); var cartoes = _cartoes[0]; var setCartoes = _cartoes[1];
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
   var _cartoesMap = useState({}); var cartoesMap = _cartoesMap[0]; var setCartoesMap = _cartoesMap[1];
+  var _cartaoPrincipal = useState(null); var cartaoPrincipal = _cartaoPrincipal[0]; var setCartaoPrincipal = _cartaoPrincipal[1];
 
   function loadData() {
     if (!user) return;
     var promises = [
       getGastosRapidos(user.id),
       getCartoes(user.id),
+      getProfile(user.id),
     ];
     Promise.all(promises).then(function(results) {
       var presetsResult = results[0];
       var cartoesResult = results[1];
+      var profileResult = results[2];
 
       setPresets(presetsResult.data || []);
       setCartoes(cartoesResult.data || []);
+      if (profileResult.data && profileResult.data.cartao_principal) {
+        setCartaoPrincipal(profileResult.data.cartao_principal);
+      }
 
       // Build cartoesMap: id → label string
       var map = {};
@@ -56,7 +65,7 @@ export default function ConfigGastosRapidosScreen(props) {
         } else {
           var bandeira = card.bandeira ? card.bandeira.toUpperCase() : 'CARTÃO';
           var digitos = card.ultimos_digitos || '****';
-          map[card.id] = bandeira + ' •' + digitos;
+          map[card.id] = bandeira + ' ••' + digitos;
         }
       }
       setCartoesMap(map);
@@ -98,6 +107,7 @@ export default function ConfigGastosRapidosScreen(props) {
                   text1: 'Gasto rápido excluído',
                   visibilityTime: 2000,
                 });
+                widgetBridge.updateWidgetFromContext(user.id, databaseModule, currencyServiceModule).catch(function() {});
               }
             }).catch(function() {
               Alert.alert('Erro', 'Falha ao salvar alterações.');
@@ -127,6 +137,8 @@ export default function ConfigGastosRapidosScreen(props) {
     saveGastosRapidos(user.id, updated).then(function(r) {
       if (r && r.error) {
         Alert.alert('Erro', 'Falha ao salvar ordem.');
+      } else {
+        widgetBridge.updateWidgetFromContext(user.id, databaseModule, currencyServiceModule).catch(function() {});
       }
     }).catch(function() {
       // silent
@@ -135,7 +147,8 @@ export default function ConfigGastosRapidosScreen(props) {
 
   function getCartaoLabel(cartaoId) {
     if (!cartaoId) return 'Cartão';
-    return cartoesMap[cartaoId] || 'Cartão';
+    if (!cartoesMap[cartaoId]) return null; // null = cartão removido
+    return cartoesMap[cartaoId];
   }
 
   function getPresetIcon(preset) {
@@ -156,11 +169,25 @@ export default function ConfigGastosRapidosScreen(props) {
     var params = {};
     if (editPreset) {
       params.preset = editPreset;
-    }
-    if (route && route.params && route.params.presetCartaoId) {
+    } else if (route && route.params && route.params.presetCartaoId) {
+      // Only propagate presetCartaoId for new presets, not edits
       params.presetCartaoId = route.params.presetCartaoId;
     }
     navigation.navigate('AddGastoRapido', params);
+  }
+
+  function handleSetCartaoPrincipal(cardId) {
+    var newVal = cardId === cartaoPrincipal ? null : cardId;
+    setCartaoPrincipal(newVal);
+    Haptics.selectionAsync();
+    updateProfile(user.id, { cartao_principal: newVal }).then(function(r) {
+      if (r && r.error) {
+        Toast.show({ type: 'error', text1: 'Erro ao salvar cartão principal' });
+      } else {
+        Toast.show({ type: 'success', text1: newVal ? 'Cartão principal definido' : 'Cartão principal removido', visibilityTime: 1500 });
+        widgetBridge.updateWidgetFromContext(user.id, databaseModule, currencyServiceModule).catch(function() {});
+      }
+    }).catch(function() {});
   }
 
   function renderItem(info) {
@@ -168,11 +195,19 @@ export default function ConfigGastosRapidosScreen(props) {
     var index = info.index;
     var iconName = getPresetIcon(item);
     var iconColor = getPresetColor(item);
-    var cartaoLabel = getCartaoLabel(item.cartao_id);
+    var meio = item.meio_pagamento || 'credito';
+    var usaConta = meio === 'pix' || meio === 'debito';
+    var cartaoLbl = usaConta ? null : getCartaoLabel(item.cartao_id);
+    var cartaoRemovido = !usaConta && item.cartao_id && cartaoLbl === null;
+    var targetLabel = usaConta ? (item.conta || 'Conta') : (cartaoRemovido ? 'Cartão removido' : (cartaoLbl || 'Cartão'));
     var valorStr = formatValor(item.valor);
-    var subtitle = valorStr + ' · ' + cartaoLabel;
+    var subtitle = valorStr + ' · ' + targetLabel;
     var isFirst = index === 0;
     var isLast = index === presets.length - 1;
+
+    var meioBadge = meio === 'pix' ? { text: 'PIX', color: C.green }
+      : meio === 'debito' ? { text: 'DÉBITO', color: C.rf }
+      : { text: 'CARTÃO', color: C.accent };
 
     return (
       <SwipeableRow onDelete={function() { handleDelete(item.id); }}>
@@ -188,8 +223,11 @@ export default function ConfigGastosRapidosScreen(props) {
               <Ionicons name={iconName} size={18} color={iconColor} />
             </View>
             <View style={styles.itemTexts}>
-              <Text style={styles.itemLabel} numberOfLines={1}>{item.label || 'Sem nome'}</Text>
-              <Text style={styles.itemSubtitle} numberOfLines={1}>{subtitle}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.itemLabel} numberOfLines={1}>{item.label || 'Sem nome'}</Text>
+                <Badge text={meioBadge.text} color={meioBadge.color} />
+              </View>
+              <Text style={[styles.itemSubtitle, cartaoRemovido && { color: C.red }]} numberOfLines={1}>{subtitle}</Text>
             </View>
           </View>
           <View style={styles.itemRight}>
@@ -294,6 +332,36 @@ export default function ConfigGastosRapidosScreen(props) {
       <Text style={styles.subtitle}>
         Configure gastos frequentes para registrar com 1 toque
       </Text>
+
+      {/* CARTÃO PRINCIPAL */}
+      {cartoes.length > 0 ? (
+        <View style={styles.principalSection}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+            <Ionicons name="star" size={14} color={C.yellow || '#F59E0B'} />
+            <Text style={styles.principalTitle}>Cartão Principal</Text>
+          </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {cartoes.map(function(c) {
+              var cLabel = (c.apelido || c.bandeira.toUpperCase()) + ' ••' + c.ultimos_digitos;
+              var isActive = cartaoPrincipal === c.id;
+              return (
+                <TouchableOpacity
+                  key={c.id}
+                  onPress={function() { handleSetCartaoPrincipal(c.id); }}
+                  activeOpacity={0.7}
+                  style={[styles.principalPill, isActive && styles.principalPillActive]}
+                >
+                  {isActive ? <Ionicons name="star" size={12} color="#F59E0B" style={{ marginRight: 4 }} /> : null}
+                  <Text style={[styles.principalPillText, isActive && { color: C.text }]}>{cLabel}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={styles.principalHint}>
+            Usado como padrão em novos gastos rápidos e widget
+          </Text>
+        </View>
+      ) : null}
 
       <FlatList
         data={presets}
@@ -427,5 +495,42 @@ var styles = StyleSheet.create({
     fontFamily: F.display,
     color: C.accent,
     marginLeft: 8,
+  },
+  principalSection: {
+    paddingHorizontal: SIZE.padding,
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  principalTitle: {
+    fontSize: 13,
+    fontFamily: F.display,
+    color: C.text,
+  },
+  principalPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  principalPillActive: {
+    borderColor: '#F59E0B',
+    backgroundColor: 'rgba(245,158,11,0.12)',
+  },
+  principalPillText: {
+    fontSize: 13,
+    fontFamily: F.body,
+    color: C.textSecondary,
+  },
+  principalHint: {
+    fontSize: 11,
+    fontFamily: F.body,
+    color: C.textTertiary || '#666688',
+    marginTop: 8,
   },
 });

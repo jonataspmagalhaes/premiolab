@@ -1025,17 +1025,20 @@ export async function getPatrimonioSnapshots(userId, portfolioId) {
   return filtered;
 }
 
-export async function upsertPatrimonioSnapshot(userId, data, valor, portfolioId) {
+export async function upsertPatrimonioSnapshot(userId, data, valor, portfolioId, extras) {
   // Validacao: nunca salvar valor invalido
   if (!valor || valor <= 0 || valor !== valor) {
     console.warn('upsertPatrimonioSnapshot: valor invalido ignorado:', valor);
     return { error: null };
   }
   var pfId = snapshotPortfolioId(portfolioId);
+  var updatePayload = { valor: valor };
+  if (extras && extras.valor_investido != null) updatePayload.valor_investido = extras.valor_investido;
+  if (extras && extras.valor_saldos != null) updatePayload.valor_saldos = extras.valor_saldos;
   // Try update first
   var query = supabase
     .from('patrimonio_snapshots')
-    .update({ valor: valor })
+    .update(updatePayload)
     .eq('user_id', userId)
     .eq('data', data);
   if (pfId) {
@@ -1048,6 +1051,8 @@ export async function upsertPatrimonioSnapshot(userId, data, valor, portfolioId)
   if (!result.error && (!result.data || result.data.length === 0)) {
     var payload = { user_id: userId, data: data, valor: valor };
     if (pfId) payload.portfolio_id = pfId;
+    if (extras && extras.valor_investido != null) payload.valor_investido = extras.valor_investido;
+    if (extras && extras.valor_saldos != null) payload.valor_saldos = extras.valor_saldos;
     result = await supabase.from('patrimonio_snapshots').insert(payload);
   }
   return { error: result.error };
@@ -1538,8 +1543,8 @@ export async function computeDashboardFromData(inputs) {
     }
 
     // ── Patrimônio total ──
-    // Saldos só entram no patrimônio global (sem filtro de portfolio)
-    var patrimonio = patrimonioAcoes + rfTotalAplicado + (portfolioId ? 0 : saldoLivreTotal);
+    // Saldos sao globais (compartilhados) — sempre incluir no patrimonio total
+    var patrimonio = patrimonioAcoes + rfTotalAplicado + saldoLivreTotal;
 
     // ── Mes anterior ──
     var mesAnterior = mesAtual === 0 ? 11 : mesAtual - 1;
@@ -1990,122 +1995,46 @@ export async function computeDashboardFromData(inputs) {
     }
 
     var patrimonioHistory = [];
-    var lastEquity = 0;
 
-    for (var sd = 0; sd < sortedDates.length; sd++) {
-      var curDate = sortedDates[sd];
-      if (equityByDate[curDate] !== undefined) {
-        lastEquity = equityByDate[curDate];
-      }
-
-      var rfAtDate = 0;
-      for (var rfd = 0; rfd < rfData.length; rfd++) {
-        var rfDt = (rfData[rfd].data_aplicacao || rfData[rfd].created_at || '').substring(0, 10);
-        if (rfDt && rfDt <= curDate) {
-          rfAtDate += (rfData[rfd].valor_aplicado || 0);
-        }
-      }
-
-      patrimonioHistory.push({ date: curDate, value: lastEquity + rfAtDate });
-    }
-
-    // Merge snapshots (per-portfolio or global depending on portfolioId filter)
     if (snapshotsData.length > 0) {
-      var snapshotByDate = {};
-      for (var sn = 0; sn < snapshotsData.length; sn++) {
-        snapshotByDate[snapshotsData[sn].data] = snapshotsData[sn].valor;
-      }
-
-      // Build final timeline: prefer snapshot values (real market) over cost-based
-      var historyByDate = {};
-      for (var ph = 0; ph < patrimonioHistory.length; ph++) {
-        historyByDate[patrimonioHistory[ph].date] = patrimonioHistory[ph].value;
-      }
-
-      // Add snapshot dates that dont exist in history
-      var snKeys = Object.keys(snapshotByDate);
-      for (var sk = 0; sk < snKeys.length; sk++) {
-        historyByDate[snKeys[sk]] = snapshotByDate[snKeys[sk]];
-      }
-
-      // Override cost-based values with snapshot values where available
-      // Filter out anomalous snapshots (>40% drop from neighbors = likely incomplete price data)
-      var mergedDates = Object.keys(historyByDate).sort();
-      var mergedHistory = [];
-      for (var mh = 0; mh < mergedDates.length; mh++) {
-        var mDate = mergedDates[mh];
-        var mVal = snapshotByDate[mDate] !== undefined ? snapshotByDate[mDate] : historyByDate[mDate];
-        mergedHistory.push({ date: mDate, value: mVal });
-      }
-      // Filtro robusto de snapshots anomalos:
-      // 1. Remove valores zero/negativos/NaN
-      // 2. Remove quedas >30% de um dia pro outro (precos incompletos)
-      // 3. Remove picos >50% de um dia pro outro (precos duplicados)
-      // 4. Interpola linearmente os pontos removidos
-      if (mergedHistory.length > 2) {
-        // Passo 1: remover valores invalidos
-        var validHistory = [];
-        for (var vh = 0; vh < mergedHistory.length; vh++) {
-          var vVal = mergedHistory[vh].value;
-          if (!vVal || vVal <= 0 || vVal !== vVal) continue; // NaN check
-          validHistory.push(mergedHistory[vh]);
+      // Snapshots existem: usar APENAS valores reais dos snapshots (valor de mercado)
+      // Nao misturar com equity timeline (custo) — isso criava pulos artificiais
+      // que o filtro de outliers removia, deixando so valores de custo no grafico
+      for (var si = 0; si < snapshotsData.length; si++) {
+        var snapVal = snapshotsData[si].valor;
+        if (snapVal && snapVal > 0 && snapVal === snapVal) {
+          patrimonioHistory.push({ date: snapshotsData[si].data, value: snapVal });
         }
-
-        // Passo 2: calcular mediana pra ter referencia estavel
-        var valoresOrdenados = [];
-        for (var vo = 0; vo < validHistory.length; vo++) {
-          valoresOrdenados.push(validHistory[vo].value);
-        }
-        valoresOrdenados.sort(function(a, b) { return a - b; });
-        var mediana = valoresOrdenados.length > 0 ? valoresOrdenados[Math.floor(valoresOrdenados.length / 2)] : 0;
-
-        // Passo 3: remover outliers (mais de 50% abaixo ou 100% acima da mediana)
-        if (mediana > 0 && validHistory.length > 4) {
-          var cleanHistory = [];
-          for (var ch = 0; ch < validHistory.length; ch++) {
-            var chVal = validHistory[ch].value;
-            // Permitir variacao de 50% abaixo a 100% acima da mediana
-            if (chVal < mediana * 0.5 || chVal > mediana * 2.0) {
-              // Outlier — pular (exceto primeiro e ultimo ponto que podem ser crescimento real)
-              if (ch > 2 && ch < validHistory.length - 2) continue;
-            }
-            cleanHistory.push(validHistory[ch]);
-          }
-          // So aplica se nao removeu tudo
-          if (cleanHistory.length >= 2) {
-            validHistory = cleanHistory;
-          }
-        }
-
-        // Passo 4: remover variacoes diarias impossiveis (>30% queda ou >40% subida em 1 dia)
-        if (validHistory.length > 2) {
-          var smoothHistory = [validHistory[0]];
-          for (var sh = 1; sh < validHistory.length; sh++) {
-            var prevVal = smoothHistory[smoothHistory.length - 1].value;
-            var curVal = validHistory[sh].value;
-            if (prevVal > 0) {
-              var variacao = (curVal / prevVal) - 1;
-              if (variacao < -0.30 || variacao > 0.40) {
-                // Variacao impossivel — interpolar entre anterior e proximo valido
-                continue;
-              }
-            }
-            smoothHistory.push(validHistory[sh]);
-          }
-          validHistory = smoothHistory;
-        }
-
-        mergedHistory = validHistory;
       }
 
-      // Replace today's point with real market value
-      if (mergedHistory.length > 0 && mergedHistory[mergedHistory.length - 1].date === todayStr) {
-        mergedHistory[mergedHistory.length - 1].value = patrimonio;
+      // Adicionar/atualizar ponto de hoje com patrimonio atual (valor de mercado)
+      if (patrimonioHistory.length > 0) {
+        var lastSnapDate = patrimonioHistory[patrimonioHistory.length - 1].date;
+        if (lastSnapDate === todayStr) {
+          patrimonioHistory[patrimonioHistory.length - 1].value = patrimonio;
+        } else if (patrimonio > 0) {
+          patrimonioHistory.push({ date: todayStr, value: patrimonio });
+        }
       }
-
-      patrimonioHistory = mergedHistory;
     } else {
-      // No snapshots available: just add today's point with current value
+      // Sem snapshots: fallback para equity timeline (custo) + ponto de hoje
+      var lastEquity = 0;
+      for (var sd = 0; sd < sortedDates.length; sd++) {
+        var curDate = sortedDates[sd];
+        if (equityByDate[curDate] !== undefined) {
+          lastEquity = equityByDate[curDate];
+        }
+        var rfAtDate = 0;
+        for (var rfd = 0; rfd < rfData.length; rfd++) {
+          var rfDt = (rfData[rfd].data_aplicacao || rfData[rfd].created_at || '').substring(0, 10);
+          if (rfDt && rfDt <= curDate) {
+            rfAtDate += (rfData[rfd].valor_aplicado || 0);
+          }
+        }
+        patrimonioHistory.push({ date: curDate, value: lastEquity + rfAtDate });
+      }
+
+      // Adicionar ponto de hoje com valor de mercado atual
       var todayExists = false;
       for (var tci = 0; tci < patrimonioHistory.length; tci++) {
         if (patrimonioHistory[tci].date === todayStr) {
@@ -2122,19 +2051,41 @@ export async function computeDashboardFromData(inputs) {
     // Construir series de investido e saldos a partir dos snapshots com campos novos
     var investidoHistory = [];
     var saldosHistory = [];
+    var investidoTodayExists = false;
+    var saldosTodayExists = false;
     for (var ihi = 0; ihi < snapshotsData.length; ihi++) {
       var ihSnap = snapshotsData[ihi];
       if (ihSnap.valor_investido != null) {
-        investidoHistory.push({ date: ihSnap.data, value: ihSnap.valor_investido });
+        if (ihSnap.data === todayStr) {
+          investidoHistory.push({ date: todayStr, value: patrimonioAcoes + rfTotalAplicado });
+          investidoTodayExists = true;
+        } else {
+          investidoHistory.push({ date: ihSnap.data, value: ihSnap.valor_investido });
+        }
       }
       if (ihSnap.valor_saldos != null) {
-        saldosHistory.push({ date: ihSnap.data, value: ihSnap.valor_saldos });
+        if (ihSnap.data === todayStr) {
+          saldosHistory.push({ date: todayStr, value: saldoTotal });
+          saldosTodayExists = true;
+        } else {
+          saldosHistory.push({ date: ihSnap.data, value: ihSnap.valor_saldos });
+        }
       }
     }
-    // Adicionar ponto de hoje com valores atuais
-    if (investidoHistory.length > 0 || saldosHistory.length > 0) {
+    // Adicionar ponto de hoje com valores atuais (se nao existia no snapshot)
+    if (!investidoTodayExists) {
       investidoHistory.push({ date: todayStr, value: patrimonioAcoes + rfTotalAplicado });
+    }
+    if (!saldosTodayExists) {
       saldosHistory.push({ date: todayStr, value: saldoTotal });
+    }
+
+    // Salvar snapshot de hoje com valor_investido e valor_saldos (fire-and-forget)
+    if (userId && patrimonio > 0) {
+      upsertPatrimonioSnapshot(userId, todayStr, patrimonio, portfolioId, {
+        valor_investido: patrimonioAcoes + rfTotalAplicado,
+        valor_saldos: saldoTotal,
+      }).catch(function(err) { console.warn('snapshot save error:', err); });
     }
 
     var metaMensal = profileData.meta_mensal || 6000;

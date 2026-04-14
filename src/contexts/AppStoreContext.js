@@ -400,7 +400,7 @@ export function AppStoreProvider(props) {
     // So computa dashboard quando positions ja tem preco_atual (enriquecidas)
     var posEnriquecidas = positions && positions.length > 0 && positions[0].preco_atual != null;
     var p0 = posEnriquecidas
-      ? getPatrimonioSnapshots(user.id, selectedPortfolio || undefined).then(function(snaps) {
+      ? getPatrimonioSnapshots(user.id).then(function(snaps) {
           return computeDashboardFromData({
             userId: user.id,
             positions: positions || [],
@@ -435,20 +435,9 @@ export function AppStoreProvider(props) {
         patch('cutRisks', risks);
       }
 
-      // Autopilot — depende de forecast + positions + score + potencial.gaps
-      if (forecast && forecast.summary && positions.length > 0) {
-        // Usar media real dos ultimos 3 meses completos (mesma logica do FIRE)
-        var divMes = rendaAtual;
-        var scoreByTicker = score && score.byTicker ? score.byTicker : {};
-        var gaps = pot && pot.gaps ? pot.gaps : [];
-        var plan = analyticsModule.computeReinvestmentPlan(divMes, positions, scoreByTicker, gaps);
-        patch('autopilot', plan);
-      }
-
-      // FIRE milestones — usa renda REAL recebida (nao projecao)
+      // Media real dos ultimos 3 meses completos (usada por autopilot e FIRE)
+      var rendaAtual = 0;
       if (forecast && forecast.summary) {
-        // Media dos ultimos 3 meses COMPLETOS (exclui mes atual parcial)
-        var rendaAtual = 0;
         if (forecast.historyMonthly && forecast.historyMonthly.length > 1) {
           var nowFire = new Date();
           var mesAtualKeyFire = nowFire.getFullYear() + '-' + String(nowFire.getMonth() + 1).padStart(2, '0');
@@ -463,6 +452,20 @@ export function AppStoreProvider(props) {
           rendaAtual = ultMeses.length > 0 ? rendaAtual / ultMeses.length : 0;
         }
         if (rendaAtual <= 0) rendaAtual = forecast.summary.lastMonth || 0;
+      }
+
+      // Autopilot — depende de forecast + positions + score + potencial.gaps
+      // Fallback: se rendaAtual = 0, usar mediaProjetada do forecast
+      var divMesAutopilot = rendaAtual > 0 ? rendaAtual : (forecast && forecast.summary ? forecast.summary.mediaProjetada || 0 : 0);
+      if (forecast && forecast.summary && positions.length > 0 && divMesAutopilot > 0) {
+        var scoreByTicker = score && score.byTicker ? score.byTicker : {};
+        var gaps = pot && pot.gaps ? pot.gaps : [];
+        var plan = analyticsModule.computeReinvestmentPlan(divMesAutopilot, positions, scoreByTicker, gaps, proventos);
+        patch('autopilot', plan);
+      }
+
+      // FIRE milestones — usa renda REAL recebida (nao projecao)
+      if (forecast && forecast.summary) {
         var meta = profile && profile.meta_mensal ? profile.meta_mensal : 20000;
         var growth = yoc && yoc.growth && yoc.growth.growthPct ? yoc.growth.growthPct : 15;
         var fire = analyticsModule.computeFireMilestones(rendaAtual, meta, Math.max(5, Math.min(50, growth)));

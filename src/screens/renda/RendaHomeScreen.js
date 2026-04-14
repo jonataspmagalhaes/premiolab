@@ -638,8 +638,8 @@ function PatrimonioHeroSection(props) {
           <View style={{ marginHorizontal: -6, marginBottom: T.space.sm }}>
               {(function() {
                 // Usar series reais de investido/saldos se disponiveis nos snapshots
-                var investidoHist = (dashData && dashData.investidoHistory) || [];
-                var saldosHist = (dashData && dashData.saldosHistory) || [];
+                var investidoHist = filterChartByPeriod((dashData && dashData.investidoHistory) || [], chartPeriod);
+                var saldosHist = filterChartByPeriod((dashData && dashData.saldosHistory) || [], chartPeriod);
                 var chartOverlays = [];
                 if (investidoHist.length >= 2) {
                   chartOverlays.push({ data: investidoHist, color: C.green, label: 'Investido' });

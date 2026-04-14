@@ -358,6 +358,8 @@ export default function FundamentalAccordion(props) {
     );
   }
 
+  var unavailable = (fundamentals && fundamentals._unavailable) || {};
+
   function renderMetric(label, value, tipKey, metricColor, chartInfo) {
     if (value == null) return null;
     return (
@@ -374,6 +376,22 @@ export default function FundamentalAccordion(props) {
         </View>
         <Text style={{ fontSize: 12, color: metricColor || C.text, fontFamily: F.mono, fontWeight: '600', marginTop: 1 }}>
           {value}
+        </Text>
+      </View>
+    );
+  }
+
+  function renderUnavailableMetric(label, tipKey) {
+    var reason = unavailable[tipKey];
+    if (!reason) return null;
+    return (
+      <View key={'na_' + tipKey} style={{ width: '48%', marginBottom: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+          <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono }}>{label}</Text>
+          <InfoTip text={reason} size={10} color={C.yellow} />
+        </View>
+        <Text style={{ fontSize: 12, color: C.dim, fontFamily: F.mono, fontWeight: '600', marginTop: 1, opacity: 0.5 }}>
+          N/D
         </Text>
       </View>
     );
@@ -402,7 +420,7 @@ export default function FundamentalAccordion(props) {
   var rent = fd.rentabilidade || {};
   var cresc = fd.crescimento || {};
 
-  // Check if any fundamental data exists
+  // Check if any fundamental data exists (including unavailable explanations)
   var hasFundamentals = fundamentals != null;
   var hasAnyData = false;
   if (hasFundamentals) {
@@ -411,6 +429,8 @@ export default function FundamentalAccordion(props) {
       var sec = allKeys[ak];
       if (val[sec] != null || rent[sec] != null || efi[sec] != null) { hasAnyData = true; break; }
     }
+    // Also show if we have unavailability reasons to explain
+    if (!hasAnyData && Object.keys(unavailable).length > 0) hasAnyData = true;
   }
 
   return (
@@ -441,76 +461,76 @@ export default function FundamentalAccordion(props) {
       ) : hasAnyData ? (
         <View>
           {/* VALUATION */}
-          {(val.pl != null || val.pvp != null || val.evEbitda != null || val.dy != null) ? (
+          {(val.pl != null || val.pvp != null || val.evEbitda != null || val.dy != null || unavailable.evEbitda || unavailable.psr) ? (
             <View>
               {renderSectionHeader('valuation', 'VALUATION', C.acoes)}
               {expanded['valuation'] ? renderGrid([
                 val.pl != null ? renderMetric('P/L', fmtInd(val.pl, 2), 'pl', getColor('pl', val.pl)) : null,
                 val.pvp != null ? renderMetric('P/VP', fmtInd(val.pvp, 2), 'pvp', getColor('pvp', val.pvp)) : null,
-                val.evEbitda != null ? renderMetric('EV/EBITDA', fmtInd(val.evEbitda, 2), 'evEbitda', C.text) : null,
-                val.evEbit != null ? renderMetric('EV/EBIT', fmtInd(val.evEbit, 2), 'evEbit', C.text) : null,
+                val.evEbitda != null ? renderMetric('EV/EBITDA', fmtInd(val.evEbitda, 2), 'evEbitda', C.text) : renderUnavailableMetric('EV/EBITDA', 'evEbitda'),
+                val.evEbit != null ? renderMetric('EV/EBIT', fmtInd(val.evEbit, 2), 'evEbit', C.text) : renderUnavailableMetric('EV/EBIT', 'evEbit'),
                 val.vpa != null ? renderMetric('VPA', currPrefix + fmtInd(val.vpa, 2), 'vpa', C.text) : null,
                 val.lpa != null ? renderMetric('LPA', currPrefix + fmtInd(val.lpa, 2), 'lpa', C.text) : null,
-                val.pAtivo != null ? renderMetric('P/Ativo', fmtInd(val.pAtivo, 2), 'pAtivo', C.text) : null,
-                val.psr != null ? renderMetric('P/SR', fmtInd(val.psr, 2), 'psr', C.text) : null,
-                val.peg != null ? renderMetric('PEG Ratio', fmtInd(val.peg, 2), 'peg', C.text) : null,
+                val.pAtivo != null ? renderMetric('P/Ativo', fmtInd(val.pAtivo, 2), 'pAtivo', C.text) : renderUnavailableMetric('P/Ativo', 'pAtivo'),
+                val.psr != null ? renderMetric('P/SR', fmtInd(val.psr, 2), 'psr', C.text) : renderUnavailableMetric('P/SR', 'psr'),
+                val.peg != null ? renderMetric('PEG Ratio', fmtInd(val.peg, 2), 'peg', C.text) : renderUnavailableMetric('PEG', 'peg'),
                 val.dy != null ? renderMetric('D.Y.', fmtInd(val.dy, 1) + '%', 'dy', getColor('dy', val.dy)) : null,
               ]) : null}
             </View>
           ) : null}
 
           {/* ENDIVIDAMENTO */}
-          {(end.divLiqPl != null || end.divLiqEbitda != null || end.passivosAtivos != null) ? (
+          {(end.divLiqPl != null || end.divLiqEbitda != null || end.passivosAtivos != null || unavailable.divLiqPl || unavailable.divLiqEbitda) ? (
             <View>
               {renderSectionHeader('endividamento', 'ENDIVIDAMENTO', C.yellow)}
               {expanded['endividamento'] ? renderGrid([
-                end.divLiqPl != null ? renderMetric('Dív.Líq/PL', fmtInd(end.divLiqPl, 2), 'divLiqPl', getColor('divLiqPl', end.divLiqPl)) : null,
+                end.divLiqPl != null ? renderMetric('Dív.Líq/PL', fmtInd(end.divLiqPl, 2), 'divLiqPl', getColor('divLiqPl', end.divLiqPl)) : renderUnavailableMetric('Dív.Líq/PL', 'divLiqPl'),
                 end.divLiqEbitda != null ? renderMetric(
                   'Dív.Líq/EBITDA',
                   end.divLiqEbitda < 0 ? 'Caixa Líq.' : fmtInd(end.divLiqEbitda, 2),
                   'divLiqEbitda',
                   getColor('divLiqEbitda', end.divLiqEbitda),
                   HIST_MAP['divLiqEbitda']
-                ) : null,
-                end.passivosAtivos != null ? renderMetric('Pass./Ativos', fmtInd(end.passivosAtivos, 2), 'passivosAtivos', getColor('passivosAtivos', end.passivosAtivos)) : null,
-                end.plAtivos != null ? renderMetric('PL/Ativos', fmtInd(end.plAtivos, 2), 'plAtivos', C.text) : null,
+                ) : renderUnavailableMetric('Dív.Líq/EBITDA', 'divLiqEbitda'),
+                end.passivosAtivos != null ? renderMetric('Pass./Ativos', fmtInd(end.passivosAtivos, 2), 'passivosAtivos', getColor('passivosAtivos', end.passivosAtivos)) : renderUnavailableMetric('Pass./Ativos', 'passivosAtivos'),
+                end.plAtivos != null ? renderMetric('PL/Ativos', fmtInd(end.plAtivos, 2), 'plAtivos', C.text) : renderUnavailableMetric('PL/Ativos', 'plAtivos'),
               ]) : null}
             </View>
           ) : null}
 
           {/* EFICIÊNCIA */}
-          {(efi.mBruta != null || efi.mEbitda != null || efi.mLiquida != null) ? (
+          {(efi.mBruta != null || efi.mEbitda != null || efi.mLiquida != null || unavailable.mBruta || unavailable.mEbitda) ? (
             <View>
               {renderSectionHeader('eficiencia', 'EFICIÊNCIA', C.rf)}
               {expanded['eficiencia'] ? renderGrid([
-                efi.mBruta != null ? renderMetric('M. Bruta', fmtInd(efi.mBruta, 1) + '%', 'mBruta', getColor('mBruta', efi.mBruta)) : null,
-                efi.mEbitda != null ? renderMetric('M. EBITDA', fmtInd(efi.mEbitda, 1) + '%', 'mEbitda', getColor('mEbitda', efi.mEbitda)) : null,
-                efi.mEbit != null ? renderMetric('M. EBIT', fmtInd(efi.mEbit, 1) + '%', 'mEbit', getColor('mEbit', efi.mEbit)) : null,
-                efi.mLiquida != null ? renderMetric('M. Líquida', fmtInd(efi.mLiquida, 1) + '%', 'mLiquida', getColor('mLiquida', efi.mLiquida), HIST_MAP['mLiquida']) : null,
+                efi.mBruta != null ? renderMetric('M. Bruta', fmtInd(efi.mBruta, 1) + '%', 'mBruta', getColor('mBruta', efi.mBruta)) : renderUnavailableMetric('M. Bruta', 'mBruta'),
+                efi.mEbitda != null ? renderMetric('M. EBITDA', fmtInd(efi.mEbitda, 1) + '%', 'mEbitda', getColor('mEbitda', efi.mEbitda)) : renderUnavailableMetric('M. EBITDA', 'mEbitda'),
+                efi.mEbit != null ? renderMetric('M. EBIT', fmtInd(efi.mEbit, 1) + '%', 'mEbit', getColor('mEbit', efi.mEbit)) : renderUnavailableMetric('M. EBIT', 'mEbit'),
+                efi.mLiquida != null ? renderMetric('M. Líquida', fmtInd(efi.mLiquida, 1) + '%', 'mLiquida', getColor('mLiquida', efi.mLiquida), HIST_MAP['mLiquida']) : renderUnavailableMetric('M. Líquida', 'mLiquida'),
               ]) : null}
             </View>
           ) : null}
 
           {/* RENTABILIDADE */}
-          {(rent.roe != null || rent.roa != null || rent.roic != null) ? (
+          {(rent.roe != null || rent.roa != null || rent.roic != null || unavailable.roic) ? (
             <View>
               {renderSectionHeader('rentabilidade', 'RENTABILIDADE', C.green)}
               {expanded['rentabilidade'] ? renderGrid([
                 rent.roe != null ? renderMetric('ROE', fmtInd(rent.roe, 1) + '%', 'roe', getColor('roe', rent.roe), HIST_MAP['roe']) : null,
-                rent.roic != null ? renderMetric('ROIC', fmtInd(rent.roic, 1) + '%', 'roic', getColor('roic', rent.roic)) : null,
+                rent.roic != null ? renderMetric('ROIC', fmtInd(rent.roic, 1) + '%', 'roic', getColor('roic', rent.roic)) : renderUnavailableMetric('ROIC', 'roic'),
                 rent.roa != null ? renderMetric('ROA', fmtInd(rent.roa, 1) + '%', 'roa', getColor('roa', rent.roa)) : null,
-                rent.giroAtivos != null ? renderMetric('Giro Ativos', fmtInd(rent.giroAtivos, 2), 'giroAtivos', C.text) : null,
+                rent.giroAtivos != null ? renderMetric('Giro Ativos', fmtInd(rent.giroAtivos, 2), 'giroAtivos', C.text) : renderUnavailableMetric('Giro Ativos', 'giroAtivos'),
               ]) : null}
             </View>
           ) : null}
 
           {/* CRESCIMENTO */}
-          {(cresc.cagrReceitas != null || cresc.cagrLucros != null) ? (
+          {(cresc.cagrReceitas != null || cresc.cagrLucros != null || unavailable.cagrReceitas) ? (
             <View>
               {renderSectionHeader('crescimento', 'CRESCIMENTO (5A)', C.etfs)}
               {expanded['crescimento'] ? renderGrid([
-                cresc.cagrReceitas != null ? renderMetric('CAGR Rec.', fmtInd(cresc.cagrReceitas, 1) + '%', 'cagrReceitas', getColor('cagrReceitas', cresc.cagrReceitas)) : null,
-                cresc.cagrLucros != null ? renderMetric('CAGR Luc.', fmtInd(cresc.cagrLucros, 1) + '%', 'cagrLucros', getColor('cagrLucros', cresc.cagrLucros)) : null,
+                cresc.cagrReceitas != null ? renderMetric('CAGR Rec.', fmtInd(cresc.cagrReceitas, 1) + '%', 'cagrReceitas', getColor('cagrReceitas', cresc.cagrReceitas)) : renderUnavailableMetric('CAGR Rec.', 'cagrReceitas'),
+                cresc.cagrLucros != null ? renderMetric('CAGR Luc.', fmtInd(cresc.cagrLucros, 1) + '%', 'cagrLucros', getColor('cagrLucros', cresc.cagrLucros)) : renderUnavailableMetric('CAGR Luc.', 'cagrLucros'),
               ]) : null}
             </View>
           ) : null}

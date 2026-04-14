@@ -1,18 +1,21 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, RefreshControl, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, RefreshControl, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import Svg, { Rect as SvgRect, Line as SvgLine, Text as SvgText, G } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import Toast from 'react-native-toast-message';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { animateLayout } from '../../utils/a11y';
 import { getProventos, getOpcoes, getOperacoes, getPositions, getMovimentacoes, getIRPagamentos, upsertIRPagamento, getProfile, updateProfile } from '../../services/database';
-import { Glass, Badge, Pill, SectionLabel, InfoTip, PeriodFilter } from '../../components';
+import { Glass, Badge, Pill, SectionLabel, InfoTip, PeriodFilter, UpgradePrompt } from '../../components';
 import { LoadingScreen, EmptyState } from '../../components/States';
 import { usePrivacyStyle } from '../../components/Sensitive';
 import Sensitive from '../../components/Sensitive';
+import { useSubscription } from '../../contexts/SubscriptionContext';
 
 // ═══════════ CONSTANTS ═══════════
 
@@ -103,6 +106,9 @@ function buildDarfText(r) {
   if (r.impostoFII > 0) lines.push('FIIs: R$ ' + fmt(r.impostoFII) + ' (20%)');
   if (r.impostoETF > 0) lines.push('ETFs: R$ ' + fmt(r.impostoETF) + ' (15%)');
   if (r.impostoStockInt > 0) lines.push('Stocks INT: R$ ' + fmt(r.impostoStockInt) + ' (15%)');
+  if (r.impostoBDR > 0) lines.push('BDRs: R$ ' + fmt(r.impostoBDR) + ' (15%)');
+  if (r.impostoADR > 0) lines.push('ADRs: R$ ' + fmt(r.impostoADR) + ' (15%)');
+  if (r.impostoREIT > 0) lines.push('REITs: R$ ' + fmt(r.impostoREIT) + ' (15%)');
   lines.push('');
   lines.push('Acesse o e-CAC ou Sicalc para gerar o Pix/boleto da DARF.');
   return lines.join('\n');
@@ -145,7 +151,10 @@ function computeIR(ops) {
           vendasAcoes: 0, ganhoAcoes: 0, perdaAcoes: 0,
           vendasFII: 0, ganhoFII: 0, perdaFII: 0,
           vendasETF: 0, ganhoETF: 0, perdaETF: 0,
+          vendasBDR: 0, ganhoBDR: 0, perdaBDR: 0,
           vendasStockInt: 0, ganhoStockInt: 0, perdaStockInt: 0,
+          vendasADR: 0, ganhoADR: 0, perdaADR: 0,
+          vendasREIT: 0, ganhoREIT: 0, perdaREIT: 0,
           vendas: [],
         };
       }
@@ -161,9 +170,18 @@ function computeIR(ops) {
       } else if (cat === 'etf') {
         mr.vendasETF += vendaTotal;
         if (ganho >= 0) mr.ganhoETF += ganho; else mr.perdaETF += Math.abs(ganho);
+      } else if (cat === 'bdr') {
+        mr.vendasBDR += vendaTotal;
+        if (ganho >= 0) mr.ganhoBDR += ganho; else mr.perdaBDR += Math.abs(ganho);
       } else if (cat === 'stock_int') {
         mr.vendasStockInt += vendaTotal;
         if (ganho >= 0) mr.ganhoStockInt += ganho; else mr.perdaStockInt += Math.abs(ganho);
+      } else if (cat === 'adr') {
+        mr.vendasADR += vendaTotal;
+        if (ganho >= 0) mr.ganhoADR += ganho; else mr.perdaADR += Math.abs(ganho);
+      } else if (cat === 'reit') {
+        mr.vendasREIT += vendaTotal;
+        if (ganho >= 0) mr.ganhoREIT += ganho; else mr.perdaREIT += Math.abs(ganho);
       } else {
         mr.vendasAcoes += vendaTotal;
         if (ganho >= 0) mr.ganhoAcoes += ganho; else mr.perdaAcoes += Math.abs(ganho);
@@ -178,7 +196,10 @@ function computeTaxByMonth(monthResults, prejInicial) {
   var prejAcumAcoes = (prejInicial && prejInicial.acoes) || 0;
   var prejAcumFII = (prejInicial && prejInicial.fii) || 0;
   var prejAcumETF = (prejInicial && prejInicial.etf) || 0;
+  var prejAcumBDR = (prejInicial && prejInicial.bdr) || 0;
   var prejAcumStockInt = (prejInicial && prejInicial.stock_int) || 0;
+  var prejAcumADR = (prejInicial && prejInicial.adr) || 0;
+  var prejAcumREIT = (prejInicial && prejInicial.reit) || 0;
   var results = [];
 
   months.forEach(function(mKey) {
@@ -186,7 +207,10 @@ function computeTaxByMonth(monthResults, prejInicial) {
     var saldoAcoes = mr.ganhoAcoes - mr.perdaAcoes - prejAcumAcoes;
     var saldoFII = mr.ganhoFII - mr.perdaFII - prejAcumFII;
     var saldoETF = mr.ganhoETF - mr.perdaETF - prejAcumETF;
+    var saldoBDR = (mr.ganhoBDR || 0) - (mr.perdaBDR || 0) - prejAcumBDR;
     var saldoStockInt = (mr.ganhoStockInt || 0) - (mr.perdaStockInt || 0) - prejAcumStockInt;
+    var saldoADR = (mr.ganhoADR || 0) - (mr.perdaADR || 0) - prejAcumADR;
+    var saldoREIT = (mr.ganhoREIT || 0) - (mr.perdaREIT || 0) - prejAcumREIT;
 
     var impostoAcoes = 0;
     if (mr.vendasAcoes > 20000 && saldoAcoes > 0) {
@@ -218,6 +242,17 @@ function computeTaxByMonth(monthResults, prejInicial) {
       prejAcumETF = 0;
     }
 
+    // BDR: 15% sem isencao de R$20k
+    var impostoBDR = 0;
+    if (saldoBDR > 0) {
+      impostoBDR = saldoBDR * 0.15;
+      prejAcumBDR = 0;
+    } else if (saldoBDR < 0) {
+      prejAcumBDR = Math.abs(saldoBDR);
+    } else {
+      prejAcumBDR = 0;
+    }
+
     // Stocks internacionais: 15% flat, sem isencao de R$20k
     var impostoStockInt = 0;
     if (saldoStockInt > 0) {
@@ -229,19 +264,44 @@ function computeTaxByMonth(monthResults, prejInicial) {
       prejAcumStockInt = 0;
     }
 
+    // ADR: 15% sem isencao de R$20k
+    var impostoADR = 0;
+    if (saldoADR > 0) {
+      impostoADR = saldoADR * 0.15;
+      prejAcumADR = 0;
+    } else if (saldoADR < 0) {
+      prejAcumADR = Math.abs(saldoADR);
+    } else {
+      prejAcumADR = 0;
+    }
+
+    // REIT: 15% sem isencao de R$20k
+    var impostoREIT = 0;
+    if (saldoREIT > 0) {
+      impostoREIT = saldoREIT * 0.15;
+      prejAcumREIT = 0;
+    } else if (saldoREIT < 0) {
+      prejAcumREIT = Math.abs(saldoREIT);
+    } else {
+      prejAcumREIT = 0;
+    }
+
     results.push({
       month: mKey,
       vendasAcoes: mr.vendasAcoes, vendasFII: mr.vendasFII, vendasETF: mr.vendasETF,
-      vendasStockInt: mr.vendasStockInt || 0,
+      vendasBDR: mr.vendasBDR || 0, vendasStockInt: mr.vendasStockInt || 0, vendasADR: mr.vendasADR || 0, vendasREIT: mr.vendasREIT || 0,
       ganhoAcoes: mr.ganhoAcoes, perdaAcoes: mr.perdaAcoes,
       ganhoFII: mr.ganhoFII, perdaFII: mr.perdaFII,
       ganhoETF: mr.ganhoETF, perdaETF: mr.perdaETF,
+      ganhoBDR: mr.ganhoBDR || 0, perdaBDR: mr.perdaBDR || 0,
       ganhoStockInt: mr.ganhoStockInt || 0, perdaStockInt: mr.perdaStockInt || 0,
-      saldoAcoes: saldoAcoes, saldoFII: saldoFII, saldoETF: saldoETF, saldoStockInt: saldoStockInt,
-      impostoAcoes: impostoAcoes, impostoFII: impostoFII, impostoETF: impostoETF, impostoStockInt: impostoStockInt,
-      impostoTotal: impostoAcoes + impostoFII + impostoETF + impostoStockInt,
+      ganhoADR: mr.ganhoADR || 0, perdaADR: mr.perdaADR || 0,
+      ganhoREIT: mr.ganhoREIT || 0, perdaREIT: mr.perdaREIT || 0,
+      saldoAcoes: saldoAcoes, saldoFII: saldoFII, saldoETF: saldoETF, saldoBDR: saldoBDR, saldoStockInt: saldoStockInt, saldoADR: saldoADR, saldoREIT: saldoREIT,
+      impostoAcoes: impostoAcoes, impostoFII: impostoFII, impostoETF: impostoETF, impostoBDR: impostoBDR, impostoStockInt: impostoStockInt, impostoADR: impostoADR, impostoREIT: impostoREIT,
+      impostoTotal: impostoAcoes + impostoFII + impostoETF + impostoBDR + impostoStockInt + impostoADR + impostoREIT,
       alertaAcoes20k: mr.vendasAcoes > 20000,
-      prejAcumAcoes: prejAcumAcoes, prejAcumFII: prejAcumFII, prejAcumETF: prejAcumETF, prejAcumStockInt: prejAcumStockInt,
+      prejAcumAcoes: prejAcumAcoes, prejAcumFII: prejAcumFII, prejAcumETF: prejAcumETF, prejAcumBDR: prejAcumBDR, prejAcumStockInt: prejAcumStockInt, prejAcumADR: prejAcumADR, prejAcumREIT: prejAcumREIT,
       vendas: mr.vendas || [],
     });
   });
@@ -492,8 +552,18 @@ function HBarRow(props) {
 export default function RelatoriosScreen(props) {
   var navigation = props.navigation;
   var embedded = props.embedded || false;
+  var portfolioId = props.portfolioId || null;
   var user = useAuth().user;
+  var subscription = useSubscription();
   var ps = usePrivacyStyle();
+
+  if (!subscription.canAccess('REPORTS')) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <UpgradePrompt feature="REPORTS" navigation={navigation} />
+      </View>
+    );
+  }
 
   var _loading = useState(true); var loading = _loading[0]; var setLoading = _loading[1];
   var _refreshing = useState(false); var refreshing = _refreshing[0]; var setRefreshing = _refreshing[1];
@@ -513,17 +583,17 @@ export default function RelatoriosScreen(props) {
   var _irDrillMonth = useState(null); var irDrillMonth = _irDrillMonth[0]; var setIrDrillMonth = _irDrillMonth[1];
   var _irDrillCat = useState(null); var irDrillCat = _irDrillCat[0]; var setIrDrillCat = _irDrillCat[1];
   var _irPagamentos = useState({}); var irPagamentos = _irPagamentos[0]; var setIrPagamentos = _irPagamentos[1];
-  var _prejAnterior = useState({ acoes: 0, fii: 0, etf: 0, stock_int: 0 }); var prejAnterior = _prejAnterior[0]; var setPrejAnterior = _prejAnterior[1];
+  var _prejAnterior = useState({ acoes: 0, fii: 0, etf: 0, stock_int: 0, bdr: 0, adr: 0, reit: 0 }); var prejAnterior = _prejAnterior[0]; var setPrejAnterior = _prejAnterior[1];
   var _editingPrej = useState(false); var editingPrej = _editingPrej[0]; var setEditingPrej = _editingPrej[1];
   var _darfMonth = useState(null); var darfMonth = _darfMonth[0]; var setDarfMonth = _darfMonth[1];
 
   var load = async function() {
     if (!user) return;
     var results = await Promise.all([
-      getProventos(user.id),
-      getOpcoes(user.id),
-      getOperacoes(user.id),
-      getPositions(user.id),
+      getProventos(user.id, { portfolioId: portfolioId }),
+      getOpcoes(user.id, portfolioId),
+      getOperacoes(user.id, { portfolioId: portfolioId }),
+      getPositions(user.id, portfolioId),
       getMovimentacoes(user.id, {}),
       getIRPagamentos(user.id),
       getProfile(user.id),
@@ -550,7 +620,7 @@ export default function RelatoriosScreen(props) {
     setLoading(false);
   };
 
-  useFocusEffect(useCallback(function() { load(); }, [user]));
+  useFocusEffect(useCallback(function() { load(); }, [user, portfolioId]));
 
   var onRefresh = async function() {
     setRefreshing(true);
@@ -640,9 +710,11 @@ export default function RelatoriosScreen(props) {
   });
 
   filteredProventos.forEach(function(p) {
-    var val = p.valor_total || 0;
-    var ticker = (p.ticker || '').toUpperCase().trim();
+    var valBruto = p.valor_total || 0;
     var tipo = p.tipo_provento || 'dividendo';
+    // JCP tem 15% IR retido na fonte — mostrar valor liquido
+    var val = (tipo === 'jcp') ? valBruto * 0.85 : valBruto;
+    var ticker = (p.ticker || '').toUpperCase().trim();
     var mKey = (p.data_pagamento || '').substring(0, 7);
     var corretora = tickerCorretora[ticker] || 'Sem corretora';
 
@@ -884,6 +956,88 @@ export default function RelatoriosScreen(props) {
     Toast.show({ type: 'success', text1: 'Prejuízo anterior salvo' });
   };
 
+  // ═══════════ EXPORT CSV ═══════════
+  var _exporting = useState(false); var exporting = _exporting[0]; var setExporting = _exporting[1];
+
+  var handleExport = function() {
+    setExporting(true);
+    try {
+      var csv = '';
+      var filename = '';
+
+      if (sub === 'caixa') {
+        csv = 'Data,Tipo,Categoria,Conta,Valor,Descrição\n';
+        filteredMovs.forEach(function(m) {
+          csv += (m.data || '') + ',' + (m.tipo || '') + ',' + (m.categoria || '') + ','
+            + '"' + (m.conta || '') + '",' + (m.valor || 0) + ','
+            + '"' + (m.descricao || '').replace(/"/g, '""') + '"\n';
+        });
+        filename = 'caixa';
+      } else if (sub === 'div') {
+        csv = 'Data,Ticker,Tipo,Valor/Cota,Quantidade,Total\n';
+        filteredProventos.forEach(function(p) {
+          csv += (p.data_pagamento || '') + ',' + (p.ticker || '') + ',' + (p.tipo_provento || '') + ','
+            + (p.valor_por_cota || 0) + ',' + (p.quantidade || 0) + ',' + (p.valor_total || 0) + '\n';
+        });
+        filename = 'dividendos';
+      } else if (sub === 'opc') {
+        csv = 'Data Abertura,Ativo Base,Ticker Opção,Tipo,Direção,Strike,Prêmio,Qtd,Status,Prêmio Fech.\n';
+        filteredOpcoes.forEach(function(o) {
+          csv += (o.data_abertura || '') + ',' + (o.ativo_base || '') + ',' + (o.ticker_opcao || '') + ','
+            + (o.tipo || '') + ',' + (o.direcao || '') + ',' + (o.strike || 0) + ','
+            + (o.premio || 0) + ',' + (o.quantidade || 0) + ',' + (o.status || '') + ','
+            + (o.premio_fechamento || '') + '\n';
+        });
+        filename = 'opcoes';
+      } else if (sub === 'ops') {
+        csv = 'Data,Ticker,Tipo,Categoria,Qtd,Preço,Custos,Corretora\n';
+        filteredOperacoes.forEach(function(o) {
+          csv += (o.data || '') + ',' + (o.ticker || '') + ',' + (o.tipo || '') + ','
+            + (o.categoria || '') + ',' + (o.quantidade || 0) + ',' + (o.preco || 0) + ','
+            + (o.custos || 0) + ',"' + (o.corretora || '') + '"\n';
+        });
+        filename = 'operacoes';
+      } else if (sub === 'ir') {
+        csv = 'Mês,Vendas Ações,Ganho Ações,Perda Ações,IR Ações,Vendas FII,Ganho FII,Perda FII,IR FII,Vendas ETF,IR ETF,Vendas Stocks,IR Stocks,Vendas BDR,Ganho BDR,Perda BDR,IR BDR,Vendas ADR,Ganho ADR,Perda ADR,IR ADR,Vendas REIT,Ganho REIT,Perda REIT,IR REIT,IR Total\n';
+        irFiltered.forEach(function(r) {
+          csv += r.month + ',' + r.vendasAcoes.toFixed(2) + ',' + r.ganhoAcoes.toFixed(2) + ','
+            + r.perdaAcoes.toFixed(2) + ',' + r.impostoAcoes.toFixed(2) + ','
+            + r.vendasFII.toFixed(2) + ',' + r.ganhoFII.toFixed(2) + ',' + r.perdaFII.toFixed(2) + ','
+            + r.impostoFII.toFixed(2) + ',' + r.vendasETF.toFixed(2) + ',' + r.impostoETF.toFixed(2) + ','
+            + r.vendasStockInt.toFixed(2) + ',' + r.impostoStockInt.toFixed(2) + ','
+            + (r.vendasBDR || 0).toFixed(2) + ',' + (r.ganhoBDR || 0).toFixed(2) + ',' + (r.perdaBDR || 0).toFixed(2) + ',' + (r.impostoBDR || 0).toFixed(2) + ','
+            + (r.vendasADR || 0).toFixed(2) + ',' + (r.ganhoADR || 0).toFixed(2) + ',' + (r.perdaADR || 0).toFixed(2) + ',' + (r.impostoADR || 0).toFixed(2) + ','
+            + (r.vendasREIT || 0).toFixed(2) + ',' + (r.ganhoREIT || 0).toFixed(2) + ',' + (r.perdaREIT || 0).toFixed(2) + ',' + (r.impostoREIT || 0).toFixed(2) + ','
+            + r.impostoTotal.toFixed(2) + '\n';
+        });
+        filename = 'ir';
+      }
+
+      if (!csv) {
+        setExporting(false);
+        return;
+      }
+
+      var bom = '\uFEFF';
+      var filePath = FileSystem.cacheDirectory + 'premiolab_' + filename + '.csv';
+      FileSystem.writeAsStringAsync(filePath, bom + csv, { encoding: FileSystem.EncodingType.UTF8 })
+        .then(function() {
+          return Sharing.shareAsync(filePath, { mimeType: 'text/csv', UTI: 'public.comma-separated-values-text' });
+        })
+        .then(function() {
+          setExporting(false);
+          Toast.show({ type: 'success', text1: 'CSV exportado' });
+        })
+        .catch(function(err) {
+          setExporting(false);
+          Toast.show({ type: 'error', text1: 'Erro ao exportar', text2: String(err) });
+        });
+    } catch (e) {
+      setExporting(false);
+      Toast.show({ type: 'error', text1: 'Erro ao exportar', text2: String(e) });
+    }
+  };
+
   // ═══════════ RENDER ═══════════
 
   if (loading) return <View style={styles.container}><LoadingScreen /></View>;
@@ -917,8 +1071,21 @@ export default function RelatoriosScreen(props) {
         })}
       </ScrollView>
 
-      {/* Period filter */}
-      <PeriodFilter onRangeChange={function(r) { setDateRange(r); }} />
+      {/* Period filter + Export */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <PeriodFilter onRangeChange={function(r) { setDateRange(r); }} />
+        </View>
+        <TouchableOpacity onPress={handleExport} disabled={exporting}
+          style={{ padding: 8, borderRadius: 8, backgroundColor: C.accent + '15' }}
+          accessibilityRole="button" accessibilityLabel="Exportar CSV">
+          {exporting ? (
+            <ActivityIndicator size="small" color={C.accent} />
+          ) : (
+            <Ionicons name="download-outline" size={20} color={C.accent} />
+          )}
+        </TouchableOpacity>
+      </View>
 
       {/* ═══════════ CAIXA TAB ═══════════ */}
       {sub === 'caixa' && (
@@ -1132,7 +1299,7 @@ export default function RelatoriosScreen(props) {
                         var tkInfo = divByTicker[tk];
                         var catColor = C.fiis;
                         if (tkInfo && tkInfo.categoria) {
-                          catColor = tkInfo.categoria === 'fii' ? C.fiis : tkInfo.categoria === 'etf' ? C.etfs : tkInfo.categoria === 'stock_int' ? C.stock_int : C.acoes;
+                          catColor = tkInfo.categoria === 'fii' ? C.fiis : tkInfo.categoria === 'etf' ? C.etfs : tkInfo.categoria === 'bdr' ? C.bdr : tkInfo.categoria === 'stock_int' ? C.stock_int : tkInfo.categoria === 'adr' ? C.adr : tkInfo.categoria === 'reit' ? C.reit : C.acoes;
                         }
                         return (
                           <View key={tk} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 }}>
@@ -1184,7 +1351,7 @@ export default function RelatoriosScreen(props) {
           {divTickerKeys.map(function(ticker) {
             var info = divByTicker[ticker];
             var catBadge = info.categoria || 'acao';
-            var catColor = catBadge === 'fii' ? C.fiis : catBadge === 'etf' ? C.etfs : catBadge === 'stock_int' ? C.stock_int : C.acoes;
+            var catColor = catBadge === 'fii' ? C.fiis : catBadge === 'etf' ? C.etfs : catBadge === 'bdr' ? C.bdr : catBadge === 'stock_int' ? C.stock_int : catBadge === 'adr' ? C.adr : catBadge === 'reit' ? C.reit : C.acoes;
             return (
               <Glass key={ticker} padding={0}>
                 <View style={[styles.tickerHeader, { borderLeftWidth: 3, borderLeftColor: catColor }]}>
@@ -1479,7 +1646,7 @@ export default function RelatoriosScreen(props) {
           )}
           {opsTickerKeys.map(function(ticker) {
             var info = opsByTicker[ticker];
-            var catColor = info.categoria === 'fii' ? C.fiis : info.categoria === 'etf' ? C.etfs : info.categoria === 'stock_int' ? C.stock_int : C.acoes;
+            var catColor = info.categoria === 'fii' ? C.fiis : info.categoria === 'etf' ? C.etfs : info.categoria === 'bdr' ? C.bdr : info.categoria === 'stock_int' ? C.stock_int : info.categoria === 'adr' ? C.adr : info.categoria === 'reit' ? C.reit : C.acoes;
             var pmCompra = info.qtyCompra > 0 ? info.compras / info.qtyCompra : 0;
             var pmVenda = info.qtyVenda > 0 ? info.vendas / info.qtyVenda : 0;
             return (
@@ -1596,7 +1763,7 @@ export default function RelatoriosScreen(props) {
                     <TextInput
                       style={styles.irPrejField}
                       value={String(prejAnterior.acoes || 0)}
-                      onChangeText={function(t) { setPrejAnterior({ acoes: parseFloat(t) || 0, fii: prejAnterior.fii, etf: prejAnterior.etf, stock_int: prejAnterior.stock_int }); }}
+                      onChangeText={function(t) { var v = parseFloat(t) || 0; setPrejAnterior({ acoes: v, fii: prejAnterior.fii, etf: prejAnterior.etf, stock_int: prejAnterior.stock_int, bdr: prejAnterior.bdr, adr: prejAnterior.adr, reit: prejAnterior.reit }); }}
                       keyboardType="decimal-pad" placeholder="0" placeholderTextColor={C.dim} />
                   </View>
                   <View style={{ flex: 1 }}>
@@ -1604,7 +1771,7 @@ export default function RelatoriosScreen(props) {
                     <TextInput
                       style={styles.irPrejField}
                       value={String(prejAnterior.fii || 0)}
-                      onChangeText={function(t) { setPrejAnterior({ acoes: prejAnterior.acoes, fii: parseFloat(t) || 0, etf: prejAnterior.etf, stock_int: prejAnterior.stock_int }); }}
+                      onChangeText={function(t) { var v = parseFloat(t) || 0; setPrejAnterior({ acoes: prejAnterior.acoes, fii: v, etf: prejAnterior.etf, stock_int: prejAnterior.stock_int, bdr: prejAnterior.bdr, adr: prejAnterior.adr, reit: prejAnterior.reit }); }}
                       keyboardType="decimal-pad" placeholder="0" placeholderTextColor={C.dim} />
                   </View>
                 </View>
@@ -1614,7 +1781,7 @@ export default function RelatoriosScreen(props) {
                     <TextInput
                       style={styles.irPrejField}
                       value={String(prejAnterior.etf || 0)}
-                      onChangeText={function(t) { setPrejAnterior({ acoes: prejAnterior.acoes, fii: prejAnterior.fii, etf: parseFloat(t) || 0, stock_int: prejAnterior.stock_int }); }}
+                      onChangeText={function(t) { var v = parseFloat(t) || 0; setPrejAnterior({ acoes: prejAnterior.acoes, fii: prejAnterior.fii, etf: v, stock_int: prejAnterior.stock_int, bdr: prejAnterior.bdr, adr: prejAnterior.adr, reit: prejAnterior.reit }); }}
                       keyboardType="decimal-pad" placeholder="0" placeholderTextColor={C.dim} />
                   </View>
                   <View style={{ flex: 1 }}>
@@ -1622,9 +1789,38 @@ export default function RelatoriosScreen(props) {
                     <TextInput
                       style={styles.irPrejField}
                       value={String(prejAnterior.stock_int || 0)}
-                      onChangeText={function(t) { setPrejAnterior({ acoes: prejAnterior.acoes, fii: prejAnterior.fii, etf: prejAnterior.etf, stock_int: parseFloat(t) || 0 }); }}
+                      onChangeText={function(t) { var v = parseFloat(t) || 0; setPrejAnterior({ acoes: prejAnterior.acoes, fii: prejAnterior.fii, etf: prejAnterior.etf, stock_int: v, bdr: prejAnterior.bdr, adr: prejAnterior.adr, reit: prejAnterior.reit }); }}
                       keyboardType="decimal-pad" placeholder="0" placeholderTextColor={C.dim} />
                   </View>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.bdr, fontFamily: F.mono, marginBottom: 4 }}>BDRs</Text>
+                    <TextInput
+                      style={styles.irPrejField}
+                      value={String(prejAnterior.bdr || 0)}
+                      onChangeText={function(t) { var v = parseFloat(t) || 0; setPrejAnterior({ acoes: prejAnterior.acoes, fii: prejAnterior.fii, etf: prejAnterior.etf, stock_int: prejAnterior.stock_int, bdr: v, adr: prejAnterior.adr, reit: prejAnterior.reit }); }}
+                      keyboardType="decimal-pad" placeholder="0" placeholderTextColor={C.dim} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.adr, fontFamily: F.mono, marginBottom: 4 }}>ADRs</Text>
+                    <TextInput
+                      style={styles.irPrejField}
+                      value={String(prejAnterior.adr || 0)}
+                      onChangeText={function(t) { var v = parseFloat(t) || 0; setPrejAnterior({ acoes: prejAnterior.acoes, fii: prejAnterior.fii, etf: prejAnterior.etf, stock_int: prejAnterior.stock_int, bdr: prejAnterior.bdr, adr: v, reit: prejAnterior.reit }); }}
+                      keyboardType="decimal-pad" placeholder="0" placeholderTextColor={C.dim} />
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.reit, fontFamily: F.mono, marginBottom: 4 }}>REITs</Text>
+                    <TextInput
+                      style={styles.irPrejField}
+                      value={String(prejAnterior.reit || 0)}
+                      onChangeText={function(t) { var v = parseFloat(t) || 0; setPrejAnterior({ acoes: prejAnterior.acoes, fii: prejAnterior.fii, etf: prejAnterior.etf, stock_int: prejAnterior.stock_int, bdr: prejAnterior.bdr, adr: prejAnterior.adr, reit: v }); }}
+                      keyboardType="decimal-pad" placeholder="0" placeholderTextColor={C.dim} />
+                  </View>
+                  <View style={{ flex: 1 }} />
                 </View>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <TouchableOpacity onPress={handleSavePrejAnterior}
@@ -1665,6 +1861,27 @@ export default function RelatoriosScreen(props) {
                     </Text>
                   </View>
                 </View>
+                <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>BDRs</Text>
+                    <Text style={[{ fontSize: 12, color: prejAnterior.bdr > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }, ps]}>
+                      {'R$ ' + fmt(prejAnterior.bdr || 0)}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>ADRs</Text>
+                    <Text style={[{ fontSize: 12, color: prejAnterior.adr > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }, ps]}>
+                      {'R$ ' + fmt(prejAnterior.adr || 0)}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>REITs</Text>
+                    <Text style={[{ fontSize: 12, color: prejAnterior.reit > 0 ? C.red : C.dim, fontFamily: F.mono, fontWeight: '600' }, ps]}>
+                      {'R$ ' + fmt(prejAnterior.reit || 0)}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }} />
+                </View>
                 <TouchableOpacity onPress={function() { setEditingPrej(true); }}
                   style={{ marginTop: 8, alignSelf: 'flex-start' }}>
                   <Text style={{ fontSize: 11, color: C.accent, fontFamily: F.body, fontWeight: '600' }}>Editar</Text>
@@ -1674,7 +1891,7 @@ export default function RelatoriosScreen(props) {
           </Glass>
 
           {/* Prejuízo acumulado (rolling) */}
-          {lastIR && (lastIR.prejAcumAcoes > 0 || lastIR.prejAcumFII > 0 || lastIR.prejAcumETF > 0 || lastIR.prejAcumStockInt > 0) && (
+          {lastIR && (lastIR.prejAcumAcoes > 0 || lastIR.prejAcumFII > 0 || lastIR.prejAcumETF > 0 || lastIR.prejAcumStockInt > 0 || lastIR.prejAcumBDR > 0 || lastIR.prejAcumADR > 0 || lastIR.prejAcumREIT > 0) && (
             <Glass padding={14}>
               <Text style={{ fontSize: 10, color: C.dim, fontFamily: F.mono, letterSpacing: 0.8, marginBottom: 8 }}>
                 PREJUÍZO ACUMULADO ATUAL
@@ -1709,6 +1926,30 @@ export default function RelatoriosScreen(props) {
                     <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>Stocks INT</Text>
                     <Text style={[{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '700' }, ps]}>
                       {'R$ ' + fmt(lastIR.prejAcumStockInt)}
+                    </Text>
+                  </View>
+                )}
+                {lastIR.prejAcumBDR > 0 && (
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>BDRs</Text>
+                    <Text style={[{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '700' }, ps]}>
+                      {'R$ ' + fmt(lastIR.prejAcumBDR)}
+                    </Text>
+                  </View>
+                )}
+                {lastIR.prejAcumADR > 0 && (
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>ADRs</Text>
+                    <Text style={[{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '700' }, ps]}>
+                      {'R$ ' + fmt(lastIR.prejAcumADR)}
+                    </Text>
+                  </View>
+                )}
+                {lastIR.prejAcumREIT > 0 && (
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 9, color: C.sub, fontFamily: F.mono }}>REITs</Text>
+                    <Text style={[{ fontSize: 13, color: C.red, fontFamily: F.mono, fontWeight: '700' }, ps]}>
+                      {'R$ ' + fmt(lastIR.prejAcumREIT)}
                     </Text>
                   </View>
                 )}
@@ -1883,6 +2124,117 @@ export default function RelatoriosScreen(props) {
                         </View>
                         {irDrillMonth === r.month && irDrillCat === 'stock_int' && (function() {
                           var catVendas = (r.vendas || []).filter(function(v) { return v.categoria === 'stock_int'; });
+                          if (catVendas.length === 0) return null;
+                          return (
+                            <View style={{ paddingHorizontal: 14, paddingBottom: 8, gap: 4 }}>
+                              {catVendas.map(function(v, vi) {
+                                return (
+                                  <View key={vi} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 50 }}>
+                                    <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, fontWeight: '600', width: 54 }}>{v.ticker}</Text>
+                                    <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, flex: 1 }}>{v.qty + ' cotas'}</Text>
+                                    <Text style={[{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }, ps]}>{'R$ ' + fmt(v.vendaTotal)}</Text>
+                                    <Text style={[{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }, ps]}>
+                                      {(v.ganho >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(v.ganho))}
+                                    </Text>
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          );
+                        })()}
+                      </View>
+                    )}
+
+                    {/* ── BDRs ── */}
+                    {(r.vendasBDR > 0 || r.ganhoBDR > 0 || r.perdaBDR > 0) && (
+                      <View style={{ borderTopWidth: 1, borderTopColor: C.border }}>
+                        <View style={styles.irClassRow}>
+                          <Text style={[styles.irClassLabel, { color: C.bdr }]}>BDRs</Text>
+                          <View style={styles.irClassDetail}>
+                            <TouchableOpacity activeOpacity={0.7} onPress={function() { handleToggleDrillVendas(r.month, 'bdr'); }}>
+                              <Text style={[styles.irText, { textDecorationLine: 'underline' }, ps]}>{'Vendas: R$ ' + fmt(r.vendasBDR)}</Text>
+                            </TouchableOpacity>
+                            {r.ganhoBDR > 0 && <Text style={[styles.irText, { color: C.green }, ps]}>{'Ganho: R$ ' + fmt(r.ganhoBDR)}</Text>}
+                            {r.perdaBDR > 0 && <Text style={[styles.irText, { color: C.red }, ps]}>{'Perda: R$ ' + fmt(r.perdaBDR)}</Text>}
+                            {r.impostoBDR > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }, ps]}>{'IR 15%: R$ ' + fmt(r.impostoBDR)}</Text>}
+                          </View>
+                        </View>
+                        {irDrillMonth === r.month && irDrillCat === 'bdr' && (function() {
+                          var catVendas = (r.vendas || []).filter(function(v) { return v.categoria === 'bdr'; });
+                          if (catVendas.length === 0) return null;
+                          return (
+                            <View style={{ paddingHorizontal: 14, paddingBottom: 8, gap: 4 }}>
+                              {catVendas.map(function(v, vi) {
+                                return (
+                                  <View key={vi} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 50 }}>
+                                    <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, fontWeight: '600', width: 54 }}>{v.ticker}</Text>
+                                    <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, flex: 1 }}>{v.qty + ' cotas'}</Text>
+                                    <Text style={[{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }, ps]}>{'R$ ' + fmt(v.vendaTotal)}</Text>
+                                    <Text style={[{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }, ps]}>
+                                      {(v.ganho >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(v.ganho))}
+                                    </Text>
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          );
+                        })()}
+                      </View>
+                    )}
+
+                    {/* ── ADRs ── */}
+                    {(r.vendasADR > 0 || r.ganhoADR > 0 || r.perdaADR > 0) && (
+                      <View style={{ borderTopWidth: 1, borderTopColor: C.border }}>
+                        <View style={styles.irClassRow}>
+                          <Text style={[styles.irClassLabel, { color: C.adr }]}>ADRs</Text>
+                          <View style={styles.irClassDetail}>
+                            <TouchableOpacity activeOpacity={0.7} onPress={function() { handleToggleDrillVendas(r.month, 'adr'); }}>
+                              <Text style={[styles.irText, { textDecorationLine: 'underline' }, ps]}>{'Vendas: R$ ' + fmt(r.vendasADR)}</Text>
+                            </TouchableOpacity>
+                            {r.ganhoADR > 0 && <Text style={[styles.irText, { color: C.green }, ps]}>{'Ganho: R$ ' + fmt(r.ganhoADR)}</Text>}
+                            {r.perdaADR > 0 && <Text style={[styles.irText, { color: C.red }, ps]}>{'Perda: R$ ' + fmt(r.perdaADR)}</Text>}
+                            {r.impostoADR > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }, ps]}>{'IR 15%: R$ ' + fmt(r.impostoADR)}</Text>}
+                          </View>
+                        </View>
+                        {irDrillMonth === r.month && irDrillCat === 'adr' && (function() {
+                          var catVendas = (r.vendas || []).filter(function(v) { return v.categoria === 'adr'; });
+                          if (catVendas.length === 0) return null;
+                          return (
+                            <View style={{ paddingHorizontal: 14, paddingBottom: 8, gap: 4 }}>
+                              {catVendas.map(function(v, vi) {
+                                return (
+                                  <View key={vi} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 50 }}>
+                                    <Text style={{ fontSize: 10, color: C.text, fontFamily: F.mono, fontWeight: '600', width: 54 }}>{v.ticker}</Text>
+                                    <Text style={{ fontSize: 9, color: C.dim, fontFamily: F.mono, flex: 1 }}>{v.qty + ' cotas'}</Text>
+                                    <Text style={[{ fontSize: 9, color: C.sub, fontFamily: F.mono, width: 72, textAlign: 'right' }, ps]}>{'R$ ' + fmt(v.vendaTotal)}</Text>
+                                    <Text style={[{ fontSize: 9, color: v.ganho >= 0 ? C.green : C.red, fontFamily: F.mono, fontWeight: '600', width: 72, textAlign: 'right' }, ps]}>
+                                      {(v.ganho >= 0 ? '+' : '-') + 'R$ ' + fmt(Math.abs(v.ganho))}
+                                    </Text>
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          );
+                        })()}
+                      </View>
+                    )}
+
+                    {/* ── REITs ── */}
+                    {(r.vendasREIT > 0 || r.ganhoREIT > 0 || r.perdaREIT > 0) && (
+                      <View style={{ borderTopWidth: 1, borderTopColor: C.border }}>
+                        <View style={styles.irClassRow}>
+                          <Text style={[styles.irClassLabel, { color: C.reit }]}>REITs</Text>
+                          <View style={styles.irClassDetail}>
+                            <TouchableOpacity activeOpacity={0.7} onPress={function() { handleToggleDrillVendas(r.month, 'reit'); }}>
+                              <Text style={[styles.irText, { textDecorationLine: 'underline' }, ps]}>{'Vendas: R$ ' + fmt(r.vendasREIT)}</Text>
+                            </TouchableOpacity>
+                            {r.ganhoREIT > 0 && <Text style={[styles.irText, { color: C.green }, ps]}>{'Ganho: R$ ' + fmt(r.ganhoREIT)}</Text>}
+                            {r.perdaREIT > 0 && <Text style={[styles.irText, { color: C.red }, ps]}>{'Perda: R$ ' + fmt(r.perdaREIT)}</Text>}
+                            {r.impostoREIT > 0 && <Text style={[styles.irText, { color: C.red, fontWeight: '700' }, ps]}>{'IR 15%: R$ ' + fmt(r.impostoREIT)}</Text>}
+                          </View>
+                        </View>
+                        {irDrillMonth === r.month && irDrillCat === 'reit' && (function() {
+                          var catVendas = (r.vendas || []).filter(function(v) { return v.categoria === 'reit'; });
                           if (catVendas.length === 0) return null;
                           return (
                             <View style={{ paddingHorizontal: 14, paddingBottom: 8, gap: 4 }}>

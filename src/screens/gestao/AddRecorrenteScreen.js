@@ -331,36 +331,48 @@ export default function AddRecorrenteScreen(props) {
 
       {/* Grupo */}
       <Text style={styles.label}>CATEGORIA *</Text>
-      <View style={styles.pillRow}>
+      <View style={styles.grupoGrid}>
         {grupos.map(function(g) {
+          var isActive = grupo === g.k;
           return (
-            <Pill key={g.k} active={grupo === g.k} color={g.color}
-              onPress={function() { selectGrupo(g.k); }}>
-              {g.l}
-            </Pill>
+            <TouchableOpacity key={g.k} activeOpacity={0.7}
+              onPress={function() { selectGrupo(g.k); }}
+              style={[styles.grupoCard, isActive && { borderColor: g.color + '80', backgroundColor: g.color + '14' }]}>
+              <View style={[styles.grupoIconWrap, { backgroundColor: g.color + (isActive ? '28' : '14') }]}>
+                <Ionicons name={g.icon} size={16} color={isActive ? g.color : C.dim} />
+              </View>
+              <Text style={[styles.grupoLabel, isActive && { color: g.color }]} numberOfLines={1}>{g.l}</Text>
+            </TouchableOpacity>
           );
         })}
       </View>
 
       {/* Subcategoria (if grupo selected and has subcats) */}
       {grupo && subcats.length > 0 ? (
-        <View>
-          <Text style={styles.label}>SUBCATEGORIA</Text>
-          <View style={styles.pillRow}>
-            <Pill active={!subcategoria} color={grupoMeta ? grupoMeta.color : C.accent}
-              onPress={function() { setSubcategoria(''); }}>
-              Geral
-            </Pill>
-            {subcats.map(function(sc) {
-              return (
-                <Pill key={sc.k} active={subcategoria === sc.k} color={grupoMeta ? grupoMeta.color : C.accent}
-                  onPress={function() { setSubcategoria(sc.k); }}>
-                  {sc.l}
-                </Pill>
-              );
-            })}
+        <Glass padding={12}>
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ionicons name={grupoMeta ? grupoMeta.icon : 'ellipse-outline'} size={14} color={grupoMeta ? grupoMeta.color : C.dim} />
+              <Text style={{ fontSize: 11, fontFamily: F.mono, color: grupoMeta ? grupoMeta.color : C.dim, fontWeight: '600', letterSpacing: 0.5 }}>
+                {(grupoMeta ? grupoMeta.label : grupo).toUpperCase()}
+              </Text>
+            </View>
+            <View style={styles.pillRow}>
+              <Pill active={!subcategoria} color={grupoMeta ? grupoMeta.color : C.accent}
+                onPress={function() { setSubcategoria(''); }}>
+                Geral
+              </Pill>
+              {subcats.map(function(sc) {
+                return (
+                  <Pill key={sc.k} active={subcategoria === sc.k} color={grupoMeta ? grupoMeta.color : C.accent}
+                    onPress={function() { setSubcategoria(sc.k); }}>
+                    {sc.l}
+                  </Pill>
+                );
+              })}
+            </View>
           </View>
-        </View>
+        </Glass>
       ) : null}
 
       {/* Conta */}
@@ -508,6 +520,19 @@ var styles = StyleSheet.create({
     alignItems: 'center', backgroundColor: C.cardSolid,
   },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  grupoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  grupoCard: {
+    width: '30%', flexGrow: 1, minWidth: 95, maxWidth: '32%',
+    paddingVertical: 10, paddingHorizontal: 8,
+    borderRadius: 10, borderWidth: 1, borderColor: C.border,
+    backgroundColor: C.cardSolid, alignItems: 'center', gap: 5,
+  },
+  grupoIconWrap: {
+    width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center',
+  },
+  grupoLabel: {
+    fontSize: 10, fontFamily: F.body, color: C.sub, fontWeight: '600', textAlign: 'center',
+  },
   fieldError: { fontSize: 11, color: C.red, fontFamily: F.mono, marginTop: 2 },
   diaHint: { fontSize: 11, color: C.sub, fontFamily: F.body, marginTop: 2 },
   previewTitle: {

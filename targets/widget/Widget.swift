@@ -933,106 +933,66 @@ struct VencimentoRowView: View {
         return isVenda ? .plGreen : .plRed
     }
 
-    var distArrow: String {
-        guard let d = opcao.distPct else { return "" }
-        return d >= 0 ? "\u{2191}" : "\u{2193}"
-    }
-
     var plColor: Color {
         guard let pl = opcao.plTotal else { return .plTextSec }
         return pl >= 0 ? .plGreen : .plRed
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            // Line 1: [V] [CALL] PETRH325  [ATM 0.8%↑]  [5d]
-            HStack(spacing: 4) {
-                Text(dirLabel)
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundColor(dirColor)
-                    .padding(.horizontal, 3)
-                    .padding(.vertical, 1)
-                    .background(dirColor.opacity(0.15))
-                    .cornerRadius(3)
+        // Single compact line: [V] [CALL] PETR4 K32.50  [5d]  R$+86
+        HStack(spacing: 3) {
+            Text(dirLabel)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundColor(dirColor)
+                .padding(.horizontal, 2)
+                .padding(.vertical, 1)
+                .background(dirColor.opacity(0.15))
+                .cornerRadius(3)
 
-                Text(opcao.tipo)
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundColor(tipoColor)
-                    .padding(.horizontal, 3)
-                    .padding(.vertical, 1)
-                    .background(tipoColor.opacity(0.15))
-                    .cornerRadius(3)
+            Text(opcao.tipo)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundColor(tipoColor)
+                .padding(.horizontal, 2)
+                .padding(.vertical, 1)
+                .background(tipoColor.opacity(0.15))
+                .cornerRadius(3)
 
-                Text(opcao.ticker.isEmpty ? opcao.base : opcao.ticker)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.plText)
-                    .lineLimit(1)
+            Text(opcao.base)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.plText)
+                .lineLimit(1)
 
-                Spacer()
+            Text("K\(String(format: "%.2f", opcao.strike))")
+                .font(.system(size: 8, weight: .medium, design: .monospaced))
+                .foregroundColor(.plTextSec)
+                .lineLimit(1)
 
-                if let m = opcao.moneyness {
-                    HStack(spacing: 1) {
-                        Text(m)
-                            .font(.system(size: 7, weight: .bold))
-                        if let d = opcao.distPct {
-                            Text("\(String(format: "%.1f", abs(d)))%\(distArrow)")
-                                .font(.system(size: 7, weight: .medium, design: .monospaced))
-                        }
-                    }
-                    .foregroundColor(moneynessColor)
-                    .padding(.horizontal, 3)
-                    .padding(.vertical, 1)
-                    .background(moneynessColor.opacity(0.12))
-                    .cornerRadius(3)
-                }
-
-                Text("\(opcao.dte)d")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundColor(dteColor(opcao.dte))
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(dteColor(opcao.dte).opacity(0.15))
-                    .cornerRadius(4)
+            if let qty = opcao.quantidade, qty > 0 {
+                Text("\(String(format: "%.0f", qty))x")
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
+                    .foregroundColor(.plTextSec.opacity(0.7))
             }
 
-            // Line 2: Prm 0.20  Mkt 0.93           R$-2117 -365%
-            HStack(spacing: 0) {
-                if let prm = opcao.premio {
-                    Text("Prm ")
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundColor(.plTextSec.opacity(0.6))
-                    Text(String(format: "%.2f", prm))
-                        .font(.system(size: 8, weight: .regular, design: .monospaced))
-                        .foregroundColor(.plTextSec)
-                }
+            Spacer(minLength: 2)
 
-                if let mkt = opcao.marketPrice {
-                    Text("  Mkt ")
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundColor(.plTextSec.opacity(0.6))
-                    Text(String(format: "%.2f", mkt))
-                        .font(.system(size: 8, weight: .regular, design: .monospaced))
-                        .foregroundColor(.plCyan)
-                }
+            Text("\(opcao.dte)d")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundColor(dteColor(opcao.dte))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(dteColor(opcao.dte).opacity(0.15))
+                .cornerRadius(3)
 
-                Spacer()
-
-                if let pl = opcao.plTotal {
-                    let sign = pl >= 0 ? "+" : ""
-                    Text("R$\(sign)\(String(format: "%.0f", pl))")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundColor(plColor)
-                    if let pct = opcao.plPct {
-                        let pSign = pct >= 0 ? "+" : ""
-                        Text(" \(pSign)\(String(format: "%.0f", pct))%")
-                            .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                            .foregroundColor(plColor.opacity(0.8))
-                    }
-                } else {
-                    Text("P&L \u{2014}")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.plTextSec.opacity(0.5))
-                }
+            if let pl = opcao.plTotal {
+                let sign = pl >= 0 ? "+" : ""
+                Text("R$\(sign)\(String(format: "%.0f", pl))")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(plColor)
+                    .lineLimit(1)
+            } else {
+                Text("--")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.plTextSec.opacity(0.5))
             }
         }
     }

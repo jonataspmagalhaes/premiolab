@@ -7,6 +7,9 @@ import { animateLayout } from '../../utils/a11y';
 var dateUtils = require('../../utils/dateUtils');
 var parseLocalDate = dateUtils.parseLocalDate;
 var formatDateBR = dateUtils.formatDateBR;
+var fractional = require('../../utils/fractional');
+var formatQty = fractional.formatQty;
+var decMul = fractional.decMul;
 
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
@@ -189,6 +192,7 @@ export default function AssetDetailScreen(props) {
   var ticker = route.params.ticker;
   var mercado = route.params.mercado || 'BR';
   var autoAi = route.params.autoAi || false;
+  var portfolioId = route.params.portfolioId || null;
   var isINT = mercado === 'INT';
   var currPrefix = isINT ? 'US$ ' : 'R$ ';
   var user = useAuth().user;
@@ -244,10 +248,10 @@ export default function AssetDetailScreen(props) {
   var loadData = async function() {
     if (!user) return;
     var results = await Promise.all([
-      getOperacoes(user.id, { ticker: ticker }),
-      getProventos(user.id, { ticker: ticker }),
+      getOperacoes(user.id, { ticker: ticker, portfolioId: portfolioId }),
+      getProventos(user.id, { ticker: ticker, portfolioId: portfolioId }),
       getIndicatorByTicker(user.id, ticker),
-      getOpcoes(user.id),
+      getOpcoes(user.id, portfolioId),
     ]);
     setTxns(results[0].data || []);
     setProvs(results[1].data || []);
@@ -340,7 +344,7 @@ export default function AssetDetailScreen(props) {
   for (var i = 0; i < txns.length; i++) {
     var t = txns[i];
     if (t.tipo === 'compra') {
-      position.custo += t.quantidade * t.preco;
+      position.custo += decMul(t.quantidade, t.preco);
       position.qty += t.quantidade;
     } else if (t.tipo === 'venda') {
       position.qty -= t.quantidade;
@@ -353,7 +357,9 @@ export default function AssetDetailScreen(props) {
   for (var j = 0; j < provs.length; j++) {
     var pDate = (provs[j].data_pagamento || '').substring(0, 10);
     if (pDate <= todayStr) {
-      totalProvs += (provs[j].valor_por_cota || 0) * (provs[j].quantidade || 0);
+      var pBruto = (provs[j].valor_por_cota || 0) * (provs[j].quantidade || 0);
+      var pTipo = (provs[j].tipo_provento || provs[j].tipo || '').toLowerCase();
+      totalProvs += (pTipo === 'jcp') ? pBruto * 0.85 : pBruto;
     }
   }
 
@@ -396,7 +402,9 @@ export default function AssetDetailScreen(props) {
   // Filtered proventos total
   var filteredProvsTotal = 0;
   for (var fpt = 0; fpt < filteredProvs.length; fpt++) {
-    filteredProvsTotal += (filteredProvs[fpt].valor_por_cota || 0) * (filteredProvs[fpt].quantidade || 0);
+    var fpBruto = (filteredProvs[fpt].valor_por_cota || 0) * (filteredProvs[fpt].quantidade || 0);
+    var fpTipo = (filteredProvs[fpt].tipo_provento || filteredProvs[fpt].tipo || '').toLowerCase();
+    filteredProvsTotal += (fpTipo === 'jcp') ? fpBruto * 0.85 : fpBruto;
   }
 
   // P&L calculations
@@ -584,7 +592,7 @@ export default function AssetDetailScreen(props) {
   };
 
   var renderTxnItem = function(t, idx) {
-    var totalTxn = (t.quantidade || 0) * (t.preco || 0);
+    var totalTxn = decMul(t.quantidade || 0, t.preco || 0);
     return (
       <View
         key={t.id || idx}
@@ -596,7 +604,7 @@ export default function AssetDetailScreen(props) {
             <Text style={styles.txnDate}>{new Date(t.data).toLocaleDateString('pt-BR')}</Text>
           </View>
           <Text style={[styles.txnDetail, ps]}>
-            {t.quantidade + ' x ' + currPrefix + fmt(t.preco || 0)}
+            {formatQty(t.quantidade) + ' x ' + currPrefix + fmt(t.preco || 0)}
           </Text>
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
@@ -712,7 +720,9 @@ export default function AssetDetailScreen(props) {
   };
 
   var renderProvItem = function(p, idx) {
-    var valProv = (p.valor_por_cota || 0) * (p.quantidade || 0);
+    var valProvBruto = (p.valor_por_cota || 0) * (p.quantidade || 0);
+    var rpTipo = (p.tipo_provento || p.tipo || '').toLowerCase();
+    var valProv = (rpTipo === 'jcp') ? valProvBruto * 0.85 : valProvBruto;
     return (
       <View
         key={p.id || idx}
@@ -1013,6 +1023,7 @@ export default function AssetDetailScreen(props) {
 
         <AiConfirmModal
           visible={aiConfirmVisible}
+          navigation={navigation}
           analysisType={'Análise do ativo'}
           onCancel={function() { setAiConfirmVisible(false); }}
           onConfirm={function() { setAiConfirmVisible(false); handleAiAtivo(); }}

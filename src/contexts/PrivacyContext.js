@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { animateLayout } from '../utils/a11y';
 
 var STORAGE_KEY = '@privacy_mode';
+var MASK = '•••••';
 
 var PrivacyContext = createContext({});
 
@@ -29,9 +30,15 @@ export function PrivacyProvider(props) {
     AsyncStorage.setItem(STORAGE_KEY, next ? 'true' : 'false').catch(function() {});
   }
 
+  function pv(value) {
+    if (!isPrivate) return value;
+    return MASK;
+  }
+
   var value = {
     isPrivate: isPrivate,
     togglePrivacy: togglePrivacy,
+    pv: pv,
   };
 
   return React.createElement(PrivacyContext.Provider, { value: value }, children);

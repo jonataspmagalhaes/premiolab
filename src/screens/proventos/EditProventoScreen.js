@@ -90,7 +90,7 @@ export default function EditProventoScreen(props) {
 
 
   var valorNum = parseFloat(valor) || 0;
-  var qtdNum = parseInt(qtd) || 0;
+  var qtdNum = parseFloat(qtd) || 0;
   var valorPorCota = qtdNum > 0 ? valorNum / qtdNum : 0;
 
   var canSubmit = ticker.length >= 4 && valorNum > 0 && data.length === 10 && isValidDate(data);

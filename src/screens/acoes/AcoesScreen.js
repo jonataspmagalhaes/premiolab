@@ -374,6 +374,8 @@ function IncomeXraySection(props) {
               <Text style={{ fontSize: 10, color: T.color.textMuted, fontFamily: F.mono, width: 30, textAlign: 'right' }}>{c.pct.toFixed(0) + '%'}</Text>
               {c.tendencia != null ? (
                 <Ionicons name={c.tendencia > 5 ? 'trending-up' : c.tendencia < -5 ? 'trending-down' : 'remove'} size={10} color={c.tendencia > 5 ? C.green : c.tendencia < -5 ? C.red : T.color.textMuted} style={{ width: 14, marginLeft: 2 }} />
+              ) : c.novoTicker ? (
+                <Ionicons name="sparkles" size={10} color={C.accent} style={{ width: 14, marginLeft: 2 }} />
               ) : <View style={{ width: 16 }} />}
             </View>
             {isSel ? (
@@ -386,6 +388,8 @@ function IncomeXraySection(props) {
                       <Text style={[{ fontSize: 10, color: c.tendencia > 5 ? C.green : c.tendencia < -5 ? C.red : T.color.textMuted, fontFamily: F.mono }, ps]}>
                         {'Tendencia: ' + (c.tendencia > 0 ? '+' : '') + Math.round(c.tendencia) + '% a.a.'}
                       </Text>
+                    ) : c.novoTicker ? (
+                      <Text style={[{ fontSize: 10, color: C.accent, fontFamily: F.mono }, ps]}>Novo pagador</Text>
                     ) : null}
                   </View>
                 </Sensitive>
@@ -444,8 +448,8 @@ function IncomeXraySection(props) {
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 40, gap: 2 }}>
         {sazon.map(function(s, idx) {
           var h = maxSazon > 0 ? (s.media / maxSazon) * 32 + 4 : 4;
-          var isWeak = s.media < (xray.mediaMensal * 0.6);
-          var isStrong = s.media > (xray.mediaMensal * 1.3);
+          var isWeak = s.media < ((xray.medianaGeral || xray.mediaMensal) * 0.6);
+          var isStrong = s.media > ((xray.medianaGeral || xray.mediaMensal) * 1.3);
           var isSel2 = selMes === idx;
           return (
             <TouchableOpacity key={idx} activeOpacity={0.7} onPress={function() { setSelMes(isSel2 ? -1 : idx); setSelTicker(null); }} style={{ flex: 1, alignItems: 'center' }}>
@@ -467,8 +471,8 @@ function IncomeXraySection(props) {
               <Text style={[{ fontSize: 12, color: T.color.textPrimary, fontFamily: F.display, fontWeight: '700' }, ps]}>
                 {sazon[selMes].label + ': R$ ' + fmtInt(sazon[selMes].media)}
               </Text>
-              <Text style={{ fontSize: 10, color: sazon[selMes].media < xray.mediaMensal * 0.6 ? C.red : sazon[selMes].media > xray.mediaMensal * 1.3 ? C.green : T.color.textMuted, fontFamily: F.mono }}>
-                {sazon[selMes].media < xray.mediaMensal * 0.6 ? 'MES FRACO' : sazon[selMes].media > xray.mediaMensal * 1.3 ? 'MES FORTE' : 'NORMAL'}
+              <Text style={{ fontSize: 10, color: sazon[selMes].media < (xray.medianaGeral || xray.mediaMensal) * 0.6 ? C.red : sazon[selMes].media > (xray.medianaGeral || xray.mediaMensal) * 1.3 ? C.green : T.color.textMuted, fontFamily: F.mono }}>
+                {sazon[selMes].media < (xray.medianaGeral || xray.mediaMensal) * 0.6 ? 'MES FRACO' : sazon[selMes].media > (xray.medianaGeral || xray.mediaMensal) * 1.3 ? 'MES FORTE' : 'NORMAL'}
               </Text>
             </View>
             <Text style={[{ fontSize: 10, color: T.color.textMuted, fontFamily: F.body }, ps]}>
@@ -505,8 +509,8 @@ function IncomeXraySection(props) {
                 style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: T.space.xs, borderTopWidth: si > 0 ? 1 : 0, borderTopColor: 'rgba(255,255,255,0.06)' }}>
                 <Text style={{ fontSize: 11, color: T.color.textPrimary, fontFamily: F.mono, fontWeight: '600', width: 55 }}>{sub.ticker}</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 10, color: C.red, fontFamily: F.mono }}>
-                    {'DY ' + sub.dy.toFixed(1) + '% (ideal: ' + sub.dyIdeal + '%+)'}
+                  <Text style={{ fontSize: 10, color: sub.semDados ? C.yellow : C.red, fontFamily: F.mono }}>
+                    {sub.semDados ? 'Sem proventos registrados' : 'DY ' + sub.dy.toFixed(1) + '% (ideal: ' + sub.dyIdeal + '%+)'}
                   </Text>
                 </View>
                 <Sensitive>
@@ -825,40 +829,119 @@ function AutopilotSection(props) {
   var plan = props.plan;
   var ps = usePrivacyStyle();
   if (!plan) return null;
+  var catLabel = { acao: 'Acao', fii: 'FII', etf: 'ETF', stock_int: 'INT' };
+  var catColor = { acao: C.acoes, fii: C.fiis, etf: C.etfs, stock_int: C.stock_int };
+
+  // Projecao: barras dos 12 meses
+  var proj = plan.projecao12m || [];
+  var maxProj = 0;
+  for (var mp = 0; mp < proj.length; mp++) {
+    if (proj[mp].comReinvestir > maxProj) maxProj = proj[mp].comReinvestir;
+  }
+
   return (
     <Glass padding={T.space.cardPad} style={{ marginBottom: T.space.gap, borderColor: C.accent + '30' }}>
-      <SectionHeader icon="navigate-outline" color={C.accent} title="PILOTO AUTOMATICO" subtitle={'Sua media mensal de dividendos e R$ ' + fmtInt(plan.dividendosMes) + '. Veja como reinvestir pra acelerar o compounding.'} />
-      <Text style={{ fontSize: 11, color: T.color.textMuted, fontFamily: F.body, marginBottom: T.space.sm }}>
-        {'Se voce reinvestir os R$ ' + fmtInt(plan.dividendosMes) + ' de dividendos mensais:'}
-      </Text>
+      <SectionHeader icon="navigate-outline" color={C.accent} title="PILOTO AUTOMATICO" badge={plan.sugestoes.length + ' ativos'} subtitle={'Reinvestindo R$ ' + fmtInt(plan.dividendosMes) + '/mes de dividendos (' + plan.totalCandidatos + ' ativos analisados)'} />
+
+      {/* Sugestoes com razoes */}
       {plan.sugestoes.map(function(s, idx) {
         return (
-          <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: T.space.sm, borderTopWidth: idx > 0 ? 1 : 0, borderTopColor: 'rgba(255,255,255,0.06)' }}>
-            <Text style={{ fontSize: 13, color: T.color.textPrimary, fontFamily: F.mono, fontWeight: '700', width: 55 }}>{s.ticker}</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 11, color: T.color.textPrimary, fontFamily: F.body }}>
-                {'Comprar ' + s.qtdCotas + ' cota' + (s.qtdCotas > 1 ? 's' : '') + ' a R$ ' + fmt(s.precoUnitario)}
-              </Text>
-              <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.body }}>
-                {'Score ' + Math.round(s.score) + '/100' + (s.regularidade >= 80 ? ', pagador regular' : '') + (s.dy > 0 ? ', DY ' + s.dy.toFixed(1) + '%' : '')}
-              </Text>
-            </View>
-            <Sensitive>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={[{ fontSize: 12, color: C.accent, fontFamily: F.mono, fontWeight: '700' }, ps]}>{'R$ ' + fmtInt(s.valor)}</Text>
-                <Text style={{ fontSize: 8, color: T.color.textMuted, fontFamily: F.mono }}>investir</Text>
+          <View key={idx} style={{ backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: T.radius.sm, padding: T.space.sm, marginBottom: T.space.xs }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+              <Text style={{ fontSize: 13, color: T.color.textPrimary, fontFamily: F.mono, fontWeight: '700' }}>{s.ticker}</Text>
+              <View style={{ backgroundColor: (catColor[s.categoria] || C.acoes) + '22', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1, marginLeft: 6 }}>
+                <Text style={{ fontSize: 8, color: catColor[s.categoria] || C.acoes, fontFamily: F.mono, fontWeight: '700' }}>{catLabel[s.categoria] || 'ACAO'}</Text>
               </View>
-            </Sensitive>
+              <View style={{ backgroundColor: C.accent + '22', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1, marginLeft: 4 }}>
+                <Text style={{ fontSize: 8, color: C.accent, fontFamily: F.mono, fontWeight: '700' }}>{s.pctAlocacao + '%'}</Text>
+              </View>
+              <View style={{ flex: 1 }} />
+              <Sensitive>
+                <Text style={[{ fontSize: 13, color: C.accent, fontFamily: F.mono, fontWeight: '700' }, ps]}>{'R$ ' + fmtInt(s.valor)}</Text>
+              </Sensitive>
+            </View>
+            <Text style={{ fontSize: 11, color: T.color.textPrimary, fontFamily: F.body, marginBottom: 4 }}>
+              {'Comprar ' + s.qtdCotas + ' cota' + (s.qtdCotas > 1 ? 's' : '') + ' a R$ ' + fmt(s.precoUnitario)}
+            </Text>
+            {/* Razoes como chips */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
+              {s.razoes.map(function(r, ri) {
+                return (
+                  <View key={ri} style={{ backgroundColor: C.green + '18', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
+                    <Text style={{ fontSize: 9, color: C.green, fontFamily: F.body }}>{r}</Text>
+                  </View>
+                );
+              })}
+              {s.riscoCorte ? (
+                <View style={{ backgroundColor: C.yellow + '18', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
+                  <Text style={{ fontSize: 9, color: C.yellow, fontFamily: F.body }}>Risco de corte</Text>
+                </View>
+              ) : null}
+            </View>
           </View>
         );
       })}
+
+      {/* Candidatos com risco de corte (excluidos) */}
+      {plan.candidatosRisco && plan.candidatosRisco.length > 0 ? (
+        <View style={{ marginTop: T.space.xs, marginBottom: T.space.xs }}>
+          <Text style={{ fontSize: 9, color: C.yellow, fontFamily: F.body }}>
+            {plan.candidatosRisco.map(function(r) { return r.ticker; }).join(', ') + ' — excluido' + (plan.candidatosRisco.length > 1 ? 's' : '') + ' por risco de corte'}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* Projecao 12 meses — barras */}
+      {proj.length > 0 && plan.rendaAdicionalMes > 0 ? (
+        <View style={{ marginTop: T.space.sm }}>
+          <Text style={[T.type.kpiLabel, { color: T.color.textMuted, marginBottom: T.space.xs }]}>PROJECAO 12 MESES</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 36, gap: 2 }}>
+            {proj.map(function(p, pi) {
+              var hSem = maxProj > 0 ? (p.semReinvestir / maxProj) * 28 + 4 : 4;
+              var hCom = maxProj > 0 ? (p.comReinvestir / maxProj) * 28 + 4 : 4;
+              return (
+                <View key={pi} style={{ flex: 1, alignItems: 'center' }}>
+                  <View style={{ width: '100%', height: hCom, borderRadius: 2, backgroundColor: C.accent + '44' }}>
+                    <View style={{ width: '100%', height: hSem, borderRadius: 2, backgroundColor: T.color.textMuted + '33', position: 'absolute', bottom: 0 }} />
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+          <View style={{ flexDirection: 'row', marginTop: 2 }}>
+            {proj.map(function(p, pi) {
+              return <Text key={pi} style={{ flex: 1, fontSize: 7, color: T.color.textMuted, fontFamily: F.mono, textAlign: 'center' }}>{p.mes}</Text>;
+            })}
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'center', gap: T.space.sm, marginTop: 4 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <View style={{ width: 8, height: 3, backgroundColor: T.color.textMuted + '33', borderRadius: 1 }} />
+              <Text style={{ fontSize: 7, color: T.color.textMuted, fontFamily: F.mono }}>Sem reinvestir</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <View style={{ width: 8, height: 3, backgroundColor: C.accent + '44', borderRadius: 1 }} />
+              <Text style={{ fontSize: 7, color: T.color.textMuted, fontFamily: F.mono }}>Com reinvestimento</Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {/* Efeito composto + impacto na carteira */}
       {plan.rendaAdicionalMes > 0 ? (
         <View style={{ backgroundColor: C.accent + '12', borderRadius: T.radius.sm, padding: T.space.sm, marginTop: T.space.sm }}>
           <Sensitive>
-            <Text style={[{ fontSize: 11, color: C.accent, fontFamily: F.body, textAlign: 'center' }, ps]}>
-              {'Efeito composto: +R$ ' + plan.rendaAdicionalMes.toFixed(2) + '/mes, +R$ ' + fmtInt(plan.rendaAdicional12m) + ' em 12 meses'}
+            <Text style={[{ fontSize: 12, color: C.accent, fontFamily: F.display, fontWeight: '700', textAlign: 'center', marginBottom: 2 }, ps]}>
+              {'+R$ ' + plan.rendaAdicionalMes.toFixed(2) + '/mes de renda extra'}
+            </Text>
+            <Text style={[{ fontSize: 10, color: T.color.textMuted, fontFamily: F.body, textAlign: 'center' }, ps]}>
+              {'+R$ ' + fmtInt(plan.rendaAdicional12m) + ' acumulado em 12 meses (yield medio ' + (plan.yieldMedio || 0).toFixed(1) + '% a.a.)'}
             </Text>
           </Sensitive>
+          {plan.concentracaoAntes && plan.concentracaoDepois ? (
+            <Text style={{ fontSize: 9, color: T.color.textMuted, fontFamily: F.body, textAlign: 'center', marginTop: 4 }}>
+              {'Concentracao top 3: ' + Math.round(plan.concentracaoAntes) + '% \u2192 ' + Math.round(plan.concentracaoDepois) + '%'}
+            </Text>
+          ) : null}
         </View>
       ) : null}
     </Glass>

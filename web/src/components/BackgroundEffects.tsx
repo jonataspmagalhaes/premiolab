@@ -202,22 +202,6 @@ export function BackgroundEffects() {
 
       {/* Particle network */}
       <ParticleCanvas />
-
-      {/* Matrix rain */}
-      <div className="matrix-rain font-mono">
-        <span className="matrix-col mc1">38.42 +1.2 27.15 58.90 142.30</span>
-        <span className="matrix-col mc2">R$539 +3.2k 12.1% DY 8.5</span>
-        <span className="matrix-col mc3">PETR4 BBAS3 VALE3 ITUB4</span>
-        <span className="matrix-col mc4">+6.3% 14.25 CDI 132k IBOV</span>
-        <span className="matrix-col mc5">R$1.937 +114k 271% META</span>
-        <span className="matrix-col mc6">45% 30% 15% 10% FII RF</span>
-        <span className="matrix-col mc7">DY 8.2 11.5 14.3 6.5 10.8</span>
-        <span className="matrix-col mc8">+328k +84k P&L +412k RENDA</span>
-        <span className="matrix-col mc9">SELIC 14.25 CDI 13.65 IPCA</span>
-        <span className="matrix-col mc10">R$873k R$581k R$290k R$193k</span>
-        <span className="matrix-col mc11">BUY HOLD SELL CC PUT CALL</span>
-        <span className="matrix-col mc12">21.600 13.800 11.500 3.600</span>
-      </div>
     </div>
   );
 }

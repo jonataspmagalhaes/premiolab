@@ -11,6 +11,10 @@ import { supabase } from '../../config/supabase';
 import { incrementCorretora } from '../../services/database';
 import { Glass, Pill, Badge, CorretoraSelector } from '../../components';
 import * as Haptics from 'expo-haptics';
+var fractional = require('../../utils/fractional');
+var isFractionable = fractional.isFractionable;
+var sanitizeQtyInput = fractional.sanitizeQtyInput;
+var decMul = fractional.decMul;
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -23,12 +27,18 @@ var CATEGORIAS = [
   { key: 'acao', label: 'Ação', color: C.acoes, mercado: 'BR' },
   { key: 'fii', label: 'FII', color: C.fiis, mercado: 'BR' },
   { key: 'etf', label: 'ETF BR', color: C.etfs, mercado: 'BR' },
+  { key: 'bdr', label: 'BDR', color: C.bdr, mercado: 'BR' },
   { key: 'stock_int', label: 'Stocks', color: C.stock_int, mercado: 'INT' },
+  { key: 'adr', label: 'ADR', color: C.adr, mercado: 'INT' },
+  { key: 'reit', label: 'REIT', color: C.reit, mercado: 'INT' },
   { key: 'etf_int', label: 'ETF INT', color: C.etfs, mercado: 'INT' },
 ];
 
 function getInitialCatKey(op) {
   if (op.categoria === 'etf' && op.mercado === 'INT') return 'etf_int';
+  if (op.categoria === 'adr') return 'adr';
+  if (op.categoria === 'reit') return 'reit';
+  if (op.categoria === 'bdr') return 'bdr';
   return op.categoria || 'acao';
 }
 
@@ -38,7 +48,7 @@ function getRealCategoria(cat) {
 }
 
 function getRealMercado(cat) {
-  if (cat === 'stock_int' || cat === 'etf_int') return 'INT';
+  if (cat === 'stock_int' || cat === 'etf_int' || cat === 'adr' || cat === 'reit') return 'INT';
   return 'BR';
 }
 
@@ -106,7 +116,7 @@ export default function EditOperacaoScreen(props) {
 
   var qty = parseFloat(quantidade) || 0;
   var prc = parseFloat(preco) || 0;
-  var total = qty * prc;
+  var total = decMul(qty, prc);
   var custCorretagem = parseFloat(corretagem) || 0;
   var custEmolumentos = parseFloat(emolumentos) || 0;
   var custImpostos = parseFloat(impostos) || 0;
@@ -115,12 +125,16 @@ export default function EditOperacaoScreen(props) {
   var custoTotal = tipo === 'compra' ? total + totalCustos : total - totalCustos;
   var pmComCustos = qty > 0 ? (tipo === 'compra' ? (total + totalCustos) / qty : (total - totalCustos) / qty) : 0;
 
+  var realCatForValidation = getRealCategoria(categoria);
+  var realMercadoForValidation = getRealMercado(categoria);
+  var qtyFracError = qty > 0 && !isFractionable(realCatForValidation, realMercadoForValidation) && qty !== Math.floor(qty);
+
   var minTickerLen = isINT ? 1 : 4;
-  var canSubmit = ticker.length >= minTickerLen && qty > 0 && prc > 0 && corretora && data.length === 10;
+  var canSubmit = ticker.length >= minTickerLen && qty > 0 && prc > 0 && corretora && data.length === 10 && !qtyFracError;
 
   var tickerValid = ticker.length >= minTickerLen;
   var tickerError = ticker.length > 0 && ticker.length < minTickerLen;
-  var qtyValid = qty > 0;
+  var qtyValid = qty > 0 && !qtyFracError;
   var qtyError = quantidade.length > 0 && qty <= 0;
   var prcValid = prc > 0;
   var prcError = preco.length > 0 && prc <= 0;
@@ -140,7 +154,7 @@ export default function EditOperacaoScreen(props) {
           tipo: tipo,
           categoria: getRealCategoria(categoria),
           mercado: getRealMercado(categoria),
-          quantidade: parseInt(quantidade),
+          quantidade: parseFloat(quantidade),
           preco: parseFloat(preco),
           custo_corretagem: custCorretagem,
           custo_emolumentos: custEmolumentos,
@@ -227,12 +241,13 @@ export default function EditOperacaoScreen(props) {
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>QUANTIDADE</Text>
-          <TextInput value={quantidade} onChangeText={setQuantidade} placeholder="100" placeholderTextColor={C.dim} keyboardType="numeric"
+          <TextInput value={quantidade} onChangeText={function(t) { setQuantidade(sanitizeQtyInput(t, realCatForValidation, realMercadoForValidation)); }} placeholder={isINT ? '0.5' : '100'} placeholderTextColor={C.dim} keyboardType={isINT ? 'decimal-pad' : 'numeric'}
             style={[styles.input,
               qtyValid && { borderColor: C.green },
-              qtyError && { borderColor: C.red },
+              (qtyError || qtyFracError) && { borderColor: C.red },
             ]} />
           {qtyError ? <Text style={styles.fieldError}>Deve ser maior que 0</Text> : null}
+          {qtyFracError ? <Text style={styles.fieldError}>Este ativo não aceita frações</Text> : null}
         </View>
         <View style={{ width: 12 }} />
         <View style={{ flex: 1 }}>

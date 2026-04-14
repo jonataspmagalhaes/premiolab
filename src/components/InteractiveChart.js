@@ -87,6 +87,7 @@ export default function InteractiveChart(props) {
   var fontFamily = props.fontFamily || undefined;
   var label = props.label || null;
   var onTouchStateChange = props.onTouchStateChange || null;
+  var overlays = props.overlays || [];
 
   var _cw = useState(0); var containerWidth = _cw[0]; var setContainerWidth = _cw[1];
   var _ai = useState(null); var activeIndex = _ai[0]; var setActiveIndex = _ai[1];
@@ -101,21 +102,51 @@ export default function InteractiveChart(props) {
 
   // Compute points + weekly markers
   var computed = useMemo(function () {
-    if (data.length < 2 || drawW <= 0) return { points: [], minV: 0, maxV: 0, weeklyIndices: [], yLabels: [] };
+    if (data.length < 2 || drawW <= 0) return { points: [], minV: 0, maxV: 0, weeklyIndices: [], yLabels: [], overlayPoints: [] };
     var values = data.map(function (d) { return d.value; });
     var minV = Math.min.apply(null, values);
     var maxV = Math.max.apply(null, values);
+
+    // Include overlay values in scale computation
+    for (var oi = 0; oi < overlays.length; oi++) {
+      var oData = overlays[oi].data || [];
+      for (var oj = 0; oj < oData.length; oj++) {
+        if (oData[oj].value < minV) minV = oData[oj].value;
+        if (oData[oj].value > maxV) maxV = oData[oj].value;
+      }
+    }
+
     var range = maxV - minV || 1;
     var pad = range * 0.08;
     minV -= pad;
     maxV += pad;
     range = maxV - minV;
 
+    // Build date-to-X map from main data
+    var dateToX = {};
     var points = data.map(function (d, i) {
       var x = padLeft + (i / (data.length - 1)) * drawW;
       var y = padTop + drawH - ((d.value - minV) / range) * drawH;
+      var dateStr = typeof d.date === 'string' ? d.date.substring(0, 10) : '';
+      dateToX[dateStr] = x;
       return { x: x, y: y, value: d.value, date: d.date, index: i };
     });
+
+    // Compute overlay points mapped to same X positions by date
+    var overlayPoints = [];
+    for (var ok = 0; ok < overlays.length; ok++) {
+      var ovData = overlays[ok].data || [];
+      var ovPts = [];
+      for (var ol = 0; ol < ovData.length; ol++) {
+        var ovDate = typeof ovData[ol].date === 'string' ? ovData[ol].date.substring(0, 10) : '';
+        var ovX = dateToX[ovDate];
+        if (ovX != null) {
+          var ovY = padTop + drawH - ((ovData[ol].value - minV) / range) * drawH;
+          ovPts.push({ x: ovX, y: ovY, value: ovData[ol].value, date: ovDate });
+        }
+      }
+      overlayPoints.push(ovPts);
+    }
 
     // Find last data point of each week
     var weeklyIndices = [];
@@ -137,8 +168,8 @@ export default function InteractiveChart(props) {
       yLabels.push({ y: yPos, label: formatAxisValue(valAtGrid) });
     }
 
-    return { points: points, minV: minV, maxV: maxV, range: range, weeklyIndices: weeklyIndices, yLabels: yLabels };
-  }, [data, drawW, drawH]);
+    return { points: points, minV: minV, maxV: maxV, range: range, weeklyIndices: weeklyIndices, yLabels: yLabels, overlayPoints: overlayPoints };
+  }, [data, drawW, drawH, overlays]);
 
   var points = computed.points;
 
@@ -232,18 +263,24 @@ export default function InteractiveChart(props) {
 
   // X-axis date labels from weekly points (max 5 to avoid crowding)
   var xLabels = [];
+  var minLabelSpacing = 50;
   if (weeklyIndices.length > 0 && points.length > 0) {
     var step = Math.max(1, Math.floor(weeklyIndices.length / 5));
     for (var xl = 0; xl < weeklyIndices.length; xl += step) {
       var wi = weeklyIndices[xl];
       if (points[wi]) {
-        xLabels.push({ x: points[wi].x, label: formatDate(data[wi].date) });
+        if (xLabels.length === 0 || points[wi].x - xLabels[xLabels.length - 1].x >= minLabelSpacing) {
+          xLabels.push({ x: points[wi].x, label: formatDate(data[wi].date) });
+        }
       }
     }
-    // Always include last point
+    // Always include last point if enough space from previous
     var lastWi = weeklyIndices[weeklyIndices.length - 1];
-    if (xLabels.length === 0 || xLabels[xLabels.length - 1].x !== points[lastWi].x) {
-      xLabels.push({ x: points[lastWi].x, label: formatDate(data[lastWi].date) });
+    if (points[lastWi]) {
+      var lastX = xLabels.length > 0 ? xLabels[xLabels.length - 1].x : -999;
+      if (xLabels.length === 0 || points[lastWi].x - lastX >= minLabelSpacing) {
+        xLabels.push({ x: points[lastWi].x, label: formatDate(data[lastWi].date) });
+      }
     }
   }
 
@@ -286,6 +323,17 @@ export default function InteractiveChart(props) {
 
               {/* Area fill */}
               {areaPath ? <Path d={areaPath} fill="url(#chartAreaFill)" /> : null}
+
+              {/* Overlay lines (behind main line) */}
+              {(computed.overlayPoints || []).map(function(ovPts, idx) {
+                if (ovPts.length < 2) return null;
+                var ovPath = buildPath(ovPts);
+                var ovColor = overlays[idx] ? overlays[idx].color : '#888';
+                return (
+                  <Path key={'ov' + idx} d={ovPath} fill="none" stroke={ovColor} strokeWidth="1.5"
+                    strokeLinecap="round" strokeLinejoin="round" opacity="0.7" />
+                );
+              })}
 
               {/* Line */}
               {linePath ? (
@@ -333,7 +381,7 @@ export default function InteractiveChart(props) {
                 styles.tooltip,
                 {
                   left: tooltipX,
-                  top: tooltipAbove ? Math.max(2, ap.y - 56) : ap.y + 16,
+                  top: tooltipAbove ? Math.max(2, ap.y - 56 - (overlays.length > 0 ? overlays.length * 16 : 0)) : ap.y + 16,
                   borderColor: color + '50',
                   shadowColor: color,
                 },
@@ -341,6 +389,23 @@ export default function InteractiveChart(props) {
                 <Text style={[styles.tooltipValue, { color: color, fontFamily: fontFamily }]}>
                   {formatValue(ap.value)}
                 </Text>
+                {(computed.overlayPoints || []).map(function(ovPts, idx) {
+                  var ovColor = overlays[idx] ? overlays[idx].color : '#888';
+                  var ovLabel = overlays[idx] ? overlays[idx].label : '';
+                  var ovVal = null;
+                  for (var ovi = 0; ovi < ovPts.length; ovi++) {
+                    if (ovPts[ovi].date === (typeof ap.date === 'string' ? ap.date.substring(0, 10) : '')) {
+                      ovVal = ovPts[ovi].value;
+                      break;
+                    }
+                  }
+                  if (ovVal == null) return null;
+                  return (
+                    <Text key={'ovt' + idx} style={{ fontSize: 10, color: ovColor, fontFamily: fontFamily, marginTop: 1 }}>
+                      {ovLabel ? ovLabel + ': ' : ''}{formatValue(ovVal)}
+                    </Text>
+                  );
+                })}
                 <Text style={[styles.tooltipDate, { fontFamily: fontFamily }]}>
                   {formatDate(ap.date)}
                 </Text>

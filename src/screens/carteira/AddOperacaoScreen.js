@@ -1,17 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { animateLayout } from '../../utils/a11y';
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { addOperacao, incrementCorretora, getIndicators, addMovimentacaoComSaldo, buildMovDescricao, getPositions } from '../../services/database';
+import { addOperacao, incrementCorretora, getIndicators, addMovimentacaoComSaldo, buildMovDescricao, getPositions, getPortfolios } from '../../services/database';
 import { runDailyCalculation } from '../../services/indicatorService';
 import { fetchExchangeRates } from '../../services/currencyService';
 import { Glass, Pill, Badge, TickerInput, CorretoraSelector, getInstitutionMeta } from '../../components';
 import { searchTickers } from '../../services/tickerSearchService';
 import * as Haptics from 'expo-haptics';
+var fractional = require('../../utils/fractional');
+var isFractionable = fractional.isFractionable;
+var sanitizeQtyInput = fractional.sanitizeQtyInput;
+var decMul = fractional.decMul;
+var formatQty = fractional.formatQty;
 
 function fmt(v) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -45,13 +51,16 @@ var CATEGORIAS = [
   { key: 'acao', label: 'Ação', color: C.acoes, mercado: 'BR' },
   { key: 'fii', label: 'FII', color: C.fiis, mercado: 'BR' },
   { key: 'etf', label: 'ETF BR', color: C.etfs, mercado: 'BR' },
+  { key: 'bdr', label: 'BDR', color: C.bdr, mercado: 'BR' },
   { key: 'stock_int', label: 'Stocks', color: C.stock_int, mercado: 'INT' },
+  { key: 'adr', label: 'ADR', color: C.adr, mercado: 'INT' },
+  { key: 'reit', label: 'REIT', color: C.reit, mercado: 'INT' },
   { key: 'etf_int', label: 'ETF INT', color: C.etfs, mercado: 'INT' },
 ];
 
 
 function isIntCategoria(cat) {
-  return cat === 'stock_int' || cat === 'etf_int';
+  return cat === 'stock_int' || cat === 'etf_int' || cat === 'adr' || cat === 'reit';
 }
 
 function getRealCategoria(cat) {
@@ -60,7 +69,7 @@ function getRealCategoria(cat) {
 }
 
 function getRealMercado(cat) {
-  if (cat === 'stock_int' || cat === 'etf_int') return 'INT';
+  if (cat === 'stock_int' || cat === 'etf_int' || cat === 'adr' || cat === 'reit') return 'INT';
   return 'BR';
 }
 
@@ -84,6 +93,8 @@ export default function AddOperacaoScreen(props) {
   var _loading = useState(false); var loading = _loading[0]; var setLoading = _loading[1];
   var _showCustos = useState(false); var showCustos = _showCustos[0]; var setShowCustos = _showCustos[1];
   var _usdRate = useState(null); var usdRate = _usdRate[0]; var setUsdRate = _usdRate[1];
+  var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfoliosState = _portfolios[1];
+  var _selPortfolioId = useState(params.portfolioId || null); var selPortfolioId = _selPortfolioId[0]; var setSelPortfolioId = _selPortfolioId[1];
 
   var isInt = isIntCategoria(categoria);
   var moedaSymbol = isInt ? 'US$' : 'R$';
@@ -97,9 +108,17 @@ export default function AddOperacaoScreen(props) {
     }
   }, [categoria]);
 
+  // Buscar portfolios do usuario (useFocusEffect para atualizar ao voltar de ConfigPortfolios)
+  useFocusEffect(useCallback(function() {
+    if (!user) return;
+    getPortfolios(user.id).then(function(res) {
+      setPortfoliosState(res.data || []);
+    }).catch(function() {});
+  }, [user]));
+
   var qty = parseFloat(quantidade) || 0;
   var prc = parseFloat(preco) || 0;
-  var total = qty * prc;
+  var total = decMul(qty, prc);
   var custCorretagem = parseFloat(corretagem) || 0;
   var custEmolumentos = parseFloat(emolumentos) || 0;
   var custImpostos = parseFloat(impostos) || 0;
@@ -109,12 +128,16 @@ export default function AddOperacaoScreen(props) {
   var custoTotal = tipo === 'compra' ? total + totalCustos : total - totalCustos;
   var pmComCustos = qty > 0 ? (tipo === 'compra' ? (total + totalCustos) / qty : (total - totalCustos) / qty) : 0;
 
+  var realCatForValidation = getRealCategoria(categoria);
+  var realMercadoForValidation = getRealMercado(categoria);
+  var qtyFracError = qty > 0 && !isFractionable(realCatForValidation, realMercadoForValidation) && qty !== Math.floor(qty);
+
   var minTickerLen = isInt ? 1 : 4;
-  var canSubmit = ticker.length >= minTickerLen && qty > 0 && prc > 0 && corretora && data.length === 10;
+  var canSubmit = ticker.length >= minTickerLen && qty > 0 && prc > 0 && corretora && data.length === 10 && !qtyFracError;
 
   var tickerValid = ticker.length >= minTickerLen;
   var tickerError = ticker.length > 0 && ticker.length < minTickerLen;
-  var qtyValid = qty > 0;
+  var qtyValid = qty > 0 && !qtyFracError;
   var qtyError = quantidade.length > 0 && qty <= 0;
   var prcValid = prc > 0;
   var prcError = preco.length > 0 && prc <= 0;
@@ -156,12 +179,12 @@ export default function AddOperacaoScreen(props) {
     try {
       var realCat = getRealCategoria(categoria);
       var realMercado = getRealMercado(categoria);
-      var result = await addOperacao(user.id, {
+      var opPayload = {
         ticker: ticker.toUpperCase(),
         tipo: tipo,
         categoria: realCat,
         mercado: realMercado,
-        quantidade: parseInt(quantidade),
+        quantidade: parseFloat(quantidade),
         preco: parseFloat(preco),
         custo_corretagem: custCorretagem,
         custo_emolumentos: custEmolumentos,
@@ -169,7 +192,11 @@ export default function AddOperacaoScreen(props) {
         corretora: corretora,
         data: brToIso(data),
         taxa_cambio: realMercado === 'INT' ? (usdRate || null) : null,
-      });
+      };
+      if (selPortfolioId) {
+        opPayload.portfolio_id = selPortfolioId;
+      }
+      var result = await addOperacao(user.id, opPayload);
       if (result.error) {
         Alert.alert('Erro', result.error.message);
         setSubmitted(false);
@@ -188,12 +215,23 @@ export default function AddOperacaoScreen(props) {
           console.warn('First op indicator check failed:', e);
         });
 
+        // Checar se portfolio tem operacoes_contas desabilitado
+        var portOpContas = true;
+        if (selPortfolioId) {
+          for (var pci = 0; pci < portfolios.length; pci++) {
+            if (portfolios[pci].id === selPortfolioId && portfolios[pci].operacoes_contas === false) {
+              portOpContas = false;
+              break;
+            }
+          }
+        }
+
         // Oferecer atualizar saldo na conta
         var opTotal = tipo === 'compra' ? custoTotal : custoTotal;
         var opTipo = tipo === 'compra' ? 'saida' : 'entrada';
         var opCat = tipo === 'compra' ? 'compra_ativo' : 'venda_ativo';
         var opDescLabel = tipo === 'compra' ? 'Compra' : 'Venda';
-        var opDesc = opDescLabel + ' ' + ticker.toUpperCase() + ' x' + qty;
+        var opDesc = opDescLabel + ' ' + ticker.toUpperCase() + ' x' + formatQty(qty);
         if (realMercado === 'INT') {
           opDesc = opDesc + ' (US$)';
         }
@@ -213,6 +251,13 @@ export default function AddOperacaoScreen(props) {
           setSubmitted(false);
         };
 
+        if (!portOpContas) {
+          // Portfolio com operacoes de conta desabilitadas — nao perguntar sobre saldo
+          Alert.alert('Sucesso!', 'Operação registrada.', [
+            { text: 'Adicionar outra', onPress: resetFields },
+            { text: 'Concluir', onPress: function() { navigation.goBack(); } },
+          ]);
+        } else {
         Alert.alert(
           'Operação registrada!',
           'Atualizar saldo em ' + corretora + ' (' + contaMoeda + ')? (' + (tipo === 'compra' ? '-' : '+') + opSymbol + ' ' + fmt(opTotal) + ')',
@@ -249,6 +294,7 @@ export default function AddOperacaoScreen(props) {
             },
           ]
         );
+        }
       }
     } catch (err) {
       Alert.alert('Erro', 'Falha ao salvar. Tente novamente.');
@@ -310,6 +356,14 @@ export default function AddOperacaoScreen(props) {
         autoFocus={true}
         returnKeyType="next"
         onSearch={function(query) { return searchTickers(query, getRealMercado(categoria)); }}
+        onSuggestionSelect={function(item) {
+          if (!item || !isIntCategoria(categoria)) return;
+          if (item.type === 'ETF' && categoria !== 'etf_int') {
+            setCategoria('etf_int');
+          } else if (item.type === 'EQUITY' && categoria === 'etf_int') {
+            setCategoria('stock_int');
+          }
+        }}
         style={[styles.input,
           tickerValid && { borderColor: C.green },
           tickerError && { borderColor: C.red },
@@ -323,23 +377,29 @@ export default function AddOperacaoScreen(props) {
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>QUANTIDADE *</Text>
-          <TextInput value={quantidade} onChangeText={setQuantidade} placeholder="100" placeholderTextColor={C.dim} keyboardType="numeric"
+          <TextInput value={quantidade} onChangeText={function(t) { setQuantidade(sanitizeQtyInput(t, realCatForValidation, realMercadoForValidation)); }} placeholder={isInt ? '0.5' : '100'} placeholderTextColor={C.dim} keyboardType={isInt ? 'decimal-pad' : 'numeric'}
             style={[styles.input,
               qtyValid && { borderColor: C.green },
-              qtyError && { borderColor: C.red },
+              (qtyError || qtyFracError) && { borderColor: C.red },
             ]} />
           {qtyError ? (
             <Text style={styles.fieldError}>Deve ser maior que 0</Text>
+          ) : null}
+          {qtyFracError ? (
+            <Text style={styles.fieldError}>Este ativo não aceita frações</Text>
           ) : null}
         </View>
         <View style={{ width: 12 }} />
         <View style={{ flex: 1 }}>
           <Text style={styles.label}>{'PREÇO (' + moedaSymbol + ') *'}</Text>
-          <TextInput value={preco} onChangeText={setPreco} placeholder="34.50" placeholderTextColor={C.dim} keyboardType="decimal-pad"
-            style={[styles.input,
-              prcValid && { borderColor: C.green },
-              prcError && { borderColor: C.red },
-            ]} />
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {isInt ? <Text style={{ fontSize: 14, fontFamily: F.mono, color: C.accent, marginRight: 6 }}>US$</Text> : null}
+            <TextInput value={preco} onChangeText={setPreco} placeholder={isInt ? '45.00' : '34.50'} placeholderTextColor={C.dim} keyboardType="decimal-pad"
+              style={[styles.input, { flex: 1 },
+                prcValid && { borderColor: C.green },
+                prcError && { borderColor: C.red },
+              ]} />
+          </View>
           {prcError ? (
             <Text style={styles.fieldError}>Deve ser maior que 0</Text>
           ) : null}
@@ -438,6 +498,26 @@ export default function AddOperacaoScreen(props) {
 
       {/* Corretora */}
       <CorretoraSelector value={corretora} onSelect={function(name, meta) { setCorretora(name); setCorretoraMeta(meta); }} userId={user.id} mercado={isInt ? 'INT' : 'BR'} color={isInt ? C.stock_int : C.acoes} label="CORRETORA *" />
+
+      {/* Portfolio — so exibe se usuario tem portfolios customizados */}
+      {portfolios.length > 0 ? (
+        <View>
+          <Text style={styles.label}>PORTFÓLIO</Text>
+          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+            <Pill active={!selPortfolioId} color={C.accent} onPress={function() { setSelPortfolioId(null); }}>Padrão</Pill>
+            {portfolios.map(function(pf) {
+              return (
+                <Pill key={pf.id} active={selPortfolioId === pf.id} color={pf.cor || C.accent} onPress={function() { setSelPortfolioId(pf.id); }}>
+                  {pf.nome}
+                </Pill>
+              );
+            })}
+            {portfolios.length < 4 ? (
+              <Pill active={false} color={C.dim} onPress={function() { navigation.navigate('ConfigPortfolios'); }}>+ Novo</Pill>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
 
       {/* Submit */}
       <TouchableOpacity onPress={handleSubmit} disabled={!canSubmit || loading} activeOpacity={0.8} style={[styles.submitBtn, !canSubmit && { opacity: 0.4 }]}

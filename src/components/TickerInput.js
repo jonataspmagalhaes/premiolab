@@ -10,7 +10,8 @@ export default function TickerInput(props) {
   var style = props.style;
   var autoFocus = props.autoFocus;
   var returnKeyType = props.returnKeyType;
-  var onSearch = props.onSearch; // opcional: function(query) => Promise<[{ticker, name}]>
+  var onSearch = props.onSearch; // opcional: function(query) => Promise<[{ticker, name, type}]>
+  var onSuggestionSelect = props.onSuggestionSelect; // opcional: function(item) — chamado com {ticker, name, type, exchange}
 
   var _show = useState(false); var showSuggestions = _show[0]; var setShowSuggestions = _show[1];
   var _searching = useState(false); var searching = _searching[0]; var setSearching = _searching[1];
@@ -49,7 +50,7 @@ export default function TickerInput(props) {
     }
     for (var a = 0; a < apiResults.length; a++) {
       if (!existingTickers[apiResults[a].ticker]) {
-        merged.push({ ticker: apiResults[a].ticker, name: apiResults[a].name || '', source: 'api' });
+        merged.push({ ticker: apiResults[a].ticker, name: apiResults[a].name || '', type: apiResults[a].type || '', exchange: apiResults[a].exchange || '', source: 'api' });
       }
       if (merged.length >= 8) break;
     }
@@ -80,11 +81,12 @@ export default function TickerInput(props) {
     }
   }
 
-  function handleSelect(t) {
+  function handleSelect(t, item) {
     onChangeText(t);
     setShowSuggestions(false);
     setApiResults([]);
     if (_debounceRef.current) clearTimeout(_debounceRef.current);
+    if (onSuggestionSelect && item) onSuggestionSelect(item);
   }
 
   var showDropdown = showSuggestions && (merged.length > 0 || searching);
@@ -116,13 +118,17 @@ export default function TickerInput(props) {
           ) : null}
           {merged.map(function(item, idx) {
             return (
-              <TouchableOpacity key={item.ticker + '-' + idx} style={styles.item} onPress={function() { handleSelect(item.ticker); }}
+              <TouchableOpacity key={item.ticker + '-' + idx} style={styles.item} onPress={function() { handleSelect(item.ticker, item); }}
                 accessibilityRole="button" accessibilityLabel={item.ticker + (item.name ? ', ' + item.name : '')}>
                 <View style={styles.itemRow}>
                   <Text style={styles.itemText}>{item.ticker}</Text>
                   {item.source === 'portfolio' ? (
                     <View style={styles.portfolioBadge}>
                       <Text style={styles.portfolioBadgeText}>CARTEIRA</Text>
+                    </View>
+                  ) : item.type ? (
+                    <View style={[styles.portfolioBadge, { backgroundColor: item.type === 'ETF' ? '#f59e0b20' : '#E879F920' }]}>
+                      <Text style={[styles.portfolioBadgeText, { color: item.type === 'ETF' ? '#f59e0b' : '#E879F9' }]}>{item.type}</Text>
                     </View>
                   ) : null}
                 </View>

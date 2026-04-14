@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
-import { addRendaFixa, incrementCorretora } from '../../services/database';
+import { addRendaFixa, incrementCorretora, getPortfolios } from '../../services/database';
 import { Glass, Pill, Badge, CorretoraSelector } from '../../components';
 import * as Haptics from 'expo-haptics';
 
@@ -80,6 +81,13 @@ export default function AddRendaFixaScreen(props) {
   var s9 = useState(''); var corretora = s9[0]; var setCorretora = s9[1];
   var s10 = useState(false); var loading = s10[0]; var setLoading = s10[1];
   var _submitted = useState(false); var submitted = _submitted[0]; var setSubmitted = _submitted[1];
+  var _portfolios = useState([]); var portfolios = _portfolios[0]; var setPortfoliosState = _portfolios[1];
+  var _selPortfolioId = useState(null); var selPortfolioId = _selPortfolioId[0]; var setSelPortfolioId = _selPortfolioId[1];
+
+  useFocusEffect(useCallback(function() {
+    if (!user) return;
+    getPortfolios(user.id).then(function(res) { setPortfoliosState(res.data || []); }).catch(function() {});
+  }, [user]));
 
   // Auto-fill indexador when tipo changes
   function handleTipoSelect(tipoObj) {
@@ -160,6 +168,7 @@ export default function AddRendaFixaScreen(props) {
         custodia: custodia || null,
         corretora: corretora,
       };
+      if (selPortfolioId) rfData.portfolio_id = selPortfolioId;
 
       var result = await addRendaFixa(user.id, rfData);
 
@@ -390,6 +399,26 @@ export default function AddRendaFixaScreen(props) {
 
         {/* ========== CORRETORA ========== */}
         <CorretoraSelector value={corretora} onSelect={function(name) { setCorretora(name); }} userId={user.id} color={C.acoes} label="CORRETORA *" />
+
+        {/* ========== PORTFOLIO — so exibe se usuario tem portfolios customizados ========== */}
+        {portfolios.length > 0 ? (
+          <View>
+            <Text style={styles.label}>PORTFÓLIO</Text>
+            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+              <Pill active={!selPortfolioId} color={C.accent} onPress={function() { setSelPortfolioId(null); }}>Padrão</Pill>
+              {portfolios.map(function(pf) {
+                return (
+                  <Pill key={pf.id} active={selPortfolioId === pf.id} color={pf.cor || C.accent} onPress={function() { setSelPortfolioId(pf.id); }}>
+                    {pf.nome}
+                  </Pill>
+                );
+              })}
+              {portfolios.length < 4 ? (
+                <Pill active={false} color={C.dim} onPress={function() { navigation.navigate('ConfigPortfolios'); }}>+ Novo</Pill>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
 
         {/* ========== SUBMIT ========== */}
         <TouchableOpacity

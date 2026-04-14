@@ -21,10 +21,15 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.premiotrader.app",
-      "buildNumber": "10",
+      "buildNumber": "26",
       "backgroundColor": "#070a11",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.premiotrader.app.data"
+        ]
       }
     },
     "android": {
@@ -38,7 +43,17 @@
       "expo-font",
       "expo-secure-store",
       "expo-asset",
-      "expo-screen-orientation"
+      "expo-screen-orientation",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#6C5CE7",
+          "sounds": [],
+          "defaultChannel": "default"
+        }
+      ],
+      "@bacons/apple-targets"
     ],
     "extra": {
       "eas": {

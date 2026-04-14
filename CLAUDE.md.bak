@@ -1,0 +1,329 @@
+# PREMIOLAB
+
+App de investimentos BR (opcoes, acoes, FIIs, ETFs, RF) com React Native (Expo) + Supabase.
+
+## Stack
+
+- **Frontend**: React Native 0.81 + Expo SDK 54
+- **Backend**: Supabase (PostgreSQL + Auth + RLS)
+- **Cotacoes**: brapi.dev (token: tEU8wyBixv8hCi7J3NCjsi) + StatusInvest + Yahoo Finance (INT)
+- **Opcoes Reais**: OpLab API (ver `memory/oplab.md`)
+- **IA**: Claude Haiku 4.5 via Edge Function `analyze-option` (streaming SSE)
+- **Fontes**: DM Sans (display/body), JetBrains Mono (numeros)
+- **Navegacao**: React Navigation 7 (bottom tabs + stack)
+- **Notificacoes**: expo-notifications (local + push via Expo Push API)
+- **Widgets**: iOS SwiftUI via @bacons/apple-targets, Android via react-native-android-widget
+- **Assinaturas**: RevenueCat (preparado, sem SDK instalado)
+- **Deploy**: `npx supabase functions deploy <name> --no-verify-jwt --project-ref zephynezarjsxzselozi`
+
+## Regras de Codigo (OBRIGATORIO)
+
+- Usar `var` (nunca const/let)
+- Usar `function(){}` (nunca arrow functions)
+- Sem destructuring, spread, optional chaining, template literals
+- useState: `var _x = useState(val); var x = _x[0]; var setX = _x[1];`
+
+## Estrutura de Pastas
+
+```
+src/
+  components/      Glass, Badge, Pill, Field, InteractiveChart, PressableCard, SwipeableRow,
+                   TickerInput, CorretoraSelector, ToastConfig, InfoTip, FundamentalAccordion,
+                   FundamentalChart, TechnicalChart, UpgradePrompt, Logo, States (skeletons)
+  config/          Supabase client
+  constants/       financeCategories.js, subscriptionFeatures.js
+  contexts/        AuthContext, SubscriptionContext
+  navigation/      AppNavigator (tabs + stacks + deep linking)
+  screens/
+    analise/       Dashboard analitico + Rebalanceamento + Comparativo + Indicadores
+    auth/          Login, Onboarding, RecuperarSenha
+    carteira/      Carteira, AddOperacao, EditOperacao, AssetDetail, ImportOperacoes
+    gestao/        GestaoScreen (Ativos/Caixa/Financas), CaixaView, AddMovimentacao, Extrato,
+                   AddConta, FinancasView, Orcamento, Recorrentes, AddRecorrente,
+                   FaturaScreen, AddCartao, ConfigGastosRapidos, AddGastoRapido
+    home/          Dashboard principal
+    mais/          Menu + Configs (Meta, Corretoras, Alertas, Selic, Portfolios, Backup,
+                   GastosRapidos, ResumoIA, Profile, Paywall, Historico, Guia, Sobre)
+    opcoes/        Opcoes (ativas, pendentes, calc/simulador, historico)
+    proventos/     Proventos (lista, add, edit) — embedded na tab Renda
+    relatorios/    Relatorios (dividendos, opcoes, operacoes, IR) — embedded na tab Renda
+    renda/         Tab Renda (RendaScreen wrapper, RendaResumoView)
+    rf/            Renda Fixa (lista, add, edit)
+  services/
+    database.js         CRUD Supabase (todas tabelas)
+    priceService.js     Cotacoes BR (brapi) + routing BR/INT
+    yahooService.js     Cotacoes INT (Yahoo Finance)
+    oplabService.js     Grade opcoes reais (OpLab API, cache 5min)
+    indicatorService.js HV, RSI, SMA, EMA, Beta, ATR, BB, MaxDD
+    dividendService.js  Auto-sync dividendos (brapi+StatusInvest+Yahoo)
+    tickerSearchService.js  Busca tickers (brapi BR, Yahoo INT)
+    fundamentalService.js   Dados fundamentalistas (brapi+Yahoo, cache 24h)
+    currencyService.js      Cambio multi-moeda (brapi + fallback)
+    csvImportService.js     Parse CSV/TSV/XML/nota corretagem
+    geminiService.js        Client IA (nome legado, chama Edge Function)
+    aiUsageService.js       Controle limites IA (5/dia, 100/mes)
+    notificationService.js  Push + notificacoes locais
+    widgetBridge.js         Bridge app ↔ widgets nativos
+    technicalAnalysisService.js  S/R, pivots, volume profile, tendencia
+  theme/index.js    Cores (C), Fontes (F), Tamanhos (SIZE)
+  utils/
+    a11y.js         shouldAnimate(), animateLayout()
+    deviceId.js     UUID unico por instalacao
+supabase/functions/
+    analyze-option/  IA opcoes (Claude Haiku, streaming SSE)
+    oplab-options/   Proxy OpLab API
+    weekly-snapshot/ Snapshot patrimonio semanal
+    check-price-alerts/ Alertas opcoes cada 5min (OpLab + push)
+    ai-summary/      Resumo IA diario/semanal (Claude + push)
+    daily-backup/    Backup diario 15 tabelas
+    add-ai-credits/  Webhook RevenueCat creditos IA
+```
+
+## Navegacao (5 Tabs)
+
+1. **Home** — Patrimonio hero, KPI bar, renda mes, alertas, eventos, resumo IA
+2. **Carteira** — Sub-tabs Ativos/Caixa/Financas (GestaoScreen). Treemap heatmap, sort, portfolios
+3. **Opcoes** — 4 sub-tabs (ativas, pendentes, calc, hist). Grade OpLab real, simulador BS multi-leg, analise tecnica, IA
+4. **Renda** — Sub-tabs Resumo/Proventos/Relatorios (RendaScreen)
+5. **Mais** — Config, Analise Completa (stack), Paywall, Profile, Backup
+
+Stacks modais: Add/Edit (Operacao, Opcao, RF, Provento, Movimentacao, Conta, Cartao, Recorrente, GastoRapido), AssetDetail, ImportOperacoes, Extrato, Fatura, Orcamento, Analise, ConfigPortfolios, etc.
+
+Deep links: `premiolab://tab/{name}`, `premiolab://gasto-rapido/{id}`, `premiolab://add-gasto`, `premiolab://fatura/{id}`
+
+## Theme
+
+### Cores (C)
+- `bg: '#070a11'` | `text: '#f1f1f4'` | `accent: '#6C5CE7'`
+- `textSecondary: '#8888aa'` | `textTertiary: '#666688'`
+- Produtos: `acoes: '#3B82F6'` | `fiis: '#10B981'` | `opcoes: '#8B5CF6'` | `etfs: '#F59E0B'` | `rf: '#06B6D4'` | `stock_int: '#E879F9'`
+- Status: `green: '#22C55E'` | `red: '#EF4444'` | `yellow: '#F59E0B'`
+
+### Fontes (F)
+- `display: 'DMSans-Bold'` | `body: 'DMSans-Medium'` | `mono: 'JetBrainsMono-Regular'`
+
+### Tamanhos (SIZE)
+- `gap: 14` | `padding: 18` | `radius: 14` | `tabBarHeight: 78`
+
+## Banco de Dados (Supabase) — Todas com RLS `auth.uid() = user_id`
+
+| Tabela | Campos chave |
+|--------|-------------|
+| `profiles` | nome, meta_mensal, selic, last_dividend_sync, trial_pro/premium_used/start, referral_code, opcoes_favorites/watchlist (JSONB), gastos_rapidos (JSONB), ai_credits_extra, ai_summary_frequency, pais, cidade, data_nascimento, sexo |
+| `portfolios` | nome, cor, icone, ordem, operacoes_contas (bool) |
+| `operacoes` | ticker, tipo(compra/venda), categoria(acao/fii/etf/stock_int), qty, preco, custos, corretora, data, mercado(BR/INT), taxa_cambio, portfolio_id |
+| `opcoes` | ativo_base, ticker_opcao, tipo(call/put), direcao(venda/compra/lancamento), strike, premio, qty, vencimento, data_abertura, status, corretora, premio_fechamento, data_fechamento, alerta_pl, portfolio_id |
+| `proventos` | ticker, tipo_provento, valor_por_cota, qty, valor_total, data_pagamento, portfolio_id |
+| `renda_fixa` | tipo, emissor, taxa, indexador, valor_aplicado, vencimento, portfolio_id |
+| `saldos_corretora` | name, saldo, tipo, moeda (default BRL). UNIQUE(user_id, name, moeda) |
+| `movimentacoes` | conta, tipo(entrada/saida/transferencia), categoria, subcategoria, valor, descricao, referencia_id, ticker, saldo_apos, meio_pagamento(pix/debito/credito), parcela_atual/total/grupo_id, portfolio_id |
+| `cartoes_credito` | nome, bandeira, limite, dia_fechamento, dia_vencimento, moeda, portfolio_id |
+| `orcamentos` | grupo, valor_limite, ativo. UNIQUE(user_id, grupo) |
+| `transacoes_recorrentes` | tipo, categoria, subcategoria, conta, valor, frequencia, dia_vencimento, proximo_vencimento, ativo |
+| `indicators` | HV, RSI, SMA, EMA, Beta, ATR, BB, MaxDD por ticker. UNIQUE(user_id, ticker) |
+| `rebalance_targets` | class_targets, sector_targets, ticker_targets (JSONB) |
+| `patrimonio_snapshots` | data, valor, portfolio_id. NULL=global, UUID=custom, sentinela=Padrao. UNIQUE via COALESCE |
+| `alertas_config` | flags + thresholds |
+| `alertas_opcoes` | ticker_opcao, ativo_base, tipo_alerta(preco/divergencia/iv/volume), valor_alvo, direcao, ativo, disparado |
+| `ai_usage` | tipo, tokens_in/out, custo_estimado, resultado_id |
+| `ai_summaries` | tipo(daily/weekly), resumo, acoes_urgentes, dica_do_dia, teaser, lido |
+| `vip_overrides` | email(UNIQUE), tier(pro/premium), motivo, ativo |
+| `referrals` | referrer_id, referred_id, status(pending/active/expired). UNIQUE(referred_id) |
+| `user_corretoras` | name, count |
+| `push_tokens` | token, platform |
+| `portfolio_backups` | portfolio_name, dados(JSONB), expires_at(30d) |
+| `user_backups` | backup_date, dados(JSONB), tabelas_count, size_bytes. UNIQUE(user_id, backup_date) |
+
+### Status opcoes
+`ativa`, `exercida`, `expirada`, `fechada`, `expirou_po`
+
+### Direcao opcoes
+`venda` (padrao), `compra`, `lancamento` (legado = venda)
+
+### Categorias operacoes
+`acao`, `fii`, `etf`, `stock_int`
+
+### Mercado
+`BR` (brapi.dev) | `INT` (Yahoo Finance). ETFs INT: `categoria='etf', mercado='INT'`
+
+## Services — Funcoes Principais
+
+### database.js
+- Profiles: getProfile, updateProfile
+- Operacoes: getOperacoes, addOperacao, deleteOperacao
+- Positions: getPositions(userId, portfolioId) — agrega com PM, por_corretora, taxa_cambio_media. `'__null__'` = sem portfolio
+- Opcoes: getOpcoes, addOpcao, updateOpcaoAlertaPL
+- Proventos: getProventos, addProvento, deleteProvento
+- RF: getRendaFixa, addRendaFixa, deleteRendaFixa
+- Corretoras: getUserCorretoras, incrementCorretora
+- Saldos: getSaldos, upsertSaldo, deleteSaldo
+- Dashboard: getDashboard (patrimonio, renda, eventos, historico, proventosHoje, opsAtivasData)
+- Indicadores: getIndicators, upsertIndicator, upsertIndicatorsBatch
+- Rebalanceamento: getRebalanceTargets, upsertRebalanceTargets
+- Snapshots: getPatrimonioSnapshots(userId, portfolioId), upsertPatrimonioSnapshot(userId, valor, portfolioId)
+- Movimentacoes: getMovimentacoes, addMovimentacao, addMovimentacaoComSaldo, addMovimentacaoCartao, deleteMovimentacao, getMovimentacoesSummary
+- Cartoes: getCartoes, addCartao, updateCartao, deleteCartao
+- Alertas: getAlertasConfig, updateAlertasConfig, getAlertasOpcoes, addAlertaOpcao, deleteAlertaOpcao, markAlertaDisparado
+- Portfolios: getPortfolios, addPortfolio, updatePortfolio, deletePortfolio(id, deleteData)
+- Backup: getUserBackups, restoreUserBackup, backupPortfolioData, restorePortfolioBackup
+- Financas: getOrcamentos, upsertOrcamentos, getRecorrentes, addRecorrente, processRecorrentes, getFinancasSummary
+- Gastos Rapidos: getGastosRapidos, saveGastosRapidos, executeGastoRapido
+- IA: getLatestAiSummary, markSummaryRead
+- Referrals: findReferrerByCode, addReferral, applyReferralReward
+- VIP: checkVipOverride
+- Push: savePushToken
+
+### priceService.js
+- fetchPrices, fetchPriceHistory, fetchPriceHistoryLong, fetchPriceHistoryRange
+- fetchTickerProfile (sector/industry via brapi)
+- enrichPositionsWithPrices — routing BR/INT, converte INT→BRL
+- fetchPricesRouted, fetchHistoryRouted, fetchHistoryLongRouted
+
+### oplabService.js
+- fetchOptionsChain(ticker, selic) — cadeia completa com gregas reais
+- getCachedOptionData(tickerOpcao), getCachedChain(ticker)
+- clearOplabCache()
+
+### indicatorService.js
+- calcHV, calcSMA, calcEMA, calcRSI, calcBeta, calcATR, calcBollingerBands, calcMaxDrawdown
+- calcIVMedia, calcIVRank
+- runDailyCalculation(userId), shouldCalculateToday(lastCalcDate)
+
+### dividendService.js
+- runDividendSync(userId) — BR (StatusInvest + brapi) + INT (Yahoo + USD→BRL)
+- shouldSyncDividends(lastSyncDate)
+
+### technicalAnalysisService.js
+- analyzeTechnicals(ohlcv, strikePrice) — S/R (pivots + volume profile + numeros redondos), tendencia
+- buildTechnicalSummary(analysis, spot) — string para prompt IA
+
+## Padroes Importantes
+
+- **Tickers**: normalizados com `toUpperCase().trim()` em getPositions/getOperacoes/getProventos
+- **Anti-duplicacao submit**: estado `submitted` em todas telas Add
+- **Multi-corretora**: `por_corretora` em posicoes, cobertura verifica mesma corretora
+- **beforeRemove**: warning "Descartar alteracoes?" em telas Add/Edit com dirty check
+- **Toast**: `react-native-toast-message` com visual dark/glass + tipo undo
+- **Swipe-to-delete**: SwipeableRow (movimentacoes auto bloqueadas)
+- **PressableCard**: Animated.spring scale (respeita ReduceMotion)
+- **Skeletons**: por tela (Home, Carteira, Opcoes, Caixa, Proventos, RF, Financas)
+- **maxFontSizeMultiplier={1.5}**: em valores monetarios F.mono
+- **Portfolio filtering**: `'__null__'` = Padrao (sem portfolio), `null` = todos
+- **Snapshot sentinela**: `00000000-0000-0000-0000-000000000001` = Padrao nos snapshots
+
+## Features Core
+
+### Carteira
+- Donut alocacao, treemap heatmap (variacao diaria, fullscreen), benchmark vs CDI
+- Cards expandiveis com: comprar/vender/lancar opcao, sparkline historico (1M-1A), FundamentalAccordion (6 secoes), botao Meta (→ rebalanceamento)
+- Sort: valor, A-Z, variacao, P&L
+- Multi-corretora, multi-moeda, patrimonio livre dropdown
+- Multi-portfolio: ate 5 (Padrao + 4 custom), card familia com breakdown
+
+### Opcoes
+- Black-Scholes completo, gregas, IV, moneyness ITM/ATM/OTM
+- Cobertura inteligente (mesma corretora): COBERTA/PARCIAL/DESCOBERTA
+- Grade OpLab real: vencimentos, bid/ask/teorico/delta/volume, cores divergencia, alertas (sino)
+- Grade fullscreen com todos strikes
+- Simulador multi-leg (6 presets), payoff chart, cenarios what-if
+- Analise tecnica: grafico SVG 15 camadas, S/R, BB, RSI, volume, ±1σ, fullscreen landscape
+- Preco atual + P&L em tempo real (OpLab), alerta P&L por opcao
+- Encerramento antecipado (parcial), exercicio automatico, detecao vencidas
+- IA Claude: streaming SSE, modo regular (4 secoes) + smart scan (5 secoes, cadeia inteira)
+- Alertas de preco: 4 tipos (preco, divergencia BS, IV, volume), push notifications
+
+### Home
+- Patrimonio hero + InteractiveChart (pontos semanais, bezier)
+- KPI bar (3 chips), renda mes (badge vs anterior), alertas (criticos/info), eventos (max 3)
+- Resumo IA card expansivel (Premium)
+- Auto-triggers: indicadores, dividendos, recorrentes, snapshots, widgets, notificacoes
+
+### Renda
+- Resumo: hero renda mes, dividendos recebidos/a receber, KPIs
+- Proventos: tipos (dividendo, JCP, rendimento, juros RF, amortizacao, bonificacao), sync manual/auto
+- Relatorios: 4 sub-tabs (Dividendos, Opcoes, Operacoes, IR) + export CSV
+
+### Analise (via Mais)
+- Indicadores: tabela + cards detalhados (14 indicadores)
+- Performance: retorno mensal/semanal (Carteira vs CDI vs IBOV), P&L por categoria, posicoes encerradas
+- Rebalanceamento hierarquico: Classe → Setor → Ticker (+ Market Cap para acoes)
+- Comparativo: ate 3 tickers, grafico normalizado
+
+### Gestao Financeira
+- Caixa: hero saldo, contas accordion, resumo mensal, graficos
+- Financas: dashboard gastos, orcamentos, recorrentes, DonutChart, PIX/debito/cartao
+- 14 grupos + ~90 subcategorias (financeCategories.js)
+- Parcelamento 1-12x, cashback/pontos multi-moeda
+
+### Ativos Internacionais
+- Categorias: acao, fii, etf, stock_int. Campo `mercado` BR/INT
+- Yahoo Finance: precos, historico, dividendos (USD→BRL)
+- IR: 15% stocks INT sem isencao R$20k. Beta usa S&P 500
+
+### Import CSV
+- 5 modos: CEI/B3, B3 Excel (XML), Nota PDF, Colar CSV, CSV Generico
+- Auto-detect formato, dedup exact/partial, preview 3 steps
+- Nota corretagem: custos pro-rata, decode ticker opcao B3
+
+### Assinaturas (Free/PRO/Premium)
+- Admin: jonataspmagalhaes@gmail.com → Premium permanente
+- Hierarquia: Admin → VIP (tabela) → RevenueCat → Referral → Trial → Free
+- Free: max 5 posicoes, 3 opcoes. PRO: ilimitado + tecnico/fundamentalista/relatorios/financas. Premium: + IA
+- 14 gates nas telas via `canAccess(feature)`
+- Trial 7 dias por plano (1x cada)
+- Referrals: codigo PL-XXXXXX, 3→PRO, 5→Premium (30d), anti-fraude 3 camadas
+- Creditos IA: Premium 5/dia 100/mes, pacotes extras (20/50/150), refund automatico em erro
+
+### Widgets iOS (5)
+- QuickExpense, Patrimonio (sparkline), Heatmap (8 posicoes), Vencimentos (3 opcoes), Renda
+- Payload unificado via UserDefaults (App Group), deep links por tab
+- Gastos rapidos: presets PIX ou cartao, widget com icone + valor
+
+### Notificacoes
+- Locais: vencimento opcoes (7d/3d/1d), RF (7d/1d), alertas preco
+- Server-side: Edge Function `check-price-alerts` cada 5min (seg-sex 10-18h), Expo Push API
+- Resumo IA: push diario/semanal com teaser
+
+### Backup
+- Diario automatico: Edge Function `daily-backup` (2h BRT), 15 tabelas, retencao 30 dias
+- Portfolio: backup ao excluir com dados, restore por 30 dias
+- Tela BackupScreen: browse + restore com dupla confirmacao
+
+### Auth
+- Login/registro Supabase Auth com campos extras (nome, pais, cidade, nascimento, sexo)
+- Confirmacao email/senha no cadastro
+- Recuperar senha, perfil editavel, troca senha segura
+- Codigo indicacao opcional no registro
+
+## Migrations SQL
+
+Ordem de execucao para novo ambiente:
+1. `supabase-migration.sql` — tabelas base + RLS + triggers
+2. `fix-multi-moeda-constraint.sql`
+3. `subscription-trial-migration.sql` + `subscription-extras-migration.sql`
+4. `financas-migration.sql`
+5. `gastos-rapidos-migration.sql`
+6. `pix-migration.sql`
+7. `parcelamento-migration.sql`
+8. `multi-portfolio-migration.sql` + `family-portfolio-migration.sql`
+9. `snapshot-portfolio-migration.sql`
+10. `portfolio-backup-migration.sql`
+11. `profile-fields-migration.sql`
+12. `alerta-pl-migration.sql`
+13. `alertas-opcoes-notif-migration.sql`
+14. `creditos-ia-migration.sql`
+15. `ai-summary-migration.sql`
+16. `user-backup-migration.sql`
+17. `add-opcoes-favorites-columns.sql`
+18. `check-alerts-cron.sql`
+
+## Site
+
+- Dominio: https://premiolab.com.br (GitHub Pages, `docs/`)
+- Landing + Privacidade + Termos
+- DNS GoDaddy: 4 A records GitHub Pages + CNAME www
+
+## Proximas Melhorias Possiveis
+
+- [ ] Integracao com CEI/B3 para importacao automatica
+- [ ] Screen reader flow: testar ordem de leitura com accessibilityOrder

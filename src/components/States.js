@@ -178,7 +178,7 @@ export function SkeletonOpcoes() {
   );
 }
 
-// ═══════════ SKELETON CAIXA ═══════════
+// ═══════════ SKELETON CAIXA (legado) ═══════════
 export function SkeletonCaixa() {
   return (
     <View style={styles.loadingWrap}>
@@ -200,6 +200,53 @@ export function SkeletonCaixa() {
       <SkeletonCard height={60} />
       {/* Chart area */}
       <SkeletonCard height={140} />
+    </View>
+  );
+}
+
+// ═══════════ SKELETON FINANCEIRO ═══════════
+export function SkeletonFinanceiro() {
+  return (
+    <View style={styles.loadingWrap}>
+      {/* Hero saldo */}
+      <View style={[styles.skelCard, { height: 120 }]}>
+        <Skeleton width="40%" height={10} />
+        <View style={{ height: 10 }} />
+        <Skeleton width="60%" height={28} />
+        <View style={{ height: 12 }} />
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Skeleton width={80} height={24} radius={12} />
+          <Skeleton width={80} height={24} radius={12} />
+          <Skeleton width={80} height={24} radius={12} />
+        </View>
+      </View>
+      {/* Account cards */}
+      <SkeletonCard height={60} />
+      <SkeletonCard height={60} />
+      <SkeletonCard height={60} />
+      {/* Donut chart placeholder */}
+      <View style={[styles.skelCard, { height: 140, alignItems: 'center', justifyContent: 'center' }]}>
+        <Skeleton width={100} height={100} radius={50} />
+        <View style={{ height: 8 }} />
+        <Skeleton width="40%" height={8} />
+      </View>
+      {/* Budget bars */}
+      <View style={[styles.skelCard, { height: 44 }]}>
+        <Skeleton width="80%" height={10} />
+        <View style={{ height: 8 }} />
+        <Skeleton width="100%" height={6} radius={3} />
+      </View>
+      <View style={[styles.skelCard, { height: 44 }]}>
+        <Skeleton width="65%" height={10} />
+        <View style={{ height: 8 }} />
+        <Skeleton width="100%" height={6} radius={3} />
+      </View>
+      {/* Chart area */}
+      <SkeletonCard height={140} />
+      {/* Movement rows */}
+      <SkeletonRow />
+      <SkeletonRow />
+      <SkeletonRow />
     </View>
   );
 }

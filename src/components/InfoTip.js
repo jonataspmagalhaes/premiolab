@@ -29,7 +29,7 @@ export default function InfoTip(props) {
           }}>
           <TouchableOpacity activeOpacity={1}
             style={{
-              backgroundColor: C.card || '#141822', borderRadius: 14,
+              backgroundColor: C.cardSolid || '#0d1017', borderRadius: 14,
               padding: 20, maxWidth: 340, width: '100%',
               borderWidth: 1, borderColor: C.border || 'rgba(255,255,255,0.06)',
             }}>
