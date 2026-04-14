@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useAppStore } from '@/store';
 import { resolveSector, resolveIntSubcategoria } from '@/lib/sectorOverrides';
 import { AssetClassIcon } from '@/components/AssetClassIcon';
+import { TickerLogo } from '@/components/TickerLogo';
 
 // ═══════ SVG Icon ═══════
 
@@ -1141,8 +1142,8 @@ function AtivosTab() {
                   return (
                     <tr key={p.ticker + '|' + (p.portfolio_id || '') + '|' + idx} className="border-t border-white/[0.04] hover:bg-white/[0.02] transition">
                       <td className="py-3 px-3">
-                        <div className="flex items-center gap-2.5">
-                          <AssetClassIcon classe={p.categoria} size="sm" />
+                        <div className="flex items-center gap-3">
+                          <TickerLogo ticker={p.ticker} categoria={p.categoria} size={32} />
                           <div>
                             <p className="text-[13px] font-semibold leading-tight">{p.ticker}</p>
                             <p className="text-[10px] text-white/30 leading-tight">{CLASS_LABELS[p.categoria] || p.categoria}</p>
