@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { useUser, usePatrimonioSnapshots } from '@/lib/queries';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { AssetClassIcon } from '@/components/AssetClassIcon';
 
 // ═══════ Formatters ═══════
 
@@ -822,7 +823,7 @@ export default function DashboardPage() {
                           style={{ opacity: isDim ? 0.45 : 1 }}
                         >
                           <div className="flex items-center gap-2.5">
-                            <div className="w-2.5 h-2.5 rounded-full" style={{ background: 'linear-gradient(135deg, ' + d.color + ', ' + d.color + '99)', boxShadow: '0 0 6px ' + d.color + '66' }} />
+                            <AssetClassIcon classe={d.key} size="sm" title={d.name} />
                             <span className="text-xs text-white/60 group-hover:text-white/80 transition">{d.name}</span>
                           </div>
                           <div className="flex items-center gap-2">

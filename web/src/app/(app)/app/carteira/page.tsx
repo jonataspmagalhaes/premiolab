@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useAppStore } from '@/store';
 import { resolveSector, resolveIntSubcategoria } from '@/lib/sectorOverrides';
+import { AssetClassIcon } from '@/components/AssetClassIcon';
 
 // ═══════ SVG Icon ═══════
 
@@ -1082,11 +1083,11 @@ function AtivosTab() {
             {classSummary.map(function (c) {
               var label = CLASS_LABELS[c.cat] || c.cat;
               var pct = totalMercado > 0 ? (c.valor / totalMercado) * 100 : 0;
-              var pill = CLASS_COLORS[c.cat] || CLASS_COLORS.acao;
               return (
                 <div key={c.cat} className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-white/[0.02]">
-                  <div className="flex items-center gap-2">
-                    <span className={'px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ' + pill}>{label}</span>
+                  <div className="flex items-center gap-2.5">
+                    <AssetClassIcon classe={c.cat} size="sm" title={label} />
+                    <span className="text-[11px] font-semibold text-white/80">{label}</span>
                     <span className="text-[10px] text-white/30 font-mono">{c.count}</span>
                   </div>
                   <div className="text-right">
@@ -1140,8 +1141,13 @@ function AtivosTab() {
                   return (
                     <tr key={p.ticker + '|' + (p.portfolio_id || '') + '|' + idx} className="border-t border-white/[0.04] hover:bg-white/[0.02] transition">
                       <td className="py-3 px-3">
-                        <p className="text-[13px] font-semibold">{p.ticker}</p>
-                        <p className="text-[10px] text-white/30">{CLASS_LABELS[p.categoria] || p.categoria}</p>
+                        <div className="flex items-center gap-2.5">
+                          <AssetClassIcon classe={p.categoria} size="sm" />
+                          <div>
+                            <p className="text-[13px] font-semibold leading-tight">{p.ticker}</p>
+                            <p className="text-[10px] text-white/30 leading-tight">{CLASS_LABELS[p.categoria] || p.categoria}</p>
+                          </div>
+                        </div>
                       </td>
                       <td className="py-3 px-3 text-right text-[13px] font-mono text-white/60">{fmtMoney(p.quantidade)}</td>
                       <td className="py-3 px-3 text-right text-[13px] font-mono text-white/40">{moeda} {fmtMoney(p.pm)}</td>
