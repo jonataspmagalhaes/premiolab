@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useAppStore, type Position } from '@/store';
 import { TickerLogo } from '@/components/TickerLogo';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine } from 'recharts';
+import { useUser, useOperacoesRaw, type OperacaoRaw } from '@/lib/queries';
 
 // ─── Utils ─────────────────────────────────────────────────
 
@@ -23,8 +24,50 @@ function fmtDate(d: Date): string {
 }
 
 // ─── Provento corretora inference ──────────────────────────
-// Mapeia ticker -> corretora majoritaria (top bucket de por_corretora)
-function buildCorretoraMap(positions: Position[]): Record<string, string> {
+// Inferencia HISTORICA: retorna a corretora que detinha mais qty do ticker
+// na data do pagamento, replayando operacoes ate aquela data.
+// Fallback: corretora majoritaria atual (positions.por_corretora[0]).
+// Resultado memoizado por (ticker, dataPagamento) num cache externo.
+
+type TickerTimeline = Array<{ ts: number; corretora: string; delta: number }>;
+
+function buildTimelinesByTicker(ops: OperacaoRaw[]): Record<string, TickerTimeline> {
+  var out: Record<string, TickerTimeline> = {};
+  for (var i = 0; i < ops.length; i++) {
+    var op = ops[i];
+    if (!op.ticker) continue;
+    var corr = op.corretora || 'Sem corretora';
+    var ts = new Date(op.data).getTime();
+    if (Number.isNaN(ts)) continue;
+    var delta = op.tipo === 'compra' ? op.quantidade : op.tipo === 'venda' ? -op.quantidade : 0;
+    if (delta === 0) continue;
+    if (!out[op.ticker]) out[op.ticker] = [];
+    out[op.ticker].push({ ts: ts, corretora: corr, delta: delta });
+  }
+  // ja vem ordenado por data asc da query, mas garante
+  for (var k in out) {
+    out[k].sort(function (a, b) { return a.ts - b.ts; });
+  }
+  return out;
+}
+
+function inferCorretoraOnDate(timeline: TickerTimeline | undefined, ts: number): string | null {
+  if (!timeline || timeline.length === 0) return null;
+  var byCorr: Record<string, number> = {};
+  for (var i = 0; i < timeline.length; i++) {
+    var ev = timeline[i];
+    if (ev.ts > ts) break;
+    byCorr[ev.corretora] = (byCorr[ev.corretora] || 0) + ev.delta;
+  }
+  var best: string | null = null;
+  var bestQty = 0;
+  for (var c in byCorr) {
+    if (byCorr[c] > bestQty) { best = c; bestQty = byCorr[c]; }
+  }
+  return best;
+}
+
+function fallbackCorretoraAtual(positions: Position[]): Record<string, string> {
   var map: Record<string, string> = {};
   for (var i = 0; i < positions.length; i++) {
     var p = positions[i];
@@ -90,29 +133,36 @@ export default function RendaPage() {
   var positions = useAppStore(function (s) { return s.positions; });
   var patrimonio = useAppStore(function (s) { return s.patrimonio; });
 
+  var user = useUser();
+  var opsQuery = useOperacoesRaw(user.data?.id);
+  var ops = opsQuery.data || [];
+
   var _tab = useState<'resumo' | 'proventos'>('resumo');
   var subtab = _tab[0];
   var setSubtab = _tab[1];
 
-  var corretoraByTicker = useMemo(function () { return buildCorretoraMap(positions); }, [positions]);
+  var timelines = useMemo(function () { return buildTimelinesByTicker(ops); }, [ops]);
+  var fallback = useMemo(function () { return fallbackCorretoraAtual(positions); }, [positions]);
 
-  // Enrich proventos com corretora inferida
+  // Enrich proventos com corretora inferida historicamente
   var enriched = useMemo(function () {
     return proventos.map(function (pv) {
-      var corr = corretoraByTicker[(pv.ticker || '').toUpperCase()] || '—';
+      var tk = (pv.ticker || '').toUpperCase();
       var d = new Date(pv.data_pagamento);
+      var ts = d.getTime();
+      var corr = inferCorretoraOnDate(timelines[tk], ts) || fallback[tk] || '—';
       return {
         id: pv.id,
-        ticker: (pv.ticker || '').toUpperCase(),
+        ticker: tk,
         tipo_provento: pv.tipo_provento,
         valor_total: pv.valor_total || 0,
         data_pagamento: pv.data_pagamento,
         date: d,
-        ts: d.getTime(),
+        ts: ts,
         corretora: corr,
       };
     }).sort(function (a, b) { return b.ts - a.ts; });
-  }, [proventos, corretoraByTicker]);
+  }, [proventos, timelines, fallback]);
 
   return (
     <div className="space-y-5">

@@ -98,17 +98,6 @@ export function usePositions(userId: string | undefined) {
 
       const { data: ops } = await q;
 
-      // DEBUG: contar quantas ops vieram sem corretora preenchida
-      if (typeof window !== 'undefined' && ops && ops.length > 0) {
-        const semCorr = ops.filter((o) => !o.corretora || !String(o.corretora).trim()).length;
-        const samples: Record<string, number> = {};
-        for (const o of ops) {
-          const c = (o.corretora || '(null)').toString();
-          samples[c] = (samples[c] || 0) + 1;
-        }
-        console.log('[positions] ops:', ops.length, '· sem corretora:', semCorr, '· buckets:', samples);
-      }
-
       // Aggregate into positions (keyed by ticker+portfolio if showing all; else just ticker)
       // Em paralelo: por_corretora — sub-bucket de qty/pm por corretora
       const map: Record<string, Position> = {};
@@ -288,6 +277,46 @@ export function useProventos(userId: string | undefined) {
   }, [query.data, setProventos]);
 
   return query;
+}
+
+// ══════════ Operacoes (raw — inferencia historica de corretora) ══════════
+// Retorna ops crus minimos pra reconstruir custodia por (ticker, corretora) em
+// qualquer data passada. Usado pela aba Renda pra atribuir corretora ao provento.
+
+export interface OperacaoRaw {
+  ticker: string;
+  tipo: string;
+  quantidade: number;
+  data: string;
+  corretora: string | null;
+  portfolio_id: string | null;
+}
+
+export function useOperacoesRaw(userId: string | undefined) {
+  const selectedPortfolio = useAppStore((s) => s.selectedPortfolio);
+  return useQuery({
+    queryKey: ['operacoes-raw', userId, selectedPortfolio],
+    queryFn: async () => {
+      if (!userId) return [] as OperacaoRaw[];
+      let q = supabase
+        .from('operacoes')
+        .select('ticker, tipo, quantidade, data, corretora, portfolio_id')
+        .eq('user_id', userId);
+      if (selectedPortfolio === '__null__') q = q.is('portfolio_id', null);
+      else if (selectedPortfolio !== null) q = q.eq('portfolio_id', selectedPortfolio);
+      const { data } = await q.order('data', { ascending: true });
+      return (data || []).map((r: any) => ({
+        ticker: (r.ticker || '').toUpperCase().trim(),
+        tipo: r.tipo,
+        quantidade: Number(r.quantidade) || 0,
+        data: r.data,
+        corretora: r.corretora ? String(r.corretora).toUpperCase().trim() : null,
+        portfolio_id: r.portfolio_id ?? null,
+      })) as OperacaoRaw[];
+    },
+    enabled: !!userId,
+    staleTime: 5 * 60 * 1000,
+  });
 }
 
 // ══════════ Opcoes ══════════

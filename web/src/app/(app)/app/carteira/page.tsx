@@ -223,6 +223,7 @@ interface TreemapItem {
   categoria: string;
   valor: number;
   pct: number; // % of total
+  pl?: number; // P&L absoluto (R$)
   day_change_pct?: number;
   pl_pct?: number;
   portfolio_id?: string | null;

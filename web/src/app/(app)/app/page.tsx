@@ -787,12 +787,14 @@ export default function DashboardPage() {
                   </div>
 
                   {/* Expanded info — top 5 da classe selecionada */}
-                  {selectedClass && selectedClassInfo && selectedClassInfo.top.length > 0 && (
+                  {selectedClass && selectedClassInfo && selectedClassInfo.top.length > 0 && (function () {
+                    var sci = selectedClassInfo;
+                    return (
                     <div className="mt-4 pt-3 border-t border-white/[0.04]">
                       <p className="text-[9px] uppercase tracking-widest font-mono text-white/30 mb-2">Top 5 ativos</p>
                       <div className="space-y-1.5">
-                        {selectedClassInfo.top.map(function (t) {
-                          var pct = selectedClassInfo.total > 0 ? (t.valor / selectedClassInfo.total) * 100 : 0;
+                        {sci.top.map(function (t) {
+                          var pct = sci.total > 0 ? (t.valor / sci.total) * 100 : 0;
                           return (
                             <div key={t.ticker} className="flex items-center justify-between text-[11px]">
                               <span className="text-white/70 font-semibold">{t.ticker}</span>
@@ -805,7 +807,8 @@ export default function DashboardPage() {
                         })}
                       </div>
                     </div>
-                  )}
+                    );
+                  })()}
                 </>
               ) : (
                 <div className="h-52 flex items-center justify-center text-muted text-sm">
