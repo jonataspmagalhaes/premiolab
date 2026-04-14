@@ -6,6 +6,15 @@ import { create } from 'zustand';
 
 // ══════════ Types ══════════
 
+export interface PorCorretora {
+  corretora: string;
+  quantidade: number;
+  pm: number;
+  valor_mercado?: number;
+  pl?: number;
+  pl_pct?: number;
+}
+
 export interface Position {
   ticker: string;
   categoria: string;
@@ -20,6 +29,7 @@ export interface Position {
   portfolio_id?: string | null;
   sector?: string;
   industry?: string;
+  por_corretora?: PorCorretora[];
 }
 
 export interface Portfolio {

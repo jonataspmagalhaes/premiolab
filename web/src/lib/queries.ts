@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getSupabaseBrowser } from './supabase';
 import { useAppStore } from '@/store';
 import { useEffect } from 'react';
-import type { Position, Provento, Opcao, RendaFixa, Saldo, Profile, Portfolio } from '@/store';
+import type { Position, PorCorretora, Provento, Opcao, RendaFixa, Saldo, Profile, Portfolio } from '@/store';
 import { fetchPrices } from './priceService';
 
 const supabase = getSupabaseBrowser();
@@ -87,7 +87,7 @@ export function usePositions(userId: string | undefined) {
       if (!userId) return [];
       let q = supabase
         .from('operacoes')
-        .select('ticker, tipo, categoria, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, mercado, portfolio_id')
+        .select('ticker, tipo, categoria, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, mercado, portfolio_id, corretora')
         .eq('user_id', userId);
 
       if (selectedPortfolio === '__null__') {
@@ -99,7 +99,9 @@ export function usePositions(userId: string | undefined) {
       const { data: ops } = await q;
 
       // Aggregate into positions (keyed by ticker+portfolio if showing all; else just ticker)
+      // Em paralelo: por_corretora — sub-bucket de qty/pm por corretora
       const map: Record<string, Position> = {};
+      const corretoraMap: Record<string, Record<string, { quantidade: number; pm: number }>> = {};
       for (const op of ops || []) {
         const tk = (op.ticker || '').toUpperCase().trim();
         if (!tk) continue;
@@ -125,9 +127,36 @@ export function usePositions(userId: string | undefined) {
           pos.quantidade -= op.quantidade;
           if (pos.quantidade <= 0) { pos.quantidade = 0; pos.pm = 0; }
         }
+
+        // por_corretora bucket — mesmo algoritmo de PM, isolado por corretora
+        const corr = (op.corretora || 'Sem corretora').trim() || 'Sem corretora';
+        if (!corretoraMap[key]) corretoraMap[key] = {};
+        if (!corretoraMap[key][corr]) corretoraMap[key][corr] = { quantidade: 0, pm: 0 };
+        const cBucket = corretoraMap[key][corr];
+        if (op.tipo === 'compra') {
+          const custoAtualC = cBucket.pm * cBucket.quantidade;
+          const novoCustoC = custoAtualC + op.quantidade * op.preco + custos;
+          cBucket.quantidade += op.quantidade;
+          cBucket.pm = cBucket.quantidade > 0 ? novoCustoC / cBucket.quantidade : 0;
+        } else if (op.tipo === 'venda') {
+          cBucket.quantidade -= op.quantidade;
+          if (cBucket.quantidade <= 0) { cBucket.quantidade = 0; cBucket.pm = 0; }
+        }
       }
 
       const positions = Object.values(map).filter((p) => p.quantidade > 0);
+
+      // Anexa por_corretora (apenas buckets com qty > 0, ordenado por qty desc)
+      for (const [key, pos] of Object.entries(map)) {
+        if (pos.quantidade <= 0) continue;
+        const buckets = corretoraMap[key] || {};
+        const arr: PorCorretora[] = [];
+        for (const [corr, b] of Object.entries(buckets)) {
+          if (b.quantidade > 0) arr.push({ corretora: corr, quantidade: b.quantidade, pm: b.pm });
+        }
+        arr.sort((a, b) => b.quantidade - a.quantidade);
+        if (arr.length > 0) pos.por_corretora = arr;
+      }
 
       // Fetch prices for all unique tickers (BR vs INT)
       const brTickers = Array.from(new Set(positions.filter((p) => p.mercado !== 'INT').map((p) => p.ticker)));
@@ -142,10 +171,16 @@ export function usePositions(userId: string | undefined) {
           const { prices, usdBrl } = await fetchPrices(brTickers, intTickers);
 
           // First: convert INT pm from USD to BRL so PM-based fallbacks are correct
+          // (aplica tanto no PM agregado quanto nos buckets por_corretora)
           if (usdBrl > 0) {
             for (const pos of positions) {
-              if (pos.mercado === 'INT' && pos.pm > 0) {
-                pos.pm = pos.pm * usdBrl;
+              if (pos.mercado === 'INT') {
+                if (pos.pm > 0) pos.pm = pos.pm * usdBrl;
+                if (pos.por_corretora) {
+                  for (const b of pos.por_corretora) {
+                    if (b.pm > 0) b.pm = b.pm * usdBrl;
+                  }
+                }
               }
             }
           }
@@ -163,6 +198,17 @@ export function usePositions(userId: string | undefined) {
               if (pos.pm > 0) {
                 pos.pl = (priceBRL - pos.pm) * pos.quantidade;
                 pos.pl_pct = ((priceBRL - pos.pm) / pos.pm) * 100;
+              }
+              // Espelha valor_mercado/pl em cada bucket de corretora
+              // (PM ja foi convertido USD→BRL no loop anterior)
+              if (pos.por_corretora && pos.por_corretora.length > 0) {
+                for (const b of pos.por_corretora) {
+                  b.valor_mercado = priceBRL * b.quantidade;
+                  if (b.pm > 0) {
+                    b.pl = (priceBRL - b.pm) * b.quantidade;
+                    b.pl_pct = ((priceBRL - b.pm) / b.pm) * 100;
+                  }
+                }
               }
             }
           }

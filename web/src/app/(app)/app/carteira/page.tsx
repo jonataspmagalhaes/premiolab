@@ -802,6 +802,10 @@ function AtivosTab() {
   var search = _search[0];
   var setSearch = _search[1];
 
+  var _agrup = useState<'lista' | 'corretora' | 'classe'>('lista');
+  var agrupamento = _agrup[0];
+  var setAgrupamento = _agrup[1];
+
   var totalMercado = useMemo(function () {
     var t = 0;
     for (var i = 0; i < positions.length; i++) {
@@ -1114,6 +1118,28 @@ function AtivosTab() {
             </svg>
             Gire o aparelho ou arraste a tabela pra ver mais colunas
           </p>
+          {/* Toggle agrupamento */}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono">Agrupar por</span>
+            {([
+              { k: 'lista' as const, label: 'Lista' },
+              { k: 'corretora' as const, label: 'Por Corretora' },
+              { k: 'classe' as const, label: 'Por Classe' },
+            ]).map(function (opt) {
+              var active = agrupamento === opt.k;
+              return (
+                <button
+                  key={opt.k}
+                  type="button"
+                  onClick={function () { setAgrupamento(opt.k); }}
+                  className={'px-2.5 py-1 rounded-md text-[11px] font-medium transition ' + (active ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="overflow-x-auto -mx-2">
             <table className="w-full min-w-[820px] text-sm">
               <thead>
@@ -1131,63 +1157,133 @@ function AtivosTab() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(function (p, idx) {
-                  var val = p.valor_mercado != null ? p.valor_mercado : p.pm * p.quantidade;
-                  var peso = totalMercado > 0 ? (val / totalMercado) * 100 : 0;
-                  var plPct = p.pl_pct;
-                  var plColor = plPct == null ? 'text-white/40' : plPct >= 0 ? 'text-income' : 'text-danger';
-                  var moeda = p.mercado === 'INT' ? 'US$' : 'R$';
-                  var plCell = plPct != null ? fmtPct(plPct) : '-';
-                  var dy = dyByTicker[p.ticker] || 0;
-                  return (
-                    <tr key={p.ticker + '|' + (p.portfolio_id || '') + '|' + idx} className="border-t border-white/[0.04] hover:bg-white/[0.02] transition">
-                      <td className="py-3 px-3">
-                        <div className="flex items-center gap-3">
-                          <TickerLogo ticker={p.ticker} categoria={p.categoria} size={32} />
-                          <div>
-                            <p className="text-[13px] font-semibold leading-tight">{p.ticker}</p>
-                            <p className="text-[10px] text-white/30 leading-tight">{CLASS_LABELS[p.categoria] || p.categoria}</p>
+                {(function () {
+                  // Helper: render uma linha de ativo (qty/pm/valor podem vir de bucket)
+                  function row(p: typeof filtered[number], key: string, override?: { quantidade: number; pm: number; valor_mercado?: number; pl_pct?: number }) {
+                    var qty = override ? override.quantidade : p.quantidade;
+                    var pm = override ? override.pm : p.pm;
+                    var val = override
+                      ? (override.valor_mercado != null ? override.valor_mercado : pm * qty)
+                      : (p.valor_mercado != null ? p.valor_mercado : p.pm * p.quantidade);
+                    var peso = totalMercado > 0 ? (val / totalMercado) * 100 : 0;
+                    var plPct = override ? override.pl_pct : p.pl_pct;
+                    var plColor = plPct == null ? 'text-white/40' : plPct >= 0 ? 'text-income' : 'text-danger';
+                    var moeda = p.mercado === 'INT' ? 'US$' : 'R$';
+                    var plCell = plPct != null ? fmtPct(plPct) : '-';
+                    var dy = dyByTicker[p.ticker] || 0;
+                    return (
+                      <tr key={key} className="border-t border-white/[0.04] hover:bg-white/[0.02] transition">
+                        <td className="py-3 px-3">
+                          <div className="flex items-center gap-3">
+                            <TickerLogo ticker={p.ticker} categoria={p.categoria} size={32} />
+                            <div>
+                              <p className="text-[13px] font-semibold leading-tight">{p.ticker}</p>
+                              <p className="text-[10px] text-white/30 leading-tight">{CLASS_LABELS[p.categoria] || p.categoria}</p>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-3 text-right text-[13px] font-mono text-white/60">{fmtMoney(p.quantidade)}</td>
-                      <td className="py-3 px-3 text-right text-[13px] font-mono text-white/40">{moeda} {fmtMoney(p.pm)}</td>
-                      <td className="py-3 px-3 text-right text-[13px] font-mono text-white/60">
-                        {p.preco_atual != null ? moeda + ' ' + fmtMoney(p.preco_atual) : <span className="text-white/20">-</span>}
-                      </td>
-                      <td className="py-3 px-3 text-right text-[13px] font-mono font-medium">{moeda} {fmtMoney(val)}</td>
-                      <td className={'py-3 px-3 text-right text-[13px] font-mono font-semibold ' + plColor}>{plCell}</td>
-                      <td className="py-3 px-3 text-right text-[13px] font-mono font-medium">
-                        {dy > 0 ? <span className="text-income">{dy.toFixed(2)}%</span> : <span className="text-white/20">-</span>}
-                      </td>
-                      <td className="py-3 px-3 text-right text-[13px] font-mono font-medium">
-                        {(divSummary.anoByTicker[p.ticker] || 0) > 0
-                          ? <span className="text-income/80">R$ {fmtMoney(divSummary.anoByTicker[p.ticker] || 0)}</span>
-                          : <span className="text-white/20">-</span>}
-                      </td>
-                      <td className="py-3 px-3 text-right text-[13px] font-mono font-medium">
-                        {(divSummary.allByTicker[p.ticker] || 0) > 0
-                          ? <span className="text-income/80">R$ {fmtMoney(divSummary.allByTicker[p.ticker] || 0)}</span>
-                          : <span className="text-white/20">-</span>}
-                      </td>
-                      <td className="py-3 px-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <div className="w-10 h-1 bg-white/[0.04] rounded-full overflow-hidden">
-                            <div className="h-full rounded-full bg-orange-500" style={{ width: Math.min(100, Math.max(0, peso)) + '%' }} />
+                        </td>
+                        <td className="py-3 px-3 text-right text-[13px] font-mono text-white/60">{fmtMoney(qty)}</td>
+                        <td className="py-3 px-3 text-right text-[13px] font-mono text-white/40">{moeda} {fmtMoney(pm)}</td>
+                        <td className="py-3 px-3 text-right text-[13px] font-mono text-white/60">
+                          {p.preco_atual != null ? moeda + ' ' + fmtMoney(p.preco_atual) : <span className="text-white/20">-</span>}
+                        </td>
+                        <td className="py-3 px-3 text-right text-[13px] font-mono font-medium">{moeda} {fmtMoney(val)}</td>
+                        <td className={'py-3 px-3 text-right text-[13px] font-mono font-semibold ' + plColor}>{plCell}</td>
+                        <td className="py-3 px-3 text-right text-[13px] font-mono font-medium">
+                          {dy > 0 ? <span className="text-income">{dy.toFixed(2)}%</span> : <span className="text-white/20">-</span>}
+                        </td>
+                        <td className="py-3 px-3 text-right text-[13px] font-mono font-medium">
+                          {(divSummary.anoByTicker[p.ticker] || 0) > 0
+                            ? <span className="text-income/80">R$ {fmtMoney(divSummary.anoByTicker[p.ticker] || 0)}</span>
+                            : <span className="text-white/20">-</span>}
+                        </td>
+                        <td className="py-3 px-3 text-right text-[13px] font-mono font-medium">
+                          {(divSummary.allByTicker[p.ticker] || 0) > 0
+                            ? <span className="text-income/80">R$ {fmtMoney(divSummary.allByTicker[p.ticker] || 0)}</span>
+                            : <span className="text-white/20">-</span>}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <div className="w-10 h-1 bg-white/[0.04] rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-orange-500" style={{ width: Math.min(100, Math.max(0, peso)) + '%' }} />
+                            </div>
+                            <span className="text-[10px] font-mono text-white/40">{peso.toFixed(1)}%</span>
                           </div>
-                          <span className="text-[10px] font-mono text-white/40">{peso.toFixed(1)}%</span>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={10} className="py-8 text-center text-[12px] text-white/30 italic">
-                      Nenhum ativo corresponde ao filtro.
-                    </td>
-                  </tr>
-                )}
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  if (filtered.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={10} className="py-8 text-center text-[12px] text-white/30 italic">
+                          Nenhum ativo corresponde ao filtro.
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  if (agrupamento === 'lista') {
+                    return filtered.map(function (p, idx) {
+                      return row(p, p.ticker + '|' + (p.portfolio_id || '') + '|' + idx);
+                    });
+                  }
+
+                  // Agrupado: monta { groupKey -> rows }
+                  type Grp = { key: string; label: string; rows: Array<{ p: typeof filtered[number]; bucket?: { quantidade: number; pm: number; valor_mercado?: number; pl_pct?: number }; rowKey: string }>; valor: number };
+                  var groups: Record<string, Grp> = {};
+
+                  if (agrupamento === 'corretora') {
+                    filtered.forEach(function (p, idx) {
+                      var buckets = (p.por_corretora && p.por_corretora.length > 0)
+                        ? p.por_corretora
+                        : [{ corretora: 'Sem corretora', quantidade: p.quantidade, pm: p.pm, valor_mercado: p.valor_mercado, pl_pct: p.pl_pct }];
+                      buckets.forEach(function (b) {
+                        var k = b.corretora || 'Sem corretora';
+                        if (!groups[k]) groups[k] = { key: k, label: k, rows: [], valor: 0 };
+                        var bv = b.valor_mercado != null ? b.valor_mercado : b.pm * b.quantidade;
+                        groups[k].rows.push({ p: p, bucket: b, rowKey: p.ticker + '|' + k + '|' + idx });
+                        groups[k].valor += bv;
+                      });
+                    });
+                  } else {
+                    // 'classe'
+                    filtered.forEach(function (p, idx) {
+                      var k = p.categoria || 'acao';
+                      if (!groups[k]) groups[k] = { key: k, label: CLASS_LABELS[k] || k, rows: [], valor: 0 };
+                      var pv = p.valor_mercado != null ? p.valor_mercado : p.pm * p.quantidade;
+                      groups[k].rows.push({ p: p, rowKey: p.ticker + '|' + k + '|' + idx });
+                      groups[k].valor += pv;
+                    });
+                  }
+
+                  var ordered = Object.values(groups).sort(function (a, b) { return b.valor - a.valor; });
+
+                  var out: React.ReactNode[] = [];
+                  ordered.forEach(function (g) {
+                    var gPct = totalMercado > 0 ? (g.valor / totalMercado) * 100 : 0;
+                    out.push(
+                      <tr key={'h-' + g.key} className="bg-white/[0.03]">
+                        <td colSpan={4} className="py-2 px-3">
+                          <div className="flex items-center gap-2">
+                            {agrupamento === 'classe' && <AssetClassIcon classe={g.key} size="sm" />}
+                            <span className="text-[12px] font-bold text-white/85 tracking-tight">{g.label}</span>
+                            <span className="text-[10px] text-white/30 font-mono">{g.rows.length} {g.rows.length === 1 ? 'ativo' : 'ativos'}</span>
+                          </div>
+                        </td>
+                        <td colSpan={5} className="py-2 px-3 text-right text-[12px] font-mono font-semibold text-white/85">
+                          R$ {fmtMoney(g.valor)}
+                        </td>
+                        <td className="py-2 px-3 text-right text-[10px] text-white/40 font-mono">{gPct.toFixed(1)}%</td>
+                      </tr>
+                    );
+                    g.rows.forEach(function (r) {
+                      out.push(row(r.p, r.rowKey, r.bucket));
+                    });
+                  });
+                  return out;
+                })()}
               </tbody>
             </table>
           </div>
