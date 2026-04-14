@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="en" class="dark"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fluxer Pricing - Choose your plan</title>
+<!-- Scripts & Styles -->
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+:root {
+--bg-page: #0B0C0E;
+--glass-border: rgba(255, 255, 255, 0.08);
+--glass-surface: rgba(255, 255, 255, 0.03);
+--accent-glow: rgba(249, 115, 22, 0.4);
+}
+body {
+font-family: 'Inter', sans-serif;
+background-color: var(--bg-page);
+color: #EDEDED;
+-webkit-font-smoothing: antialiased;
+-moz-osx-font-smoothing: grayscale;
+}
+/* Background Grid */
+.linear-grid {
+background-size: 40px 40px;
+background-image: linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+}
+/* Shine Button */
+.shine-button {
+position: relative;
+overflow: hidden;
+}
+.shine-button::after {
+content: '';
+position: absolute;
+top: 0;
+left: -100%;
+width: 100%;
+height: 100%;
+background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+transition: 0.5s;
+}
+.shine-button:hover::after {
+left: 100%;
+}
+/* Animations */
+@keyframes fadeUp {
+from { opacity: 0; transform: translateY(10px); filter: blur(4px); }
+to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+.animate-fade-up {
+animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.delay-1 { animation-delay: 0.1s; }
+.delay-2 { animation-delay: 0.2s; }
+.delay-3 { animation-delay: 0.3s; }
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+height: 6px;
+width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+background: rgba(255,255,255,0.02);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+background: rgba(255,255,255,0.1);
+border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+background: rgba(255,255,255,0.2);
+}
+/* Toggle Switch */
+.toggle-checkbox:checked {
+right: 0;
+border-color: #f97316;
+}
+.toggle-checkbox:checked + .toggle-label {
+background-color: #f97316;
+}
+</style>
+<meta name="disabled-font-classes" content="font-geist,font-roboto,font-montserrat,font-poppins,font-playfair,font-instrument-serif,font-merriweather,font-bricolage,font-jakarta,font-manrope,font-space-grotesk,font-work-sans,font-pt-serif,font-geist-mono,font-space-mono,font-quicksand,font-nunito,font-newsreader,font-google-sans-flex,font-oswald,font-dm-sans,font-cormorant"><style id="border-gradient-shared-style">
+[style*="--border-gradient"]::before {
+content: "";
+position: absolute;
+inset: 0;
+padding: 1px;
+border-radius: var(--border-radius-before, inherit);
+-webkit-mask: linear-gradient(#fff 0 0) content-box,
+linear-gradient(#fff 0 0);
+-webkit-mask-composite: xor;
+mask-composite: exclude;
+background: var(--border-gradient);
+pointer-events: none;
+}</style></head>
+<body class="min-h-screen selection:bg-orange-500/30 flex flex-col relative">
+
+    <!-- Ambient Background -->
+    <div class="fixed inset-0 z-0 pointer-events-none">
+        <div class="absolute inset-0 linear-grid"></div>
+        <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[400px] bg-orange-500/10 blur-[120px] rounded-full opacity-30"></div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="fixed border-white/[0.06] supports-[backdrop-filter]:bg-[#0B0C0E]/60 z-50 bg-[#0B0C0E]/80 w-full border-b top-0 backdrop-blur-xl">
+  <div class="flex h-14 max-w-7xl mr-auto ml-auto pr-6 pl-6 items-center justify-between">
+    <div class="flex gap-x-2 gap-y-2 items-center" onclick="window.location.href='index.html'" role="button">
+      <div class="relative flex items-center justify-center w-6 h-6">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5 text-orange-400/90">
+          <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" class=""></path>
+        </svg>
+      </div>
+      <span class="text-sm font-medium text-white/90 tracking-tight">
+        Fluxer
+      </span>
+    </div>
+
+    <!-- Desktop Menu -->
+    <div class="hidden md:flex items-center gap-6">
+      <!-- Products Dropdown -->
+      <div class="relative group">
+        <button class="flex gap-1.5 text-[13px] hover:text-white transition-colors focus:outline-none text-white/60 pt-4 pb-4 gap-x-1.5 gap-y-1.5 items-center" data-dropdown-trigger="products-dropdown">
+          Products
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-50 transition-transform duration-200"><path d="m6 9 6 6 6-6" class=""></path></svg>
+        </button>
+        <div id="products-dropdown" class="invisible opacity-0 translate-y-2 absolute top-full left-1/2 -translate-x-1/2 pt-2 w-[340px] transition-all duration-200 ease-out z-50" data-dropdown-content="">
+          <div class="bg-[#0E0F11] border border-white/[0.08] rounded-xl shadow-[0_20px_40px_-12px_rgba(0,0,0,0.8)] p-2 backdrop-blur-3xl overflow-hidden ring-1 ring-white/[0.05]">
+            <div class="grid gap-0.5">
+              <a href="fluxerai.html" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">Fluxer AI</span>
+                  <span class="text-[12px] text-white/50 leading-snug">Design at the speed of thought</span>
+                </div>
+              </a>
+              <a href="#" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect>
+                    <path d="M3 9h18"></path>
+                    <path d="M9 21V9"></path>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">Visual Editor</span>
+                  <span class="text-[12px] text-white/50 leading-snug">Total design freedom</span>
+                </div>
+              </a>
+              <a href="#" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">Team Work</span>
+                  <span class="text-[12px] text-white/50 leading-snug">Comment, review, and approve</span>
+                </div>
+              </a>
+              <a href="#" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">CMS</span>
+                  <span class="text-[12px] text-white/50 leading-snug">Flexible content modeling</span>
+                </div>
+              </a>
+              <a href="#" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path>
+                    <path d="M12 12v9"></path>
+                    <path d="m16 16-4-4-4 4"></path>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">Global Hosting</span>
+                  <span class="text-[12px] text-white/50 leading-snug">Edge network deployment</span>
+                </div>
+              </a>
+              <a href="#" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <path d="m21 21-4.3-4.3"></path>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">SEO &amp; Social</span>
+                  <span class="text-[12px] text-white/50 leading-snug">Fine-tune your visibility</span>
+                </div>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Templates Dropdown -->
+      <div class="relative group">
+        <button class="flex text-[13px] hover:text-white transition-colors focus:outline-none text-white/60 pt-4 pb-4 gap-x-1.5 gap-y-1.5 items-center" data-dropdown-trigger="templates-dropdown">
+          Resources
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-200 opacity-50 w-[12px] h-[12px]">
+            <path d="m6 9 6 6 6-6" class=""></path>
+          </svg>
+        </button>
+        <div id="templates-dropdown" class="invisible opacity-0 translate-y-2 absolute top-full left-1/2 -translate-x-1/2 pt-2 w-[320px] transition-all duration-200 ease-out z-50" data-dropdown-content="">
+          <div class="bg-[#0E0F11] border border-white/[0.08] rounded-xl shadow-[0_20px_40px_-12px_rgba(0,0,0,0.8)] p-2 backdrop-blur-3xl overflow-hidden ring-1 ring-white/[0.05]">
+            <div class="grid gap-0.5">
+              <a href="#" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path>
+                    <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"></path>
+                    <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"></path>
+                    <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"></path>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">Startup</span>
+                  <span class="text-[12px] text-white/50 leading-snug">Launch your business</span>
+                </div>
+              </a>
+              <a href="#" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect width="20" height="14" x="2" y="7" rx="2" ry="2"></rect>
+                    <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">Agency</span>
+                  <span class="text-[12px] text-white/50 leading-snug">For creative teams</span>
+                </div>
+              </a>
+              <a href="marketplace.html" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">Marketplace</span>
+                  <span class="text-[12px] text-white/50 leading-snug">Templates and Components</span>
+                </div>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resources Dropdown -->
+      <div class="relative group">
+        <button class="flex gap-1.5 text-[13px] hover:text-white transition-colors focus:outline-none text-white/60 pt-4 pb-4 gap-x-1.5 gap-y-1.5 items-center" data-dropdown-trigger="resources-dropdown">
+          Solutions
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-50 transition-transform duration-200"><path d="m6 9 6 6 6-6"></path></svg>
+        </button>
+        <div id="resources-dropdown" class="invisible opacity-0 translate-y-2 absolute top-full left-1/2 -translate-x-1/2 pt-2 w-[320px] transition-all duration-200 ease-out z-50" data-dropdown-content="">
+          <div class="bg-[#0E0F11] border border-white/[0.08] rounded-xl shadow-[0_20px_40px_-12px_rgba(0,0,0,0.8)] p-2 backdrop-blur-3xl overflow-hidden ring-1 ring-white/[0.05]">
+            <div class="grid gap-0.5">
+              <a href="#" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"></path>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">Blog</span>
+                  <span class="text-[12px] text-white/50 leading-snug">Latest updates &amp; stories</span>
+                </div>
+              </a>
+              <a href="#" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <circle cx="12" cy="12" r="4"></circle>
+                    <line x1="4.93" x2="9.17" y1="4.93" y2="9.17"></line>
+                    <line x1="14.83" x2="19.07" y1="14.83" y2="19.07"></line>
+                    <line x1="14.83" x2="19.07" y1="9.17" y2="4.93"></line>
+                    <line x1="14.83" x2="9.17" y1="14.83" y2="19.07"></line>
+                    <line x1="4.93" x2="9.17" y1="19.07" y2="14.83"></line>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">Help Center</span>
+                  <span class="text-[12px] text-white/50 leading-snug">Everything you need to know</span>
+                </div>
+              </a>
+              <a href="tutorials.html" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polygon points="10 8 16 12 10 16 10 8"></polygon>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">Tutorials</span>
+                  <span class="text-[12px] text-white/50 leading-snug">Learn how to build</span>
+                </div>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Community Dropdown -->
+      <div class="relative group">
+        <button class="flex text-[13px] hover:text-white transition-colors focus:outline-none text-white/60 pt-4 pb-4 gap-x-1.5 gap-y-1.5 items-center" data-dropdown-trigger="community-dropdown">
+          Community
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-50 transition-transform duration-200"><path d="m6 9 6 6 6-6"></path></svg>
+        </button>
+        <div id="community-dropdown" class="invisible opacity-0 translate-y-2 absolute top-full left-1/2 -translate-x-1/2 pt-2 w-[320px] transition-all duration-200 ease-out z-50" data-dropdown-content="">
+          <div class="bg-[#0E0F11] border border-white/[0.08] rounded-xl shadow-[0_20px_40px_-12px_rgba(0,0,0,0.8)] p-2 backdrop-blur-3xl overflow-hidden ring-1 ring-white/[0.05]">
+            <div class="grid gap-0.5">
+              <a href="#" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">Discord</span>
+                  <span class="text-[12px] text-white/50 leading-snug">Chat with the community</span>
+                </div>
+              </a>
+              <a href="#" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"></path>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">Twitter</span>
+                  <span class="text-[12px] text-white/50 leading-snug">Follow for updates</span>
+                </div>
+              </a>
+              <a href="events.html" class="flex items-start gap-3 p-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group">
+                <div class="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.04] flex items-center justify-center text-white shrink-0 group-hover:bg-white/[0.1] transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect width="18" height="18" x="3" y="4" rx="2" ry="2"></rect>
+                    <line x1="16" x2="16" y1="2" y2="6"></line>
+                    <line x1="8" x2="8" y1="2" y2="6"></line>
+                    <line x1="3" x2="21" y1="10" y2="10"></line>
+                  </svg>
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-[13px] font-medium text-white group-hover:text-white">Events</span>
+                  <span class="text-[12px] text-white/50 leading-snug">Meetups and workshops</span>
+                </div>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <a href="pricing.html" class="text-[13px] hover:text-white transition-colors text-white/60">
+        Pricing
+      </a>
+    </div>
+
+    <!-- Right Actions -->
+    <div class="flex gap-4 gap-x-4 gap-y-4 items-center">
+      <a href="login.html" class="hidden sm:block text-[13px] hover:text-white transition-colors text-white/60">
+        Log in
+      </a>
+      <!-- Mobile Menu Button -->
+      <button class="md:hidden text-white/60 hover:text-white transition-colors focus:outline-none" onclick="document.getElementById('mobile-menu').classList.toggle('hidden')">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><line x1="4" x2="20" y1="12" y2="12"></line><line x1="4" x2="20" y1="6" y2="6"></line><line x1="4" x2="20" y1="18" y2="18"></line></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Mobile Menu Dropdown -->
+  <div id="mobile-menu" class="hidden md:hidden border-t border-white/[0.06] bg-[#0B0C0E] max-h-[80vh] overflow-y-auto">
+    <div class="px-6 py-4 space-y-4">
+      <!-- Products Mobile -->
+      <div class="space-y-3">
+        <button class="flex items-center justify-between w-full text-sm font-medium text-white/80" onclick="document.getElementById('mobile-products').classList.toggle('hidden'); this.querySelector('svg').classList.toggle('rotate-180')">
+          Products
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-200 text-white/40"><path d="m6 9 6 6 6-6"></path></svg>
+        </button>
+        <div id="mobile-products" class="hidden pl-4 space-y-3 border-l border-white/10 ml-2">
+           <a href="fluxerai.html" class="block text-sm text-white/60 hover:text-white transition-colors">Fluxer AI</a>
+           <a href="#" class="block text-sm text-white/60 hover:text-white transition-colors">Visual Editor</a>
+           <a href="#" class="block text-sm text-white/60 hover:text-white transition-colors">Team Work</a>
+           <a href="#" class="block text-sm text-white/60 hover:text-white transition-colors">CMS</a>
+           <a href="#" class="block text-sm text-white/60 hover:text-white transition-colors">Global Hosting</a>
+           <a href="#" class="block text-sm text-white/60 hover:text-white transition-colors">SEO &amp; Social</a>
+        </div>
+      </div>
+      
+      <!-- Resources Mobile -->
+      <div class="space-y-3">
+        <button class="flex items-center justify-between w-full text-sm font-medium text-white/80" onclick="document.getElementById('mobile-resources').classList.toggle('hidden'); this.querySelector('svg').classList.toggle('rotate-180')">
+          Resources
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-200 text-white/40"><path d="m6 9 6 6 6-6"></path></svg>
+        </button>
+        <div id="mobile-resources" class="hidden pl-4 space-y-3 border-l border-white/10 ml-2">
+           <a href="#" class="block text-sm text-white/60 hover:text-white transition-colors">Startup</a>
+           <a href="#" class="block text-sm text-white/60 hover:text-white transition-colors">Agency</a>
+           <a href="marketplace.html" class="block text-sm text-white/60 hover:text-white transition-colors">Marketplace</a>
+        </div>
+      </div>
+
+      <!-- Solutions Mobile -->
+      <div class="space-y-3">
+        <button class="flex items-center justify-between w-full text-sm font-medium text-white/80" onclick="document.getElementById('mobile-solutions').classList.toggle('hidden'); this.querySelector('svg').classList.toggle('rotate-180')">
+          Solutions
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-200 text-white/40"><path d="m6 9 6 6 6-6"></path></svg>
+        </button>
+        <div id="mobile-solutions" class="hidden pl-4 space-y-3 border-l border-white/10 ml-2">
+           <a href="#" class="block text-sm text-white/60 hover:text-white transition-colors">Blog</a>
+           <a href="#" class="block text-sm text-white/60 hover:text-white transition-colors">Help Center</a>
+           <a href="tutorials.html" class="block text-sm text-white/60 hover:text-white transition-colors">Tutorials</a>
+        </div>
+      </div>
+
+      <!-- Community Mobile -->
+      <div class="space-y-3">
+        <button class="flex items-center justify-between w-full text-sm font-medium text-white/80" onclick="document.getElementById('mobile-community').classList.toggle('hidden'); this.querySelector('svg').classList.toggle('rotate-180')">
+          Community
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-200 text-white/40"><path d="m6 9 6 6 6-6"></path></svg>
+        </button>
+        <div id="mobile-community" class="hidden pl-4 space-y-3 border-l border-white/10 ml-2">
+           <a href="#" class="block text-sm text-white/60 hover:text-white transition-colors">Discord</a>
+           <a href="#" class="block text-sm text-white/60 hover:text-white transition-colors">Twitter</a>
+           <a href="events.html" class="block text-sm text-white/60 hover:text-white transition-colors">Events</a>
+        </div>
+      </div>
+
+      <a href="index.html#pricing" class="block text-sm font-medium text-white/80 py-2 hover:text-white transition-colors">Pricing</a>
+      
+      <div class="pt-4 border-t border-white/10">
+        <a href="#" class="block w-full py-2.5 text-center text-sm font-medium text-white bg-white/10 rounded-lg hover:bg-white/20 transition-colors">Log in</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('click', function(e) {
+          const trigger = e.target.closest('[data-dropdown-trigger]');
+          const activeDropdown = document.querySelector('[data-dropdown-content]:not(.invisible)');
+          
+          if (trigger) {
+            const targetId = trigger.dataset.dropdownTrigger;
+            const targetContent = document.getElementById(targetId);
+            
+            if (activeDropdown && activeDropdown !== targetContent) {
+              activeDropdown.classList.add('invisible', 'opacity-0', 'translate-y-2');
+              activeDropdown.classList.remove('visible', 'opacity-100', 'translate-y-0');
+              const activeTriggerIcon = document.querySelector(`[data-dropdown-trigger="${activeDropdown.id.replace('-content','').replace('-dropdown','-dropdown')}"] svg`);
+              if(activeTriggerIcon) activeTriggerIcon.style.transform = 'rotate(0deg)';
+            }
+            
+            const isClosed = targetContent.classList.contains('invisible');
+            if (isClosed) {
+              targetContent.classList.remove('invisible', 'opacity-0', 'translate-y-2');
+              targetContent.classList.add('visible', 'opacity-100', 'translate-y-0');
+              trigger.querySelector('svg').style.transform = 'rotate(180deg)';
+            } else {
+              targetContent.classList.add('invisible', 'opacity-0', 'translate-y-2');
+              targetContent.classList.remove('visible', 'opacity-100', 'translate-y-0');
+              trigger.querySelector('svg').style.transform = 'rotate(0deg)';
+            }
+          } else if (activeDropdown && !e.target.closest('[data-dropdown-content]')) {
+            activeDropdown.classList.add('invisible', 'opacity-0', 'translate-y-2');
+            activeDropdown.classList.remove('visible', 'opacity-100', 'translate-y-0');
+            const activeTrigger = document.querySelector(`button[data-dropdown-trigger="${activeDropdown.id}"]`);
+            if(activeTrigger) activeTrigger.querySelector('svg').style.transform = 'rotate(0deg)';
+          }
+        });
+  </script>
+</nav>
+
+    <!-- Main Content -->
+    <main class="z-10 flex-grow w-full max-w-[1400px] mr-auto ml-auto pt-32 pr-6 pb-12 pl-6">
+        
+        <!-- Header Section -->
+        <div class="flex flex-col animate-fade-up items-start">
+            <h1 class="lg:text-6xl leading-[1.1] text-4xl font-medium text-white tracking-tight mb-8" style="mask-image: linear-gradient(80deg, transparent, black 0%, black 60%, transparent); -webkit-mask-image: linear-gradient(80deg, transparent, black 0%, black 60%, transparent);">Plans that scale<br>
+with your ambition.</h1>
+            
+            <!-- Product Access Strip -->
+            <div class="w-full flex flex-col md:flex-row md:items-center justify-between gap-6 border-y border-white/[0.08] py-4 mb-12">
+                <div class="flex flex-wrap items-center gap-6 text-xs text-white/50">
+                    <span class="mr-2">Seats give you access to products:</span>
+                    <div class="flex items-center gap-1.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="pen-tool" aria-hidden="true" class="lucide lucide-pen-tool w-3.5 h-3.5 text-orange-400"><path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"></path><path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18"></path><path d="m2.3 2.3 7.286 7.286"></path><circle cx="11" cy="11" r="2"></circle></svg> Fluxer Design
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="presentation" aria-hidden="true" class="lucide lucide-presentation w-3.5 h-3.5 text-purple-400"><path d="M2 3h20"></path><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"></path><path d="m7 21 5-5 5 5"></path></svg> Fluxer Slides
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="code-2" aria-hidden="true" class="lucide lucide-code-2 w-3.5 h-3.5 text-green-400"><path d="m18 16 4-4-4-4"></path><path d="m6 8-4 4 4 4"></path><path d="m14.5 4-5 16"></path></svg> Fluxer Dev
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="sticky-note" aria-hidden="true" class="lucide lucide-sticky-note w-3.5 h-3.5 text-yellow-400"><path d="M21 9a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"></path><path d="M15 3v5a1 1 0 0 0 1 1h5"></path></svg> Fluxer Board
+                    </div>
+                </div>
+                <div class="text-xs text-white/30 text-right">Prices in USD</div>
+            </div>
+        </div>
+
+        <!-- Pricing Cards Grid (4 Columns) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 animate-fade-up delay-1 gap-x-4 gap-y-4">
+
+  <!-- Personal (was Starter) -->
+  <div class="group flex flex-col overflow-hidden transition-all duration-300 md:p-10 bg-gradient-to-bl from-gray-500/10 via-[#141518] to-gray-500/10 h-full rounded-xl pt-8 pr-8 pb-8 pl-8 relative" style="position: relative; --border-gradient: linear-gradient(270deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0)); --border-radius-before: 12px">
+    
+    <!-- Hover Effects -->
+    <div class="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style="--border-gradient: linear-gradient(270deg, rgba(255, 255, 255, 0), rgba(234, 88, 12, 0.5), rgba(255, 255, 255, 0)); --border-radius-before: 12px"></div>
+    <div class="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+    <div class="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-orange-500 to-transparent opacity-0 group-hover:opacity-50 transition-opacity duration-500 pointer-events-none"></div>
+
+    <div class="flex-1 relative z-10">
+      <div class="mb-4">
+        <h3 class="text-xl font-medium text-white mb-2">Personal</h3>
+      </div>
+
+      <div class="mb-8">
+        <span class="text-4xl font-medium text-white tracking-tight">Free</span>
+        <p class="text-xs text-white/40 mt-2 font-light h-12">Perfect for passion projects and building your portfolio.</p>
+      </div>
+    </div>
+
+    <button class="uppercase transition-all duration-300 hover:bg-orange-500 shadow-orange-600/20 hover:shadow-orange-600/40 text-xs font-semibold text-white tracking-widest bg-orange-50/5 w-full rounded-lg mb-10 pt-4 pb-4">
+      Get started
+    </button>
+
+    <div class="space-y-4 relative z-10">
+      <div class="text-[11px] font-medium text-white/30 uppercase tracking-widest">Core features</div>
+      <ul class="space-y-2.5">
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-white/30 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Unlimited personal files
+        </li>
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-white/30 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Basic code inspection
+        </li>
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-white/30 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Access to plugins
+        </li>
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-white/30 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Mobile mirroring
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Startup (was Professional) -->
+  <div class="group flex flex-col overflow-hidden md:p-10 bg-gradient-to-bl from-gray-500/10 via-[#141518] to-gray-500/10 rounded-xl pt-8 pr-8 pb-8 pl-8 relative h-full transition-all duration-300" style="position: relative; --border-gradient: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0)); --border-radius-before: 12px">
+    
+    <!-- Hover Effects -->
+    <div class="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style="--border-gradient: linear-gradient(270deg, rgba(255, 255, 255, 0), rgba(234, 88, 12, 0.5), rgba(255, 255, 255, 0)); --border-radius-before: 12px"></div>
+    <div class="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+    <div class="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-orange-500 to-transparent opacity-0 group-hover:opacity-50 transition-opacity duration-500 pointer-events-none"></div>
+
+    <div class="flex-1 relative z-10">
+      <div class="mb-4 flex justify-between items-start">
+        <h3 class="text-xl font-medium text-white">Professional</h3>
+      </div>
+
+      <!-- Toggle inside card -->
+      <div class="flex items-center gap-3 mb-6">
+        <div class="flex p-0.5 bg-white/[0.05] rounded-md">
+          <button class="px-2 py-1 text-[10px] font-medium bg-white/10 rounded text-white shadow-sm">Monthly</button>
+          <button class="px-2 py-1 text-[10px] font-medium text-white/50 hover:text-white transition-colors">Annual</button>
+        </div>
+      </div>
+
+      <!-- Seat Pricing List -->
+      <div class="space-y-3 mb-8 border-b border-white/[0.08] pb-6">
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-2">
+            <div class="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
+            <span class="text-xs text-white/80 font-medium">Editor seat</span>
+          </div>
+          <div class="text-sm text-white">$15<span class="text-white/40 text-[10px]">/mo</span></div>
+        </div>
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-2">
+            <div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
+            <span class="text-xs text-white/80 font-medium">Dev seat</span>
+          </div>
+          <div class="text-sm text-white">$12<span class="text-white/40 text-[10px]">/mo</span></div>
+        </div>
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-2">
+            <div class="w-1.5 h-1.5 rounded-full bg-orange-400"></div>
+            <span class="text-xs text-white/80 font-medium">Viewer</span>
+          </div>
+          <div class="text-sm text-white">Free</div>
+        </div>
+      </div>
+    </div>
+
+    <button class="uppercase transition-all duration-300 hover:bg-orange-500 shadow-orange-600/20 hover:shadow-orange-600/40 text-xs font-semibold text-white tracking-widest bg-orange-50/5 w-full rounded-lg mb-10 pt-4 pb-4" style="position: relative; --border-gradient: linear-gradient(225deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0)); --border-radius-before: 8px">
+      Select plan
+    </button>
+
+    <div class="space-y-4 relative z-10">
+      <div class="text-[11px] font-medium text-white/30 uppercase tracking-widest">Key features</div>
+      <ul class="space-y-2.5">
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Unlimited team files
+        </li>
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Shared team libraries
+        </li>
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Advanced prototyping
+        </li>
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Dev Mode inspection
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Business (was Organization) -->
+  <div class="group flex flex-col overflow-hidden md:p-10 transition-all duration-300 bg-gradient-to-bl from-gray-500/10 via-[#141518] to-gray-500/10 h-full rounded-xl pt-8 pr-8 pb-8 pl-8 relative" style="position: relative; --border-gradient: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0)); --border-radius-before: 12px">
+    
+    <!-- Hover Effects -->
+    <div class="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style="--border-gradient: linear-gradient(270deg, rgba(255, 255, 255, 0), rgba(234, 88, 12, 0.5), rgba(255, 255, 255, 0)); --border-radius-before: 12px"></div>
+    <div class="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+    <div class="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-orange-500 to-transparent opacity-0 group-hover:opacity-50 transition-opacity duration-500 pointer-events-none"></div>
+
+    <div class="flex-1 relative z-10">
+      <div class="mb-4">
+        <h3 class="text-xl font-medium text-white mb-1">Business</h3>
+        <p class="text-[10px] text-white/40 uppercase tracking-wide">Billed annually</p>
+      </div>
+
+      <!-- Seat Pricing List -->
+      <div class="space-y-3 mb-8 border-b border-white/[0.08] pb-6 mt-11">
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-2">
+            <div class="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
+            <span class="text-xs text-white/80 font-medium">Editor seat</span>
+          </div>
+          <div class="text-sm text-white">$45<span class="text-white/40 text-[10px]">/mo</span></div>
+        </div>
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-2">
+            <div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
+            <span class="text-xs text-white/80 font-medium">Dev seat</span>
+          </div>
+          <div class="text-sm text-white">$25<span class="text-white/40 text-[10px]">/mo</span></div>
+        </div>
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-2">
+            <div class="w-1.5 h-1.5 rounded-full bg-orange-400"></div>
+            <span class="text-xs text-white/80 font-medium">Viewer</span>
+          </div>
+          <div class="text-sm text-white">Free</div>
+        </div>
+      </div>
+    </div>
+
+    <button class="uppercase transition-all duration-300 hover:bg-orange-500 shadow-orange-600/20 hover:shadow-orange-600/40 text-xs font-semibold text-white tracking-widest bg-orange-50/5 w-full rounded-lg mb-10 pt-4 pb-4">
+      Select plan
+    </button>
+
+    <div class="space-y-4 relative z-10">
+      <div class="text-[11px] font-medium text-white/30 uppercase tracking-widest">Key features</div>
+      <ul class="space-y-2.5">
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Org-wide libraries
+        </li>
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          System analytics
+        </li>
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Branching &amp; merging
+        </li>
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Centralized admin
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Enterprise -->
+  <div class="group flex flex-col overflow-hidden md:p-10 bg-gradient-to-bl from-gray-500/10 via-[#141518] to-gray-500/10 rounded-xl pt-8 pr-8 pb-8 pl-8 relative h-full transition-all duration-300" style="position: relative; --border-gradient: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0)); --border-radius-before: 12px">
+    
+    <!-- Hover Effects -->
+    <div class="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" style="--border-gradient: linear-gradient(270deg, rgba(255, 255, 255, 0), rgba(234, 88, 12, 0.5), rgba(255, 255, 255, 0)); --border-radius-before: 12px"></div>
+    <div class="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+    <div class="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-orange-500 to-transparent opacity-0 group-hover:opacity-50 transition-opacity duration-500 pointer-events-none"></div>
+
+    <div class="flex-1 relative z-10">
+      <div class="mb-4">
+        <h3 class="text-xl font-medium text-white mb-1">Enterprise</h3>
+        <p class="text-[10px] text-white/40 uppercase tracking-wide">Billed annually</p>
+      </div>
+
+      <!-- Seat Pricing List -->
+      <div class="space-y-3 mb-8 border-b border-white/[0.08] pb-6 mt-11">
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-2">
+            <div class="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
+            <span class="text-xs text-white/80 font-medium">Editor seat</span>
+          </div>
+          <div class="text-sm text-white">$75<span class="text-white/40 text-[10px]">/mo</span></div>
+        </div>
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-2">
+            <div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
+            <span class="text-xs text-white/80 font-medium">Dev seat</span>
+          </div>
+          <div class="text-sm text-white">$35<span class="text-white/40 text-[10px]">/mo</span></div>
+        </div>
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-2">
+            <div class="w-1.5 h-1.5 rounded-full bg-orange-400"></div>
+            <span class="text-xs text-white/80 font-medium">Viewer</span>
+          </div>
+          <div class="text-sm text-white">Free</div>
+        </div>
+      </div>
+    </div>
+
+    <button class="uppercase transition-all duration-300 hover:bg-orange-500 shadow-orange-600/20 hover:shadow-orange-600/40 text-xs font-semibold text-white tracking-widest bg-orange-50/5 w-full rounded-lg mb-10 pt-4 pb-4">
+      Contact sales
+    </button>
+
+    <div class="space-y-4 relative z-10">
+      <div class="text-[11px] font-medium text-white/30 uppercase tracking-widest">Key features</div>
+      <ul class="space-y-2.5">
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Dedicated workspaces
+        </li>
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Guest access controls
+        </li>
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Advanced link sharing
+        </li>
+        <li class="flex items-start gap-2.5 text-xs text-white/70 font-light leading-relaxed">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="check" aria-hidden="true" class="lucide lucide-check w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+          Content management
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>
+        
+        <div class="w-full text-center mt-8 pb-8 border-b border-white/[0.08]">
+             <p class="text-[11px] text-white/40">Fluxer is <a href="#" class="underline hover:text-white">free for students and educators</a>.</p>
+             <p class="text-[11px] text-white/40 mt-1">Free seats with view and comment access are available on all plans.</p>
+        </div>
+
+        <!-- Seat Explainer Section -->
+        <div class="mt-24 mb-32 animate-fade-up delay-2">
+            <h2 class="text-2xl font-medium text-white mb-12 text-center">Not sure which seat is right for you?</h2>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Collab -->
+                <div class="p-8 rounded-2xl bg-gradient-to-br from-white/[0.03] to-transparent border border-white/[0.06]">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-8 h-8 rounded bg-blue-500/10 flex items-center justify-center text-blue-400">
+                             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="message-square" aria-hidden="true" class="lucide lucide-message-square w-4 h-4"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path></svg>
+                        </div>
+                        <h3 class="text-lg font-medium text-white">The Collab seat</h3>
+                    </div>
+                    <p class="text-sm text-white/60 font-light leading-relaxed mb-6">Makes it easy to work together.</p>
+                    <ul class="space-y-3">
+                        <li class="flex items-center gap-2 text-xs text-white/50">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="sticky-note" aria-hidden="true" class="lucide lucide-sticky-note w-3 h-3 text-white/30"><path d="M21 9a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"></path><path d="M15 3v5a1 1 0 0 0 1 1h5"></path></svg> Brainstorm in Fluxer Board
+                        </li>
+                        
+                    </ul>
+                </div>
+
+                <!-- Dev -->
+                <div class="p-8 rounded-2xl bg-gradient-to-br from-white/[0.03] to-transparent border border-white/[0.06]">
+                     <div class="flex items-center gap-3 mb-4">
+                        <div class="w-8 h-8 rounded bg-green-500/10 flex items-center justify-center text-green-400">
+                             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="code-2" aria-hidden="true" class="lucide lucide-code-2 w-4 h-4"><path d="m18 16 4-4-4-4"></path><path d="m6 8-4 4 4 4"></path><path d="m14.5 4-5 16"></path></svg>
+                        </div>
+                        <h3 class="text-lg font-medium text-white">The Dev seat</h3>
+                    </div>
+                    <p class="text-sm text-white/60 font-light leading-relaxed mb-6">Gives devs the details they need.</p>
+                    <ul class="space-y-3">
+                        <li class="flex items-center gap-2 text-xs text-white/50">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="eye" aria-hidden="true" class="lucide lucide-eye w-3 h-3 text-white/30"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg> Build in Dev Mode
+                        </li>
+                        
+                    </ul>
+                </div>
+
+                <!-- Full -->
+                <div class="p-8 rounded-2xl bg-gradient-to-br from-white/[0.03] to-transparent border border-white/[0.06]">
+                     <div class="flex items-center gap-3 mb-4">
+                        <div class="w-8 h-8 rounded bg-orange-500/10 flex items-center justify-center text-orange-400">
+                             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="pen-tool" aria-hidden="true" class="lucide lucide-pen-tool w-4 h-4"><path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"></path><path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18"></path><path d="m2.3 2.3 7.286 7.286"></path><circle cx="11" cy="11" r="2"></circle></svg>
+                        </div>
+                        <h3 class="text-lg font-medium text-white">The Full seat</h3>
+                    </div>
+                    <p class="text-sm text-white/60 font-light leading-relaxed mb-6">Connects your entire workflow.</p>
+                    <ul class="space-y-3">
+                        <li class="flex items-center gap-2 text-xs text-white/50">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="pen-tool" aria-hidden="true" class="lucide lucide-pen-tool w-3 h-3 text-white/30"><path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z"></path><path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18"></path><path d="m2.3 2.3 7.286 7.286"></path><circle cx="11" cy="11" r="2"></circle></svg> Create in Fluxer Design
+                        </li>
+                        
+                        
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detailed Comparison Table -->
+        <div class="mt-32 animate-fade-up delay-3">
+            <div class="flex justify-between items-end mb-8">
+                <h2 class="text-3xl font-medium text-white">Compare all features</h2>
+                <div class="hidden md:flex gap-2">
+                     <button class="px-3 py-1.5 rounded bg-white/[0.08] text-xs font-medium text-white">All features</button>
+                     <button class="px-3 py-1.5 rounded hover:bg-white/[0.04] text-xs font-medium text-white/50 transition-colors">Key features</button>
+                </div>
+            </div>
+            
+            <div class="w-full overflow-x-auto custom-scrollbar pb-4">
+                <table class="w-full text-left border-collapse min-w-[900px]">
+                    <thead class="">
+                        <tr class="border-b border-white/[0.06]">
+                            <th class="py-4 pl-4 text-xs font-medium uppercase tracking-wider text-white/40 w-[30%]">Features</th>
+                            <th class="py-4 px-4 text-xs font-medium uppercase tracking-wider text-white text-center w-[17%]">Starter</th>
+                            <th class="py-4 px-4 text-xs font-medium uppercase tracking-wider text-white text-center w-[17%]">Professional</th>
+                            <th class="py-4 px-4 text-xs font-medium uppercase tracking-wider text-white text-center w-[17%]">Organization</th>
+                            <th class="py-4 px-4 text-xs font-medium uppercase tracking-wider text-white text-center w-[17%]">Enterprise</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-sm">
+                        <!-- Section Header -->
+                        <tr class="">
+                            <td colspan="5" class="py-6 pl-4 text-sm font-medium text-white border-b border-white/[0.06]">Fluxer Design</td>
+                        </tr>
+                        <!-- Row -->
+                        <tr class="group hover:bg-white/[0.02] transition-colors">
+                            <td class="py-3 pl-4 text-white/60 font-light border-b border-white/[0.06]">Components</td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                        </tr>
+                        <tr class="group hover:bg-white/[0.02] transition-colors">
+                            <td class="py-3 pl-4 text-white/60 font-light border-b border-white/[0.06]">Auto layout</td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                        </tr>
+                        <tr class="group hover:bg-white/[0.02] transition-colors">
+                            <td class="py-3 pl-4 text-white/60 font-light border-b border-white/[0.06]">Advanced Variables</td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><span class="text-white/20">-</span></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                        </tr>
+                        <tr class="group hover:bg-white/[0.02] transition-colors">
+                            <td class="py-3 pl-4 text-white/60 font-light border-b border-white/[0.06]">Variable modes</td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><span class="text-white/20">-</span></td>
+                            <td class="py-3 px-4 text-center text-white/60 text-xs border-b border-white/[0.06]">4 modes</td>
+                            <td class="py-3 px-4 text-center text-white/60 text-xs border-b border-white/[0.06]">40 modes</td>
+                            <td class="py-3 px-4 text-center text-white/60 text-xs border-b border-white/[0.06]">Unlimited</td>
+                        </tr>
+
+                        <!-- Section Header -->
+                        <tr class="">
+                            <td colspan="5" class="py-6 pl-4 text-sm font-medium text-white border-b border-white/[0.06]">Dev Mode</td>
+                        </tr>
+                        <tr class="group hover:bg-white/[0.02] transition-colors">
+                            <td class="py-3 pl-4 text-white/60 font-light border-b border-white/[0.06]">Inspect properties</td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                        </tr>
+                        <tr class="group hover:bg-white/[0.02] transition-colors">
+                            <td class="py-3 pl-4 text-white/60 font-light border-b border-white/[0.06]">Copy code</td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                        </tr>
+                        <tr class="group hover:bg-white/[0.02] transition-colors">
+                            <td class="py-3 pl-4 text-white/60 font-light border-b border-white/[0.06]">VS Code extension</td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><span class="text-white/20">-</span></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                        </tr>
+
+                         <!-- Section Header -->
+                         <tr class="">
+                            <td colspan="5" class="py-6 pl-4 text-sm font-medium text-white border-b border-white/[0.06]">Administration</td>
+                        </tr>
+                        <tr class="group hover:bg-white/[0.02] transition-colors">
+                            <td class="py-3 pl-4 text-white/60 font-light border-b border-white/[0.06]">Shared fonts</td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><span class="text-white/20">-</span></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><span class="text-white/20">-</span></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                        </tr>
+                        <tr class="group hover:bg-white/[0.02] transition-colors">
+                            <td class="py-3 pl-4 text-white/60 font-light border-b border-white/[0.06]">SSO</td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><span class="text-white/20">-</span></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><span class="text-white/20">-</span></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                        </tr>
+                         <tr class="group hover:bg-white/[0.02] transition-colors">
+                            <td class="py-3 pl-4 text-white/60 font-light border-b border-white/[0.06]">Workspaces</td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><span class="text-white/20">-</span></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><span class="text-white/20">-</span></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><span class="text-white/20">-</span></td>
+                            <td class="py-3 px-4 text-center border-b border-white/[0.06]"><div class="w-2.5 h-2.5 rounded-full bg-orange-500 mx-auto"></div></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- FAQ Section -->
+        <div class="mt-32 pb-24 border-b border-white/[0.08]">
+             <h2 class="text-3xl font-medium tracking-tight text-white mb-12">Pricing FAQs</h2>
+             
+             <div class="space-y-0">
+                <!-- FAQ Item 1 -->
+                <div class="group border-t border-white/[0.06] overflow-hidden">
+                    <button class="flex w-full items-center justify-between py-6 text-left focus:outline-none" onclick="toggleFaq(this)">
+                        <span class="text-lg font-normal text-white/80 group-hover:text-white transition-colors">What is a seat?</span>
+                        <span class="ml-6 flex items-center justify-center pt-1 text-white/40 transition-transform duration-300">
+                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-chevron transition-transform duration-300"><path d="m6 9 6 6 6-6"></path></svg>
+                        </span>
+                    </button>
+                    <div class="grid grid-rows-[0fr] transition-[grid-template-rows] duration-300 ease-out faq-content">
+                        <div class="overflow-hidden">
+                            <p class="pb-6 text-sm text-white/60 font-light leading-relaxed max-w-2xl">
+                                A seat represents a single user license within your team. Different seat types (Collab, Dev, Full) grant different levels of access to Fluxer's tools. You can mix and match seat types within your team.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FAQ Item 2 -->
+                <div class="group border-t border-white/[0.06] overflow-hidden">
+                    <button class="flex w-full items-center justify-between py-6 text-left focus:outline-none" onclick="toggleFaq(this)">
+                        <span class="text-lg font-normal text-white/80 group-hover:text-white transition-colors">Where can I see a breakdown of seats and associated costs?</span>
+                        <span class="ml-6 flex items-center justify-center pt-1 text-white/40 transition-transform duration-300">
+                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-chevron transition-transform duration-300"><path d="m6 9 6 6 6-6"></path></svg>
+                        </span>
+                    </button>
+                    <div class="grid grid-rows-[0fr] transition-[grid-template-rows] duration-300 ease-out faq-content">
+                        <div class="overflow-hidden">
+                            <p class="pb-6 text-sm text-white/60 font-light leading-relaxed max-w-2xl">
+                                You can view your current seat usage and estimated billing in the Admin Dashboard under the "Billing" tab. We provide a detailed breakdown of each user's seat type.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FAQ Item 3 -->
+                <div class="group border-t border-white/[0.06] overflow-hidden">
+                    <button class="flex w-full items-center justify-between py-6 text-left focus:outline-none" onclick="toggleFaq(this)">
+                        <span class="text-lg font-normal text-white/80 group-hover:text-white transition-colors">Can I buy Fluxer Design on its own?</span>
+                        <span class="ml-6 flex items-center justify-center pt-1 text-white/40 transition-transform duration-300">
+                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-chevron transition-transform duration-300"><path d="m6 9 6 6 6-6"></path></svg>
+                        </span>
+                    </button>
+                    <div class="grid grid-rows-[0fr] transition-[grid-template-rows] duration-300 ease-out faq-content">
+                        <div class="overflow-hidden">
+                            <p class="pb-6 text-sm text-white/60 font-light leading-relaxed max-w-2xl">
+                                No, Fluxer is an integrated platform. The "Full seat" gives you access to the entire suite, including Design, Prototyping, and Design Systems features.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FAQ Item 4 -->
+                <div class="group border-t border-white/[0.06] overflow-hidden">
+                    <button class="flex w-full items-center justify-between py-6 text-left focus:outline-none" onclick="toggleFaq(this)">
+                        <span class="text-lg font-normal text-white/80 group-hover:text-white transition-colors">How does team-based pricing work?</span>
+                        <span class="ml-6 flex items-center justify-center pt-1 text-white/40 transition-transform duration-300">
+                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-chevron transition-transform duration-300"><path d="m6 9 6 6 6-6"></path></svg>
+                        </span>
+                    </button>
+                    <div class="grid grid-rows-[0fr] transition-[grid-template-rows] duration-300 ease-out faq-content">
+                        <div class="overflow-hidden">
+                            <p class="pb-6 text-sm text-white/60 font-light leading-relaxed max-w-2xl">
+                                You create a team workspace and add members. You are billed for the total number of paid seats in that workspace at the end of your billing cycle.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <a href="#" class="inline-block mt-8 text-sm text-white underline decoration-white/30 underline-offset-4 hover:decoration-white transition-all">See more FAQs</a>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-black pt-20 pb-12">
+  <div class="max-w-7xl mx-auto px-6">
+    <div class="flex mb-16 items-start justify-between">
+      <div class="flex flex-col gap-4 max-w-xs">
+        <div class="text-2xl font-semibold text-white">Fluxer</div>
+        <p class="text-sm text-white/50 leading-relaxed font-light">
+          The design tool that writes production-ready code. Build faster, ship better.
+        </p>
+      </div>
+      <div class="flex gap-16 hidden md:flex">
+        <div class="flex flex-col gap-4">
+          <h5 class="text-xs font-bold text-white uppercase tracking-wider">Product</h5>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">Fluxer Design</a>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">Fluxer Dev</a>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">Fluxer Slides</a>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">Fluxer Board</a>
+        </div>
+        <div class="flex flex-col gap-4">
+          <h5 class="text-xs font-bold text-white uppercase tracking-wider">Use Cases</h5>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">UI Design</a>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">UX Design</a>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">Wireframing</a>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">Prototyping</a>
+        </div>
+        <div class="flex flex-col gap-4">
+          <h5 class="text-xs font-bold text-white uppercase tracking-wider">Resources</h5>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">Blog</a>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">Community</a>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">Help Center</a>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">Resource Library</a>
+        </div>
+        <div class="flex flex-col gap-4">
+          <h5 class="text-xs font-bold text-white uppercase tracking-wider">Company</h5>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">About</a>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">Careers</a>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">Legal</a>
+          <a href="#" class="text-sm text-white/50 hover:text-white transition-colors">Contact</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex flex-col md:flex-row justify-between items-center pt-8 border-t border-white/[0.1]">
+      <div class="flex items-center gap-6 mb-4 md:mb-0">
+        <a href="#" class="text-xs text-white/30 hover:text-white transition-colors">Cookie settings</a>
+        <a href="#" class="text-xs text-white/30 hover:text-white transition-colors">English</a>
+      </div>
+      <div class="flex items-center gap-6">
+        <a href="#" class="text-white/40 hover:text-white transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="twitter" aria-hidden="true" class="lucide lucide-twitter w-4 h-4"><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"></path></svg>
+        </a>
+        <a href="#" class="text-white/40 hover:text-white transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="instagram" aria-hidden="true" class="lucide lucide-instagram w-4 h-4"><rect width="20" height="20" x="2" y="2" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"></line></svg>
+        </a>
+        <a href="#" class="text-white/40 hover:text-white transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="youtube" aria-hidden="true" class="lucide lucide-youtube w-4 h-4"><path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"></path><path d="m10 15 5-3-5-3z"></path></svg>
+        </a>
+        <a href="#" class="text-white/40 hover:text-white transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="linkedin" aria-hidden="true" class="lucide lucide-linkedin w-4 h-4"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path><rect width="4" height="12" x="2" y="9"></rect><circle cx="4" cy="4" r="2"></circle></svg>
+        </a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+    <script>
+        // Init Icons
+        lucide.createIcons();
+
+        // FAQ Toggle Logic
+        function toggleFaq(button) {
+            const content = button.nextElementSibling;
+            const icon = button.querySelector('.icon-chevron');
+            const isExpanded = content.style.gridTemplateRows === '1fr';
+
+            // Reset all
+            document.querySelectorAll('.faq-content').forEach(el => {
+                el.style.gridTemplateRows = '0fr';
+                const elIcon = el.previousElementSibling.querySelector('.icon-chevron');
+                elIcon.style.transform = 'rotate(0deg)';
+                elIcon.style.color = 'currentColor';
+            });
+
+            // Toggle current
+            if (!isExpanded) {
+                content.style.gridTemplateRows = '1fr';
+                icon.style.transform = 'rotate(180deg)';
+                icon.style.color = '#fff';
+            }
+        }
+    </script>
+
+</body></html>

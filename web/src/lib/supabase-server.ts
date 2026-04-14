@@ -7,8 +7,8 @@ import { cookies } from 'next/headers';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://zephynezarjsxzselozi.supabase.co';
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-export function getSupabaseServer() {
-  const cookieStore = cookies();
+export async function getSupabaseServer() {
+  const cookieStore = await cookies();
   return createServerClient(SUPABASE_URL, SUPABASE_ANON, {
     cookies: {
       getAll() {
@@ -21,7 +21,6 @@ export function getSupabaseServer() {
           );
         } catch {
           // Server Component sem permissao pra setar — ignora
-          // (middleware lida com refresh de sessao)
         }
       },
     },

@@ -27,12 +27,17 @@ export async function middleware(request: NextRequest) {
   // Refresh da sessao se expirou
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Proteger rotas /dashboard
-  const url = request.nextUrl.clone();
-  if (url.pathname.startsWith('/dashboard') && !user) {
+  // Proteger rotas /app (area logada)
+  var url = request.nextUrl.clone();
+  if (url.pathname.startsWith('/app') && !user) {
     url.pathname = '/login';
     url.searchParams.set('redirect', request.nextUrl.pathname);
-    return NextResponse.redirect(url);
+    var redirectResponse = NextResponse.redirect(url);
+    // Copiar cookies do refresh de sessao para o redirect
+    response.cookies.getAll().forEach(function(cookie) {
+      redirectResponse.cookies.set(cookie.name, cookie.value);
+    });
+    return redirectResponse;
   }
 
   return response;

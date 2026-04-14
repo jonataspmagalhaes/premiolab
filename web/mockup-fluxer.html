@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PremioLab — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        page: '#0B0C0E',
+        surface: 'rgba(255,255,255,0.02)',
+        'surface-hover': 'rgba(255,255,255,0.04)',
+        accent: '#F97316',
+        income: '#22C55E',
+        danger: '#EF4444',
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['Geist Mono', 'monospace'],
+      }
+    }
+  }
+}
+</script>
+<style>
+body {
+  font-family: 'Inter', sans-serif;
+  background: #0B0C0E;
+  color: #EDEDED;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Fluxer Grid */
+.linear-grid {
+  background-size: 40px 40px;
+  background-image: linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+  mask-image: radial-gradient(circle at center, black 30%, transparent 80%);
+}
+
+/* Fluxer Card */
+.linear-card {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.08);
+  transition: border-color 0.3s, transform 0.3s, box-shadow 0.3s;
+}
+.linear-card:hover {
+  border-color: rgba(255,255,255,0.15);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px -10px rgba(0,0,0,0.5);
+}
+
+/* Shine Button */
+.shine-button {
+  position: relative;
+  overflow: hidden;
+}
+.shine-button::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  transition: 0.5s;
+}
+.shine-button:hover::after { left: 100%; }
+
+/* Gradient border */
+.gradient-border {
+  position: relative;
+}
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(249,115,22,0.3), transparent 50%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); filter: blur(4px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+@keyframes drawLine { from { stroke-dashoffset: 2000; } to { stroke-dashoffset: 0; } }
+@keyframes fillFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes donutDraw { from { stroke-dasharray: 0 345.58; } }
+@keyframes dotPulse { 0%,100% { r:4; opacity:1; } 50% { r:7; opacity:.4; } }
+@keyframes tooltipPop { from { opacity:0; transform:scale(.92) translateY(5px); } to { opacity:1; transform:scale(1) translateY(0); } }
+@keyframes tickerScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes slideRight { from { width: 0; } }
+@keyframes rowSlide { from { opacity:0; transform:translateX(-8px); } to { opacity:1; transform:translateX(0); } }
+@keyframes flowDots { to { stroke-dashoffset: -20; } }
+
+.anim-up { opacity:0; animation: fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) forwards; }
+.d1{animation-delay:.05s}.d2{animation-delay:.1s}.d3{animation-delay:.15s}.d4{animation-delay:.2s}
+.d5{animation-delay:.25s}.d6{animation-delay:.3s}.d7{animation-delay:.35s}.d8{animation-delay:.4s}
+.d9{animation-delay:.45s}.d10{animation-delay:.5s}.d11{animation-delay:.55s}
+
+.draw-line { stroke-dasharray:2000; stroke-dashoffset:2000; animation: drawLine 2s ease-out forwards; }
+.draw-line-2 { animation-delay: .3s; }
+.fill-fade { opacity:0; animation: fillFade .8s ease-out forwards; animation-delay: 1.6s; }
+.fill-fade-2 { animation-delay: 1.9s; }
+.dot-pulse { animation: dotPulse 2s ease-in-out infinite; animation-delay: 2s; }
+.tooltip-pop { opacity:0; animation: tooltipPop .35s ease-out forwards; animation-delay: 2.2s; }
+.donut-seg { animation: donutDraw 1.2s ease-out forwards; }
+.ds1{animation-delay:.3s}.ds2{animation-delay:.5s}.ds3{animation-delay:.7s}.ds4{animation-delay:.9s}
+.row-anim { opacity:0; animation: rowSlide .4s ease-out forwards; }
+.bar-anim { animation: slideRight 1s ease-out forwards; }
+.flow-line { animation: flowDots 1s linear infinite; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
+
+/* Counter */
+.counter { display: inline-block; }
+
+/* Particle network canvas */
+.particle-canvas { position:absolute; inset:0; }
+
+/* Matrix rain */
+.matrix-rain { position:absolute; inset:0; overflow:hidden; }
+.matrix-col {
+  position:absolute; top:-100%; font-family:'Geist Mono',monospace; font-size:11px;
+  color:#F97316; opacity:0; writing-mode:vertical-lr; letter-spacing:8px;
+  animation: matrixFall linear infinite;
+  text-shadow: 0 0 8px rgba(249,115,22,.3);
+}
+@keyframes matrixFall {
+  0% { top:-20%; opacity:0; }
+  5% { opacity:.2; }
+  50% { opacity:.1; }
+  95% { opacity:.03; }
+  100% { top:110%; opacity:0; }
+}
+.mc1{left:4%;animation-duration:14s;animation-delay:0s;font-size:9px}
+.mc2{left:11%;animation-duration:20s;animation-delay:2s;font-size:8px}
+.mc3{left:19%;animation-duration:16s;animation-delay:5s;font-size:10px}
+.mc4{left:27%;animation-duration:22s;animation-delay:1s;font-size:8px}
+.mc5{left:35%;animation-duration:18s;animation-delay:7s;font-size:9px}
+.mc6{left:44%;animation-duration:24s;animation-delay:3s;font-size:8px}
+.mc7{left:52%;animation-duration:15s;animation-delay:8s;font-size:10px}
+.mc8{left:61%;animation-duration:21s;animation-delay:4s;font-size:9px}
+.mc9{left:69%;animation-duration:17s;animation-delay:6s;font-size:8px}
+.mc10{left:77%;animation-duration:23s;animation-delay:2.5s;font-size:9px}
+.mc11{left:85%;animation-duration:19s;animation-delay:9s;font-size:8px}
+.mc12{left:93%;animation-duration:16s;animation-delay:1.5s;font-size:10px}
+
+/* Drops — renda passiva caindo */
+@keyframes dropFall { 0%{top:-5%;opacity:0}10%{opacity:.5}90%{opacity:.2}100%{top:105%;opacity:0} }
+.drop { position:absolute; width:2px; border-radius:2px;
+  background:linear-gradient(180deg,transparent,#F97316 30%,#F97316 70%,transparent);
+  opacity:.35; animation:dropFall linear infinite;
+  box-shadow:0 0 8px rgba(249,115,22,.25); }
+
+/* Snowball — compounding */
+@keyframes snowball { 0%{top:-3%;opacity:0;width:4px;height:4px}10%{opacity:.5}50%{width:14px;height:14px;opacity:.3}80%{width:22px;height:22px;opacity:.15}100%{top:105%;width:28px;height:28px;opacity:0} }
+@keyframes snowGlow { 0%{box-shadow:0 0 3px rgba(249,115,22,.1)}50%{box-shadow:0 0 15px rgba(249,115,22,.35)}100%{box-shadow:0 0 3px rgba(249,115,22,.1)} }
+.snowball { position:absolute; border-radius:50%;
+  background:radial-gradient(circle at 30% 30%,rgba(249,115,22,.5),rgba(249,115,22,.1));
+  border:1px solid rgba(249,115,22,.2);
+  animation:snowball linear infinite,snowGlow 2.5s ease-in-out infinite; }
+
+/* Orb float */
+@keyframes orbFloat { 0%{transform:translate(0,0) scale(1)}33%{transform:translate(25px,-20px) scale(1.08)}66%{transform:translate(-20px,15px) scale(.94)}100%{transform:translate(0,0) scale(1)} }
+
+/* Background chart lines drawing */
+@keyframes bgChartDraw { from{stroke-dashoffset:1500}to{stroke-dashoffset:0} }
+.bg-chart-line { stroke-dasharray:1500; stroke-dashoffset:1500; animation: bgChartDraw 4s ease-out forwards; }
+</style>
+</head>
+<body class="min-h-screen selection:bg-orange-500/30 relative">
+
+<!-- Background -->
+<div class="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+  <div class="absolute inset-0 linear-grid"></div>
+  <!-- Orbs -->
+  <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[350px] bg-orange-500/[0.08] blur-[120px] rounded-full" style="animation:orbFloat 14s ease-in-out infinite"></div>
+  <div class="absolute bottom-[10%] right-[15%] w-[400px] h-[300px] bg-orange-500/[0.04] blur-[100px] rounded-full" style="animation:orbFloat 18s ease-in-out infinite 5s"></div>
+  <div class="absolute top-[40%] left-[5%] w-[300px] h-[250px] bg-emerald-500/[0.03] blur-[90px] rounded-full" style="animation:orbFloat 16s ease-in-out infinite 8s"></div>
+
+  <!-- Animated stock charts in background -->
+  <!-- Chart 1: large ascending (left side) -->
+  <svg class="absolute bottom-[5%] left-[2%] w-[45%] h-[50%] opacity-[0.04]" viewBox="0 0 500 250" preserveAspectRatio="none">
+    <path d="M0,230 C20,228 40,225 60,220 S100,210 130,200 S170,195 200,180 S240,170 270,155 S310,160 340,140 S370,120 400,100 S430,90 460,70 S480,55 500,35"
+      fill="none" stroke="#F97316" stroke-width="2" class="bg-chart-line"/>
+    <path d="M0,230 C20,228 40,225 60,220 S100,210 130,200 S170,195 200,180 S240,170 270,155 S310,160 340,140 S370,120 400,100 S430,90 460,70 S480,55 500,35 L500,250 L0,250Z"
+      fill="url(#bgGrad1)"/>
+    <defs><linearGradient id="bgGrad1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#F97316" stop-opacity=".15"/><stop offset="100%" stop-color="#F97316" stop-opacity="0"/></linearGradient></defs>
+  </svg>
+
+  <!-- Chart 2: volatile mid (right side) -->
+  <svg class="absolute top-[15%] right-[3%] w-[40%] h-[40%] opacity-[0.03]" viewBox="0 0 500 250" preserveAspectRatio="none">
+    <path d="M0,180 C30,170 50,190 80,175 S120,150 150,165 S190,140 220,130 S260,145 290,120 S320,100 350,115 S390,85 420,70 S450,80 480,50 S495,40 500,30"
+      fill="none" stroke="#22C55E" stroke-width="1.5" class="bg-chart-line" style="animation-delay:2s"/>
+    <path d="M0,180 C30,170 50,190 80,175 S120,150 150,165 S190,140 220,130 S260,145 290,120 S320,100 350,115 S390,85 420,70 S450,80 480,50 S495,40 500,30 L500,250 L0,250Z"
+      fill="url(#bgGrad2)"/>
+    <defs><linearGradient id="bgGrad2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#22C55E" stop-opacity=".1"/><stop offset="100%" stop-color="#22C55E" stop-opacity="0"/></linearGradient></defs>
+  </svg>
+
+  <!-- Chart 3: small steady (center bottom) -->
+  <svg class="absolute bottom-[20%] left-[30%] w-[35%] h-[30%] opacity-[0.025]" viewBox="0 0 500 250" preserveAspectRatio="none">
+    <path d="M0,200 C40,195 80,190 120,185 S180,175 220,168 S280,158 320,148 S380,135 420,125 S460,110 500,95"
+      fill="none" stroke="#F97316" stroke-width="1.5" stroke-dasharray="4 3" class="bg-chart-line" style="animation-delay:4s"/>
+    <path d="M0,200 C40,195 80,190 120,185 S180,175 220,168 S280,158 320,148 S380,135 420,125 S460,110 500,95 L500,250 L0,250Z"
+      fill="url(#bgGrad3)"/>
+    <defs><linearGradient id="bgGrad3" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#F97316" stop-opacity=".08"/><stop offset="100%" stop-color="#F97316" stop-opacity="0"/></linearGradient></defs>
+  </svg>
+
+  <!-- Candlestick bars scattered -->
+  <svg class="absolute bottom-0 left-0 w-full h-[35%] opacity-[0.025]" viewBox="0 0 1200 200" preserveAspectRatio="none">
+    <!-- Green candles -->
+    <g stroke="#F97316" fill="none" stroke-width="1.2">
+      <line x1="60" y1="40" x2="60" y2="170"/><rect x="52" y="65" width="16" height="50" fill="#F97316" opacity=".2" rx="1"/>
+      <line x1="150" y1="30" x2="150" y2="155"/><rect x="142" y="50" width="16" height="55" fill="#F97316" opacity=".2" rx="1"/>
+      <line x1="240" y1="55" x2="240" y2="175"/><rect x="232" y="80" width="16" height="45" fill="#F97316" opacity=".2" rx="1"/>
+      <line x1="330" y1="20" x2="330" y2="140"/><rect x="322" y="40" width="16" height="60" fill="#F97316" opacity=".25" rx="1"/>
+      <line x1="420" y1="45" x2="420" y2="165"/><rect x="412" y="70" width="16" height="40" fill="#22C55E" opacity=".15" rx="1"/>
+      <line x1="510" y1="25" x2="510" y2="150"/><rect x="502" y="45" width="16" height="55" fill="#F97316" opacity=".2" rx="1"/>
+    </g>
+    <!-- Red candles -->
+    <g stroke="#EF4444" fill="none" stroke-width="1.2" opacity=".6">
+      <line x1="600" y1="50" x2="600" y2="170"/><rect x="592" y="85" width="16" height="45" fill="#EF4444" opacity=".15" rx="1"/>
+      <line x1="690" y1="60" x2="690" y2="180"/><rect x="682" y="95" width="16" height="40" fill="#EF4444" opacity=".15" rx="1"/>
+      <line x1="870" y1="65" x2="870" y2="175"/><rect x="862" y="90" width="16" height="40" fill="#EF4444" opacity=".15" rx="1"/>
+    </g>
+    <g stroke="#F97316" fill="none" stroke-width="1.2">
+      <line x1="780" y1="15" x2="780" y2="135"/><rect x="772" y="35" width="16" height="60" fill="#F97316" opacity=".25" rx="1"/>
+      <line x1="960" y1="20" x2="960" y2="130"/><rect x="952" y="40" width="16" height="50" fill="#F97316" opacity=".2" rx="1"/>
+      <line x1="1050" y1="30" x2="1050" y2="145"/><rect x="1042" y="50" width="16" height="55" fill="#F97316" opacity=".2" rx="1"/>
+      <line x1="1140" y1="10" x2="1140" y2="120"/><rect x="1132" y="25" width="16" height="60" fill="#F97316" opacity=".25" rx="1"/>
+    </g>
+    <!-- Support/resistance lines -->
+    <line x1="0" y1="60" x2="1200" y2="60" stroke="#F97316" stroke-width=".5" opacity=".15" stroke-dasharray="8 6"/>
+    <line x1="0" y1="130" x2="1200" y2="130" stroke="#F97316" stroke-width=".5" opacity=".1" stroke-dasharray="8 6"/>
+  </svg>
+
+  <!-- Moving price line (horizontal scroll) -->
+  <div class="absolute top-[50%] left-0 right-0 h-px overflow-hidden opacity-[0.06]">
+    <div style="width:200%;height:100%;background:repeating-linear-gradient(90deg,transparent 0px,transparent 30px,#F97316 30px,#F97316 32px,transparent 32px,transparent 50px);animation:tickerScroll 10s linear infinite"></div>
+  </div>
+
+  <!-- Particle network (nodes conectados) -->
+  <canvas class="particle-canvas" id="particleNet"></canvas>
+
+  <!-- Matrix rain (numeros financeiros) -->
+  <div class="matrix-rain">
+    <span class="matrix-col mc1">38.42 +1.2 27.15 58.90 142.30</span>
+    <span class="matrix-col mc2">R$539 +3.2k 12.1% DY 8.5</span>
+    <span class="matrix-col mc3">PETR4 BBAS3 VALE3 ITUB4</span>
+    <span class="matrix-col mc4">+6.3% 14.25 CDI 132k IBOV</span>
+    <span class="matrix-col mc5">R$1.937 +114k 271% META</span>
+    <span class="matrix-col mc6">45% 30% 15% 10% FII RF</span>
+    <span class="matrix-col mc7">DY 8.2 11.5 14.3 6.5 10.8</span>
+    <span class="matrix-col mc8">+328k +84k P&L +412k RENDA</span>
+    <span class="matrix-col mc9">SELIC 14.25 CDI 13.65 IPCA</span>
+    <span class="matrix-col mc10">R$873k R$581k R$290k R$193k</span>
+    <span class="matrix-col mc11">BUY HOLD SELL CC PUT CALL</span>
+    <span class="matrix-col mc12">21.600 13.800 11.500 3.600</span>
+  </div>
+</div>
+
+<!-- Ticker Tape -->
+<div class="relative z-10 h-8 bg-page/80 border-b border-white/[0.04] overflow-hidden">
+  <div class="flex items-center h-full whitespace-nowrap" style="animation:tickerScroll 50s linear infinite">
+    <span class="inline-flex items-center gap-1.5 px-5 text-xs font-mono"><span class="text-white/40">PETR4</span><span class="text-income">R$38,42 +1.2%</span></span>
+    <span class="w-1 h-1 rounded-full bg-orange-500/30"></span>
+    <span class="inline-flex items-center gap-1.5 px-5 text-xs font-mono"><span class="text-white/40">BBAS3</span><span class="text-income">R$27,15 +0.8%</span></span>
+    <span class="w-1 h-1 rounded-full bg-orange-500/30"></span>
+    <span class="inline-flex items-center gap-1.5 px-5 text-xs font-mono"><span class="text-white/40">VALE3</span><span class="text-danger">R$58,90 -0.5%</span></span>
+    <span class="w-1 h-1 rounded-full bg-orange-500/30"></span>
+    <span class="inline-flex items-center gap-1.5 px-5 text-xs font-mono"><span class="text-white/40">ITUB4</span><span class="text-income">R$35,20 +0.3%</span></span>
+    <span class="w-1 h-1 rounded-full bg-orange-500/30"></span>
+    <span class="inline-flex items-center gap-1.5 px-5 text-xs font-mono"><span class="text-white/40">IBOV</span><span class="text-income">132.450 +0.9%</span></span>
+    <span class="w-1 h-1 rounded-full bg-orange-500/30"></span>
+    <span class="inline-flex items-center gap-1.5 px-5 text-xs font-mono"><span class="text-white/40">SELIC</span><span class="text-orange-400">14,25%</span></span>
+    <span class="w-1 h-1 rounded-full bg-orange-500/30"></span>
+    <!-- duplicate -->
+    <span class="inline-flex items-center gap-1.5 px-5 text-xs font-mono"><span class="text-white/40">PETR4</span><span class="text-income">R$38,42 +1.2%</span></span>
+    <span class="w-1 h-1 rounded-full bg-orange-500/30"></span>
+    <span class="inline-flex items-center gap-1.5 px-5 text-xs font-mono"><span class="text-white/40">BBAS3</span><span class="text-income">R$27,15 +0.8%</span></span>
+    <span class="w-1 h-1 rounded-full bg-orange-500/30"></span>
+    <span class="inline-flex items-center gap-1.5 px-5 text-xs font-mono"><span class="text-white/40">VALE3</span><span class="text-danger">R$58,90 -0.5%</span></span>
+    <span class="w-1 h-1 rounded-full bg-orange-500/30"></span>
+    <span class="inline-flex items-center gap-1.5 px-5 text-xs font-mono"><span class="text-white/40">ITUB4</span><span class="text-income">R$35,20 +0.3%</span></span>
+    <span class="w-1 h-1 rounded-full bg-orange-500/30"></span>
+    <span class="inline-flex items-center gap-1.5 px-5 text-xs font-mono"><span class="text-white/40">IBOV</span><span class="text-income">132.450 +0.9%</span></span>
+    <span class="w-1 h-1 rounded-full bg-orange-500/30"></span>
+    <span class="inline-flex items-center gap-1.5 px-5 text-xs font-mono"><span class="text-white/40">SELIC</span><span class="text-orange-400">14,25%</span></span>
+  </div>
+</div>
+
+<!-- Nav -->
+<nav class="sticky top-0 z-50 border-b border-white/[0.06] bg-page/60 backdrop-blur-xl">
+  <div class="flex h-14 max-w-[1400px] mx-auto px-6 items-center justify-between">
+    <div class="flex items-center gap-8">
+      <!-- Logo -->
+      <a href="#" class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center text-sm font-bold text-page shadow-[0_0_15px_rgba(249,115,22,0.3)]">P</div>
+        <span class="text-[15px] font-semibold tracking-tight">Premio<span class="text-orange-400">Lab</span></span>
+      </a>
+      <!-- Links -->
+      <div class="hidden md:flex items-center gap-1">
+        <a href="#" class="px-3 py-1.5 rounded-md text-[13px] font-medium text-white bg-white/[0.06]">Dashboard</a>
+        <a href="#" class="px-3 py-1.5 rounded-md text-[13px] font-medium text-white/50 hover:text-white/80 transition">Carteira</a>
+        <a href="#" class="px-3 py-1.5 rounded-md text-[13px] font-medium text-white/50 hover:text-white/80 transition">Opcoes</a>
+        <a href="#" class="px-3 py-1.5 rounded-md text-[13px] font-medium text-white/50 hover:text-white/80 transition">Estrategias</a>
+        <a href="#" class="px-3 py-1.5 rounded-md text-[13px] font-medium text-white/50 hover:text-white/80 transition">Analise</a>
+      </div>
+    </div>
+    <div class="flex items-center gap-4">
+      <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+        <span class="w-1.5 h-1.5 rounded-full bg-income shadow-[0_0_6px_rgba(34,197,94,0.6)]"></span>
+        <span class="text-xs text-white/50">Renda</span>
+        <span class="text-sm font-semibold font-mono text-income counter" data-target="13540" data-prefix="R$ ">R$ 0</span>
+        <span class="text-[10px] text-white/30">/mes</span>
+      </div>
+      <button class="shine-button px-3.5 py-1.5 rounded-lg bg-orange-500/10 border border-orange-500/30 text-orange-400 text-xs font-semibold hover:bg-orange-500/20 transition">PRO</button>
+    </div>
+  </div>
+</nav>
+
+<!-- Main -->
+<main class="relative z-10 max-w-[1400px] mx-auto px-6 py-5">
+  <div class="grid grid-cols-12 gap-4">
+
+    <!-- ═══ LEFT COL: Composicao ═══ -->
+    <div class="col-span-12 lg:col-span-3 space-y-4">
+
+      <!-- Donut card -->
+      <div class="linear-card rounded-xl p-5 anim-up d1">
+        <div class="flex items-center gap-2 mb-4">
+          <div class="w-7 h-7 rounded-lg bg-orange-500/10 flex items-center justify-center">
+            <i data-lucide="pie-chart" class="w-4 h-4 text-orange-400"></i>
+          </div>
+          <span class="text-xs font-medium text-white/50 uppercase tracking-wider">Composicao</span>
+        </div>
+
+        <!-- Donut SVG -->
+        <div class="flex items-center justify-center py-5 relative">
+          <svg width="170" height="170" viewBox="0 0 140 140">
+            <defs>
+              <linearGradient id="dg1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F97316"/><stop offset="100%" stop-color="#FB923C"/></linearGradient>
+              <linearGradient id="dg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#22C55E"/><stop offset="100%" stop-color="#4ADE80"/></linearGradient>
+              <linearGradient id="dg3" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#06B6D4"/><stop offset="100%" stop-color="#22D3EE"/></linearGradient>
+              <filter id="donutGlow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            </defs>
+            <!-- Track -->
+            <circle cx="70" cy="70" r="52" fill="none" stroke="rgba(255,255,255,0.025)" stroke-width="12"/>
+            <!-- Acoes — orange gradient -->
+            <circle class="donut-seg ds1" cx="70" cy="70" r="52" fill="none" stroke="url(#dg1)" stroke-width="12" style="stroke-dasharray:147 327" stroke-linecap="round" transform="rotate(-90 70 70)" filter="url(#donutGlow)"/>
+            <!-- FIIs — green gradient -->
+            <circle class="donut-seg ds2" cx="70" cy="70" r="52" fill="none" stroke="url(#dg2)" stroke-width="12" style="stroke-dasharray:98 327;stroke-dashoffset:-147" stroke-linecap="round" transform="rotate(-90 70 70)" filter="url(#donutGlow)"/>
+            <!-- RF — cyan gradient -->
+            <circle class="donut-seg ds3" cx="70" cy="70" r="52" fill="none" stroke="url(#dg3)" stroke-width="12" style="stroke-dasharray:49 327;stroke-dashoffset:-245" stroke-linecap="round" transform="rotate(-90 70 70)"/>
+            <!-- Caixa — subtle -->
+            <circle class="donut-seg ds4" cx="70" cy="70" r="52" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="12" style="stroke-dasharray:33 327;stroke-dashoffset:-294" stroke-linecap="round" transform="rotate(-90 70 70)"/>
+            <!-- Inner ring accent -->
+            <circle cx="70" cy="70" r="42" fill="none" stroke="rgba(249,115,22,0.04)" stroke-width="0.5"/>
+          </svg>
+          <div class="absolute text-center">
+            <p class="text-[9px] text-white/30 uppercase tracking-widest">Patrimonio</p>
+            <p class="text-xl font-bold font-mono counter" data-target="1938" data-prefix="R$ " data-suffix="k">R$ 0</p>
+          </div>
+        </div>
+
+        <!-- Legend items -->
+        <div class="space-y-3 mt-3">
+          <div class="flex items-center justify-between anim-up d3 group">
+            <div class="flex items-center gap-2.5">
+              <div class="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-orange-500 to-orange-400 shadow-[0_0_6px_rgba(249,115,22,0.4)]"></div>
+              <span class="text-xs text-white/60 group-hover:text-white/80 transition">Acoes</span>
+            </div>
+            <div class="flex items-center gap-2"><span class="text-[11px] font-mono text-orange-400/60">45%</span><span class="text-xs font-mono font-semibold counter" data-target="873265" data-prefix="R$ ">R$ 0</span></div>
+          </div>
+          <div class="flex items-center justify-between anim-up d4 group">
+            <div class="flex items-center gap-2.5">
+              <div class="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-400 shadow-[0_0_6px_rgba(34,197,94,0.4)]"></div>
+              <span class="text-xs text-white/60 group-hover:text-white/80 transition">FIIs</span>
+            </div>
+            <div class="flex items-center gap-2"><span class="text-[11px] font-mono text-emerald-400/60">30%</span><span class="text-xs font-mono font-semibold counter" data-target="581177" data-prefix="R$ ">R$ 0</span></div>
+          </div>
+          <div class="flex items-center justify-between anim-up d5 group">
+            <div class="flex items-center gap-2.5">
+              <div class="w-2.5 h-2.5 rounded-full bg-gradient-to-br from-cyan-500 to-cyan-400 shadow-[0_0_6px_rgba(6,182,212,0.4)]"></div>
+              <span class="text-xs text-white/60 group-hover:text-white/80 transition">Renda Fixa</span>
+            </div>
+            <div class="flex items-center gap-2"><span class="text-[11px] font-mono text-cyan-400/60">15%</span><span class="text-xs font-mono font-semibold counter" data-target="290588" data-prefix="R$ ">R$ 0</span></div>
+          </div>
+          <div class="flex items-center justify-between anim-up d6 group">
+            <div class="flex items-center gap-2.5">
+              <div class="w-2.5 h-2.5 rounded-full bg-white/15 shadow-[0_0_4px_rgba(255,255,255,0.1)]"></div>
+              <span class="text-xs text-white/60 group-hover:text-white/80 transition">Caixa</span>
+            </div>
+            <div class="flex items-center gap-2"><span class="text-[11px] font-mono text-white/30">10%</span><span class="text-xs font-mono font-semibold counter" data-target="193725" data-prefix="R$ ">R$ 0</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Promo card -->
+      <div class="linear-card gradient-border rounded-xl p-5 anim-up d7 group cursor-pointer">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.6)]"></span>
+          <span class="text-[10px] font-semibold text-orange-400 uppercase tracking-wider">Laboratorio</span>
+        </div>
+        <p class="text-xl font-bold leading-tight tracking-tight mb-2">Gerador de<br><span class="text-orange-400">Renda Passiva</span></p>
+        <p class="text-xs text-white/40 leading-relaxed mb-4">Quanto investir pra viver de renda? FIIs reais com DY e P/VP.</p>
+        <button class="shine-button text-xs font-semibold text-orange-400 border border-orange-500/20 rounded-lg px-4 py-2 bg-orange-500/[0.06] hover:bg-orange-500/10 transition group-hover:translate-x-1 transform duration-300">Simular &rarr;</button>
+      </div>
+    </div>
+
+    <!-- ═══ CENTER: Chart ═══ -->
+    <div class="col-span-12 lg:col-span-6">
+      <div class="linear-card rounded-xl p-5 anim-up d2">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <div class="flex items-center gap-2 mb-1">
+              <div class="w-6 h-6 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                <i data-lucide="area-chart" class="w-3.5 h-3.5 text-orange-400"></i>
+              </div>
+              <span class="text-xs font-medium text-white/50 uppercase tracking-wider">Patrimonio Total</span>
+            </div>
+            <p class="text-2xl font-bold font-mono tracking-tight counter" data-target="1937254" data-prefix="R$ ">R$ 0</p>
+            <div class="flex items-center gap-3 mt-2">
+              <span class="flex items-center gap-1.5 text-[11px] text-white/40"><span class="w-1.5 h-1.5 rounded-full bg-orange-500"></span>Total</span>
+              <span class="flex items-center gap-1.5 text-[11px] text-white/40"><span class="w-1.5 h-1.5 rounded-full bg-income"></span>Investido</span>
+            </div>
+          </div>
+          <div class="flex gap-0.5 bg-white/[0.03] rounded-lg p-0.5">
+            <button class="px-3 py-1 rounded-md text-[11px] font-medium text-white/40 hover:text-white/70 transition">1M</button>
+            <button class="px-3 py-1 rounded-md text-[11px] font-medium text-white/40 hover:text-white/70 transition">3M</button>
+            <button class="px-3 py-1 rounded-md text-[11px] font-medium text-white/40 hover:text-white/70 transition">6M</button>
+            <button class="px-3 py-1 rounded-md text-[11px] font-medium bg-white/[0.06] text-white">1A</button>
+            <button class="px-3 py-1 rounded-md text-[11px] font-medium text-white/40 hover:text-white/70 transition">MAX</button>
+          </div>
+        </div>
+
+        <!-- Chart -->
+        <div class="relative h-[240px] mt-2">
+          <svg class="absolute inset-0 w-full h-full" viewBox="0 0 800 220" preserveAspectRatio="none">
+            <!-- Grid -->
+            <line x1="0" y1="55" x2="800" y2="55" stroke="rgba(255,255,255,0.03)"/>
+            <line x1="0" y1="110" x2="800" y2="110" stroke="rgba(255,255,255,0.03)"/>
+            <line x1="0" y1="165" x2="800" y2="165" stroke="rgba(255,255,255,0.03)"/>
+            <!-- Total -->
+            <path class="draw-line" d="M0,195 C55,192 110,184 170,174 S270,152 330,140 S430,116 490,102 S560,82 610,72 S690,52 730,44 S770,36 800,30" fill="none" stroke="#F97316" stroke-width="2"/>
+            <path class="fill-fade" d="M0,195 C55,192 110,184 170,174 S270,152 330,140 S430,116 490,102 S560,82 610,72 S690,52 730,44 S770,36 800,30 L800,220 L0,220Z" fill="url(#gO)" opacity=".12"/>
+            <!-- Investido -->
+            <path class="draw-line draw-line-2" d="M0,205 C55,203 110,198 170,192 S270,178 330,170 S430,155 490,145 S560,128 610,120 S690,104 730,96 S770,90 800,84" fill="none" stroke="#22C55E" stroke-width="1.5" stroke-dasharray="4 2"/>
+            <path class="fill-fade fill-fade-2" d="M0,205 C55,203 110,198 170,192 S270,178 330,170 S430,155 490,145 S560,128 610,120 S690,104 730,96 S770,90 800,84 L800,220 L0,220Z" fill="url(#gG)" opacity=".06"/>
+            <defs>
+              <linearGradient id="gO" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#F97316" stop-opacity=".2"/><stop offset="100%" stop-color="#F97316" stop-opacity="0"/></linearGradient>
+              <linearGradient id="gG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#22C55E" stop-opacity=".15"/><stop offset="100%" stop-color="#22C55E" stop-opacity="0"/></linearGradient>
+            </defs>
+            <circle class="dot-pulse" cx="610" cy="72" fill="#F97316" r="4"/>
+            <circle cx="610" cy="72" r="12" fill="#F97316" opacity=".08"/>
+          </svg>
+
+          <!-- Tooltip -->
+          <div class="tooltip-pop absolute top-8 left-[58%] bg-[#16181D] border border-white/[0.08] rounded-lg px-3 py-2 shadow-xl">
+            <p class="text-sm font-bold font-mono">R$ 1.937.254 <span class="inline-block ml-1 px-1.5 py-0.5 rounded bg-income/10 text-income text-[10px] font-bold">+6.3%</span></p>
+            <p class="text-[10px] text-white/40 font-mono mt-0.5">+R$ 114.820 no periodo</p>
+          </div>
+
+          <!-- Months -->
+          <div class="absolute bottom-0 left-0 right-0 flex justify-between px-2">
+            <span class="text-[9px] text-white/20 font-mono">Jan</span><span class="text-[9px] text-white/20 font-mono">Fev</span><span class="text-[9px] text-white/20 font-mono">Mar</span><span class="text-[9px] text-white/20 font-mono">Abr</span><span class="text-[9px] text-white/20 font-mono">Mai</span><span class="text-[9px] text-white/20 font-mono">Jun</span><span class="text-[9px] text-white/20 font-mono">Jul</span><span class="text-[9px] text-white/20 font-mono">Ago</span><span class="text-[9px] text-white/20 font-mono">Set</span><span class="text-[9px] text-white/20 font-mono">Out</span><span class="text-[9px] text-white/20 font-mono">Nov</span><span class="text-[9px] text-white/20 font-mono">Dez</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Meta bar -->
+      <div class="linear-card rounded-xl p-4 mt-4 anim-up d4">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <i data-lucide="zap" class="w-4 h-4 text-orange-400"></i>
+            <span class="text-xs font-medium text-white/50">Meta Mensal</span>
+          </div>
+          <div class="flex items-baseline gap-1.5">
+            <span class="text-lg font-bold font-mono text-income">271%</span>
+            <span class="text-[10px] text-white/30 font-mono">de R$ 5.000</span>
+          </div>
+        </div>
+        <div class="h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
+          <div class="h-full rounded-full bar-anim" style="width:100%;background:linear-gradient(90deg,#F97316,#22C55E)"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ RIGHT: Renda + P&L ═══ -->
+    <div class="col-span-12 lg:col-span-3">
+      <div class="linear-card rounded-xl p-5 anim-up d3">
+        <!-- Renda -->
+        <div class="mb-5">
+          <div class="flex items-center gap-2 mb-2">
+            <div class="w-6 h-6 rounded-lg bg-income/10 flex items-center justify-center">
+              <i data-lucide="wallet" class="w-3.5 h-3.5 text-income"></i>
+            </div>
+            <span class="text-xs font-medium text-white/50 uppercase tracking-wider">Renda Passiva</span>
+          </div>
+          <p class="text-2xl font-bold font-mono text-income counter" data-target="13540" data-prefix="R$ ">R$ 0</p>
+        </div>
+
+        <div class="space-y-2 mb-5">
+          <div class="flex justify-between text-xs anim-up d5"><span class="text-white/40">Dividendos</span><span class="font-mono font-medium text-income">+R$ 5.230</span></div>
+          <div class="flex justify-between text-xs anim-up d6"><span class="text-white/40">FIIs</span><span class="font-mono font-medium text-income">+R$ 4.890</span></div>
+          <div class="flex justify-between text-xs anim-up d7"><span class="text-white/40">Premios Opcoes</span><span class="font-mono font-medium text-income">+R$ 2.420</span></div>
+          <div class="flex justify-between text-xs anim-up d8"><span class="text-white/40">Renda Fixa</span><span class="font-mono font-medium text-income">+R$ 1.000</span></div>
+        </div>
+
+        <div class="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent my-4"></div>
+
+        <!-- P&L -->
+        <div class="mb-5 anim-up d8">
+          <div class="flex items-center gap-2 mb-2">
+            <div class="w-6 h-6 rounded-lg bg-income/10 flex items-center justify-center">
+              <i data-lucide="trending-up" class="w-3.5 h-3.5 text-income"></i>
+            </div>
+            <span class="text-xs font-medium text-white/50 uppercase tracking-wider">P&L Aberto</span>
+          </div>
+          <p class="text-xl font-bold font-mono text-income counter" data-target="412830" data-prefix="+R$ ">+R$ 0</p>
+          <div class="space-y-1.5 mt-3">
+            <div class="flex justify-between text-xs"><span class="text-white/40">Acoes</span><span class="font-mono font-medium text-income">+R$ 328.450</span></div>
+            <div class="flex justify-between text-xs"><span class="text-white/40">FIIs</span><span class="font-mono font-medium text-income">+R$ 84.380</span></div>
+          </div>
+        </div>
+
+        <div class="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent my-4"></div>
+
+        <!-- DY -->
+        <div class="anim-up d9">
+          <div class="flex items-center gap-2 mb-2">
+            <div class="w-6 h-6 rounded-lg bg-orange-500/10 flex items-center justify-center">
+              <i data-lucide="percent" class="w-3.5 h-3.5 text-orange-400"></i>
+            </div>
+            <span class="text-xs font-medium text-white/50 uppercase tracking-wider">Yield</span>
+          </div>
+          <div class="flex items-baseline gap-2">
+            <span class="text-xl font-bold font-mono text-orange-400">8.4%</span>
+            <span class="text-[10px] text-white/30 font-mono">DY real a.a.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ BOTTOM: Table ═══ -->
+    <div class="col-span-12 mt-1">
+      <div class="linear-card rounded-xl p-5 anim-up d5">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.5)]"></span>
+            <span class="text-sm font-semibold">Carteira</span>
+            <span class="text-[10px] text-white/30 font-mono ml-1">15 ativos</span>
+          </div>
+          <div class="flex gap-0.5 bg-white/[0.03] rounded-lg p-0.5">
+            <button class="px-3 py-1 rounded-md text-[11px] bg-white/[0.06] text-white font-medium">Todos</button>
+            <button class="px-3 py-1 rounded-md text-[11px] text-white/40 hover:text-white/70 font-medium transition">Top Renda</button>
+            <button class="px-3 py-1 rounded-md text-[11px] text-white/40 hover:text-white/70 font-medium transition">Top P&L</button>
+          </div>
+        </div>
+
+        <table class="w-full">
+          <thead>
+            <tr class="text-[10px] text-white/30 uppercase tracking-wider font-mono">
+              <th class="text-left py-2 px-3 font-normal">Ativo</th>
+              <th class="text-right py-2 px-3 font-normal">Qtd</th>
+              <th class="text-right py-2 px-3 font-normal">Valor</th>
+              <th class="text-right py-2 px-3 font-normal">PM</th>
+              <th class="text-right py-2 px-3 font-normal">P&L</th>
+              <th class="text-right py-2 px-3 font-normal">DY</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="row-anim d6 border-t border-white/[0.04] hover:bg-white/[0.02] transition group">
+              <td class="py-3 px-3"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/10 flex items-center justify-center group-hover:scale-110 group-hover:border-blue-500/25 group-hover:shadow-[0_0_12px_rgba(59,130,246,0.15)] transition-all"><i data-lucide="candlestick-chart" class="w-4 h-4 text-blue-400"></i></div><div><p class="text-[13px] font-semibold tracking-tight">BBAS3</p><p class="text-[10px] text-white/30 font-mono">Acao</p></div></div></td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-white/60">21.600</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono font-medium">R$ 539.000</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-white/40">R$ 24,87</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono font-medium text-income">+R$ 3.240</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-orange-400 font-medium">8.2%</td>
+            </tr>
+            <tr class="row-anim d7 border-t border-white/[0.04] hover:bg-white/[0.02] transition group">
+              <td class="py-3 px-3"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/10 flex items-center justify-center group-hover:scale-110 group-hover:border-blue-500/25 group-hover:shadow-[0_0_12px_rgba(59,130,246,0.15)] transition-all"><i data-lucide="fuel" class="w-4 h-4 text-blue-400"></i></div><div><p class="text-[13px] font-semibold tracking-tight">PETR4</p><p class="text-[10px] text-white/30 font-mono">Acao</p></div></div></td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-white/60">13.800</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono font-medium">R$ 431.000</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-white/40">R$ 31,26</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono font-medium text-income">+R$ 1.890</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-orange-400 font-medium">12.1%</td>
+            </tr>
+            <tr class="row-anim d8 border-t border-white/[0.04] hover:bg-white/[0.02] transition group">
+              <td class="py-3 px-3"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/10 flex items-center justify-center group-hover:scale-110 group-hover:border-blue-500/25 group-hover:shadow-[0_0_12px_rgba(59,130,246,0.15)] transition-all"><i data-lucide="pickaxe" class="w-4 h-4 text-blue-400"></i></div><div><p class="text-[13px] font-semibold tracking-tight">RECV3</p><p class="text-[10px] text-white/30 font-mono">Acao</p></div></div></td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-white/60">11.500</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono font-medium">R$ 231.000</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-white/40">R$ 20,17</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono font-medium text-danger">-R$ 920</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-white/40">6.5%</td>
+            </tr>
+            <tr class="row-anim d9 border-t border-white/[0.04] hover:bg-white/[0.02] transition group">
+              <td class="py-3 px-3"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/10 flex items-center justify-center group-hover:scale-110 group-hover:border-blue-500/25 group-hover:shadow-[0_0_12px_rgba(59,130,246,0.15)] transition-all"><i data-lucide="flask-conical" class="w-4 h-4 text-blue-400"></i></div><div><p class="text-[13px] font-semibold tracking-tight">UNIP6</p><p class="text-[10px] text-white/30 font-mono">Acao</p></div></div></td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-white/60">3.600</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono font-medium">R$ 222.000</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-white/40">R$ 59,86</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono font-medium text-income">+R$ 540</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-orange-400 font-medium">14.3%</td>
+            </tr>
+            <tr class="row-anim d10 border-t border-white/[0.04] hover:bg-white/[0.02] transition group">
+              <td class="py-3 px-3"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/10 flex items-center justify-center group-hover:scale-110 group-hover:border-emerald-500/25 group-hover:shadow-[0_0_12px_rgba(16,185,129,0.15)] transition-all"><i data-lucide="building-2" class="w-4 h-4 text-emerald-400"></i></div><div><p class="text-[13px] font-semibold tracking-tight">BCRI11</p><p class="text-[10px] text-white/30 font-mono">FII</p></div></div></td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-white/60">786</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono font-medium">R$ 50.000</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-white/40">R$ 63,63</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono font-medium text-income">+R$ 180</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-orange-400 font-medium">11.5%</td>
+            </tr>
+            <tr class="row-anim d11 border-t border-white/[0.04] hover:bg-white/[0.02] transition group">
+              <td class="py-3 px-3"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/10 flex items-center justify-center group-hover:scale-110 group-hover:border-emerald-500/25 group-hover:shadow-[0_0_12px_rgba(16,185,129,0.15)] transition-all"><i data-lucide="landmark" class="w-4 h-4 text-emerald-400"></i></div><div><p class="text-[13px] font-semibold tracking-tight">VGIP11</p><p class="text-[10px] text-white/30 font-mono">FII</p></div></div></td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-white/60">1.200</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono font-medium">R$ 96.000</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-white/40">R$ 80,00</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono font-medium text-income">+R$ 420</td>
+              <td class="py-3 px-3 text-right text-[13px] font-mono text-orange-400 font-medium">10.8%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Init Lucide icons
+  if (window.lucide) lucide.createIcons();
+  document.querySelectorAll('.counter').forEach(function(el) {
+    var obs = new IntersectionObserver(function(entries) {
+      entries.forEach(function(e) {
+        if (e.isIntersecting) {
+          var t = parseInt(el.dataset.target) || 0;
+          var p = el.dataset.prefix || '';
+          var s = el.dataset.suffix || '';
+          var dur = 1200, st = performance.now();
+          function up(now) {
+            var prog = Math.min((now - st) / dur, 1);
+            var ease = 1 - Math.pow(1 - prog, 3);
+            el.textContent = p + Math.round(t * ease).toLocaleString('pt-BR') + s;
+            if (prog < 1) requestAnimationFrame(up);
+          }
+          requestAnimationFrame(up);
+          obs.unobserve(el);
+        }
+      });
+    }, { threshold: 0.2 });
+    obs.observe(el);
+  });
+});
+
+// ═══ Particle Network ═══
+(function() {
+  var c = document.getElementById('particleNet');
+  if (!c) return;
+  var ctx = c.getContext('2d');
+  var w, h;
+  var particles = [];
+  var NUM = 50;
+  var MAX_DIST = 160;
+  var mouse = { x: -999, y: -999 };
+  var COLORS = [
+    {r:249,g:115,b:22},  // orange
+    {r:34,g:197,b:94},   // green
+    {r:59,g:130,b:246},  // blue
+    {r:6,g:182,b:212},   // cyan
+  ];
+
+  function resize() {
+    w = c.width = window.innerWidth;
+    h = c.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+  window.addEventListener('mousemove', function(e) { mouse.x = e.clientX; mouse.y = e.clientY; });
+  window.addEventListener('mouseleave', function() { mouse.x = -999; mouse.y = -999; });
+
+  for (var i = 0; i < NUM; i++) {
+    var col = COLORS[Math.floor(Math.random() * COLORS.length)];
+    particles.push({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: (Math.random() - 0.5) * 0.35,
+      vy: (Math.random() - 0.5) * 0.25,
+      r: 1 + Math.random() * 2,
+      color: col,
+      phase: Math.random() * Math.PI * 2,
+    });
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, w, h);
+
+    // Lines between particles
+    for (var i = 0; i < NUM; i++) {
+      for (var j = i + 1; j < NUM; j++) {
+        var dx = particles[i].x - particles[j].x;
+        var dy = particles[i].y - particles[j].y;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < MAX_DIST) {
+          var alpha = (1 - dist / MAX_DIST) * 0.07;
+          ctx.beginPath();
+          ctx.moveTo(particles[i].x, particles[i].y);
+          ctx.lineTo(particles[j].x, particles[j].y);
+          var sc = particles[i].color;
+          ctx.strokeStyle = 'rgba(' + sc.r + ',' + sc.g + ',' + sc.b + ',' + alpha + ')';
+          ctx.lineWidth = 0.6;
+          ctx.stroke();
+        }
+      }
+
+      // Line to mouse (interactive)
+      var dxM = particles[i].x - mouse.x;
+      var dyM = particles[i].y - mouse.y;
+      var distM = Math.sqrt(dxM * dxM + dyM * dyM);
+      if (distM < 200) {
+        var alphaM = (1 - distM / 200) * 0.12;
+        ctx.beginPath();
+        ctx.moveTo(particles[i].x, particles[i].y);
+        ctx.lineTo(mouse.x, mouse.y);
+        ctx.strokeStyle = 'rgba(249,115,22,' + alphaM + ')';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+      }
+    }
+
+    // Nodes
+    for (var k = 0; k < NUM; k++) {
+      var p = particles[k];
+      var col = p.color;
+
+      // Glow
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * 3, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.04)';
+      ctx.fill();
+
+      // Dot
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(' + col.r + ',' + col.g + ',' + col.b + ',0.25)';
+      ctx.fill();
+
+      // Move
+      p.x += p.vx;
+      p.y += p.vy;
+
+      // Mouse repulsion
+      if (distM < 150) {
+        p.vx += dxM * 0.00005;
+        p.vy += dyM * 0.00005;
+      }
+
+      // Bounce
+      if (p.x < 0 || p.x > w) p.vx *= -1;
+      if (p.y < 0 || p.y > h) p.vy *= -1;
+
+      // Speed limit
+      var speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+      if (speed > 0.6) { p.vx *= 0.98; p.vy *= 0.98; }
+    }
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+</body>
+</html>
