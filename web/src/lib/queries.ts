@@ -98,6 +98,17 @@ export function usePositions(userId: string | undefined) {
 
       const { data: ops } = await q;
 
+      // DEBUG: contar quantas ops vieram sem corretora preenchida
+      if (typeof window !== 'undefined' && ops && ops.length > 0) {
+        const semCorr = ops.filter((o) => !o.corretora || !String(o.corretora).trim()).length;
+        const samples: Record<string, number> = {};
+        for (const o of ops) {
+          const c = (o.corretora || '(null)').toString();
+          samples[c] = (samples[c] || 0) + 1;
+        }
+        console.log('[positions] ops:', ops.length, '· sem corretora:', semCorr, '· buckets:', samples);
+      }
+
       // Aggregate into positions (keyed by ticker+portfolio if showing all; else just ticker)
       // Em paralelo: por_corretora — sub-bucket de qty/pm por corretora
       const map: Record<string, Position> = {};
@@ -129,7 +140,10 @@ export function usePositions(userId: string | undefined) {
         }
 
         // por_corretora bucket — mesmo algoritmo de PM, isolado por corretora
-        const corr = (op.corretora || 'Sem corretora').trim() || 'Sem corretora';
+        // Normaliza igual ao mobile (.toUpperCase().trim()) pra evitar fragmentar
+        // buckets ('XP' vs 'xp' vs 'Xp')
+        const corrRaw = (op.corretora || '').toString().toUpperCase().trim();
+        const corr = corrRaw || 'Sem corretora';
         if (!corretoraMap[key]) corretoraMap[key] = {};
         if (!corretoraMap[key][corr]) corretoraMap[key][corr] = { quantidade: 0, pm: 0 };
         const cBucket = corretoraMap[key][corr];
