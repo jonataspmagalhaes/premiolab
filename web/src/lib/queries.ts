@@ -246,7 +246,7 @@ export function useProventos(userId: string | undefined) {
       // Schema real: tipo (nao tipo_provento); sem coluna valor_total — computar
       let q = supabase
         .from('proventos')
-        .select('id, ticker, tipo, valor_por_cota, quantidade, data_pagamento, portfolio_id')
+        .select('id, ticker, tipo, valor_por_cota, quantidade, data_pagamento, portfolio_id, fonte')
         .eq('user_id', userId);
 
       if (selectedPortfolio === '__null__') {
@@ -266,6 +266,7 @@ export function useProventos(userId: string | undefined) {
         quantidade: Number(r.quantidade) || 0,
         valor_total: (Number(r.valor_por_cota) || 0) * (Number(r.quantidade) || 0),
         data_pagamento: r.data_pagamento,
+        fonte: r.fonte || null,
       }));
       return rows;
     },

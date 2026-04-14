@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useAppStore } from '@/store';
 import { LogoMark } from '@/components/Logo';
 import { PortfolioSwitcher } from '@/components/PortfolioSwitcher';
+import { NotificationBell } from '@/components/NotificationBell';
 
 var NAV_ITEMS = [
   { href: '/app', label: 'Dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
@@ -68,6 +69,7 @@ export function AppTopNav() {
             <span className="text-xs font-semibold font-mono text-income">R$ {fmtBR(renda.atual)}</span>
             <span className="text-[9px] text-white/30">/mes</span>
           </div>
+          <NotificationBell />
           <button className="shine-button px-2.5 py-1 rounded-md bg-orange-500/10 border border-orange-500/30 text-orange-400 text-[10px] font-semibold hover:bg-orange-500/20 transition">
             PRO
           </button>
@@ -94,6 +96,7 @@ export function AppMobileHeader() {
             <span className="w-1 h-1 rounded-full bg-income" />
             <span className="text-[10px] font-mono text-income font-semibold">R$ {fmtBR(renda.atual)}</span>
           </div>
+          <NotificationBell />
           <PortfolioSwitcher />
         </div>
       </div>

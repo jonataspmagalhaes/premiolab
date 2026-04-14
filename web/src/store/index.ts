@@ -41,13 +41,14 @@ export interface Portfolio {
 }
 
 export interface Provento {
-  id?: string;
+  id?: string | number;
   ticker: string;
   tipo_provento: string;
   valor_total: number;
   valor_por_cota?: number;
   quantidade?: number;
   data_pagamento: string;
+  fonte?: string | null;
 }
 
 export interface Opcao {

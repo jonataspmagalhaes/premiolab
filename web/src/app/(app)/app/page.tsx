@@ -6,6 +6,7 @@ import { useUser, usePatrimonioSnapshots } from '@/lib/queries';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { AssetClassIcon } from '@/components/AssetClassIcon';
 import { TickerLogo } from '@/components/TickerLogo';
+import { valorLiquido } from '@/lib/proventosUtils';
 
 // ═══════ Formatters ═══════
 
@@ -80,7 +81,7 @@ function ProventosCalendar({ proventos }: { proventos: Array<{ ticker: string; t
         dedupMap[k] = { dia: dia, ticker: ticker, tipo: tipo, valor: 0 };
       }
       // Heurística: se já existe uma entrada com mesmo valor exato, é duplicata — pula
-      var v = p.valor_total || 0;
+      var v = valorLiquido(p.valor_total || 0, p.tipo_provento || '', ticker);
       if (dedupMap[k] && Math.abs(dedupMap[k].valor - v) < 0.01) continue;
       // Caso contrario, soma (multi-portfolio legitimo de tickers diferentes nao chega aqui pq key é dia+ticker+tipo)
       if (!dedupMap[k]) dedupMap[k] = { dia: dia, ticker: ticker, tipo: tipo, valor: 0 };
@@ -694,11 +695,12 @@ export default function DashboardPage() {
     var d = new Date(p.data_pagamento);
     if (d >= threeMonthsAgo && d < now) {
       var tk = (p.ticker || '').toUpperCase();
+      var vl = valorLiquido(p.valor_total || 0, p.tipo_provento || '', tk);
       // FIIs end with 11, acoes are the rest
       if (/\d{2}11$/.test(tk) || /11B$/.test(tk)) {
-        rendaPorFonte.fii += (p.valor_total || 0);
+        rendaPorFonte.fii += vl;
       } else {
-        rendaPorFonte.acao += (p.valor_total || 0);
+        rendaPorFonte.acao += vl;
       }
     }
   }
@@ -925,11 +927,12 @@ export default function DashboardPage() {
                   var dp = new Date(pr.data_pagamento);
                   if (isNaN(dp.getTime())) continue;
                   var pk = dp.getFullYear() + '-' + String(dp.getMonth() + 1).padStart(2, '0');
+                  var vLiq = valorLiquido(pr.valor_total || 0, pr.tipo_provento || '', pr.ticker);
                   if (pk === mesAtualKey) {
-                    totalAtual += pr.valor_total || 0;
-                    proventosDoMes.push({ ticker: pr.ticker, valor: pr.valor_total || 0, tipo: pr.tipo_provento || 'dividendo', dia: dp.getDate() });
+                    totalAtual += vLiq;
+                    proventosDoMes.push({ ticker: pr.ticker, valor: vLiq, tipo: pr.tipo_provento || 'dividendo', dia: dp.getDate() });
                   } else if (pk === mesAnteriorKey) {
-                    totalAnterior += pr.valor_total || 0;
+                    totalAnterior += vLiq;
                   }
                 }
 
