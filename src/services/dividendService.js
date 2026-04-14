@@ -61,74 +61,97 @@ function parseDateDDMMYYYY(dateStr) {
   return parts[2] + '-' + parts[1] + '-' + parts[0];
 }
 
+// Helper interno: busca StatusInvest em um tipo especifico (fii ou acao)
+async function fetchStatusInvestByType(ticker, tipo) {
+  var siHeaders = {
+    'Accept': 'application/json',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  };
+
+  var result = [];
+  var resultKeys = {};
+  var hadAnyResponse = false;
+
+  // Endpoint 1: companytickerprovents (chart — dados historicos)
+  try {
+    var url1 = SI_BASE_URL + tipo + '/companytickerprovents?ticker=' + ticker + '&chartProvType=2';
+    var resp1 = await fetch(url1, { method: 'GET', headers: siHeaders });
+    if (resp1.ok) {
+      hadAnyResponse = true;
+      var text1 = await resp1.text();
+      try {
+        var json1 = JSON.parse(text1);
+        var models = json1 && json1.assetEarningsModels ? json1.assetEarningsModels : [];
+        for (var i = 0; i < models.length; i++) {
+          var item = models[i];
+          var pd = parseDateDDMMYYYY(item.pd);
+          var ed = parseDateDDMMYYYY(item.ed);
+          var rate = item.v;
+          var label = item.et || '';
+          if (!pd || !rate || rate <= 0) continue;
+          var rk = mergeDedupKey(pd, rate);
+          if (!resultKeys[rk]) {
+            resultKeys[rk] = true;
+            result.push({ paymentDate: pd, rate: rate, label: label.toUpperCase(), lastDatePrior: ed });
+          }
+        }
+      } catch (e) { console.warn('StatusInvest endpoint1 JSON parse for ' + ticker + ' (' + tipo + '):', e.message); }
+    }
+  } catch (e) { console.warn('StatusInvest endpoint1 fetch for ' + ticker + ' (' + tipo + '):', e.message); }
+
+  // Endpoint 2: companytickerproventsresult (tabela — inclui proventos recentes/futuros)
+  try {
+    var url2 = SI_BASE_URL + tipo + '/companytickerproventsresult?ticker=' + ticker + '&start=0&length=50';
+    var resp2 = await fetch(url2, { method: 'GET', headers: siHeaders });
+    if (resp2.ok) {
+      hadAnyResponse = true;
+      var text2 = await resp2.text();
+      try {
+        var json2 = JSON.parse(text2);
+        var rows = json2 && json2.data ? json2.data : [];
+        for (var j = 0; j < rows.length; j++) {
+          var row = rows[j];
+          var pd2 = parseDateDDMMYYYY(row.pd);
+          var ed2 = parseDateDDMMYYYY(row.ed);
+          var rate2 = row.v;
+          var label2 = row.et || '';
+          if (!pd2 || !rate2 || rate2 <= 0) continue;
+          var rk2 = mergeDedupKey(pd2, rate2);
+          if (!resultKeys[rk2]) {
+            resultKeys[rk2] = true;
+            result.push({ paymentDate: pd2, rate: rate2, label: label2.toUpperCase(), lastDatePrior: ed2 });
+          }
+        }
+      } catch (e) { console.warn('StatusInvest endpoint2 JSON parse for ' + ticker + ' (' + tipo + '):', e.message); }
+    }
+  } catch (e) { console.warn('StatusInvest endpoint2 fetch for ' + ticker + ' (' + tipo + '):', e.message); }
+
+  return { data: result, hadResponse: hadAnyResponse };
+}
+
 export async function fetchDividendsStatusInvest(ticker, categoria) {
   try {
     // StatusInvest nao suporta ETFs — endpoints sao apenas /acao/ e /fii/
     if (categoria === 'etf') {
       return { data: [], error: null };
     }
-    var tipo = (categoria === 'fii') ? 'fii' : 'acao';
-    var siHeaders = {
-      'Accept': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    };
 
-    var result = [];
-    var resultKeys = {};
+    // Tentativa primaria: endpoint baseado na categoria cadastrada
+    var primaryType = (categoria === 'fii') ? 'fii' : 'acao';
+    var primary = await fetchStatusInvestByType(ticker, primaryType);
 
-    // Endpoint 1: companytickerprovents (chart — dados historicos)
-    try {
-      var url1 = SI_BASE_URL + tipo + '/companytickerprovents?ticker=' + ticker + '&chartProvType=2';
-      var resp1 = await fetch(url1, { method: 'GET', headers: siHeaders });
-      if (resp1.ok) {
-        var text1 = await resp1.text();
-        try {
-          var json1 = JSON.parse(text1);
-          var models = json1 && json1.assetEarningsModels ? json1.assetEarningsModels : [];
-          for (var i = 0; i < models.length; i++) {
-            var item = models[i];
-            var pd = parseDateDDMMYYYY(item.pd);
-            var ed = parseDateDDMMYYYY(item.ed);
-            var rate = item.v;
-            var label = item.et || '';
-            if (!pd || !rate || rate <= 0) continue;
-            var rk = mergeDedupKey(pd, rate);
-            if (!resultKeys[rk]) {
-              resultKeys[rk] = true;
-              result.push({ paymentDate: pd, rate: rate, label: label.toUpperCase(), lastDatePrior: ed });
-            }
-          }
-        } catch (e) { console.warn('StatusInvest endpoint1 JSON parse for ' + ticker + ':', e.message); }
+    // Fallback: se vier vazio (sem resposta util), tentar o outro endpoint.
+    // Protege contra cadastro errado (FII marcado como acao, units, etc.)
+    if (primary.data.length === 0) {
+      var fallbackType = primaryType === 'fii' ? 'acao' : 'fii';
+      var fallback = await fetchStatusInvestByType(ticker, fallbackType);
+      if (fallback.data.length > 0) {
+        console.log('dividendSync: ' + ticker + ' encontrado em /' + fallbackType + '/ (categoria cadastrada: ' + (categoria || 'none') + ')');
+        return { data: fallback.data, error: null };
       }
-    } catch (e) { console.warn('StatusInvest endpoint1 fetch for ' + ticker + ':', e.message); }
+    }
 
-    // Endpoint 2: companytickerproventsresult (tabela — inclui proventos recentes/futuros)
-    try {
-      var url2 = SI_BASE_URL + tipo + '/companytickerproventsresult?ticker=' + ticker + '&start=0&length=50';
-      var resp2 = await fetch(url2, { method: 'GET', headers: siHeaders });
-      if (resp2.ok) {
-        var text2 = await resp2.text();
-        try {
-          var json2 = JSON.parse(text2);
-          var rows = json2 && json2.data ? json2.data : [];
-          for (var j = 0; j < rows.length; j++) {
-            var row = rows[j];
-            var pd2 = parseDateDDMMYYYY(row.pd);
-            var ed2 = parseDateDDMMYYYY(row.ed);
-            var rate2 = row.v;
-            var label2 = row.et || '';
-            if (!pd2 || !rate2 || rate2 <= 0) continue;
-            var rk2 = mergeDedupKey(pd2, rate2);
-            if (!resultKeys[rk2]) {
-              resultKeys[rk2] = true;
-              result.push({ paymentDate: pd2, rate: rate2, label: label2.toUpperCase(), lastDatePrior: ed2 });
-            }
-          }
-        } catch (e) { console.warn('StatusInvest endpoint2 JSON parse for ' + ticker + ':', e.message); }
-      }
-    } catch (e) { console.warn('StatusInvest endpoint2 fetch for ' + ticker + ':', e.message); }
-
-    return { data: result, error: null };
+    return { data: primary.data, error: null };
   } catch (err) {
     console.warn('fetchDividendsStatusInvest error for ' + ticker + ':', err.message);
     return { data: [], error: err.message };
