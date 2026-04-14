@@ -16,15 +16,33 @@ var BRAPI_TOKEN = 'tEU8wyBixv8hCi7J3NCjsi';
 
 var SI_BASE_URL = 'https://statusinvest.com.br/';
 
+var SI_FETCH_TIMEOUT = 8000; // 8s por request
+
+// Helper: fetch com timeout via AbortController
+function fetchWithTimeout(url, options, timeoutMs) {
+  return new Promise(function(resolve, reject) {
+    var controller = new AbortController();
+    var timer = setTimeout(function() {
+      controller.abort();
+      reject(new Error('Timeout ' + timeoutMs + 'ms'));
+    }, timeoutMs);
+    var opts = options || {};
+    opts.signal = controller.signal;
+    fetch(url, opts)
+      .then(function(r) { clearTimeout(timer); resolve(r); })
+      .catch(function(e) { clearTimeout(timer); reject(e); });
+  });
+}
+
 // ══════════ FETCH DIVIDENDS BRAPI ══════════
 
 export async function fetchDividendsBrapi(ticker) {
   try {
     var url = BRAPI_URL + ticker + '?dividends=true&token=' + BRAPI_TOKEN;
-    var response = await fetch(url, {
+    var response = await fetchWithTimeout(url, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
-    });
+    }, SI_FETCH_TIMEOUT);
 
     if (!response.ok) {
       console.warn('brapi HTTP ' + response.status + ' for ' + ticker);
@@ -62,22 +80,24 @@ function parseDateDDMMYYYY(dateStr) {
 }
 
 // Helper interno: busca StatusInvest em um tipo especifico (fii ou acao)
+// Cada tipo tem 2 endpoints (chart historico + tabela recentes/futuros)
 async function fetchStatusInvestByType(ticker, tipo) {
   var siHeaders = {
     'Accept': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   };
 
   var result = [];
   var resultKeys = {};
-  var hadAnyResponse = false;
+  var hadResponse = false;
+  var lastError = null;
 
   // Endpoint 1: companytickerprovents (chart — dados historicos)
   try {
     var url1 = SI_BASE_URL + tipo + '/companytickerprovents?ticker=' + ticker + '&chartProvType=2';
-    var resp1 = await fetch(url1, { method: 'GET', headers: siHeaders });
+    var resp1 = await fetchWithTimeout(url1, { method: 'GET', headers: siHeaders }, SI_FETCH_TIMEOUT);
     if (resp1.ok) {
-      hadAnyResponse = true;
+      hadResponse = true;
       var text1 = await resp1.text();
       try {
         var json1 = JSON.parse(text1);
@@ -95,16 +115,22 @@ async function fetchStatusInvestByType(ticker, tipo) {
             result.push({ paymentDate: pd, rate: rate, label: label.toUpperCase(), lastDatePrior: ed });
           }
         }
-      } catch (e) { console.warn('StatusInvest endpoint1 JSON parse for ' + ticker + ' (' + tipo + '):', e.message); }
+      } catch (e) {
+        lastError = 'parse1: ' + e.message;
+        console.warn('StatusInvest endpoint1 JSON parse for ' + ticker + ' (' + tipo + '):', e.message);
+      }
     }
-  } catch (e) { console.warn('StatusInvest endpoint1 fetch for ' + ticker + ' (' + tipo + '):', e.message); }
+  } catch (e) {
+    lastError = 'fetch1: ' + e.message;
+    console.warn('StatusInvest endpoint1 fetch for ' + ticker + ' (' + tipo + '):', e.message);
+  }
 
   // Endpoint 2: companytickerproventsresult (tabela — inclui proventos recentes/futuros)
   try {
     var url2 = SI_BASE_URL + tipo + '/companytickerproventsresult?ticker=' + ticker + '&start=0&length=50';
-    var resp2 = await fetch(url2, { method: 'GET', headers: siHeaders });
+    var resp2 = await fetchWithTimeout(url2, { method: 'GET', headers: siHeaders }, SI_FETCH_TIMEOUT);
     if (resp2.ok) {
-      hadAnyResponse = true;
+      hadResponse = true;
       var text2 = await resp2.text();
       try {
         var json2 = JSON.parse(text2);
@@ -122,36 +148,71 @@ async function fetchStatusInvestByType(ticker, tipo) {
             result.push({ paymentDate: pd2, rate: rate2, label: label2.toUpperCase(), lastDatePrior: ed2 });
           }
         }
-      } catch (e) { console.warn('StatusInvest endpoint2 JSON parse for ' + ticker + ' (' + tipo + '):', e.message); }
+      } catch (e) {
+        lastError = 'parse2: ' + e.message;
+        console.warn('StatusInvest endpoint2 JSON parse for ' + ticker + ' (' + tipo + '):', e.message);
+      }
     }
-  } catch (e) { console.warn('StatusInvest endpoint2 fetch for ' + ticker + ' (' + tipo + '):', e.message); }
+  } catch (e) {
+    lastError = 'fetch2: ' + e.message;
+    console.warn('StatusInvest endpoint2 fetch for ' + ticker + ' (' + tipo + '):', e.message);
+  }
 
-  return { data: result, hadResponse: hadAnyResponse };
+  return { data: result, hadResponse: hadResponse, error: lastError };
 }
 
+// fetchDividendsStatusInvest: SEMPRE tenta ambos os tipos (/acao/ e /fii/) em paralelo
+// e mescla os resultados. Isso garante precisao independente de:
+//   - Cadastro errado de categoria pelo usuario (FII como 'acao', etc.)
+//   - Ambiguidade de sufixo de ticker (XXXX11 pode ser FII, Unit ou ETF)
+//   - Tickers com classificacao atipica (FI-Infra, FIAgro, etc.)
+// O dedup interno (por date+rate) garante que duplicatas sao removidas.
+// ETFs sao pulados pois nao tem endpoint no StatusInvest (brapi cobre).
 export async function fetchDividendsStatusInvest(ticker, categoria) {
   try {
-    // StatusInvest nao suporta ETFs — endpoints sao apenas /acao/ e /fii/
+    // ETFs: pular — SI nao tem endpoint para ETFs (brapi cobre quando aplicavel)
     if (categoria === 'etf') {
       return { data: [], error: null };
     }
 
-    // Tentativa primaria: endpoint baseado na categoria cadastrada
-    var primaryType = (categoria === 'fii') ? 'fii' : 'acao';
-    var primary = await fetchStatusInvestByType(ticker, primaryType);
+    // Buscar ambos em paralelo (duas requests cada = 4 total por ticker)
+    var both = await Promise.all([
+      fetchStatusInvestByType(ticker, 'acao'),
+      fetchStatusInvestByType(ticker, 'fii'),
+    ]);
+    var acaoRes = both[0];
+    var fiiRes = both[1];
 
-    // Fallback: se vier vazio (sem resposta util), tentar o outro endpoint.
-    // Protege contra cadastro errado (FII marcado como acao, units, etc.)
-    if (primary.data.length === 0) {
-      var fallbackType = primaryType === 'fii' ? 'acao' : 'fii';
-      var fallback = await fetchStatusInvestByType(ticker, fallbackType);
-      if (fallback.data.length > 0) {
-        console.log('dividendSync: ' + ticker + ' encontrado em /' + fallbackType + '/ (categoria cadastrada: ' + (categoria || 'none') + ')');
-        return { data: fallback.data, error: null };
+    // Merge com dedup por (date+rate)
+    var merged = [];
+    var seen = {};
+    var sources = [acaoRes, fiiRes];
+    for (var s = 0; s < sources.length; s++) {
+      var items = sources[s].data || [];
+      for (var k = 0; k < items.length; k++) {
+        var it = items[k];
+        var key = mergeDedupKey(it.paymentDate, it.rate);
+        if (!seen[key]) {
+          seen[key] = true;
+          merged.push(it);
+        }
       }
     }
 
-    return { data: primary.data, error: null };
+    // Se nao veio nada de ambos e ambos tiveram erro, reportar
+    var err = null;
+    if (merged.length === 0 && !acaoRes.hadResponse && !fiiRes.hadResponse) {
+      err = acaoRes.error || fiiRes.error || 'no response from SI';
+    }
+
+    // Log util: quando encontrou so em um dos tipos (ajuda detectar cadastros errados)
+    if (acaoRes.data.length > 0 && fiiRes.data.length === 0 && categoria === 'fii') {
+      console.log('dividendSync: ' + ticker + ' dados em /acao/ mas categoria cadastrada e fii');
+    } else if (fiiRes.data.length > 0 && acaoRes.data.length === 0 && categoria !== 'fii') {
+      console.log('dividendSync: ' + ticker + ' dados em /fii/ mas categoria cadastrada e ' + (categoria || 'none'));
+    }
+
+    return { data: merged, error: err };
   } catch (err) {
     console.warn('fetchDividendsStatusInvest error for ' + ticker + ':', err.message);
     return { data: [], error: err.message };
