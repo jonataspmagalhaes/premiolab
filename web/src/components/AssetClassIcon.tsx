@@ -63,9 +63,14 @@ export function AssetClassIcon({ classe, size, className, title }: Props) {
     width: dims.box,
     height: dims.box,
     borderRadius: dims.radius,
-    background: 'linear-gradient(135deg, rgba(' + rgb + ',0.28) 0%, rgba(' + rgb + ',0.06) 100%)',
-    border: '1px solid rgba(' + rgb + ',0.32)',
-    boxShadow: '0 0 14px -6px rgba(' + rgb + ',0.55), inset 0 1px 0 rgba(255,255,255,0.04)',
+    background:
+      'linear-gradient(135deg, rgba(' + rgb + ',0.55) 0%, rgba(' + rgb + ',0.18) 55%, rgba(' + rgb + ',0.10) 100%)',
+    border: '1px solid rgba(' + rgb + ',0.65)',
+    boxShadow:
+      '0 0 0 1px rgba(' + rgb + ',0.18),' +
+      '0 0 18px -2px rgba(' + rgb + ',0.55),' +
+      'inset 0 1px 0 rgba(255,255,255,0.18),' +
+      'inset 0 -1px 0 rgba(0,0,0,0.25)',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -73,6 +78,14 @@ export function AssetClassIcon({ classe, size, className, title }: Props) {
   };
 
   var Icon = meta.Icon;
+
+  // Glyph: branco com leve drop-shadow na cor da classe → contraste alto + brilho
+  var iconStyle: React.CSSProperties = {
+    color: '#FFFFFF',
+    filter:
+      'drop-shadow(0 0 4px rgba(' + rgb + ',0.85))' +
+      ' drop-shadow(0 1px 1px rgba(0,0,0,0.35))',
+  };
 
   return (
     <span
@@ -82,7 +95,7 @@ export function AssetClassIcon({ classe, size, className, title }: Props) {
       className={className}
       style={style}
     >
-      <Icon size={dims.icon} strokeWidth={2} style={{ color: meta.hex }} />
+      <Icon size={dims.icon} strokeWidth={2.4} style={iconStyle} />
     </span>
   );
 }
