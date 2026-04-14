@@ -806,6 +806,24 @@ function AtivosTab() {
   var agrupamento = _agrup[0];
   var setAgrupamento = _agrup[1];
 
+  var _collapsed = useState<Record<string, boolean>>({});
+  var collapsed = _collapsed[0];
+  var setCollapsed = _collapsed[1];
+
+  function toggleGroup(k: string) {
+    setCollapsed(function (prev) {
+      var next: Record<string, boolean> = {};
+      Object.keys(prev).forEach(function (kk) { next[kk] = prev[kk]; });
+      next[k] = !prev[k];
+      return next;
+    });
+  }
+  function setAllCollapsed(keys: string[], value: boolean) {
+    var next: Record<string, boolean> = {};
+    keys.forEach(function (k) { next[k] = value; });
+    setCollapsed(next);
+  }
+
   var totalMercado = useMemo(function () {
     var t = 0;
     for (var i = 0; i < positions.length; i++) {
@@ -1119,7 +1137,7 @@ function AtivosTab() {
             Gire o aparelho ou arraste a tabela pra ver mais colunas
           </p>
           {/* Toggle agrupamento */}
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex flex-wrap items-center gap-2 mb-3">
             <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono">Agrupar por</span>
             {([
               { k: 'lista' as const, label: 'Lista' },
@@ -1138,6 +1156,38 @@ function AtivosTab() {
                 </button>
               );
             })}
+            {agrupamento !== 'lista' && (
+              <div className="flex items-center gap-1 ml-auto">
+                <button
+                  type="button"
+                  onClick={function () {
+                    var keys: string[] = [];
+                    if (agrupamento === 'corretora') {
+                      filtered.forEach(function (p) {
+                        var b = (p.por_corretora && p.por_corretora.length > 0) ? p.por_corretora : [{ corretora: 'Sem corretora' }];
+                        b.forEach(function (x) { if (keys.indexOf(x.corretora) === -1) keys.push(x.corretora); });
+                      });
+                    } else {
+                      filtered.forEach(function (p) {
+                        var k = p.categoria || 'acao';
+                        if (keys.indexOf(k) === -1) keys.push(k);
+                      });
+                    }
+                    setAllCollapsed(keys, true);
+                  }}
+                  className="px-2 py-1 rounded-md text-[10px] font-medium text-white/50 hover:text-white/80 hover:bg-white/[0.05] transition"
+                >
+                  Recolher tudo
+                </button>
+                <button
+                  type="button"
+                  onClick={function () { setCollapsed({}); }}
+                  className="px-2 py-1 rounded-md text-[10px] font-medium text-white/50 hover:text-white/80 hover:bg-white/[0.05] transition"
+                >
+                  Expandir tudo
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="overflow-x-auto -mx-2">
@@ -1263,10 +1313,24 @@ function AtivosTab() {
                   var out: React.ReactNode[] = [];
                   ordered.forEach(function (g) {
                     var gPct = totalMercado > 0 ? (g.valor / totalMercado) * 100 : 0;
+                    var isClosed = !!collapsed[g.key];
                     out.push(
-                      <tr key={'h-' + g.key} className="bg-white/[0.03]">
-                        <td colSpan={4} className="py-2 px-3">
+                      <tr
+                        key={'h-' + g.key}
+                        className="bg-white/[0.03] hover:bg-white/[0.05] cursor-pointer transition"
+                        onClick={function () { toggleGroup(g.key); }}
+                      >
+                        <td colSpan={4} className="py-2 px-3 select-none">
                           <div className="flex items-center gap-2">
+                            <svg
+                              className={'w-3 h-3 text-white/50 transition-transform ' + (isClosed ? '-rotate-90' : '')}
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={2.5}
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                            </svg>
                             {agrupamento === 'classe' && <AssetClassIcon classe={g.key} size="sm" />}
                             <span className="text-[12px] font-bold text-white/85 tracking-tight">{g.label}</span>
                             <span className="text-[10px] text-white/30 font-mono">{g.rows.length} {g.rows.length === 1 ? 'ativo' : 'ativos'}</span>
@@ -1278,9 +1342,11 @@ function AtivosTab() {
                         <td className="py-2 px-3 text-right text-[10px] text-white/40 font-mono">{gPct.toFixed(1)}%</td>
                       </tr>
                     );
-                    g.rows.forEach(function (r) {
-                      out.push(row(r.p, r.rowKey, r.bucket));
-                    });
+                    if (!isClosed) {
+                      g.rows.forEach(function (r) {
+                        out.push(row(r.p, r.rowKey, r.bucket));
+                      });
+                    }
                   });
                   return out;
                 })()}
