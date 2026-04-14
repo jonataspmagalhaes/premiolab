@@ -394,8 +394,12 @@ export async function runDividendSync(userId) {
     var provResult = await getProventos(userId, {});
     var existingProventos = provResult.data || [];
 
-    // Construir set de chaves existentes (exata + loose)
+    // Construir estruturas de dedup:
+    // - existingKeys: dedup EXATA (ticker+date+rate arredondado a 4 casas) — catch exato
+    // - existingRatesByTickerDate: map ticker+date -> [rates] para "near-dup" (BR)
+    // - existingKeysLoose: ticker+date only (usado SO para INT, onde FX varia)
     var existingKeys = {};
+    var existingRatesByTickerDate = {};
     var existingKeysLoose = {};
     for (var e = 0; e < existingProventos.length; e++) {
       var ep = existingProventos[e];
@@ -404,6 +408,26 @@ export async function runDividendSync(userId) {
       var keyL = dedupKeyLoose(ep.ticker, ep.data_pagamento);
       if (!existingKeysLoose[keyL]) existingKeysLoose[keyL] = 0;
       existingKeysLoose[keyL]++;
+      if (!existingRatesByTickerDate[keyL]) existingRatesByTickerDate[keyL] = [];
+      existingRatesByTickerDate[keyL].push(ep.valor_por_cota || 0);
+    }
+
+    // Helper: true se newRate e aproximadamente igual a algum rate existente na mesma data.
+    // Criterio: diferenca relativa < 2% E diferenca absoluta < R$0,05.
+    // Isso captura arredondamento/rounding de fontes diferentes (ex: brapi 0.1234 vs SI 0.1233)
+    // mas permite correcoes reais (ex: manual 0.14 vs correto 0.12 → 14% diff = insere).
+    function isNearDuplicateBR(ticker, paymentDate, newRate) {
+      var keyL = dedupKeyLoose(ticker, paymentDate);
+      var rates = existingRatesByTickerDate[keyL];
+      if (!rates || rates.length === 0) return false;
+      for (var r = 0; r < rates.length; r++) {
+        var existingRate = rates[r];
+        if (!existingRate || existingRate <= 0) continue;
+        var absDiff = Math.abs(existingRate - newRate);
+        var relDiff = absDiff / Math.max(existingRate, newRate);
+        if (relDiff < 0.02 && absDiff < 0.05) return true;
+      }
+      return false;
     }
 
     // 2b. Buscar movimentacoes de dividendos existentes para dedup de movimentacoes
@@ -544,9 +568,10 @@ export async function runDividendSync(userId) {
           tickerDetail.skippedDedup++;
           continue;
         }
-        // Dedup check: loose (ticker+date) — previne duplicados com rate ligeiramente diferente
+        // Dedup check: near-dup — bloqueia apenas diferencas de arredondamento (<2% e <R$0,05)
+        // Correcoes reais (ex: valor errado manual vs correto da fonte) passam normalmente.
         var dkeyL = dedupKeyLoose(ticker, paymentDateStr);
-        if (existingKeysLoose[dkeyL] && existingKeysLoose[dkeyL] > 0) {
+        if (isNearDuplicateBR(ticker, paymentDateStr, rate)) {
           tickerDetail.skippedDedup++;
           continue;
         }
@@ -569,6 +594,8 @@ export async function runDividendSync(userId) {
           existingKeys[dkey] = true;
           if (!existingKeysLoose[dkeyL]) existingKeysLoose[dkeyL] = 0;
           existingKeysLoose[dkeyL]++;
+          if (!existingRatesByTickerDate[dkeyL]) existingRatesByTickerDate[dkeyL] = [];
+          existingRatesByTickerDate[dkeyL].push(rate);
           inserted++;
           tickerDetail.inserted++;
           // Log movimentacao (fire-and-forget) — creditar na conta da corretora da posicao

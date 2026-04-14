@@ -9,6 +9,7 @@ import { C, F, SIZE } from '../../theme';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../config/supabase';
 import { incrementCorretora } from '../../services/database';
+import { validateTickerCombo } from '../../services/tickerSearchService';
 import { Glass, Pill, Badge, CorretoraSelector } from '../../components';
 import * as Haptics from 'expo-haptics';
 
@@ -127,9 +128,55 @@ export default function EditOperacaoScreen(props) {
   var dateValid = data.length === 10 && brToIso(data) !== null;
   var dateError = data.length === 10 && brToIso(data) === null;
 
+  var validationBypassRef = useRef(false);
+
   var handleSave = async function() {
     Keyboard.dismiss();
     if (!canSubmit) return;
+
+    var realCat = getRealCategoria(categoria);
+    var realMercado = getRealMercado(categoria);
+
+    // Validar ticker contra fontes externas antes de salvar alteracao
+    if (!validationBypassRef.current) {
+      setLoading(true);
+      var validation = await validateTickerCombo(ticker.toUpperCase(), realCat, realMercado);
+      setLoading(false);
+
+      if (!validation.ok) {
+        var title = validation.mismatch === 'not_found' ? 'Ticker não encontrado' : 'Divergência detectada';
+        var buttons = [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Salvar assim',
+            onPress: function() {
+              validationBypassRef.current = true;
+              handleSave();
+            },
+          },
+        ];
+        if (validation.suggestedCategoria || validation.suggestedMercado) {
+          buttons.push({
+            text: 'Corrigir',
+            style: 'default',
+            onPress: function() {
+              if (validation.suggestedMercado === 'INT') {
+                setCategoria(validation.suggestedCategoria === 'etf' ? 'etf_int' : 'stock_int');
+              } else if (validation.suggestedCategoria === 'etf') {
+                setCategoria('etf');
+              } else if (validation.suggestedCategoria) {
+                setCategoria(validation.suggestedCategoria);
+              }
+            },
+          });
+        }
+        Alert.alert(title, validation.message, buttons);
+        return;
+      }
+    }
+
+    validationBypassRef.current = false;
+
     setLoading(true);
     try {
       var isoDate = brToIso(data);
@@ -138,8 +185,8 @@ export default function EditOperacaoScreen(props) {
         .update({
           ticker: ticker.toUpperCase(),
           tipo: tipo,
-          categoria: getRealCategoria(categoria),
-          mercado: getRealMercado(categoria),
+          categoria: realCat,
+          mercado: realMercado,
           quantidade: parseInt(quantidade),
           preco: parseFloat(preco),
           custo_corretagem: custCorretagem,

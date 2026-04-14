@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
@@ -10,7 +10,7 @@ import { addOperacao, incrementCorretora, getIndicators, addMovimentacaoComSaldo
 import { runDailyCalculation } from '../../services/indicatorService';
 import { fetchExchangeRates } from '../../services/currencyService';
 import { Glass, Pill, Badge, TickerInput, CorretoraSelector, getInstitutionMeta } from '../../components';
-import { searchTickers } from '../../services/tickerSearchService';
+import { searchTickers, validateTickerCombo } from '../../services/tickerSearchService';
 import * as Haptics from 'expo-haptics';
 
 function fmt(v) {
@@ -148,14 +148,62 @@ export default function AddOperacaoScreen(props) {
     });
   }, [navigation, submitted, quantidade, preco]);
 
+  var validationBypassRef = useRef(false);
+
   var handleSubmit = async function() {
     Keyboard.dismiss();
     if (!canSubmit || submitted) return;
+
+    var realCat = getRealCategoria(categoria);
+    var realMercado = getRealMercado(categoria);
+
+    // Validar ticker contra brapi + Yahoo (detecta mercado/categoria errada antes de cadastrar).
+    // Pulado quando usuario confirmou "Continuar assim mesmo" na tentativa anterior.
+    if (!validationBypassRef.current) {
+      setLoading(true);
+      var validation = await validateTickerCombo(ticker.toUpperCase(), realCat, realMercado);
+      setLoading(false);
+
+      if (!validation.ok) {
+        var title = validation.mismatch === 'not_found' ? 'Ticker não encontrado' : 'Divergência detectada';
+        var buttons = [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Continuar assim',
+            onPress: function() {
+              validationBypassRef.current = true;
+              handleSubmit();
+            },
+          },
+        ];
+        if (validation.suggestedCategoria || validation.suggestedMercado) {
+          buttons.push({
+            text: 'Corrigir',
+            style: 'default',
+            onPress: function() {
+              // Mapear sugestao para o key do Pill (categoria estendida com BR/INT)
+              if (validation.suggestedMercado === 'INT') {
+                setCategoria(validation.suggestedCategoria === 'etf' ? 'etf_int' : 'stock_int');
+              } else if (validation.suggestedCategoria === 'etf') {
+                setCategoria('etf');
+              } else if (validation.suggestedCategoria) {
+                setCategoria(validation.suggestedCategoria);
+              }
+              // Usuario revisa e clica submit de novo (com categoria corrigida)
+            },
+          });
+        }
+        Alert.alert(title, validation.message, buttons);
+        return;
+      }
+    }
+
+    // Reset bypass apos validacao passar (ou ter sido bypassed)
+    validationBypassRef.current = false;
+
     setSubmitted(true);
     setLoading(true);
     try {
-      var realCat = getRealCategoria(categoria);
-      var realMercado = getRealMercado(categoria);
       var result = await addOperacao(user.id, {
         ticker: ticker.toUpperCase(),
         tipo: tipo,
