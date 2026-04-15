@@ -105,18 +105,22 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const brParam = url.searchParams.get('br') || '';
   const intParam = url.searchParams.get('int') || '';
+  const cryptoParam = url.searchParams.get('crypto') || '';
 
   const brTickers = brParam.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
   const intTickers = intParam.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+  // Cripto reusa endpoint Yahoo (formato BTC-USD)
+  const cryptoTickers = cryptoParam.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
 
-  const needCambio = intTickers.length > 0;
-  const [br, intl, usdBrl] = await Promise.all([
+  const needCambio = intTickers.length > 0 || cryptoTickers.length > 0;
+  const [br, intl, crypto, usdBrl] = await Promise.all([
     fetchBR(brTickers),
     fetchINT(intTickers),
+    fetchINT(cryptoTickers),
     needCambio ? fetchUsdBrl() : Promise.resolve(0),
   ]);
 
-  const body: Record<string, unknown> = { ...br, ...intl };
+  const body: Record<string, unknown> = { ...br, ...intl, ...crypto };
   if (usdBrl > 0) body.__cambio = { USD_BRL: usdBrl };
 
   return NextResponse.json(body, {

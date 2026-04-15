@@ -5,6 +5,9 @@ import { useAppStore } from '@/store';
 import { resolveSector, resolveIntSubcategoria } from '@/lib/sectorOverrides';
 import { AssetClassIcon } from '@/components/AssetClassIcon';
 import { TickerLogo } from '@/components/TickerLogo';
+import { RendaFixaList } from '@/components/RendaFixaList';
+import { FundoList } from '@/components/FundoList';
+import { useMacroIndices } from '@/lib/useMacroIndices';
 
 // ═══════ SVG Icon ═══════
 
@@ -15,14 +18,6 @@ function Ico({ d, className }: { d: string; className?: string }) {
     </svg>
   );
 }
-
-// ═══════ Sub-tab Navigation ═══════
-
-var TABS = [
-  { key: 'ativos', label: 'Ativos', icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' },
-  { key: 'caixa', label: 'Caixa', icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z' },
-  { key: 'financas', label: 'Financas', icon: 'M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z' },
-];
 
 // ═══════ Card wrapper ═══════
 
@@ -47,42 +42,60 @@ function Card({ title, icon, children, className, iconColor }: { title: string; 
 // Portfolio selector vive no AppTopNav (global) — nao duplicar aqui
 
 var CLASS_LABELS: Record<string, string> = {
-  acao: 'Acoes',
+  acao: 'Ações',
   fii: 'FIIs',
-  etf: 'ETFs',
-  stock_int: 'INT',
-  rf: 'RF',
+  etf: 'ETFs BR',
   bdr: 'BDRs',
+  stock_int: 'Stocks INT',
+  adr: 'ADRs',
+  reit: 'REITs',
+  cripto: 'Cripto',
+  rf: 'Renda Fixa',
 };
 
 var CLASS_COLORS: Record<string, string> = {
   acao: 'bg-orange-500/15 text-orange-300',
   fii: 'bg-income/15 text-income',
   etf: 'bg-warning/15 text-warning',
+  bdr: 'bg-pink-600/15 text-pink-400',
   stock_int: 'bg-stock-int/15 text-stock-int',
+  adr: 'bg-violet-500/15 text-violet-300',
+  reit: 'bg-blue-500/15 text-blue-300',
+  cripto: 'bg-pink-500/15 text-pink-300',
+  rf: 'bg-info/15 text-info',
+  // Legado: subcategorias INT derivadas de resolveIntSubcategoria
   'INT Stock': 'bg-stock-int/15 text-stock-int',
   'INT ETF': 'bg-yellow-500/15 text-yellow-300',
   'INT REIT': 'bg-blue-500/15 text-blue-300',
   'INT ADR': 'bg-violet-500/15 text-violet-300',
   'INT Cripto': 'bg-pink-500/15 text-pink-300',
-  bdr: 'bg-pink-600/15 text-pink-400',
-  rf: 'bg-info/15 text-info',
 };
 
 var CLASS_BG_TREEMAP: Record<string, string> = {
   acao: 'bg-orange-500/30',
   fii: 'bg-income/30',
   etf: 'bg-warning/30',
+  bdr: 'bg-pink-600/30',
   stock_int: 'bg-stock-int/30',
+  adr: 'bg-violet-500/30',
+  reit: 'bg-blue-500/30',
+  cripto: 'bg-pink-500/30',
   rf: 'bg-info/30',
 };
 
 var FILTER_TABS: { key: string; label: string; cat?: string; mercadoInt?: boolean }[] = [
   { key: 'todos', label: 'Todos' },
-  { key: 'acao', label: 'Acoes', cat: 'acao' },
+  { key: 'acao', label: 'Ações', cat: 'acao' },
   { key: 'fii', label: 'FIIs', cat: 'fii' },
-  { key: 'etf', label: 'ETFs', cat: 'etf' },
-  { key: 'int', label: 'INT', mercadoInt: true },
+  { key: 'etf', label: 'ETFs BR', cat: 'etf' },
+  { key: 'bdr', label: 'BDRs', cat: 'bdr' },
+  { key: 'stock_int', label: 'Stocks', cat: 'stock_int' },
+  { key: 'adr', label: 'ADRs', cat: 'adr' },
+  { key: 'reit', label: 'REITs', cat: 'reit' },
+  { key: 'int', label: 'Todos INT', mercadoInt: true },
+  { key: 'cripto', label: 'Cripto', cat: 'cripto' },
+  { key: 'rf', label: 'Renda Fixa', cat: 'rf' },
+  { key: 'fundos', label: 'Fundos' },
 ];
 
 var SORT_OPTIONS: { key: string; label: string }[] = [
@@ -487,14 +500,18 @@ const CLASS_COLOR_MAP: Record<string, string> = {
   acao: 'rgba(249,115,22,0.35)',
   fii: 'rgba(34,197,94,0.35)',
   etf: 'rgba(245,158,11,0.35)',
-  stock_int: 'rgba(232,121,249,0.35)',
-  'INT Stock': 'rgba(232,121,249,0.35)', // roxo
-  'INT ETF': 'rgba(250,204,21,0.35)',    // amarelo
-  'INT REIT': 'rgba(59,130,246,0.35)',   // azul
-  'INT ADR': 'rgba(168,85,247,0.35)',    // violeta
-  'INT Cripto': 'rgba(244,114,182,0.35)', // rosa
   bdr: 'rgba(236,72,153,0.35)',
+  stock_int: 'rgba(232,121,249,0.35)',
+  adr: 'rgba(168,85,247,0.35)',
+  reit: 'rgba(59,130,246,0.35)',
+  cripto: 'rgba(236,72,153,0.35)',
   rf: 'rgba(6,182,212,0.35)',
+  // Legado subcategorias
+  'INT Stock': 'rgba(232,121,249,0.35)',
+  'INT ETF': 'rgba(250,204,21,0.35)',
+  'INT REIT': 'rgba(59,130,246,0.35)',
+  'INT ADR': 'rgba(168,85,247,0.35)',
+  'INT Cripto': 'rgba(244,114,182,0.35)',
 };
 
 function groupBaseColor(key: string, group: HeatGroup, firstItem?: TreemapItem): string {
@@ -787,9 +804,93 @@ function TileDetailModal({
   );
 }
 
+// Converte fundos em pseudo-Position pra injetar na tabela e heatmap.
+function fundosToPositions(fundos: any[]): any[] {
+  var out: any[] = [];
+  for (var i = 0; i < fundos.length; i++) {
+    var f = fundos[i];
+    var aplicado = Number(f.valor_aplicado) || 0;
+    out.push({
+      ticker: String(f.nome || 'Fundo').toUpperCase(),
+      categoria: 'fundo',
+      quantidade: 1,
+      pm: aplicado,
+      preco_atual: aplicado, // MTM live pendente
+      valor_mercado: aplicado,
+      pl: 0,
+      pl_pct: 0,
+      mercado: 'BR',
+      portfolio_id: f.portfolio_id || null,
+      sector: 'Fundos',
+      por_corretora: f.corretora ? [{ corretora: f.corretora, quantidade: 1, pm: aplicado, valor_mercado: aplicado, pl: 0, pl_pct: 0 }] : [],
+    });
+  }
+  return out;
+}
+
+// Converte registros de renda_fixa em pseudo-Position pra injetar na tabela
+// e heatmap quando filter='todos'.
+function rfToPositions(rf: any[], idx: { cdi: number; ipca: number }): any[] {
+  var out: any[] = [];
+  var hoje = new Date().toISOString().substring(0, 10);
+  for (var i = 0; i < rf.length; i++) {
+    var r = rf[i];
+    var tipo = (r.tipo || 'cdb');
+    var ix = (r.indexador || rfDefaultIndexador(tipo));
+    var taxa = Number(r.taxa) || 0;
+    var teff = rfTaxaEfetiva(tipo, taxa, idx, ix);
+    var aplicado = Number(r.valor_aplicado) || 0;
+    var dataApl = r.created_at ? r.created_at.substring(0, 10) : hoje;
+    var diasDec = Math.max(0, Math.round((Date.parse(hoje) - Date.parse(dataApl)) / 86400000));
+    var anosDec = diasDec / 365.25;
+    var atual = aplicado * Math.pow(1 + teff / 100, anosDec);
+    var pl = atual - aplicado;
+    var pct = aplicado > 0 ? (pl / aplicado) * 100 : 0;
+    var ticker = String(r.emissor || 'RF').toUpperCase();
+    out.push({
+      ticker: ticker,
+      categoria: 'rf',
+      quantidade: 1,
+      pm: aplicado,
+      preco_atual: atual,
+      valor_mercado: atual,
+      pl: pl,
+      pl_pct: pct,
+      mercado: 'BR',
+      portfolio_id: r.portfolio_id || null,
+      sector: 'Renda Fixa',
+      por_corretora: r.corretora ? [{ corretora: r.corretora, quantidade: 1, pm: aplicado, valor_mercado: atual, pl: pl, pl_pct: pct }] : [],
+    });
+  }
+  return out;
+}
+
+// Imports lazy pra evitar circular (ja existe importacao no topo? ver)
+// Use functions diretas:
+function rfDefaultIndexador(tipo: string): string {
+  if (tipo === 'tesouro_selic') return 'selic';
+  if (tipo === 'tesouro_ipca') return 'ipca';
+  if (tipo === 'tesouro_pre') return 'pre';
+  return 'pre';
+}
+
+function rfTaxaEfetiva(tipo: string, taxa: number, idx: { cdi: number; ipca: number }, indexador: string): number {
+  if (indexador === 'cdi') {
+    var pct = taxa > 0 ? taxa : 100;
+    return idx.cdi * (pct / 100);
+  }
+  if (indexador === 'selic') return idx.cdi + Math.max(0, taxa);
+  if (indexador === 'ipca') return ((1 + idx.ipca / 100) * (1 + (taxa || 0) / 100) - 1) * 100;
+  return taxa || 0;
+}
+
 function AtivosTab() {
   var positions = useAppStore(function (s) { return s.positions; });
   var proventos = useAppStore(function (s) { return s.proventos; });
+  var rf = useAppStore(function (s) { return s.rf; });
+  var fundosStore = useAppStore(function (s) { return s.fundos; });
+  var macro = useMacroIndices();
+  var rfIdx = { cdi: macro.data ? macro.data.cdi : 14.65, ipca: macro.data ? macro.data.ipca_12m : 4.14 };
 
   var _filter = useState('todos');
   var filter = _filter[0];
@@ -887,7 +988,10 @@ function AtivosTab() {
   var dyCarteira = totalMercado > 0 ? (divSummary.total12m / totalMercado) * 100 : 0;
 
   var filtered = useMemo(function () {
-    var out = positions.slice();
+    // Em "todos", inclui RF e Fundos como pseudo-positions
+    var rfPos = (filter === 'todos' || filter === 'rf') ? rfToPositions(rf, rfIdx) : [];
+    var fundoPos = (filter === 'todos' || filter === 'fundos') ? fundosToPositions(fundosStore) : [];
+    var out = positions.slice().concat(rfPos).concat(fundoPos);
 
     // filter by tab
     if (filter !== 'todos') {
@@ -921,18 +1025,26 @@ function AtivosTab() {
     });
 
     return out;
-  }, [positions, filter, sort, search, dyByTicker, divSummary]);
+  }, [positions, rf, fundosStore, rfIdx.cdi, rfIdx.ipca, filter, sort, search, dyByTicker, divSummary]);
 
   // Heatmap data — all positions, sorted desc por valor
   var heatmapItems: TreemapItem[] = useMemo(function () {
-    var sorted = positions.slice().sort(function (a, b) {
+    // Inclui RF e Fundos como pseudo-positions (sempre, nao depende de filter)
+    var rfPos = rfToPositions(rf, rfIdx);
+    var fundoPos = fundosToPositions(fundosStore);
+    var allPos = positions.slice().concat(rfPos).concat(fundoPos);
+    var sorted = allPos.sort(function (a: any, b: any) {
       var va = a.valor_mercado != null ? a.valor_mercado : a.pm * a.quantidade;
       var vb = b.valor_mercado != null ? b.valor_mercado : b.pm * b.quantidade;
       return vb - va;
     });
-    return sorted.map(function (p) {
+    // Total inclui RF e Fundos pros % baterem
+    var totalComRF = totalMercado;
+    for (var i = 0; i < rfPos.length; i++) totalComRF += rfPos[i].valor_mercado || 0;
+    for (var j = 0; j < fundoPos.length; j++) totalComRF += fundoPos[j].valor_mercado || 0;
+    return sorted.map(function (p: any) {
       var v = p.valor_mercado != null ? p.valor_mercado : p.pm * p.quantidade;
-      var pct = totalMercado > 0 ? (v / totalMercado) * 100 : 0;
+      var pct = totalComRF > 0 ? (v / totalComRF) * 100 : 0;
       return {
         ticker: p.ticker,
         categoria: p.categoria || 'acao',
@@ -944,7 +1056,7 @@ function AtivosTab() {
         sector: p.sector,
       };
     });
-  }, [positions, totalMercado]);
+  }, [positions, rf, fundosStore, rfIdx.cdi, rfIdx.ipca, totalMercado]);
 
   var _heatGroup = useState<HeatGroup>('ticker');
   var heatGroup = _heatGroup[0];
@@ -1128,7 +1240,22 @@ function AtivosTab() {
         </Card>
       </div>
 
-      {/* Tabela full width */}
+      {/* RF: card dedicado quando filtro = rf */}
+      {filter === 'rf' ? (
+        <div className="col-span-12">
+          <RendaFixaList />
+        </div>
+      ) : null}
+
+      {/* Fundos: card dedicado quando filtro = fundos */}
+      {filter === 'fundos' ? (
+        <div className="col-span-12">
+          <FundoList />
+        </div>
+      ) : null}
+
+      {/* Tabela full width — esconde quando filtro = rf|fundos */}
+      {filter !== 'rf' && filter !== 'fundos' ? (
       <div className="col-span-12">
         <Card title={'Posicoes (' + filtered.length + ') · DY ' + dyCarteira.toFixed(2) + '% · Div ano R$ ' + fmtMoney(divSummary.totalAno) + ' · Total R$ ' + fmtMoney(divSummary.totalAll)} icon="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" className="d4">
           <p className="lg:hidden text-[10px] text-white/40 mb-2 italic flex items-center gap-1.5">
@@ -1356,227 +1483,7 @@ function AtivosTab() {
           </div>
         </Card>
       </div>
-    </div>
-  );
-}
-
-// ═══════ TAB: Caixa ═══════
-// Layout: row1 [saldos 5 | movimentacoes 7], row2 [botao 12]
-// Saldos + movimentacoes mesma altura via items-stretch
-
-function CaixaTab() {
-  return (
-    <div className="grid grid-cols-12 gap-4 items-stretch">
-      {/* Saldos 5 cols */}
-      <div className="col-span-12 lg:col-span-5">
-        <Card title="Saldos por Corretora" icon="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21" iconColor="text-income" className="d1 h-full flex flex-col">
-          <div className="space-y-2.5 flex-1">
-            {[
-              { nome: 'Clear', saldo: 'R$ 12.450,00', moeda: 'BRL' },
-              { nome: 'Inter', saldo: 'R$ 8.320,00', moeda: 'BRL' },
-              { nome: 'Avenue', saldo: 'US$ 2.150,00', moeda: 'USD' },
-              { nome: 'Nubank', saldo: 'R$ 3.800,00', moeda: 'BRL' },
-            ].map(function (c, i) {
-              return (
-                <div key={i} className="flex items-center justify-between bg-white/[0.02] rounded-lg px-3 py-2.5">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center text-[10px] font-bold text-orange-400">
-                      {c.nome.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold">{c.nome}</p>
-                      <p className="text-[10px] text-white/25 font-mono">{c.moeda}</p>
-                    </div>
-                  </div>
-                  <span className="text-sm font-mono font-semibold">{c.saldo}</span>
-                </div>
-              );
-            })}
-          </div>
-          <div className="mt-4 pt-3 border-t border-white/[0.04] flex justify-between">
-            <span className="text-xs text-white/40">Total caixa</span>
-            <span className="text-sm font-mono font-bold text-income">R$ 24.570,00</span>
-          </div>
-        </Card>
-      </div>
-
-      {/* Movimentacoes 7 cols */}
-      <div className="col-span-12 lg:col-span-7">
-        <Card title="Movimentacoes Recentes" icon="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" className="d2 h-full flex flex-col">
-          <div className="space-y-1 flex-1">
-            {[
-              { tipo: 'entrada', desc: 'Deposito Clear', valor: '+R$ 5.000', data: '12/04', cor: 'text-income' },
-              { tipo: 'saida', desc: 'Compra PETR4 x200', valor: '-R$ 7.684', data: '11/04', cor: 'text-danger' },
-              { tipo: 'entrada', desc: 'Dividendos BBAS3', valor: '+R$ 342', data: '10/04', cor: 'text-income' },
-              { tipo: 'transferencia', desc: 'Inter → Clear', valor: 'R$ 2.000', data: '08/04', cor: 'text-info' },
-              { tipo: 'saida', desc: 'Compra MXRF11 x500', valor: '-R$ 5.060', data: '05/04', cor: 'text-danger' },
-              { tipo: 'entrada', desc: 'Rendimento RF', valor: '+R$ 180', data: '03/04', cor: 'text-income' },
-              { tipo: 'saida', desc: 'Taxa custodia', valor: '-R$ 12', data: '01/04', cor: 'text-danger' },
-            ].map(function (m, i) {
-              return (
-                <div key={i} className="flex items-center justify-between py-2 border-b border-white/[0.03] last:border-0">
-                  <div className="flex items-center gap-2.5">
-                    <div className={'w-6 h-6 rounded-md flex items-center justify-center ' +
-                      (m.tipo === 'entrada' ? 'bg-income/10' : m.tipo === 'saida' ? 'bg-danger/10' : 'bg-info/10')}>
-                      <Ico d={m.tipo === 'entrada' ? 'M12 4.5v15m0 0l6.75-6.75M12 19.5l-6.75-6.75' : m.tipo === 'saida' ? 'M12 19.5v-15m0 0l-6.75 6.75M12 4.5l6.75 6.75' : 'M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5'}
-                        className={'w-3 h-3 ' + (m.tipo === 'entrada' ? 'text-income' : m.tipo === 'saida' ? 'text-danger' : 'text-info')} />
-                    </div>
-                    <div>
-                      <span className="text-[11px] text-white/60">{m.desc}</span>
-                      <p className="text-[9px] text-white/20 font-mono">{m.data}</p>
-                    </div>
-                  </div>
-                  <span className={'text-[12px] font-mono font-medium ' + m.cor}>{m.valor}</span>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      </div>
-
-      {/* Botao add */}
-      <div className="col-span-12">
-        <button className="shine-button w-full py-3 rounded-xl bg-gradient-to-r from-orange-500/10 to-orange-600/10 border border-orange-500/20 text-orange-400 text-sm font-semibold hover:from-orange-500/15 hover:to-orange-600/15 transition-all">
-          + Adicionar Movimentacao
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ═══════ TAB: Financas ═══════
-// Layout: row1 [resumo 4 | orcamento 8], row2 [recorrentes 6 | cartoes 6]
-// Todas as linhas com items-stretch
-
-function FinancasTab() {
-  return (
-    <div className="grid grid-cols-12 gap-4 items-stretch">
-      {/* Resumo 4 cols */}
-      <div className="col-span-12 lg:col-span-4">
-        <Card title="Resumo do Mes" icon="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" iconColor="text-income" className="d1 h-full">
-          <div className="bg-white/[0.02] rounded-lg p-3 mb-4">
-            <div className="flex justify-between mb-1.5">
-              <span className="text-[10px] text-white/40">Entradas</span>
-              <span className="text-xs font-mono text-income font-semibold">+R$ 8.500</span>
-            </div>
-            <div className="flex justify-between mb-2">
-              <span className="text-[10px] text-white/40">Saidas</span>
-              <span className="text-xs font-mono text-danger font-semibold">-R$ 6.200</span>
-            </div>
-            <div className="h-px bg-white/[0.04]" />
-            <div className="flex justify-between mt-2">
-              <span className="text-[10px] text-white/50 font-medium">Saldo</span>
-              <span className="text-sm font-mono font-bold text-income">+R$ 2.300</span>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-white/[0.02] rounded-lg p-2.5 text-center">
-              <p className="text-[10px] text-white/30 mb-0.5">Investido</p>
-              <p className="text-xs font-bold font-mono">R$ 7.684</p>
-            </div>
-            <div className="bg-white/[0.02] rounded-lg p-2.5 text-center">
-              <p className="text-[10px] text-white/30 mb-0.5">Recebido</p>
-              <p className="text-xs font-bold font-mono text-income">R$ 522</p>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Orcamento 8 cols */}
-      <div className="col-span-12 lg:col-span-8">
-        <Card title="Orcamento" icon="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" className="d2 h-full">
-          <div className="space-y-3">
-            {[
-              { grupo: 'Moradia', gasto: 2800, limite: 3000, cor: '#F97316' },
-              { grupo: 'Alimentacao', gasto: 1200, limite: 1500, cor: '#22C55E' },
-              { grupo: 'Transporte', gasto: 850, limite: 800, cor: '#EF4444' },
-              { grupo: 'Lazer', gasto: 400, limite: 600, cor: '#3B82F6' },
-              { grupo: 'Saude', gasto: 350, limite: 500, cor: '#06B6D4' },
-              { grupo: 'Educacao', gasto: 200, limite: 300, cor: '#E879F9' },
-            ].map(function (o, i) {
-              var pct = (o.gasto / o.limite) * 100;
-              var over = pct > 100;
-              return (
-                <div key={i}>
-                  <div className="flex justify-between mb-1">
-                    <span className="text-[11px] text-white/60">{o.grupo}</span>
-                    <span className={'text-[11px] font-mono ' + (over ? 'text-danger font-semibold' : 'text-white/40')}>
-                      R$ {o.gasto.toLocaleString('pt-BR')} / {o.limite.toLocaleString('pt-BR')}
-                    </span>
-                  </div>
-                  <div className="h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: Math.min(100, pct) + '%', backgroundColor: over ? '#EF4444' : o.cor }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      </div>
-
-      {/* Recorrentes 6 cols */}
-      <div className="col-span-12 lg:col-span-6">
-        <Card title="Recorrentes" icon="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3" className="d3 h-full">
-          <div className="space-y-2">
-            {[
-              { nome: 'Aluguel', valor: 'R$ 2.200', dia: '5', status: 'pago' },
-              { nome: 'Internet', valor: 'R$ 120', dia: '10', status: 'pago' },
-              { nome: 'Streaming', valor: 'R$ 55', dia: '15', status: 'pendente' },
-              { nome: 'Academia', valor: 'R$ 89', dia: '20', status: 'pendente' },
-              { nome: 'Seguro auto', valor: 'R$ 180', dia: '25', status: 'pendente' },
-            ].map(function (r, i) {
-              return (
-                <div key={i} className="flex items-center justify-between bg-white/[0.02] rounded-lg px-3 py-2.5">
-                  <div className="flex items-center gap-2.5">
-                    <span className={'w-1.5 h-1.5 rounded-full ' + (r.status === 'pago' ? 'bg-income' : 'bg-warning')} />
-                    <div>
-                      <p className="text-[11px] font-medium text-white/60">{r.nome}</p>
-                      <p className="text-[9px] text-white/25 font-mono">Dia {r.dia}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[11px] font-mono font-semibold">{r.valor}</p>
-                    <p className={'text-[9px] font-mono ' + (r.status === 'pago' ? 'text-income' : 'text-warning')}>{r.status}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      </div>
-
-      {/* Cartoes 6 cols */}
-      <div className="col-span-12 lg:col-span-6">
-        <Card title="Cartoes de Credito" icon="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" iconColor="text-stock-int" className="d4 h-full">
-          <div className="space-y-3">
-            {[
-              { nome: 'Nubank', bandeira: 'Mastercard', limite: 15000, usado: 4200, fecha: '15', vence: '22' },
-              { nome: 'Inter', bandeira: 'Visa', limite: 8000, usado: 1850, fecha: '20', vence: '27' },
-              { nome: 'C6', bandeira: 'Mastercard', limite: 5000, usado: 3200, fecha: '10', vence: '17' },
-            ].map(function (c, i) {
-              var pct = (c.usado / c.limite) * 100;
-              return (
-                <div key={i} className="bg-white/[0.02] rounded-lg p-3">
-                  <div className="flex justify-between mb-2">
-                    <div>
-                      <p className="text-xs font-semibold">{c.nome}</p>
-                      <p className="text-[9px] text-white/25">{c.bandeira} · Fecha dia {c.fecha} · Vence dia {c.vence}</p>
-                    </div>
-                    <p className="text-xs font-mono font-semibold text-danger">R$ {c.usado.toLocaleString('pt-BR')}</p>
-                  </div>
-                  <div className="h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: pct + '%', background: pct > 80 ? 'linear-gradient(90deg, #F97316, #EF4444)' : 'linear-gradient(90deg, #F97316, #FB923C)' }} />
-                  </div>
-                  <div className="flex justify-between mt-1.5">
-                    <p className="text-[9px] text-white/25 font-mono">Limite R$ {c.limite.toLocaleString('pt-BR')}</p>
-                    <p className="text-[9px] text-white/25 font-mono">{pct.toFixed(0)}% usado</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -1584,34 +1491,9 @@ function FinancasTab() {
 // ═══════ Main Page ═══════
 
 export default function CarteiraPage() {
-  var _tab = useState('ativos');
-  var activeTab = _tab[0];
-  var setActiveTab = _tab[1];
-
   return (
     <div className="relative z-10">
-      {/* Tab navigation */}
-      <div className="flex items-center gap-1 bg-white/[0.03] rounded-xl p-1 mb-6 w-fit anim-up">
-        {TABS.map(function (tab) {
-          var isActive = activeTab === tab.key;
-          return (
-            <button
-              key={tab.key}
-              onClick={function () { setActiveTab(tab.key); }}
-              className={'flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-medium transition ' +
-                (isActive ? 'bg-orange-500/15 text-orange-400 shadow-[0_0_10px_rgba(249,115,22,0.1)]' : 'text-white/40 hover:text-white/60 hover:bg-white/[0.03]')}
-            >
-              <Ico d={tab.icon} className="w-4 h-4" />
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Tab content */}
-      {activeTab === 'ativos' && <AtivosTab />}
-      {activeTab === 'caixa' && <CaixaTab />}
-      {activeTab === 'financas' && <FinancasTab />}
+      <AtivosTab />
     </div>
   );
 }

@@ -17,8 +17,8 @@ function fmtDec(v: number) {
   return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function fmtK(v: number) {
-  if (v >= 1000000) return (v / 1000).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + '';
-  if (v >= 1000) return (v / 1000).toFixed(0) + 'k';
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(2).replace('.', ',') + 'M';
+  if (v >= 1_000) return (v / 1_000).toFixed(0) + 'k';
   return fmtBR(v);
 }
 
@@ -26,11 +26,13 @@ function fmtK(v: number) {
 
 var CLASS_COLORS: Record<string, string> = {
   acao: '#F97316', fii: '#22C55E', rf: '#06B6D4', etf: '#F59E0B',
-  stock_int: '#E879F9', caixa: 'rgba(255,255,255,0.15)',
+  stock_int: '#E879F9', bdr: '#EC4899', adr: '#A855F7', reit: '#3B82F6',
+  cripto: '#F472B6', fundo: '#A78BFA', caixa: 'rgba(255,255,255,0.15)',
 };
 var CLASS_LABELS: Record<string, string> = {
-  acao: 'Acoes', fii: 'FIIs', rf: 'Renda Fixa', etf: 'ETFs',
-  stock_int: 'Internacional', caixa: 'Caixa',
+  acao: 'Ações', fii: 'FIIs', etf: 'ETFs', stock_int: 'Stocks INT',
+  bdr: 'BDRs', adr: 'ADRs', reit: 'REITs', cripto: 'Cripto',
+  fundo: 'Fundos', rf: 'Renda Fixa', caixa: 'Caixa',
 };
 
 // ═══════ SVG Icon ═══════

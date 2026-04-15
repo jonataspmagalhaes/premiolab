@@ -15,14 +15,16 @@ export interface PriceResponse {
 export async function fetchPrices(
   brTickers: string[],
   intTickers: string[],
+  cryptoTickers: string[] = [],
 ): Promise<PriceResponse> {
-  if (brTickers.length === 0 && intTickers.length === 0) {
+  if (brTickers.length === 0 && intTickers.length === 0 && cryptoTickers.length === 0) {
     return { prices: {}, usdBrl: 0 };
   }
 
   const params = new URLSearchParams();
   if (brTickers.length > 0) params.set('br', brTickers.join(','));
   if (intTickers.length > 0) params.set('int', intTickers.join(','));
+  if (cryptoTickers.length > 0) params.set('crypto', cryptoTickers.join(','));
 
   try {
     const res = await fetch(`/api/prices?${params.toString()}`);

@@ -7,3 +7,10 @@ node_modules
 next-env.d.ts
 
 .vercel
+
+# Local dev artifacts
+.claude/
+landing-*.png
+landing-screenshot.png
+logos-preview.png
+mockup*.html
