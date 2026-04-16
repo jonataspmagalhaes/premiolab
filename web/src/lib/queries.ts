@@ -4,8 +4,10 @@ import { useQuery } from '@tanstack/react-query';
 import { getSupabaseBrowser } from './supabase';
 import { useAppStore } from '@/store';
 import { useEffect } from 'react';
-import type { Position, PorCorretora, Provento, Opcao, RendaFixa, Fundo, Saldo, Profile, Portfolio } from '@/store';
+import type { Position, PorCorretora, Provento, Opcao, RendaFixa, Fundo, Saldo, Caixa, Profile, Portfolio } from '@/store';
 import { fetchPrices } from './priceService';
+import { valorAtualRF, type TipoRF, type Indexador } from './rendaFixaCalc';
+import { useMacroIndices } from './useMacroIndices';
 
 const supabase = getSupabaseBrowser();
 
@@ -79,6 +81,7 @@ export function usePortfolios(userId: string | undefined) {
 
 export function usePositions(userId: string | undefined) {
   const setPositions = useAppStore((s) => s.setPositions);
+  const setUsdBrl = useAppStore((s) => s.setUsdBrl);
   const selectedPortfolio = useAppStore((s) => s.selectedPortfolio);
 
   const query = useQuery({
@@ -169,6 +172,9 @@ export function usePositions(userId: string | undefined) {
       if (brTickers.length > 0 || intTickers.length > 0 || cryptoTickers.length > 0) {
         try {
           const { prices, usdBrl } = await fetchPrices(brTickers, intTickers, cryptoTickers);
+
+          // Propaga cotacao pro store (caixa USD usa mesma taxa no computePatrimonio)
+          if (usdBrl > 0) setUsdBrl(usdBrl);
 
           // Converte PM USD → BRL (INT e CRIPTO sao precificados em USD)
           if (usdBrl > 0) {
@@ -352,13 +358,17 @@ export function useOpcoes(userId: string | undefined) {
 }
 
 // ══════════ Renda Fixa ══════════
+// Enriquece com MTM (valor_mtm = juros compostos desde data aplicacao ate hoje)
+// usando taxa efetiva baseada no indexador e macro indices atuais (CDI/IPCA).
 
 export function useRendaFixa(userId: string | undefined) {
   const setRf = useAppStore((s) => s.setRf);
   const selectedPortfolio = useAppStore((s) => s.selectedPortfolio);
+  const macro = useMacroIndices();
+  const idx = macro.data ? { cdi: macro.data.cdi, ipca: macro.data.ipca_12m } : undefined;
 
   const query = useQuery({
-    queryKey: ['renda_fixa', userId, selectedPortfolio],
+    queryKey: ['renda_fixa', userId, selectedPortfolio, idx?.cdi, idx?.ipca],
     queryFn: async () => {
       if (!userId) return [];
       let q = supabase
@@ -374,17 +384,31 @@ export function useRendaFixa(userId: string | undefined) {
 
       const { data } = await q;
       return (data || []).map(function (r: any) {
+        var valorAplicado = Number(r.valor_aplicado) || 0;
+        var dataAplic = r.created_at ? String(r.created_at).substring(0, 10) : null;
+        var mtm: number | undefined = undefined;
+        if (dataAplic && r.tipo && Number(r.taxa) > 0) {
+          mtm = valorAtualRF({
+            tipo: r.tipo as TipoRF,
+            taxaDigitada: Number(r.taxa),
+            valorAplicado: valorAplicado,
+            dataAplicacaoISO: dataAplic,
+            idx: idx,
+            indexador: (r.indexador || '') as Indexador,
+          });
+        }
         return {
           id: r.id,
           tipo: r.tipo,
           emissor: r.emissor,
           taxa: Number(r.taxa) || 0,
           indexador: r.indexador || '',
-          valor_aplicado: Number(r.valor_aplicado) || 0,
+          valor_aplicado: valorAplicado,
           vencimento: r.vencimento,
           corretora: r.corretora,
           created_at: r.created_at,
           portfolio_id: r.portfolio_id,
+          valor_mtm: mtm,
         };
       }) as RendaFixa[];
     },
@@ -472,18 +496,96 @@ export function useSaldos(userId: string | undefined) {
   return query;
 }
 
+// ══════════ Caixa (GLOBAL — sem portfolio_id) ══════════
+// Novo modelo: lancamentos +/- por corretora+moeda. Saldo atual = SUM(valor).
+// Substitui saldos_corretora no web. Apenas BRL e USD.
+
+export function useCaixa(userId: string | undefined) {
+  const setCaixa = useAppStore((s) => s.setCaixa);
+
+  const query = useQuery({
+    queryKey: ['caixa', userId],
+    queryFn: async () => {
+      if (!userId) return [] as Caixa[];
+      const { data } = await supabase
+        .from('caixa')
+        .select('id, corretora, moeda, valor, data, descricao, created_at')
+        .eq('user_id', userId)
+        .order('data', { ascending: false });
+      return (data || []).map(function (r: any) {
+        return {
+          id: r.id,
+          corretora: r.corretora,
+          moeda: (r.moeda === 'USD' ? 'USD' : 'BRL') as 'BRL' | 'USD',
+          valor: Number(r.valor) || 0,
+          data: r.data,
+          descricao: r.descricao,
+          created_at: r.created_at,
+        };
+      }) as Caixa[];
+    },
+    enabled: !!userId,
+  });
+
+  useEffect(() => {
+    if (query.data) setCaixa(query.data);
+  }, [query.data, setCaixa]);
+
+  return query;
+}
+
+// ══════════ Corretoras (derivada do store, sem query extra) ══════════
+// Union de todas as tabelas que tem corretora: operacoes(positions), opcoes,
+// rf, fundos, proventos(inferida de position source), caixa. Client-side.
+
+export function useCorretoras(): string[] {
+  const positions = useAppStore((s) => s.positions);
+  const opcoes = useAppStore((s) => s.opcoes);
+  const rf = useAppStore((s) => s.rf);
+  const fundos = useAppStore((s) => s.fundos);
+  const caixa = useAppStore((s) => s.caixa);
+
+  const set = new Set<string>();
+  for (const p of positions) {
+    if (p.por_corretora) {
+      for (const b of p.por_corretora) {
+        const name = (b.corretora || '').trim();
+        if (name && name.toUpperCase() !== 'SEM CORRETORA') set.add(name);
+      }
+    }
+  }
+  for (const o of opcoes as Array<{ corretora?: string | null }>) {
+    const name = (o.corretora || '').trim();
+    if (name) set.add(name);
+  }
+  for (const r of rf) {
+    const name = (r.corretora || '').trim();
+    if (name) set.add(name);
+  }
+  for (const f of fundos) {
+    const name = (f.corretora || '').trim();
+    if (name) set.add(name);
+  }
+  for (const c of caixa) {
+    const name = (c.corretora || '').trim();
+    if (name) set.add(name);
+  }
+
+  return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+}
+
 // ══════════ Transacoes unificadas ══════════
 // Union client-side de operacoes + opcoes + proventos + renda_fixa, normalizado.
 // Read-only por ora; delete funciona. Edit/add via sheets especificos por tipo.
 
-export type TransacaoTipoKey = 'operacao' | 'opcao' | 'provento' | 'rf' | 'fundo';
+export type TransacaoTipoKey = 'operacao' | 'opcao' | 'provento' | 'rf' | 'fundo' | 'caixa';
 
 export interface Transacao {
   uid: string; // tipo:id — pra key estavel
   source_id: string; // id na tabela original
-  source_table: 'operacoes' | 'opcoes' | 'proventos' | 'renda_fixa' | 'fundos';
+  source_table: 'operacoes' | 'opcoes' | 'proventos' | 'renda_fixa' | 'fundos' | 'caixa';
   tipo_key: TransacaoTipoKey;
-  categoria_display: string; // "Ação", "FII", "ETF", "Stock INT", "Opção CALL", "Dividendo", "JCP", "Rendimento", "Renda Fixa"
+  categoria_display: string; // "Ação", "FII", "ETF", "Stock INT", "Opção CALL", "Dividendo", "JCP", "Rendimento", "Renda Fixa", "Caixa"
   data: string; // ISO
   descricao: string; // ticker ou emissor
   subtitulo: string | null; // ex: "Compra 200 × R$ 38,42"
@@ -509,7 +611,7 @@ export function useTransacoes(userId: string | undefined) {
         return q;
       }
 
-      const [opsRes, opcRes, provRes, rfRes, fundosRes] = await Promise.all([
+      const [opsRes, opcRes, provRes, rfRes, fundosRes, caixaRes] = await Promise.all([
         applyPortfolioFilter(
           supabase.from('operacoes')
             .select('id, ticker, tipo, categoria, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, corretora, data, mercado, portfolio_id')
@@ -535,6 +637,12 @@ export function useTransacoes(userId: string | undefined) {
             .select('id, cnpj, nome, classe, valor_aplicado, data_aplicacao, corretora, portfolio_id')
             .eq('user_id', userId),
         ).order('data_aplicacao', { ascending: false }).limit(1000),
+        // Caixa: GLOBAL (sem portfolio_id), nao aplica filtro
+        supabase.from('caixa')
+          .select('id, corretora, moeda, valor, data, descricao')
+          .eq('user_id', userId)
+          .order('data', { ascending: false })
+          .limit(1000),
       ]);
 
       const out: Transacao[] = [];
@@ -616,9 +724,11 @@ export function useTransacoes(userId: string | undefined) {
         }
       }
 
-      // ── proventos ──
+      // ── proventos (so pagos — data_pagamento <= hoje) ──
       const provMap: Record<string, string> = { dividendo: 'Dividendo', jcp: 'JCP', rendimento: 'Rendimento' };
+      const today = new Date().toISOString().substring(0, 10);
       for (const r of (provRes.data || [])) {
+        if (r.data_pagamento && r.data_pagamento > today) continue;
         const vpc = Number(r.valor_por_cota) || 0;
         const qty = Number(r.quantidade) || 0;
         const total = vpc * qty;
@@ -682,6 +792,28 @@ export function useTransacoes(userId: string | undefined) {
         });
       }
 
+      // ── caixa ──
+      for (const r of (caixaRes.data || [])) {
+        const v = Number(r.valor) || 0;
+        const isAporte = v >= 0;
+        out.push({
+          uid: 'caixa:' + r.id,
+          source_id: r.id,
+          source_table: 'caixa',
+          tipo_key: 'caixa',
+          categoria_display: 'Caixa',
+          data: r.data,
+          descricao: r.corretora || 'Caixa',
+          subtitulo: (isAporte ? 'Aporte' : 'Saída') + (r.descricao ? ' · ' + r.descricao : ''),
+          valor: Math.abs(v),
+          valor_signed: v,
+          moeda: (r.moeda === 'USD' ? 'USD' : 'BRL') as 'BRL' | 'USD',
+          corretora: r.corretora || null,
+          fonte: 'manual',
+          portfolio_id: null,
+        });
+      }
+
       out.sort(function (a, b) {
         if (a.data === b.data) return 0;
         return a.data < b.data ? 1 : -1;
@@ -694,6 +826,19 @@ export function useTransacoes(userId: string | undefined) {
 }
 
 // ══════════ Fundos ══════════
+// Enriquece com MTM: busca cota atual via /api/dm-fund-quote por CNPJ.
+// MTM = qtde_cotas × cota_atual. Fallback pra valor_aplicado.
+
+async function fetchFundQuote(cnpj: string): Promise<{ cota: number | null; data: string | null }> {
+  try {
+    const res = await fetch('/api/dm-fund-quote?cnpj=' + encodeURIComponent(cnpj));
+    if (!res.ok) return { cota: null, data: null };
+    const body = await res.json();
+    return { cota: Number(body?.cota) || null, data: body?.data || null };
+  } catch {
+    return { cota: null, data: null };
+  }
+}
 
 export function useFundos(userId: string | undefined) {
   const setFundos = useAppStore((s) => s.setFundos);
@@ -712,14 +857,34 @@ export function useFundos(userId: string | undefined) {
       else if (selectedPortfolio !== null) q = q.eq('portfolio_id', selectedPortfolio);
 
       const { data } = await q.order('data_aplicacao', { ascending: false });
-      return (data || []).map(function (r: any) {
+      const rows = data || [];
+
+      // Unique CNPJs -> fetch cotas em paralelo (cache 12h server-side)
+      const uniqCnpjs: string[] = [];
+      const seenCnpj: Record<string, boolean> = {};
+      for (const r of rows) {
+        const cnpj = String(r.cnpj || '').replace(/\D/g, '');
+        if (cnpj && !seenCnpj[cnpj]) { seenCnpj[cnpj] = true; uniqCnpjs.push(cnpj); }
+      }
+      const quotes = await Promise.all(uniqCnpjs.map(fetchFundQuote));
+      const cotaByCnpj: Record<string, number> = {};
+      for (let i = 0; i < uniqCnpjs.length; i++) {
+        const c = quotes[i].cota;
+        if (c != null && c > 0) cotaByCnpj[uniqCnpjs[i]] = c;
+      }
+
+      return rows.map(function (r: any) {
+        const cnpjClean = String(r.cnpj || '').replace(/\D/g, '');
+        const cotaAtual = cotaByCnpj[cnpjClean];
+        const qtd = r.qtde_cotas != null ? Number(r.qtde_cotas) : null;
+        const mtm = cotaAtual && qtd != null && qtd > 0 ? cotaAtual * qtd : undefined;
         return {
           id: r.id,
           cnpj: r.cnpj,
           nome: r.nome,
           classe: r.classe,
           valor_aplicado: Number(r.valor_aplicado) || 0,
-          qtde_cotas: r.qtde_cotas != null ? Number(r.qtde_cotas) : null,
+          qtde_cotas: qtd,
           valor_cota_compra: r.valor_cota_compra != null ? Number(r.valor_cota_compra) : null,
           data_aplicacao: r.data_aplicacao,
           corretora: r.corretora,
@@ -727,10 +892,13 @@ export function useFundos(userId: string | undefined) {
           taxa_perf: r.taxa_perf != null ? Number(r.taxa_perf) : null,
           portfolio_id: r.portfolio_id,
           created_at: r.created_at,
+          cota_atual: cotaAtual,
+          valor_mtm: mtm,
         };
       }) as Fundo[];
     },
     enabled: !!userId,
+    staleTime: 60 * 60 * 1000, // cotas mudam 1x/dia — cache 1h
   });
 
   useEffect(() => {
@@ -751,10 +919,11 @@ export function useLoadAllData(userId: string | undefined) {
   const rf = useRendaFixa(userId);
   const saldos = useSaldos(userId);
   const fundos = useFundos(userId);
+  const caixa = useCaixa(userId);
 
   const isLoading = profile.isLoading || portfolios.isLoading || positions.isLoading ||
     proventos.isLoading || opcoes.isLoading || rf.isLoading || saldos.isLoading ||
-    fundos.isLoading;
+    fundos.isLoading || caixa.isLoading;
 
   return { isLoading };
 }
