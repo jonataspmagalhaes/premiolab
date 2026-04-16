@@ -692,11 +692,15 @@ export function useTransacoes(userId: string | undefined) {
       const out: Transacao[] = [];
 
       // ── operacoes ──
+      // Ordenar por data ASC para calcular posicao acumulada (necessario pra exibir split corretamente)
+      const opsData = (opsRes.data || []).slice().sort(function (a: any, b: any) { return a.data < b.data ? -1 : a.data > b.data ? 1 : 0; });
       const catMap: Record<string, string> = {
         acao: 'Ação', fii: 'FII', etf: 'ETF', stock_int: 'Stock INT',
         bdr: 'BDR', adr: 'ADR', reit: 'REIT', cripto: 'Cripto',
       };
-      for (const r of (opsRes.data || [])) {
+      // Acumulador de posicao por ticker (pra calcular qty antes/depois de split)
+      const posAccum: Record<string, number> = {};
+      for (const r of opsData) {
         const qty = Number(r.quantidade) || 0;
         const preco = Number(r.preco) || 0;
         const custos = (Number(r.custo_corretagem) || 0) + (Number(r.custo_emolumentos) || 0) + (Number(r.custo_impostos) || 0);
@@ -704,7 +708,15 @@ export function useTransacoes(userId: string | undefined) {
         const moeda = r.mercado === 'INT' ? 'USD' : 'BRL';
         const moedaPrefix = r.mercado === 'INT' ? 'US$' : 'R$';
 
+        // Atualizar acumulador de posicao
+        if (!posAccum[tk]) posAccum[tk] = 0;
+
         if (r.tipo === 'desdobramento') {
+          const antes = posAccum[tk];
+          const parts = (r.ratio || '1:1').split(':');
+          const mult = Number(parts[0]) / Number(parts[1] || 1);
+          const depois = Math.round(antes * mult);
+          posAccum[tk] = depois;
           out.push({
             uid: 'operacao:' + r.id,
             source_id: r.id,
@@ -713,7 +725,7 @@ export function useTransacoes(userId: string | undefined) {
             categoria_display: 'Split',
             data: r.data,
             descricao: tk,
-            subtitulo: 'Desdobramento ' + (r.ratio || ''),
+            subtitulo: antes + ' → ' + depois + ' acoes (' + (r.ratio || '') + ')',
             valor: 0,
             valor_signed: 0,
             moeda: moeda,
@@ -723,6 +735,8 @@ export function useTransacoes(userId: string | undefined) {
           });
         } else if (r.tipo === 'bonificacao') {
           const totalBonus = qty * preco;
+          const antesB = posAccum[tk];
+          posAccum[tk] += qty;
           out.push({
             uid: 'operacao:' + r.id,
             source_id: r.id,
@@ -731,7 +745,7 @@ export function useTransacoes(userId: string | undefined) {
             categoria_display: 'Bonus',
             data: r.data,
             descricao: tk,
-            subtitulo: 'Bonificacao +' + qty + ' acoes a ' + moedaPrefix + ' ' + preco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            subtitulo: antesB + ' → ' + posAccum[tk] + ' acoes (+' + qty + ' a ' + moedaPrefix + ' ' + preco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ')',
             valor: totalBonus,
             valor_signed: totalBonus,
             moeda: moeda,
@@ -740,6 +754,7 @@ export function useTransacoes(userId: string | undefined) {
             portfolio_id: r.portfolio_id,
           });
         } else if (r.tipo === 'transferencia') {
+          // Transferencia nao muda total — so move entre corretoras
           out.push({
             uid: 'operacao:' + r.id,
             source_id: r.id,
@@ -757,6 +772,9 @@ export function useTransacoes(userId: string | undefined) {
             portfolio_id: r.portfolio_id,
           });
         } else {
+          // Acumular posicao para compra/venda
+          if (r.tipo === 'compra') posAccum[tk] += qty;
+          else if (r.tipo === 'venda') posAccum[tk] -= qty;
           const bruto = qty * preco;
           const total = r.tipo === 'compra' ? -(bruto + custos) : (bruto - custos);
           out.push({
