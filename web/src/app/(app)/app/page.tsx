@@ -7,6 +7,8 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianG
 import { AssetClassIcon } from '@/components/AssetClassIcon';
 import { TickerLogo } from '@/components/TickerLogo';
 import { valorLiquido } from '@/lib/proventosUtils';
+import { useRankings, METRICS_BY_TYPE, type RankingType, type RankedAsset } from '@/lib/useRankings';
+import { useMarketData } from '@/lib/useMarketData';
 
 // ═══════ Formatters ═══════
 
@@ -372,24 +374,22 @@ function PatrimonioChart({ range }: { range: Range }) {
   var userQ = useUser();
   var snapsQ = usePatrimonioSnapshots(userQ.data?.id);
   var patrimonio = useAppStore(function (s) { return s.patrimonio; });
-  var saldos = useAppStore(function (s) { return s.saldos; });
-
-  var saldosTotal = useMemo(function () {
-    var t = 0;
-    for (var i = 0; i < saldos.length; i++) t += saldos[i].saldo || 0;
-    return t;
-  }, [saldos]);
+  // saldos_corretora (legado) nao e mais usado aqui — caixa agora vem dentro de patrimonio.total
+  // via computePatrimonio no store (soma caixa[] com conversao USD->BRL).
 
   var data = useMemo(function () {
     var raw = snapsQ.data || [];
     var days = rangeToDays(range);
     var cutoff = days !== null ? Date.now() - days * 86400000 : 0;
+    var todayIso = new Date().toISOString().slice(0, 10);
     var series: Array<{ date: string; label: string; total: number; investido: number }> = [];
     for (var i = 0; i < raw.length; i++) {
       var r = raw[i];
       var t = new Date(r.data).getTime();
       if (Number.isNaN(t)) continue;
       if (days !== null && t < cutoff) continue;
+      // Descarta snapshots de hoje/futuro — o live point abaixo cobre.
+      if (r.data >= todayIso) continue;
       var d = new Date(r.data);
       var label = String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
       series.push({
@@ -403,17 +403,10 @@ function PatrimonioChart({ range }: { range: Range }) {
     if (patrimonio.total > 0) {
       var today = new Date();
       var todayLabel = String(today.getDate()).padStart(2, '0') + '/' + String(today.getMonth() + 1).padStart(2, '0');
-      var todayIso = today.toISOString().slice(0, 10);
-      var last = series[series.length - 1];
-      var point = { date: todayIso, label: todayLabel, total: patrimonio.total + saldosTotal, investido: patrimonio.investido };
-      if (last && last.date === todayIso) {
-        series[series.length - 1] = point;
-      } else {
-        series.push(point);
-      }
+      series.push({ date: todayIso, label: todayLabel, total: patrimonio.total, investido: patrimonio.investido });
     }
     return series;
-  }, [snapsQ.data, range, patrimonio, saldosTotal]);
+  }, [snapsQ.data, range, patrimonio]);
 
   if (snapsQ.isLoading) {
     return <div className="h-[240px] mt-2 rounded-lg bg-white/[0.02] animate-pulse" />;
@@ -627,6 +620,521 @@ function TopMoversCard({ positions }: { positions: Position[] }) {
   );
 }
 
+// ═══════ Macro Cards ═══════
+
+var INDEX_LABELS: Record<string, string> = { selic: 'Selic', cdi: 'CDI', ipca: 'IPCA', 'igp-m': 'IGP-M' };
+var CURRENCY_LABELS: Record<string, string> = { USD: 'Dolar', EUR: 'Euro', GBP: 'Libra', JPY: 'Iene', CNY: 'Yuan', ARS: 'Peso Arg.' };
+var CURRENCY_FLAGS: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧', JPY: '🇯🇵', CNY: '🇨🇳', ARS: '🇦🇷' };
+
+interface IndexEntry {
+  code: string;
+  value: number | null;
+  date: string;
+  prev_value: number | null;
+  prev_date: string | null;
+  trend: 'up' | 'down' | 'stable' | null;
+}
+
+var TREND_ICONS: Record<string, { icon: string; color: string; bg: string }> = {
+  up: { icon: 'M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22', color: 'text-red-400', bg: 'bg-red-500/10' },
+  down: { icon: 'M2.25 6L9 12.75l4.286-4.286a11.948 11.948 0 014.306 6.43l.776 2.898', color: 'text-green-400', bg: 'bg-green-500/10' },
+  stable: { icon: 'M4.5 12h15', color: 'text-white/40', bg: 'bg-white/[0.05]' },
+};
+
+function MacroIndicesCard() {
+  var _q = useMarketData('indices');
+  var data = _q.data as IndexEntry[] | null;
+
+  if (!data || !Array.isArray(data) || data.length === 0) return (
+    <div className="py-6 text-center text-white/20 text-xs font-mono animate-pulse">Carregando indices...</div>
+  );
+
+  return (
+    <>
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-6 h-6 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+          <Ico d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" className="w-3.5 h-3.5 text-cyan-400" />
+        </div>
+        <span className="text-xs font-medium text-white/50 uppercase tracking-wider">Indices Economicos</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {data.map(function (idx) {
+          var label = INDEX_LABELS[idx.code] || idx.code.toUpperCase();
+          var trend = idx.trend ? TREND_ICONS[idx.trend] : null;
+          // Para Selic/CDI: tendencia UP = juros subindo = ruim (vermelho)
+          // Para IPCA/IGP-M: UP = inflacao subindo = ruim (vermelho)
+          // Entao UP sempre vermelho, DOWN sempre verde (bom pra investidor)
+          var diff = (idx.value != null && idx.prev_value != null) ? idx.value - idx.prev_value : null;
+          return (
+            <div key={idx.code} className="bg-white/[0.03] rounded-lg p-3">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[10px] text-white/30 uppercase tracking-wider font-mono">{label}</p>
+                {trend ? (
+                  <div className={'w-5 h-5 rounded flex items-center justify-center ' + trend.bg}>
+                    <Ico d={trend.icon} className={'w-3 h-3 ' + trend.color} />
+                  </div>
+                ) : null}
+              </div>
+              <p className="text-lg font-bold font-mono text-white">
+                {idx.value != null ? idx.value.toFixed(2) + '%' : '-'}
+              </p>
+              <div className="flex items-center justify-between mt-1">
+                {diff != null ? (
+                  <p className={'text-[9px] font-mono ' + (diff > 0 ? 'text-red-400/60' : diff < 0 ? 'text-green-400/60' : 'text-white/20')}>
+                    {diff > 0 ? '+' : ''}{diff.toFixed(2)}pp vs 30d
+                  </p>
+                ) : null}
+                {idx.date ? (
+                  <p className="text-[9px] text-white/15 font-mono">{String(idx.date).substring(5, 10).replace('-', '/')}</p>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function BolsasCard() {
+  var _q = useMarketData('bolsas');
+  var data = _q.data as Array<{ code: string; name: string; value: number | null; change_pct: number | null; trend: string | null }> | null;
+
+  if (!data || !Array.isArray(data) || data.length === 0) return (
+    <div className="py-6 text-center text-white/20 text-xs font-mono animate-pulse">Carregando bolsas...</div>
+  );
+
+  function fmtIdx(v: number | null): string {
+    if (v == null) return '-';
+    if (v >= 1000) return v.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+    return v.toFixed(2);
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-6 h-6 rounded-lg bg-orange-500/10 flex items-center justify-center">
+          <Ico d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5" className="w-3.5 h-3.5 text-orange-400" />
+        </div>
+        <span className="text-xs font-medium text-white/50 uppercase tracking-wider">Bolsas</span>
+      </div>
+      <div className="space-y-2">
+        {data.map(function (b) {
+          var isUp = b.change_pct != null && b.change_pct >= 0;
+          var trend = b.trend ? TREND_ICONS[b.trend] : null;
+          return (
+            <div key={b.code} className="flex items-center justify-between bg-white/[0.03] rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2 min-w-0">
+                {trend ? (
+                  <div className={'w-5 h-5 rounded flex items-center justify-center shrink-0 ' + trend.bg}>
+                    <Ico d={trend.icon} className={'w-3 h-3 ' + trend.color} />
+                  </div>
+                ) : null}
+                <div className="min-w-0">
+                  <span className="text-[11px] font-semibold text-white">{b.code}</span>
+                  <span className="text-[9px] text-white/25 ml-1.5">{b.name}</span>
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <p className="text-[12px] font-mono font-medium text-white">{fmtIdx(b.value)}</p>
+                {b.change_pct != null ? (
+                  <p className={'text-[10px] font-mono ' + (isUp ? 'text-income' : 'text-danger')}>
+                    {isUp ? '+' : ''}{b.change_pct.toFixed(2)}%
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+var CRYPTO_ICONS: Record<string, string> = { BTC: '₿', ETH: 'Ξ', SOL: '◎' };
+
+function MoedasCard() {
+  var _q = useMarketData('moedas');
+  var data = _q.data as Array<{ code: string; crypto?: boolean; name?: string; rate?: { value: number }; value?: number; change_pct?: number; trend?: string }> | null;
+
+  if (!data || data.length === 0) return (
+    <div className="py-6 text-center text-white/20 text-xs font-mono animate-pulse">Carregando moedas...</div>
+  );
+
+  var fiat = data.filter(function (m) { return !m.crypto; });
+  var crypto = data.filter(function (m) { return m.crypto; });
+
+  return (
+    <>
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-6 h-6 rounded-lg bg-green-500/10 flex items-center justify-center">
+          <Ico d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" className="w-3.5 h-3.5 text-green-400" />
+        </div>
+        <span className="text-xs font-medium text-white/50 uppercase tracking-wider">Moedas & Cripto</span>
+      </div>
+      <div className="space-y-1.5 max-h-[280px] overflow-y-auto">
+        {fiat.map(function (m) {
+          var label = CURRENCY_LABELS[m.code] || m.code;
+          var flag = CURRENCY_FLAGS[m.code] || '';
+          var val = m.rate ? m.rate.value : null;
+          return (
+            <div key={m.code} className="flex items-center justify-between bg-white/[0.03] rounded-lg px-3 py-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">{flag}</span>
+                <div>
+                  <span className="text-[11px] font-medium text-white">{m.code}</span>
+                  <span className="text-[9px] text-white/25 ml-1">{label}</span>
+                </div>
+              </div>
+              <span className="text-[12px] font-mono font-semibold text-white">
+                {val != null ? 'R$ ' + val.toFixed(4) : '-'}
+              </span>
+            </div>
+          );
+        })}
+        {crypto.length > 0 ? (
+          <>
+            <div className="h-px bg-white/[0.04] my-1" />
+            {crypto.map(function (c) {
+              var icon = CRYPTO_ICONS[c.code] || '';
+              var val = c.value;
+              var isUp = c.change_pct != null && c.change_pct >= 0;
+              var trend = c.trend ? TREND_ICONS[c.trend] : null;
+              return (
+                <div key={c.code} className="flex items-center justify-between bg-white/[0.03] rounded-lg px-3 py-1.5">
+                  <div className="flex items-center gap-2">
+                    {trend ? (
+                      <div className={'w-4 h-4 rounded flex items-center justify-center shrink-0 ' + trend.bg}>
+                        <Ico d={trend.icon} className={'w-2.5 h-2.5 ' + trend.color} />
+                      </div>
+                    ) : (
+                      <span className="text-sm text-orange-400">{icon}</span>
+                    )}
+                    <div>
+                      <span className="text-[11px] font-medium text-white">{c.code}</span>
+                      <span className="text-[9px] text-white/25 ml-1">{c.name}</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[12px] font-mono font-semibold text-white">
+                      {val != null ? 'US$ ' + val.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) : '-'}
+                    </span>
+                    {c.change_pct != null ? (
+                      <span className={'text-[9px] font-mono ml-1 ' + (isUp ? 'text-income' : 'text-danger')}>
+                        {isUp ? '+' : ''}{c.change_pct.toFixed(1)}%
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+function CommoditiesCard() {
+  var _q = useMarketData('commodities');
+  var data = _q.data as Array<{ code: string; name: string; unit: string; value: number | null; change_pct: number | null; trend: string | null }> | null;
+
+  if (!data || !Array.isArray(data) || data.length === 0) return (
+    <div className="py-6 text-center text-white/20 text-xs font-mono animate-pulse">Carregando commodities...</div>
+  );
+
+  var commodities = data;
+
+  function fmtPrice(v: number | null, unit: string): string {
+    if (v == null) return '-';
+    if (v >= 1000) return 'US$ ' + v.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+    return 'US$ ' + v.toFixed(2);
+  }
+
+  function renderRow(item: { code: string; name: string; unit: string; value: number | null; change_pct: number | null; trend: string | null }) {
+    var isUp = item.change_pct != null && item.change_pct >= 0;
+    var trend = item.trend ? TREND_ICONS[item.trend] : null;
+    return (
+      <div key={item.code} className="flex items-center justify-between bg-white/[0.03] rounded-lg px-3 py-1.5">
+        <div className="flex items-center gap-2 min-w-0">
+          {trend ? (
+            <div className={'w-4 h-4 rounded flex items-center justify-center shrink-0 ' + trend.bg}>
+              <Ico d={trend.icon} className={'w-2.5 h-2.5 ' + trend.color} />
+            </div>
+          ) : null}
+          <span className="text-[11px] font-medium text-white">{item.name}</span>
+        </div>
+        <div className="text-right shrink-0">
+          <span className="text-[11px] font-mono font-medium text-white">{fmtPrice(item.value, item.unit)}</span>
+          {item.change_pct != null ? (
+            <span className={'text-[9px] font-mono ml-1.5 ' + (isUp ? 'text-income' : 'text-danger')}>
+              {isUp ? '+' : ''}{item.change_pct.toFixed(1)}%
+            </span>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-6 h-6 rounded-lg bg-yellow-500/10 flex items-center justify-center">
+          <Ico d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" className="w-3.5 h-3.5 text-yellow-400" />
+        </div>
+        <span className="text-xs font-medium text-white/50 uppercase tracking-wider">Commodities</span>
+      </div>
+      <div className="space-y-1.5 max-h-[280px] overflow-y-auto">
+        {commodities.map(renderRow)}
+      </div>
+    </>
+  );
+}
+
+function NoticiasCard() {
+  var _q = useMarketData('noticias');
+  var data = _q.data as Array<{ title: string; url: string; source: string; published_at: string; tickers?: string[] }> | null;
+
+  if (!data || data.length === 0) return (
+    <div className="py-6 text-center text-white/20 text-xs font-mono animate-pulse">Carregando noticias...</div>
+  );
+
+  function timeAgo(dateStr: string): string {
+    var d = new Date(dateStr);
+    var now = new Date();
+    var diffH = Math.floor((now.getTime() - d.getTime()) / 3600000);
+    if (diffH < 1) return 'agora';
+    if (diffH < 24) return diffH + 'h';
+    return Math.floor(diffH / 24) + 'd';
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-6 h-6 rounded-lg bg-purple-500/10 flex items-center justify-center">
+          <Ico d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25H5.625a2.25 2.25 0 01-2.25-2.25V6.375c0-.621.504-1.125 1.125-1.125H7.5" className="w-3.5 h-3.5 text-purple-400" />
+        </div>
+        <span className="text-xs font-medium text-white/50 uppercase tracking-wider">Noticias</span>
+      </div>
+      <div className="space-y-1 max-h-[280px] overflow-y-auto">
+        {data.slice(0, 8).map(function (n, idx) {
+          return (
+            <a
+              key={idx}
+              href={n.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block bg-white/[0.02] hover:bg-white/[0.05] rounded-lg px-3 py-2.5 transition group"
+            >
+              <p className="text-[11px] text-white/70 group-hover:text-white leading-snug line-clamp-2">{n.title}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-[9px] text-white/25 font-mono">{n.source || 'mercado'}</span>
+                <span className="text-[9px] text-white/15">·</span>
+                <span className="text-[9px] text-white/25 font-mono">{timeAgo(n.published_at)}</span>
+                {n.tickers && n.tickers.length > 0 ? (
+                  <span className="text-[9px] text-orange-400/50 font-mono">{n.tickers.slice(0, 3).join(', ')}</span>
+                ) : null}
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// ═══════ Ranking Card ═══════
+
+var RANKING_TABS: Array<{ key: RankingType; label: string; color: string }> = [
+  { key: 'acoes', label: 'Acoes', color: '#3B82F6' },
+  { key: 'fiis', label: 'FIIs', color: '#10B981' },
+  { key: 'stocks', label: 'Stocks', color: '#E879F9' },
+  { key: 'reits', label: 'REITs', color: '#F59E0B' },
+  { key: 'fundos', label: 'Fundos', color: '#06B6D4' },
+  { key: 'tesouro', label: 'Tesouro', color: '#8B5CF6' },
+];
+
+function RankingCard({ userTickers }: { userTickers: string[] }) {
+  var _type = useState<RankingType>('acoes');
+  var tipo = _type[0];
+  var setTipo = _type[1];
+
+  var metricsAvail = METRICS_BY_TYPE[tipo] || [];
+  var _metric = useState(metricsAvail[0] ? metricsAvail[0].key : 'dy');
+  var metric = _metric[0];
+  var setMetric = _metric[1];
+
+  // Resetar metrica quando troca tipo
+  useEffect(function () {
+    var available = METRICS_BY_TYPE[tipo] || [];
+    var keys = available.map(function (m) { return m.key; });
+    if (keys.indexOf(metric) < 0) {
+      setMetric(available[0] ? available[0].key : 'dy');
+    }
+  }, [tipo]);
+
+  var _rankings = useRankings(tipo, metric);
+  var assets = (_rankings.data && _rankings.data.assets) || [];
+  var isLoading = _rankings.isLoading;
+
+  var currentMetricInfo = metricsAvail.find(function (m) { return m.key === metric; });
+  var suffix = currentMetricInfo ? currentMetricInfo.suffix : '';
+
+  // Set de tickers do usuario pra badge
+  var userSet = useMemo(function () {
+    var s: Record<string, boolean> = {};
+    for (var i = 0; i < userTickers.length; i++) {
+      s[userTickers[i].toUpperCase()] = true;
+    }
+    return s;
+  }, [userTickers]);
+
+  function fmtMetricVal(v: number | null, key: string): string {
+    if (v == null) return '-';
+    if (key === 'patrimonio') {
+      if (v >= 1e9) return 'R$ ' + (v / 1e9).toFixed(1) + 'B';
+      if (v >= 1e6) return 'R$ ' + (v / 1e6).toFixed(0) + 'M';
+      return 'R$ ' + Math.round(v).toLocaleString('pt-BR');
+    }
+    if (key === 'taxa' || key === 'rentabilidade_12m') return v.toFixed(2) + '%';
+    if (suffix === '%') return v.toFixed(1) + '%';
+    if (suffix === 'x') return v.toFixed(1) + 'x';
+    return v.toFixed(2);
+  }
+
+  // Cor da metrica baseada em boa/ruim
+  function metricColor(a: RankedAsset): string {
+    if (a.dy_flag === 'extraordinary') return 'text-red-400';
+    if (a.dy_flag === 'warning') return 'text-yellow-400';
+    return 'text-white';
+  }
+
+  var activeTabColor = RANKING_TABS.find(function (t) { return t.key === tipo; });
+  var tabColor = activeTabColor ? activeTabColor.color : '#F97316';
+
+  return (
+    <>
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-4">
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: tabColor + '15' }}>
+          <Ico d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" className="w-4 h-4" style={{ color: tabColor }} />
+        </div>
+        <span className="text-sm font-semibold">Ranking de Ativos</span>
+      </div>
+
+      {/* Tabs tipo */}
+      <div className="flex items-center gap-1 overflow-x-auto pb-3 mb-3 -mx-1 px-1">
+        {RANKING_TABS.map(function (tab) {
+          var active = tipo === tab.key;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={function () { setTipo(tab.key); }}
+              className={'shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-medium transition border '
+                + (active
+                  ? 'text-white border-white/20'
+                  : 'text-white/40 border-transparent hover:bg-white/[0.04] hover:text-white/60')}
+              style={active ? { backgroundColor: tab.color + '20', borderColor: tab.color + '40', color: tab.color } : undefined}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Metric selector */}
+      {metricsAvail.length > 1 ? (
+        <div className="flex items-center gap-1.5 mb-4 overflow-x-auto">
+          <span className="text-[9px] text-white/25 uppercase tracking-wider font-mono shrink-0">Ordenar</span>
+          {metricsAvail.map(function (m) {
+            var active = metric === m.key;
+            return (
+              <button
+                key={m.key}
+                type="button"
+                onClick={function () { setMetric(m.key); }}
+                className={'shrink-0 px-2 py-1 rounded text-[10px] font-medium transition '
+                  + (active
+                    ? 'bg-white/[0.08] text-white'
+                    : 'text-white/35 hover:text-white/60')}
+              >
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {/* Table */}
+      {isLoading ? (
+        <div className="py-12 text-center text-white/30 text-sm font-mono animate-pulse">Carregando ranking...</div>
+      ) : assets.length === 0 ? (
+        <div className="py-12 text-center text-white/30 text-sm">Sem dados disponiveis</div>
+      ) : (
+        <div className="overflow-x-auto overflow-y-auto max-h-[480px] -mx-2">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] text-white/30 uppercase tracking-wider font-mono">
+                <th className="text-left py-2 px-3 font-normal w-8">#</th>
+                <th className="text-left py-2 px-3 font-normal">Ativo</th>
+                <th className="text-right py-2 px-3 font-normal hidden sm:table-cell">Preco</th>
+                <th className="text-right py-2 px-3 font-normal hidden sm:table-cell">Dia</th>
+                <th className="text-right py-2 px-3 font-normal">{currentMetricInfo ? currentMetricInfo.label : metric}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {assets.map(function (a, idx) {
+                var isOwned = userSet[a.ticker.toUpperCase()];
+                var val = a.metrics[metric];
+                return (
+                  <tr key={a.ticker} className={'row-anim d' + (idx + 1) + ' border-t border-white/[0.04] hover:bg-white/[0.02] transition'}>
+                    <td className="py-2.5 px-3 text-[11px] font-mono text-white/20">{idx + 1}</td>
+                    <td className="py-2.5 px-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <TickerLogo ticker={a.ticker} categoria={a.tipo === 'fii' ? 'fii' : (a.tipo === 'stock_int' || a.tipo === 'reit' ? 'stock_int' : 'acao')} size={30} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[12px] font-semibold truncate">{a.ticker}</span>
+                            {isOwned ? (
+                              <span className="text-[8px] px-1 py-0.5 rounded bg-orange-500/15 text-orange-400 font-mono shrink-0">MEU</span>
+                            ) : null}
+                            {a.dy_flag === 'extraordinary' ? (
+                              <span className="text-[8px] px-1 py-0.5 rounded bg-red-500/15 text-red-400 font-mono shrink-0" title="DY provavelmente extraordinario">EXTR</span>
+                            ) : a.dy_flag === 'warning' ? (
+                              <span className="text-[8px] px-1 py-0.5 rounded bg-yellow-500/15 text-yellow-400 font-mono shrink-0" title="DY acima de 15% — verificar">ALTO</span>
+                            ) : null}
+                          </div>
+                          <p className="text-[10px] text-white/25 truncate max-w-[180px]">{a.nome}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-[12px] font-mono text-white/50 hidden sm:table-cell">
+                      {a.preco != null ? (a.tipo === 'stock_int' || a.tipo === 'reit' ? 'US$ ' : 'R$ ') + a.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+                    </td>
+                    <td className="py-2.5 px-3 text-right hidden sm:table-cell">
+                      {a.variacao_dia != null ? (
+                        <span className={'text-[11px] font-mono ' + (a.variacao_dia >= 0 ? 'text-income' : 'text-danger')}>
+                          {a.variacao_dia >= 0 ? '+' : ''}{a.variacao_dia.toFixed(1)}%
+                        </span>
+                      ) : <span className="text-[11px] text-white/20">-</span>}
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <span className={'text-[13px] font-mono font-semibold ' + metricColor(a)}>
+                        {fmtMetricVal(val, metric)}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ═══════ Main Dashboard ═══════
 
 export default function DashboardPage() {
@@ -636,6 +1144,9 @@ export default function DashboardPage() {
   var positions = useAppStore(function (s) { return s.positions; });
   var proventos = useAppStore(function (s) { return s.proventos; });
   var opcoes = useAppStore(function (s) { return s.opcoes; });
+  var rf = useAppStore(function (s) { return s.rf; });
+  var fundos = useAppStore(function (s) { return s.fundos; });
+  var caixa = useAppStore(function (s) { return s.caixa; });
 
   var meta = (profile && profile.meta_mensal) || 0;
   var pctMeta = meta > 0 ? Math.min(999, (renda.atual / meta) * 100) : 0;
@@ -649,7 +1160,6 @@ export default function DashboardPage() {
   var selectedClass = _selClass[0];
   var setSelectedClass = _selClass[1];
 
-  var donutCenterRef = useCounter(patrimonio.total, 1200);
   var patrimonioRef = useCounter(patrimonio.total, 1200);
   var rendaRef = useCounter(renda.atual, 1200);
 
@@ -667,26 +1177,55 @@ export default function DashboardPage() {
     })
     .sort(function (a, b) { return b.value - a.value; });
 
-  // Selected class breakdown: top tickers within the class
+  // Selected class breakdown: total + top 5 itens da classe
+  // Total vem do patrimonio.porClasse (ja com MTM + USD convertido)
   var selectedClassInfo = useMemo(function () {
     if (!selectedClass) return null;
-    var knownBuckets = ['fii', 'etf', 'stock_int', 'rf', 'caixa'];
-    function matches(cat: string) {
-      if (selectedClass === 'acao') return knownBuckets.indexOf(cat) === -1;
-      return cat === selectedClass;
+    var porClasse: Record<string, number> = patrimonio.porClasse as any;
+    var total = porClasse[selectedClass] || 0;
+
+    // Monta top 5 conforme a classe
+    if (selectedClass === 'rf') {
+      var rfItems = rf.map(function (r) {
+        var v = r.valor_mtm != null ? r.valor_mtm : (r.valor_aplicado || 0);
+        return { ticker: r.emissor || r.tipo || 'RF', valor: v };
+      }).sort(function (a, b) { return b.valor - a.valor; });
+      return { total: total, count: rf.length, top: rfItems.slice(0, 5) };
     }
+    if (selectedClass === 'fundo') {
+      var fundoItems = fundos.map(function (f) {
+        var v = f.valor_mtm != null ? f.valor_mtm : (f.valor_aplicado || 0);
+        return { ticker: f.nome || 'Fundo', valor: v };
+      }).sort(function (a, b) { return b.valor - a.valor; });
+      return { total: total, count: fundos.length, top: fundoItems.slice(0, 5) };
+    }
+    if (selectedClass === 'caixa') {
+      // Agrupa caixa por corretora + moeda (USD convertido via cotacao do store)
+      var usdBrl = useAppStore.getState().usdBrl;
+      var map: Record<string, number> = {};
+      for (var i = 0; i < caixa.length; i++) {
+        var c = caixa[i];
+        var key = c.corretora + (c.moeda === 'USD' ? ' (USD)' : '');
+        var v = c.moeda === 'USD' ? (usdBrl > 0 ? c.valor * usdBrl : 0) : c.valor;
+        map[key] = (map[key] || 0) + v;
+      }
+      var caixaItems = Object.keys(map).map(function (k) {
+        return { ticker: k, valor: map[k] };
+      }).sort(function (a, b) { return b.valor - a.valor; });
+      return { total: total, count: caixaItems.length, top: caixaItems.slice(0, 5) };
+    }
+
+    // Positions (acao/fii/etf/stock_int/bdr/adr/reit/cripto)
     var filtered = positions.filter(function (p) {
       if (p.quantidade <= 0) return false;
-      return matches(p.categoria || 'acao');
+      return (p.categoria || 'acao') === selectedClass;
     });
     var items = filtered.map(function (p) {
       var v = p.valor_mercado != null ? p.valor_mercado : p.pm * p.quantidade;
-      return { ticker: p.ticker, valor: v, categoria: p.categoria };
+      return { ticker: p.ticker, valor: v };
     }).sort(function (a, b) { return b.valor - a.valor; });
-    var total = 0;
-    for (var i = 0; i < items.length; i++) total += items[i].valor;
     return { total: total, count: items.length, top: items.slice(0, 5) };
-  }, [selectedClass, positions]);
+  }, [selectedClass, positions, rf, fundos, caixa, patrimonio]);
 
   // Renda por fonte (approximate from proventos)
   var rendaPorFonte: Record<string, number> = { acao: 0, fii: 0 };
@@ -733,8 +1272,8 @@ export default function DashboardPage() {
         {/* ═══════ Grid 12 cols ═══════ */}
         <div className="grid grid-cols-12 gap-4 items-stretch">
 
-          {/* Composicao (donut) — mobile order-2 */}
-          <div className="col-span-12 lg:col-span-3 order-2 lg:order-1 linear-card rounded-xl p-5 anim-up d1">
+          {/* Composicao (donut) */}
+          <div className="col-span-12 lg:col-span-3 order-2 lg:order-1 linear-card rounded-xl p-5 anim-up d2">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-7 h-7 rounded-lg bg-orange-500/10 flex items-center justify-center">
                   <Ico d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" className="w-4 h-4 text-orange-400" />
@@ -758,7 +1297,7 @@ export default function DashboardPage() {
                       ) : (
                         <>
                           <p className="text-[9px] text-white/30 uppercase tracking-widest font-mono">Patrimonio</p>
-                          <p className="text-xl font-bold font-mono" ref={donutCenterRef as React.RefObject<HTMLParagraphElement>}>R$ {fmtBR(patrimonio.total)}</p>
+                          <p className="text-xl font-bold font-mono">R$ {fmtBR(patrimonio.total)}</p>
                         </>
                       )}
                     </div>
@@ -821,13 +1360,13 @@ export default function DashboardPage() {
               )}
             </div>
 
-          {/* Calendario Dividendos — mobile order-6 (after Top Movers) */}
-          <div className="col-span-12 lg:col-span-3 order-6 lg:order-4">
+          {/* Calendario Dividendos */}
+          <div className="col-span-12 lg:col-span-3 order-4 lg:order-4">
             <ProventosCalendar proventos={proventos} />
           </div>
 
-          {/* Patrimonio Total (chart) — mobile order-1 (first) */}
-          <div className="col-span-12 lg:col-span-6 order-1 lg:order-2 linear-card rounded-xl p-5 anim-up d2">
+          {/* Patrimonio Total (chart) */}
+          <div className="col-span-12 lg:col-span-6 order-1 lg:order-2 linear-card rounded-xl p-5 anim-up d1">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
@@ -897,13 +1436,13 @@ export default function DashboardPage() {
 
           {/* end Patrimonio card */}
 
-          {/* Top Movers — mobile order-5 (after Opcoes) */}
-          <div className="col-span-12 lg:col-span-6 order-5 lg:order-5 linear-card rounded-xl p-5 anim-up d8">
+          {/* Top Movers */}
+          <div className="col-span-12 lg:col-span-6 order-6 lg:order-5 linear-card rounded-xl p-5 anim-up d5">
             <TopMoversCard positions={positions} />
           </div>
           {/* end Top Movers */}
 
-          {/* Renda Passiva — mobile order-3 */}
+          {/* Renda Passiva */}
           <div className="col-span-12 lg:col-span-3 order-3 lg:order-3 linear-card rounded-xl p-5 anim-up d3">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-6 h-6 rounded-lg bg-income/10 flex items-center justify-center">
@@ -1014,8 +1553,8 @@ export default function DashboardPage() {
 
           {/* end Renda Passiva */}
 
-          {/* Opcoes — mobile order-4 */}
-          <div className="col-span-12 lg:col-span-3 order-4 lg:order-6 linear-card rounded-xl p-5 anim-up d10">
+          {/* Opcoes */}
+          <div className="col-span-12 lg:col-span-3 order-5 lg:order-6 linear-card rounded-xl p-5 anim-up d4">
               <div className="flex items-center gap-2 mb-3">
                 <div className="w-6 h-6 rounded-lg bg-stock-int/10 flex items-center justify-center">
                   <Ico d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" className="w-3.5 h-3.5 text-stock-int" />
@@ -1131,72 +1670,36 @@ export default function DashboardPage() {
           </div>
           {/* end Opcoes */}
 
-          {/* Carteira (table) — mobile order-7 (last) */}
-          <div className="col-span-12 mt-1 order-7 lg:order-7 linear-card rounded-xl p-5 anim-up d5">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.5)]" />
-                  <span className="text-sm font-semibold">Carteira</span>
-                  <span className="text-[10px] text-white/30 font-mono ml-1">{positions.length} ativos</span>
-                </div>
-              </div>
-
-              {topPositions.length > 0 ? (
-                <div className="overflow-x-auto -mx-2">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-[10px] text-white/30 uppercase tracking-wider font-mono">
-                        <th className="text-left py-2 px-3 font-normal">Ativo</th>
-                        <th className="text-right py-2 px-3 font-normal hidden sm:table-cell">Qtd</th>
-                        <th className="text-right py-2 px-3 font-normal hidden md:table-cell">PM</th>
-                        <th className="text-right py-2 px-3 font-normal">Valor</th>
-                        <th className="text-right py-2 px-3 font-normal w-16 hidden sm:table-cell">Peso</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {topPositions.map(function (pos, idx) {
-                        var pct = patrimonio.total > 0 ? (pos.valor / patrimonio.total) * 100 : 0;
-                        var color = CLASS_COLORS[pos.categoria] || '#F97316';
-                        return (
-                          <tr key={pos.ticker} className={'row-anim d' + (idx + 6) + ' border-t border-white/[0.04] hover:bg-white/[0.02] transition group'}>
-                            <td className="py-3 px-3">
-                              <div className="flex items-center gap-3">
-                                <div className="group-hover:scale-110 transition-all">
-                                  <TickerLogo ticker={pos.ticker} categoria={pos.categoria} size={36} />
-                                </div>
-                                <div>
-                                  <p className="text-[13px] font-semibold tracking-tight">{pos.ticker}</p>
-                                  <p className="text-[10px] text-white/30 font-mono">{CLASS_LABELS[pos.categoria] || pos.categoria}</p>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="py-3 px-3 text-right text-[13px] font-mono text-white/60 hidden sm:table-cell">{pos.quantidade.toLocaleString('pt-BR')}</td>
-                            <td className="py-3 px-3 text-right text-[13px] font-mono text-white/40 hidden md:table-cell">R$ {fmtDec(pos.pm)}</td>
-                            <td className="py-3 px-3 text-right text-[13px] font-mono font-medium">R$ {fmtBR(pos.valor)}</td>
-                            <td className="py-3 px-3 hidden sm:table-cell">
-                              <div className="flex items-center justify-end gap-1.5">
-                                <div className="w-12 h-1 bg-white/[0.04] rounded-full overflow-hidden hidden lg:block">
-                                  <div className="h-full rounded-full" style={{ width: Math.min(100, pct * 2) + '%', backgroundColor: color }} />
-                                </div>
-                                <span className="text-[10px] font-mono text-white/40 w-8 text-right">{pct.toFixed(1)}%</span>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="h-40 flex flex-col items-center justify-center text-muted gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-white/[0.03] flex items-center justify-center">
-                    <Ico d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" className="w-5 h-5 text-muted" />
-                  </div>
-                  <p className="text-sm">Nenhuma posicao registrada</p>
-                </div>
-              )}
+          {/* Indices Economicos */}
+          <div className="col-span-12 lg:col-span-3 order-7 lg:order-7 linear-card rounded-xl p-5 anim-up d6">
+            <MacroIndicesCard />
           </div>
-          {/* end Carteira */}
+
+          {/* Bolsas */}
+          <div className="col-span-12 lg:col-span-3 order-8 lg:order-8 linear-card rounded-xl p-5 anim-up d7">
+            <BolsasCard />
+          </div>
+
+          {/* Commodities */}
+          <div className="col-span-12 lg:col-span-3 order-9 lg:order-9 linear-card rounded-xl p-5 anim-up d8">
+            <CommoditiesCard />
+          </div>
+
+          {/* Moedas & Cripto */}
+          <div className="col-span-12 lg:col-span-3 order-10 lg:order-10 linear-card rounded-xl p-5 anim-up d9">
+            <MoedasCard />
+          </div>
+
+          {/* Noticias */}
+          <div className="col-span-12 order-11 lg:order-11 linear-card rounded-xl p-5 anim-up d10">
+            <NoticiasCard />
+          </div>
+
+          {/* Ranking de Ativos */}
+          <div className="col-span-12 mt-1 order-12 lg:order-12 linear-card rounded-xl p-5 anim-up d11">
+            <RankingCard userTickers={positions.map(function (p) { return p.ticker; })} />
+          </div>
+          {/* end Ranking */}
 
         </div>
       </div>

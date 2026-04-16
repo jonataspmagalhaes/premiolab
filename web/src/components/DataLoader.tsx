@@ -1,19 +1,29 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useLoadAllData, useUser } from '@/lib/queries';
 import { useAppStore, loadSelectedPortfolio } from '@/store';
 
 export function DataLoader({ children }: { children: React.ReactNode }) {
-  const { data: user, isLoading: userLoading } = useUser();
-  const { isLoading: dataLoading } = useLoadAllData(user?.id);
+  var _user = useUser();
+  var user = _user.data;
+  var userLoading = _user.isLoading;
 
-  // Hydrate portfolio selection from localStorage after mount
-  const setSelectedPortfolio = useAppStore((s) => s.setSelectedPortfolio);
-  useEffect(() => {
-    const stored = loadSelectedPortfolio();
+  // Hydrate portfolio selection from localStorage BEFORE loading data
+  // to avoid fetching with selectedPortfolio=null (Todos) then re-fetching
+  var setSelectedPortfolio = useAppStore(function (s) { return s.setSelectedPortfolio; });
+  var _hyd = useState(false);
+  var hydrated = _hyd[0];
+  var setHydrated = _hyd[1];
+  useEffect(function () {
+    var stored = loadSelectedPortfolio();
     if (stored !== null) setSelectedPortfolio(stored);
+    setHydrated(true);
   }, [setSelectedPortfolio]);
+
+  // Only start fetching data AFTER portfolio is hydrated
+  var _data = useLoadAllData(hydrated ? (user ? user.id : undefined) : undefined);
+  var dataLoading = _data.isLoading;
 
   if (userLoading) {
     return (

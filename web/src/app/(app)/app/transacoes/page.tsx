@@ -14,6 +14,8 @@ import { OperacaoSheet, type OperacaoInitial } from '@/components/OperacaoSheet'
 import { AddProventoSheet, type ProventoInitial } from '@/components/AddProventoSheet';
 import { RendaFixaSheet, type RendaFixaInitial } from '@/components/RendaFixaSheet';
 import { FundoSheet, type FundoInitial } from '@/components/FundoSheet';
+import { CaixaSheet } from '@/components/CaixaSheet';
+import type { Caixa } from '@/store';
 import { Plus } from 'lucide-react';
 
 var supabase = getSupabaseBrowser();
@@ -25,7 +27,7 @@ type CatFilter =
   | 'Ação' | 'FII' | 'ETF' | 'Stock INT' | 'BDR' | 'ADR' | 'REIT' | 'Cripto'
   | 'Opção CALL' | 'Opção PUT'
   | 'Dividendo' | 'JCP' | 'Rendimento'
-  | 'Renda Fixa' | 'Fundo';
+  | 'Renda Fixa' | 'Fundo' | 'Caixa';
 
 var CAT_GROUPS: Array<{ label: string; cats: CatFilter[] }> = [
   { label: 'Tudo', cats: ['todas'] },
@@ -41,6 +43,7 @@ var CAT_GROUPS: Array<{ label: string; cats: CatFilter[] }> = [
   { label: 'Proventos', cats: ['Dividendo', 'JCP', 'Rendimento'] },
   { label: 'Renda Fixa', cats: ['Renda Fixa'] },
   { label: 'Fundos', cats: ['Fundo'] },
+  { label: 'Caixa', cats: ['Caixa'] },
 ];
 
 type PeriodoFilter = 'tudo' | '30d' | '90d' | '365d' | 'ano';
@@ -93,6 +96,7 @@ function categoriaIcone(cat: string): string {
   if (cat.startsWith('Opção')) return 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6';
   if (cat === 'Dividendo' || cat === 'JCP' || cat === 'Rendimento') return 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1L15 14m-3-6V7m0 1v8m0 0v1';
   if (cat === 'Renda Fixa' || cat === 'Fundo') return 'M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z';
+  if (cat === 'Caixa') return 'M21 12a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m0 0a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 9M3 9h18';
   return 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z';
 }
 
@@ -109,6 +113,7 @@ function categoriaColor(cat: string): { bg: string; text: string } {
   if (cat === 'Dividendo' || cat === 'JCP' || cat === 'Rendimento') return { bg: 'bg-income/10', text: 'text-income' };
   if (cat === 'Renda Fixa') return { bg: 'bg-info/10', text: 'text-info' };
   if (cat === 'Fundo') return { bg: 'bg-purple-500/10', text: 'text-purple-300' };
+  if (cat === 'Caixa') return { bg: 'bg-orange-500/10', text: 'text-orange-300' };
   return { bg: 'bg-white/[0.04]', text: 'text-white/60' };
 }
 
@@ -150,6 +155,8 @@ export default function TransacoesPage() {
   var _editFundoOpen = useState(false); var editFundoOpen = _editFundoOpen[0]; var setEditFundoOpen = _editFundoOpen[1];
   var _editRfInit = useState<RendaFixaInitial | null>(null); var editRfInit = _editRfInit[0]; var setEditRfInit = _editRfInit[1];
   var _editRfOpen = useState(false); var editRfOpen = _editRfOpen[0]; var setEditRfOpen = _editRfOpen[1];
+  var _editCaixaInit = useState<Caixa | null>(null); var editCaixaInit = _editCaixaInit[0]; var setEditCaixaInit = _editCaixaInit[1];
+  var _editCaixaOpen = useState(false); var editCaixaOpen = _editCaixaOpen[0]; var setEditCaixaOpen = _editCaixaOpen[1];
   var _loadingEdit = useState(false); var loadingEdit = _loadingEdit[0]; var setLoadingEdit = _loadingEdit[1];
 
   // Lista unica de corretoras presentes nas transacoes
@@ -183,26 +190,37 @@ export default function TransacoesPage() {
     });
   }, [transacoes, grupoAtivo, corretoraFiltro, periodo, fonteFiltro, busca]);
 
-  // Totais dos filtrados
-  var totalEntradasBRL = 0;
-  var totalSaidasBRL = 0;
-  for (var i = 0; i < filtradas.length; i++) {
-    var t = filtradas[i];
-    if (t.moeda !== 'BRL') continue;
-    if (t.valor_signed >= 0) totalEntradasBRL += t.valor_signed;
-    else totalSaidasBRL += Math.abs(t.valor_signed);
-  }
-  var saldoLiquidoBRL = totalEntradasBRL - totalSaidasBRL;
-
   var grupos = useMemo(function () { return groupByDate(filtradas); }, [filtradas]);
 
   async function openEdit(t: Transacao) {
     if (!userId) return;
-    if (t.source_table !== 'operacoes' && t.source_table !== 'proventos' && t.source_table !== 'renda_fixa' && t.source_table !== 'fundos') return;
+    if (t.source_table !== 'operacoes' && t.source_table !== 'proventos' && t.source_table !== 'renda_fixa' && t.source_table !== 'fundos' && t.source_table !== 'caixa') return;
 
     setLoadingEdit(true);
     try {
-      if (t.source_table === 'operacoes') {
+      if (t.source_table === 'caixa') {
+        var resC = await supabase
+          .from('caixa')
+          .select('id, corretora, moeda, valor, data, descricao, created_at')
+          .eq('id', t.source_id)
+          .eq('user_id', userId)
+          .single();
+        if (resC.error || !resC.data) {
+          alert('Erro ao carregar caixa: ' + (resC.error ? resC.error.message : 'não encontrado'));
+          return;
+        }
+        var rc: any = resC.data;
+        setEditCaixaInit({
+          id: rc.id,
+          corretora: rc.corretora,
+          moeda: rc.moeda === 'USD' ? 'USD' : 'BRL',
+          valor: Number(rc.valor) || 0,
+          data: rc.data,
+          descricao: rc.descricao,
+          created_at: rc.created_at,
+        });
+        setEditCaixaOpen(true);
+      } else if (t.source_table === 'operacoes') {
         var res = await supabase
           .from('operacoes')
           .select('id, ticker, tipo, categoria, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, corretora, data, mercado, portfolio_id')
@@ -320,6 +338,7 @@ export default function TransacoesPage() {
     if (t.source_table === 'proventos') await qc.invalidateQueries({ queryKey: ['proventos'] });
     if (t.source_table === 'renda_fixa') await qc.invalidateQueries({ queryKey: ['renda_fixa'] });
     if (t.source_table === 'fundos') await qc.invalidateQueries({ queryKey: ['fundos'] });
+    if (t.source_table === 'caixa') await qc.invalidateQueries({ queryKey: ['caixa'] });
     await qc.invalidateQueries({ queryKey: ['saldos'] });
     await qc.invalidateQueries({ queryKey: ['positions'] });
   }
@@ -327,8 +346,8 @@ export default function TransacoesPage() {
   return (
     <div className="relative z-10 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 mb-6 anim-up">
-        <div>
+      <div className="flex items-start justify-between gap-4 mb-6 anim-up flex-wrap">
+        <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold mb-1">Transações</h1>
           <p className="text-xs text-white/40">
             Histórico unificado: operações, opções, proventos e renda fixa. Filtre por categoria, corretora ou período.
@@ -360,6 +379,7 @@ export default function TransacoesPage() {
               open={addFundoOpen}
               onOpenChange={setAddFundoOpen}
             />
+            <CaixaSheet userId={userId} />
           </div>
         ) : null}
       </div>
@@ -397,27 +417,18 @@ export default function TransacoesPage() {
           onOpenChange={function (v) { setEditFundoOpen(v); if (!v) setEditFundoInit(null); }}
         />
       ) : null}
+      {userId && editCaixaInit ? (
+        <CaixaSheet
+          userId={userId}
+          entry={editCaixaInit}
+          open={editCaixaOpen}
+          onOpenChange={function (v) { setEditCaixaOpen(v); if (!v) setEditCaixaInit(null); }}
+        />
+      ) : null}
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <div className="linear-card rounded-xl p-3 anim-up d1">
-          <p className="text-[10px] uppercase tracking-wider text-white/40 mb-0.5">Total</p>
-          <p className="text-base font-bold">{filtradas.length}</p>
-        </div>
-        <div className="linear-card rounded-xl p-3 anim-up d2">
-          <p className="text-[10px] uppercase tracking-wider text-white/40 mb-0.5">Entradas BRL</p>
-          <p className="text-base font-mono font-bold text-income">+R$ {totalEntradasBRL.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-        </div>
-        <div className="linear-card rounded-xl p-3 anim-up d3">
-          <p className="text-[10px] uppercase tracking-wider text-white/40 mb-0.5">Saídas BRL</p>
-          <p className="text-base font-mono font-bold text-danger">-R$ {totalSaidasBRL.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-        </div>
-        <div className="linear-card rounded-xl p-3 anim-up d4">
-          <p className="text-[10px] uppercase tracking-wider text-white/40 mb-0.5">Saldo líquido</p>
-          <p className={'text-base font-mono font-bold ' + (saldoLiquidoBRL >= 0 ? 'text-income' : 'text-danger')}>
-            {saldoLiquidoBRL >= 0 ? '+' : '-'}R$ {Math.abs(saldoLiquidoBRL).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </p>
-        </div>
+      {/* KPI — total de transacoes */}
+      <div className="mb-6 anim-up d1">
+        <p className="text-[10px] uppercase tracking-wider text-white/40 mb-0.5">{filtradas.length} transações</p>
       </div>
 
       {/* Filters row 1 — categoria chips */}
@@ -525,7 +536,7 @@ export default function TransacoesPage() {
                           {fmtValor(t.valor_signed, t.moeda)}
                         </span>
                         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
-                          {(t.source_table === 'operacoes' || t.source_table === 'proventos' || t.source_table === 'renda_fixa' || t.source_table === 'fundos') ? (
+                          {(t.source_table === 'operacoes' || t.source_table === 'proventos' || t.source_table === 'renda_fixa' || t.source_table === 'fundos' || t.source_table === 'caixa') ? (
                             <button
                               type="button"
                               onClick={function () { openEdit(t); }}
