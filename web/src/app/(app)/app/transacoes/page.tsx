@@ -15,6 +15,7 @@ import { AddProventoSheet, type ProventoInitial } from '@/components/AddProvento
 import { RendaFixaSheet, type RendaFixaInitial } from '@/components/RendaFixaSheet';
 import { FundoSheet, type FundoInitial } from '@/components/FundoSheet';
 import { CaixaSheet } from '@/components/CaixaSheet';
+import { TransferSheet } from '@/components/TransferSheet';
 import type { Caixa } from '@/store';
 import { Plus } from 'lucide-react';
 
@@ -99,6 +100,7 @@ function categoriaIcone(cat: string): string {
   if (cat === 'Caixa') return 'M21 12a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m0 0a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 9M3 9h18';
   if (cat === 'Split') return 'M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5';
   if (cat === 'Bonus') return 'M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z';
+  if (cat === 'Transferencia') return 'M7.5 7.5h-.75A2.25 2.25 0 004.5 9.75v7.5a2.25 2.25 0 002.25 2.25h7.5a2.25 2.25 0 002.25-2.25v-7.5a2.25 2.25 0 00-2.25-2.25h-.75m-6 3.75l3 3m0 0l3-3m-3 3V1.5';
   return 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z';
 }
 
@@ -118,6 +120,7 @@ function categoriaColor(cat: string): { bg: string; text: string } {
   if (cat === 'Caixa') return { bg: 'bg-orange-500/10', text: 'text-orange-300' };
   if (cat === 'Split') return { bg: 'bg-yellow-500/10', text: 'text-yellow-400' };
   if (cat === 'Bonus') return { bg: 'bg-amber-500/10', text: 'text-amber-400' };
+  if (cat === 'Transferencia') return { bg: 'bg-sky-500/10', text: 'text-sky-400' };
   return { bg: 'bg-white/[0.04]', text: 'text-white/60' };
 }
 
@@ -395,6 +398,7 @@ export default function TransacoesPage() {
               onOpenChange={setAddFundoOpen}
             />
             <CaixaSheet userId={userId} />
+            <TransferSheet userId={userId} />
           </div>
         ) : null}
       </div>

@@ -90,7 +90,7 @@ export function usePositions(userId: string | undefined) {
       if (!userId) return [];
       let q = supabase
         .from('operacoes')
-        .select('ticker, tipo, categoria, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, mercado, portfolio_id, corretora, ratio, data')
+        .select('ticker, tipo, categoria, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, mercado, portfolio_id, corretora, corretora_destino, ratio, data')
         .eq('user_id', userId);
 
       if (selectedPortfolio === '__null__') {
@@ -145,6 +145,7 @@ export function usePositions(userId: string | undefined) {
           pos.quantidade += op.quantidade;
           pos.pm = pos.quantidade > 0 ? novoCusto / pos.quantidade : 0;
         }
+        // Transferencia: qty e PM totais nao mudam — so move entre corretoras (tratado no por_corretora abaixo)
 
         // por_corretora bucket — mesmo algoritmo de PM, isolado por corretora
         // Normaliza igual ao mobile (.toUpperCase().trim()) pra evitar fragmentar
@@ -174,6 +175,22 @@ export function usePositions(userId: string | undefined) {
           const novoCustoC2 = custoAtualC2 + op.quantidade * (op.preco || 0);
           cBucket.quantidade += op.quantidade;
           cBucket.pm = cBucket.quantidade > 0 ? novoCustoC2 / cBucket.quantidade : 0;
+        } else if (op.tipo === 'transferencia' && op.corretora_destino) {
+          // Move qty da corretora origem para destino, mantendo PM
+          const transferQty = op.quantidade;
+          const transferPm = cBucket.pm; // PM da origem
+          // Subtrai da origem
+          cBucket.quantidade -= transferQty;
+          if (cBucket.quantidade <= 0) { cBucket.quantidade = 0; }
+          // Adiciona no destino
+          const destCorr = (op.corretora_destino || '').toString().toUpperCase().trim() || 'Sem corretora';
+          if (!corretoraMap[key]) corretoraMap[key] = {};
+          if (!corretoraMap[key][destCorr]) corretoraMap[key][destCorr] = { quantidade: 0, pm: 0 };
+          const destBucket = corretoraMap[key][destCorr];
+          const destCustoAtual = destBucket.pm * destBucket.quantidade;
+          const destNovoCusto = destCustoAtual + transferQty * transferPm;
+          destBucket.quantidade += transferQty;
+          destBucket.pm = destBucket.quantidade > 0 ? destNovoCusto / destBucket.quantidade : 0;
         }
       }
 
@@ -641,7 +658,7 @@ export function useTransacoes(userId: string | undefined) {
       const [opsRes, opcRes, provRes, rfRes, fundosRes, caixaRes] = await Promise.all([
         applyPortfolioFilter(
           supabase.from('operacoes')
-            .select('id, ticker, tipo, categoria, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, corretora, data, mercado, portfolio_id, ratio, fonte')
+            .select('id, ticker, tipo, categoria, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, corretora, corretora_destino, data, mercado, portfolio_id, ratio, fonte')
             .eq('user_id', userId),
         ).order('data', { ascending: false }).limit(1000),
         applyPortfolioFilter(
@@ -720,6 +737,23 @@ export function useTransacoes(userId: string | undefined) {
             moeda: moeda,
             corretora: r.corretora || null,
             fonte: r.fonte || 'auto',
+            portfolio_id: r.portfolio_id,
+          });
+        } else if (r.tipo === 'transferencia') {
+          out.push({
+            uid: 'operacao:' + r.id,
+            source_id: r.id,
+            source_table: 'operacoes',
+            tipo_key: 'operacao',
+            categoria_display: 'Transferencia',
+            data: r.data,
+            descricao: tk,
+            subtitulo: qty + ' un. ' + (r.corretora || '?') + ' → ' + (r.corretora_destino || '?'),
+            valor: 0,
+            valor_signed: 0,
+            moeda: moeda,
+            corretora: r.corretora || null,
+            fonte: r.fonte || 'manual',
             portfolio_id: r.portfolio_id,
           });
         } else {
