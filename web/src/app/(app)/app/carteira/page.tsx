@@ -51,6 +51,8 @@ var CLASS_LABELS: Record<string, string> = {
   reit: 'REITs',
   cripto: 'Cripto',
   rf: 'Renda Fixa',
+  fundo: 'Fundos',
+  caixa: 'Caixa',
 };
 
 var CLASS_COLORS: Record<string, string> = {
@@ -111,7 +113,21 @@ var SORT_OPTIONS: { key: string; label: string }[] = [
 function fmtMoney(v: number): string {
   if (!Number.isFinite(v)) return '-';
   if (Math.abs(v) >= 1_000) return Math.round(v).toLocaleString('pt-BR');
+  if (Math.abs(v) < 0.01 && v !== 0) return fmtQty(v);
   return v.toFixed(2).replace('.', ',');
+}
+
+// Formata quantidade detectando casas decimais necessarias (cripto: ate 8 casas)
+function fmtQty(v: number): string {
+  if (!Number.isFinite(v)) return '-';
+  if (v === 0) return '0';
+  var abs = Math.abs(v);
+  if (abs >= 1_000) return Math.round(v).toLocaleString('pt-BR');
+  if (abs >= 1) return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  // Valores pequenos (cripto) — mostrar ate 8 casas, cortando zeros finais
+  var s = v.toFixed(8);
+  s = s.replace(/0+$/, '').replace(/\.$/, '');
+  return s.replace('.', ',');
 }
 
 // ═══════ Heatmap helpers ═══════
@@ -889,6 +905,7 @@ function AtivosTab() {
   var proventos = useAppStore(function (s) { return s.proventos; });
   var rf = useAppStore(function (s) { return s.rf; });
   var fundosStore = useAppStore(function (s) { return s.fundos; });
+  var patrimonio = useAppStore(function (s) { return s.patrimonio; });
   var macro = useMacroIndices();
   var rfIdx = { cdi: macro.data ? macro.data.cdi : 14.65, ipca: macro.data ? macro.data.ipca_12m : 4.14 };
 
@@ -1079,6 +1096,7 @@ function AtivosTab() {
   var setFullscreen = _fullscreen[1];
 
   // Resumo por classe — subdivide INT em Stock/ETF/REIT/ADR/Cripto
+  // Inclui classes nao-operacao (caixa/rf/fundos) direto do patrimonio do store
   var classSummary = useMemo(function () {
     var map: Record<string, { valor: number; count: number }> = {};
     for (var i = 0; i < positions.length; i++) {
@@ -1091,10 +1109,20 @@ function AtivosTab() {
       map[cat].valor += p.valor_mercado != null ? p.valor_mercado : p.pm * p.quantidade;
       map[cat].count += 1;
     }
+    if (patrimonio.porClasse.rf > 0) {
+      map['rf'] = { valor: patrimonio.porClasse.rf, count: rf.length };
+    }
+    if (patrimonio.porClasse.fundo > 0) {
+      map['fundo'] = { valor: patrimonio.porClasse.fundo, count: fundosStore.length };
+    }
+    if (patrimonio.porClasse.caixa !== 0) {
+      // caixa vem do computePatrimonio (soma de caixa[] com conversao USD→BRL)
+      map['caixa'] = { valor: patrimonio.porClasse.caixa, count: 0 };
+    }
     return Object.entries(map)
       .map(function (e) { return { cat: e[0], valor: e[1].valor, count: e[1].count }; })
       .sort(function (a, b) { return b.valor - a.valor; });
-  }, [positions]);
+  }, [positions, patrimonio, rf.length, fundosStore.length]);
 
   if (positions.length === 0) {
     return (
@@ -1215,10 +1243,27 @@ function AtivosTab() {
         </Card>
 
         <Card title="Por Classe" icon="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75" className="d3 flex-1">
+          {/* Mini KPIs: Total / Investido / Caixa */}
+          <div className="grid grid-cols-3 gap-2 mb-3 pb-3 border-b border-white/[0.05]">
+            <div>
+              <p className="text-[9px] uppercase tracking-wider text-white/40 mb-0.5">Total</p>
+              <p className="text-[13px] font-mono font-semibold">R$ {fmtMoney(patrimonio.total)}</p>
+            </div>
+            <div>
+              <p className="text-[9px] uppercase tracking-wider text-white/40 mb-0.5">Investido</p>
+              <p className="text-[13px] font-mono font-semibold text-white/70">R$ {fmtMoney(patrimonio.investido)}</p>
+            </div>
+            <div>
+              <p className="text-[9px] uppercase tracking-wider text-white/40 mb-0.5">Caixa</p>
+              <p className="text-[13px] font-mono font-semibold text-orange-300">R$ {fmtMoney(patrimonio.porClasse.caixa)}</p>
+            </div>
+          </div>
           <div className="space-y-2">
             {classSummary.map(function (c) {
               var label = CLASS_LABELS[c.cat] || c.cat;
-              var pct = totalMercado > 0 ? (c.valor / totalMercado) * 100 : 0;
+              // denominador = soma de todas as classes (inclui caixa/rf/fundo)
+              var totalClasses = classSummary.reduce(function (s, it) { return s + it.valor; }, 0);
+              var pct = totalClasses > 0 ? (c.valor / totalClasses) * 100 : 0;
               return (
                 <div key={c.cat} className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-white/[0.02]">
                   <div className="flex items-center gap-2.5">
@@ -1360,7 +1405,7 @@ function AtivosTab() {
                             </div>
                           </div>
                         </td>
-                        <td className="py-3 px-3 text-right text-[13px] font-mono text-white/60">{fmtMoney(qty)}</td>
+                        <td className="py-3 px-3 text-right text-[13px] font-mono text-white/60">{fmtQty(qty)}</td>
                         <td className="py-3 px-3 text-right text-[13px] font-mono text-white/40">{moeda} {fmtMoney(pm)}</td>
                         <td className="py-3 px-3 text-right text-[13px] font-mono text-white/60">
                           {p.preco_atual != null ? moeda + ' ' + fmtMoney(p.preco_atual) : <span className="text-white/20">-</span>}
