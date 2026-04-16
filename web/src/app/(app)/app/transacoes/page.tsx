@@ -29,7 +29,7 @@ type CatFilter =
   | 'Opção CALL' | 'Opção PUT'
   | 'Dividendo' | 'JCP' | 'Rendimento'
   | 'Renda Fixa' | 'Fundo' | 'Caixa'
-  | 'Split' | 'Bonus' | 'Transferencia';
+  | 'Split' | 'Grupamento' | 'Bonus' | 'Transferencia';
 
 var CAT_GROUPS: Array<{ label: string; cats: CatFilter[] }> = [
   { label: 'Tudo', cats: ['todas'] },
@@ -46,7 +46,7 @@ var CAT_GROUPS: Array<{ label: string; cats: CatFilter[] }> = [
   { label: 'Renda Fixa', cats: ['Renda Fixa'] },
   { label: 'Fundos', cats: ['Fundo'] },
   { label: 'Caixa', cats: ['Caixa'] },
-  { label: 'Eventos', cats: ['Split', 'Bonus', 'Transferencia'] },
+  { label: 'Eventos', cats: ['Split', 'Grupamento', 'Bonus', 'Transferencia'] },
 ];
 
 type PeriodoFilter = 'tudo' | '30d' | '90d' | '365d' | 'ano';
@@ -101,6 +101,7 @@ function categoriaIcone(cat: string): string {
   if (cat === 'Renda Fixa' || cat === 'Fundo') return 'M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z';
   if (cat === 'Caixa') return 'M21 12a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m0 0a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 9M3 9h18';
   if (cat === 'Split') return 'M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5';
+  if (cat === 'Grupamento') return 'M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25';
   if (cat === 'Bonus') return 'M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z';
   if (cat === 'Transferencia') return 'M7.5 7.5h-.75A2.25 2.25 0 004.5 9.75v7.5a2.25 2.25 0 002.25 2.25h7.5a2.25 2.25 0 002.25-2.25v-7.5a2.25 2.25 0 00-2.25-2.25h-.75m-6 3.75l3 3m0 0l3-3m-3 3V1.5';
   return 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z';
@@ -121,6 +122,7 @@ function categoriaColor(cat: string): { bg: string; text: string } {
   if (cat === 'Fundo') return { bg: 'bg-purple-500/10', text: 'text-purple-300' };
   if (cat === 'Caixa') return { bg: 'bg-orange-500/10', text: 'text-orange-300' };
   if (cat === 'Split') return { bg: 'bg-yellow-500/10', text: 'text-yellow-400' };
+  if (cat === 'Grupamento') return { bg: 'bg-red-500/10', text: 'text-red-400' };
   if (cat === 'Bonus') return { bg: 'bg-amber-500/10', text: 'text-amber-400' };
   if (cat === 'Transferencia') return { bg: 'bg-sky-500/10', text: 'text-sky-400' };
   return { bg: 'bg-white/[0.04]', text: 'text-white/60' };

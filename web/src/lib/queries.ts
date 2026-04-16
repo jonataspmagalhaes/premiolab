@@ -717,15 +717,16 @@ export function useTransacoes(userId: string | undefined) {
           const mult = Number(parts[0]) / Number(parts[1] || 1);
           const depois = Math.round(antes * mult);
           posAccum[tk] = depois;
+          const isGrupamento = mult < 1;
           out.push({
             uid: 'operacao:' + r.id,
             source_id: r.id,
             source_table: 'operacoes',
             tipo_key: 'operacao',
-            categoria_display: 'Split',
+            categoria_display: isGrupamento ? 'Grupamento' : 'Split',
             data: r.data,
             descricao: tk,
-            subtitulo: antes + ' → ' + depois + ' acoes (' + (r.ratio || '') + ')',
+            subtitulo: (isGrupamento ? 'Grupamento ' : 'Desdobramento ') + antes + ' → ' + depois + ' acoes (' + (r.ratio || '') + ')',
             valor: 0,
             valor_signed: 0,
             moeda: moeda,
