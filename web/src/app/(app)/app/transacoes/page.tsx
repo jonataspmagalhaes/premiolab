@@ -28,7 +28,8 @@ type CatFilter =
   | 'Ação' | 'FII' | 'ETF' | 'Stock INT' | 'BDR' | 'ADR' | 'REIT' | 'Cripto'
   | 'Opção CALL' | 'Opção PUT'
   | 'Dividendo' | 'JCP' | 'Rendimento'
-  | 'Renda Fixa' | 'Fundo' | 'Caixa';
+  | 'Renda Fixa' | 'Fundo' | 'Caixa'
+  | 'Split' | 'Bonus' | 'Transferencia';
 
 var CAT_GROUPS: Array<{ label: string; cats: CatFilter[] }> = [
   { label: 'Tudo', cats: ['todas'] },
@@ -45,6 +46,7 @@ var CAT_GROUPS: Array<{ label: string; cats: CatFilter[] }> = [
   { label: 'Renda Fixa', cats: ['Renda Fixa'] },
   { label: 'Fundos', cats: ['Fundo'] },
   { label: 'Caixa', cats: ['Caixa'] },
+  { label: 'Eventos', cats: ['Split', 'Bonus', 'Transferencia'] },
 ];
 
 type PeriodoFilter = 'tudo' | '30d' | '90d' | '365d' | 'ano';
