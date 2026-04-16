@@ -10,3 +10,7 @@ ALTER TABLE operacoes ADD COLUMN IF NOT EXISTS fonte TEXT DEFAULT 'manual';
 
 COMMENT ON COLUMN operacoes.ratio IS 'Ratio do evento corporativo no formato X:Y. Ex: 2:1 (split), 10:1 (bonus 10%)';
 COMMENT ON COLUMN operacoes.fonte IS 'Origem: manual ou auto (detectado por cron)';
+
+-- Atualizar constraint de tipo para incluir novos valores
+ALTER TABLE operacoes DROP CONSTRAINT IF EXISTS operacoes_tipo_check;
+ALTER TABLE operacoes ADD CONSTRAINT operacoes_tipo_check CHECK (tipo IN ('compra', 'venda', 'desdobramento', 'bonificacao'));
