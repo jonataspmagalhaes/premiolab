@@ -90,7 +90,7 @@ export function usePositions(userId: string | undefined) {
       if (!userId) return [];
       let q = supabase
         .from('operacoes')
-        .select('ticker, tipo, categoria, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, mercado, portfolio_id, corretora')
+        .select('ticker, tipo, categoria, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, mercado, portfolio_id, corretora, ratio, data')
         .eq('user_id', userId);
 
       if (selectedPortfolio === '__null__') {
@@ -99,9 +99,10 @@ export function usePositions(userId: string | undefined) {
         q = q.eq('portfolio_id', selectedPortfolio);
       }
 
-      const { data: ops } = await q;
+      const { data: ops } = await q.order('data', { ascending: true });
 
       // Aggregate into positions (keyed by ticker+portfolio if showing all; else just ticker)
+      // Ordem cronologica e essencial para splits/bonus recalcularem PM corretamente
       // Em paralelo: por_corretora — sub-bucket de qty/pm por corretora
       const map: Record<string, Position> = {};
       const corretoraMap: Record<string, Record<string, { quantidade: number; pm: number }>> = {};
@@ -129,6 +130,20 @@ export function usePositions(userId: string | undefined) {
         } else if (op.tipo === 'venda') {
           pos.quantidade -= op.quantidade;
           if (pos.quantidade <= 0) { pos.quantidade = 0; pos.pm = 0; }
+        } else if (op.tipo === 'desdobramento' && op.ratio) {
+          // Split: ratio "X:Y" → multiplica qty por X/Y, divide PM por X/Y
+          const parts = op.ratio.split(':');
+          const mult = Number(parts[0]) / Number(parts[1] || 1);
+          if (mult > 0 && pos.quantidade > 0) {
+            pos.quantidade = pos.quantidade * mult;
+            pos.pm = pos.pm / mult;
+          }
+        } else if (op.tipo === 'bonificacao') {
+          // Bonus: recebe novas acoes ao preco declarado (op.preco = valor base IR)
+          const custoAtual = pos.pm * pos.quantidade;
+          const novoCusto = custoAtual + op.quantidade * (op.preco || 0);
+          pos.quantidade += op.quantidade;
+          pos.pm = pos.quantidade > 0 ? novoCusto / pos.quantidade : 0;
         }
 
         // por_corretora bucket — mesmo algoritmo de PM, isolado por corretora
@@ -147,6 +162,18 @@ export function usePositions(userId: string | undefined) {
         } else if (op.tipo === 'venda') {
           cBucket.quantidade -= op.quantidade;
           if (cBucket.quantidade <= 0) { cBucket.quantidade = 0; cBucket.pm = 0; }
+        } else if (op.tipo === 'desdobramento' && op.ratio) {
+          const partsC = op.ratio.split(':');
+          const multC = Number(partsC[0]) / Number(partsC[1] || 1);
+          if (multC > 0 && cBucket.quantidade > 0) {
+            cBucket.quantidade = cBucket.quantidade * multC;
+            cBucket.pm = cBucket.pm / multC;
+          }
+        } else if (op.tipo === 'bonificacao') {
+          const custoAtualC2 = cBucket.pm * cBucket.quantidade;
+          const novoCustoC2 = custoAtualC2 + op.quantidade * (op.preco || 0);
+          cBucket.quantidade += op.quantidade;
+          cBucket.pm = cBucket.quantidade > 0 ? novoCustoC2 / cBucket.quantidade : 0;
         }
       }
 
@@ -614,7 +641,7 @@ export function useTransacoes(userId: string | undefined) {
       const [opsRes, opcRes, provRes, rfRes, fundosRes, caixaRes] = await Promise.all([
         applyPortfolioFilter(
           supabase.from('operacoes')
-            .select('id, ticker, tipo, categoria, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, corretora, data, mercado, portfolio_id')
+            .select('id, ticker, tipo, categoria, quantidade, preco, custo_corretagem, custo_emolumentos, custo_impostos, corretora, data, mercado, portfolio_id, ratio, fonte')
             .eq('user_id', userId),
         ).order('data', { ascending: false }).limit(1000),
         applyPortfolioFilter(
@@ -656,24 +683,65 @@ export function useTransacoes(userId: string | undefined) {
         const qty = Number(r.quantidade) || 0;
         const preco = Number(r.preco) || 0;
         const custos = (Number(r.custo_corretagem) || 0) + (Number(r.custo_emolumentos) || 0) + (Number(r.custo_impostos) || 0);
-        const bruto = qty * preco;
-        const total = r.tipo === 'compra' ? -(bruto + custos) : (bruto - custos);
-        out.push({
-          uid: 'operacao:' + r.id,
-          source_id: r.id,
-          source_table: 'operacoes',
-          tipo_key: 'operacao',
-          categoria_display: catMap[r.categoria] || 'Ação',
-          data: r.data,
-          descricao: String(r.ticker || '').toUpperCase(),
-          subtitulo: (r.tipo === 'compra' ? 'Compra' : 'Venda') + ' ' + qty + ' × ' + (r.mercado === 'INT' ? 'US$' : 'R$') + ' ' + preco.toLocaleString(r.mercado === 'INT' ? 'en-US' : 'pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-          valor: Math.abs(total),
-          valor_signed: total,
-          moeda: r.mercado === 'INT' ? 'USD' : 'BRL',
-          corretora: r.corretora || null,
-          fonte: 'manual',
-          portfolio_id: r.portfolio_id,
-        });
+        const tk = String(r.ticker || '').toUpperCase();
+        const moeda = r.mercado === 'INT' ? 'USD' : 'BRL';
+        const moedaPrefix = r.mercado === 'INT' ? 'US$' : 'R$';
+
+        if (r.tipo === 'desdobramento') {
+          out.push({
+            uid: 'operacao:' + r.id,
+            source_id: r.id,
+            source_table: 'operacoes',
+            tipo_key: 'operacao',
+            categoria_display: 'Split',
+            data: r.data,
+            descricao: tk,
+            subtitulo: 'Desdobramento ' + (r.ratio || ''),
+            valor: 0,
+            valor_signed: 0,
+            moeda: moeda,
+            corretora: r.corretora || null,
+            fonte: r.fonte || 'auto',
+            portfolio_id: r.portfolio_id,
+          });
+        } else if (r.tipo === 'bonificacao') {
+          const totalBonus = qty * preco;
+          out.push({
+            uid: 'operacao:' + r.id,
+            source_id: r.id,
+            source_table: 'operacoes',
+            tipo_key: 'operacao',
+            categoria_display: 'Bonus',
+            data: r.data,
+            descricao: tk,
+            subtitulo: 'Bonificacao +' + qty + ' acoes a ' + moedaPrefix + ' ' + preco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            valor: totalBonus,
+            valor_signed: totalBonus,
+            moeda: moeda,
+            corretora: r.corretora || null,
+            fonte: r.fonte || 'auto',
+            portfolio_id: r.portfolio_id,
+          });
+        } else {
+          const bruto = qty * preco;
+          const total = r.tipo === 'compra' ? -(bruto + custos) : (bruto - custos);
+          out.push({
+            uid: 'operacao:' + r.id,
+            source_id: r.id,
+            source_table: 'operacoes',
+            tipo_key: 'operacao',
+            categoria_display: catMap[r.categoria] || 'Acao',
+            data: r.data,
+            descricao: tk,
+            subtitulo: (r.tipo === 'compra' ? 'Compra' : 'Venda') + ' ' + qty + ' x ' + moedaPrefix + ' ' + preco.toLocaleString(r.mercado === 'INT' ? 'en-US' : 'pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            valor: Math.abs(total),
+            valor_signed: total,
+            moeda: moeda,
+            corretora: r.corretora || null,
+            fonte: r.fonte || 'manual',
+            portfolio_id: r.portfolio_id,
+          });
+        }
       }
 
       // ── opcoes (abertura + fechamento quando houver) ──
