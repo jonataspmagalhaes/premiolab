@@ -12,6 +12,9 @@ import { TickerSearch } from '@/components/TickerSearch';
 import { Button } from '@/components/ui/button';
 import { getSupabaseBrowser } from '@/lib/supabase';
 import { useAppStore } from '@/store';
+import { InstituicaoPicker } from '@/components/InstituicaoPicker';
+import { ChipGroup } from '@/components/ChipGroup';
+import { canonicalName, isKnownInstituicao } from '@/lib/instituicoes';
 import { useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 
@@ -64,7 +67,6 @@ interface Props {
 export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpenChange }: Props) {
   var portfolios = useAppStore(function (s) { return s.portfolios; });
   var selectedPortfolio = useAppStore(function (s) { return s.selectedPortfolio; });
-  var saldos = useAppStore(function (s) { return s.saldos; });
   var qc = useQueryClient();
 
   // Modo controlado (edit) vs nao-controlado (create)
@@ -99,14 +101,6 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
   // Mercado derivado
   var mercado: 'BR' | 'INT' | 'CRIPTO' = mercadoDe(categoria);
 
-  // Filtra contas por moeda do mercado (BR = BRL, INT = USD, CRIPTO = qualquer)
-  var contasDisponiveis = saldos.filter(function (s) {
-    var m = s.moeda || 'BRL';
-    if (mercado === 'INT') return m === 'USD';
-    if (mercado === 'CRIPTO') return m === 'BRL' || m === 'USD';
-    return m === 'BRL';
-  });
-
   async function submit() {
     if (!userId) { setErr('Sessão inválida'); return; }
     var tk = ticker.trim().toUpperCase();
@@ -125,7 +119,12 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
     if (!p || p <= 0) { setErr('Preço inválido'); return; }
     if (c < 0) { setErr('Custos não podem ser negativos'); return; }
     if (!data) { setErr('Data obrigatória'); return; }
-    if (!corretora) { setErr('Selecione uma corretora (cadastre em Caixa se necessário)'); return; }
+    var corrCanon = canonicalName(corretora);
+    if (!corrCanon) { setErr('Informe a corretora'); return; }
+    if (!isKnownInstituicao(corrCanon)) {
+      setErr('Corretora não reconhecida. Selecione da lista ou fale com o suporte pra incluir.');
+      return;
+    }
 
     setSubmitting(true); setErr(null);
     try {
@@ -139,7 +138,7 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
         custo_corretagem: c,
         custo_emolumentos: 0,
         custo_impostos: 0,
-        corretora: corretora,
+        corretora: corrCanon,
         data: data,
         mercado: mercado,
         portfolio_id: pf === '__null__' ? null : pf,
@@ -204,88 +203,32 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
 
         <div className="px-4 py-5 space-y-4">
           <Field label="Tipo">
-            <div className="flex gap-1.5">
-              {(['compra', 'venda'] as TipoOp[]).map(function (t) {
-                var active = tipo === t;
-                var color = t === 'compra' ? 'bg-info/20 text-info border-info/40' : 'bg-income/20 text-income border-income/40';
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={function () { setTipo(t); }}
-                    className={'flex-1 px-2.5 py-1.5 rounded-md text-[12px] font-medium transition capitalize ' +
-                      (active ? color : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
-                  >
-                    {t}
-                  </button>
-                );
-              })}
-            </div>
+            <ChipGroup<TipoOp>
+              value={tipo}
+              onChange={setTipo}
+              options={[
+                { value: 'compra', label: 'Compra', color: 'blue' },
+                { value: 'venda', label: 'Venda', color: 'green' },
+              ]}
+            />
           </Field>
 
           <Field label="Categoria">
-            <div className="space-y-1.5">
-              <div className="text-[9px] uppercase tracking-wider text-white/25 font-mono">Brasil</div>
-              <div className="grid grid-cols-4 gap-1.5">
-                {([
-                  { v: 'acao', l: 'Ação' },
-                  { v: 'fii', l: 'FII' },
-                  { v: 'etf', l: 'ETF BR' },
-                  { v: 'bdr', l: 'BDR' },
-                ] as Array<{ v: Categoria; l: string }>).map(function (c) {
-                  var active = categoria === c.v;
-                  return (
-                    <button
-                      key={c.v}
-                      type="button"
-                      onClick={function () { setCategoria(c.v); setCorretora(''); setTicker(''); }}
-                      className={'px-2 py-1.5 rounded-md text-[11px] font-medium transition ' +
-                        (active ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
-                    >
-                      {c.l}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="text-[9px] uppercase tracking-wider text-white/25 font-mono mt-2">Internacional</div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {([
-                  { v: 'stock_int', l: 'Stock' },
-                  { v: 'adr', l: 'ADR' },
-                  { v: 'reit', l: 'REIT' },
-                ] as Array<{ v: Categoria; l: string }>).map(function (c) {
-                  var active = categoria === c.v;
-                  return (
-                    <button
-                      key={c.v}
-                      type="button"
-                      onClick={function () { setCategoria(c.v); setCorretora(''); setTicker(''); }}
-                      className={'px-2 py-1.5 rounded-md text-[11px] font-medium transition ' +
-                        (active ? 'bg-stock-int/20 text-stock-int border border-stock-int/40' : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
-                    >
-                      {c.l}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="text-[9px] uppercase tracking-wider text-white/25 font-mono mt-2">Cripto</div>
-              <div className="grid grid-cols-1 gap-1.5">
-                {(['cripto'] as Categoria[]).map(function (c) {
-                  var active = categoria === c;
-                  return (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={function () { setCategoria(c); setCorretora(''); setTicker(''); }}
-                      className={'px-2 py-1.5 rounded-md text-[11px] font-medium transition ' +
-                        (active ? 'bg-pink-500/20 text-pink-300 border border-pink-500/40' : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
-                    >
-                      Criptomoeda
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            <ChipGroup<Categoria>
+              value={categoria}
+              onChange={function (v) { setCategoria(v); setCorretora(''); setTicker(''); }}
+              cols={4}
+              options={[
+                { value: 'acao', label: 'Ação', color: 'orange' },
+                { value: 'fii', label: 'FII', color: 'green' },
+                { value: 'etf', label: 'ETF BR', color: 'yellow' },
+                { value: 'bdr', label: 'BDR', color: 'pink' },
+                { value: 'stock_int', label: 'Stock INT', color: 'purple' },
+                { value: 'adr', label: 'ADR', color: 'purple' },
+                { value: 'reit', label: 'REIT', color: 'blue' },
+                { value: 'cripto', label: 'Cripto', color: 'pink' },
+              ]}
+            />
           </Field>
 
           <Field label="Ticker">
@@ -376,23 +319,13 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
             );
           })()}
 
-          <Field label={'Corretora (' + mercado + ')'}>
-            {contasDisponiveis.length === 0 ? (
-              <div className="rounded-md bg-orange-500/10 border border-orange-500/30 px-3 py-2 text-[11px] text-orange-300">
-                Nenhuma conta {mercado === 'INT' ? 'USD' : 'BRL'} cadastrada. Vá em <span className="font-mono">Caixa → Nova conta</span> para cadastrar.
-              </div>
-            ) : (
-              <select
-                value={corretora}
-                onChange={function (e) { setCorretora(e.target.value); }}
-                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
-              >
-                <option value="">— selecione —</option>
-                {contasDisponiveis.map(function (s) {
-                  return <option key={s.id || s.name} value={s.name}>{s.name}</option>;
-                })}
-              </select>
-            )}
+          <Field label="Corretora">
+            <InstituicaoPicker
+              value={corretora}
+              onChange={setCorretora}
+              placeholder="Busque a corretora…"
+              filterTipo={mercado === 'CRIPTO' ? ['corretora', 'cripto'] : ['corretora', 'banco']}
+            />
           </Field>
 
           {portfolios.length > 0 ? (
@@ -400,7 +333,7 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
               <select
                 value={pf}
                 onChange={function (e) { setPf(e.target.value); }}
-                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
+                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-[6px] px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
               >
                 <option value="__null__">Padrão</option>
                 {portfolios.map(function (p) {

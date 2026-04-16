@@ -85,6 +85,7 @@ export var INSTITUICOES: Instituicao[] = [
   { nome: 'Trading 212', tipo: 'corretora', pais: 'INT' },
   { nome: 'Revolut', tipo: 'banco', pais: 'INT' },
   { nome: 'Wise', tipo: 'banco', pais: 'INT', aliases: ['TransferWise'] },
+  { nome: 'HSBC Expat', tipo: 'banco', pais: 'INT', aliases: ['HSBC'] },
 
   // ───── Bancos US ─────
   { nome: 'Chase', tipo: 'banco', pais: 'US', aliases: ['JP Morgan'] },
@@ -162,6 +163,23 @@ export function canonicalName(input: string): string {
     }
   }
   return input.trim().replace(/\s+/g, ' ');
+}
+
+// True se input bate com alguma instituicao curada (nome ou alias).
+// Usado pra recusar cadastro de nomes desconhecidos — user deve contatar suporte.
+export function isKnownInstituicao(input: string): boolean {
+  var n = normalize(input);
+  if (!n) return false;
+  for (var i = 0; i < INSTITUICOES.length; i++) {
+    var inst = INSTITUICOES[i];
+    if (normalize(inst.nome) === n) return true;
+    if (inst.aliases) {
+      for (var j = 0; j < inst.aliases.length; j++) {
+        if (normalize(inst.aliases[j]) === n) return true;
+      }
+    }
+  }
+  return false;
 }
 
 export function tipoLabel(t: InstituicaoTipo): string {

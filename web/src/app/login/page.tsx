@@ -4,6 +4,8 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getSupabaseBrowser } from '@/lib/supabase';
+import { LogoMark } from '@/components/Logo';
+import { BackgroundEffects } from '@/components/BackgroundEffects';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -27,55 +29,61 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-4">
-      <div className="glass p-8 w-full max-w-md">
-        <Link href="/" className="text-sm text-secondary hover:text-primary">
-          ← Voltar
+    <main className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden">
+      <BackgroundEffects />
+
+      <div className="linear-card rounded-2xl p-8 w-full max-w-md relative z-10">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-[12px] text-white/40 hover:text-white/70 transition mb-6">
+          <span>←</span>
+          <span>Voltar</span>
         </Link>
-        <h1 className="font-display font-extrabold text-3xl mt-4 mb-2">Entrar</h1>
-        <p className="text-sm text-secondary mb-6">Use a mesma conta do app mobile.</p>
+
+        <div className="flex items-center gap-2.5 mb-6">
+          <LogoMark size={32} />
+          <span className="text-[16px] font-semibold tracking-tight">Premio<span className="text-orange-400">Lab</span></span>
+        </div>
+
+        <h1 className="font-display font-bold text-2xl mb-1">Entrar</h1>
+        <p className="text-[12px] text-white/40 mb-6">Use a mesma conta do app mobile.</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="text-xs text-muted font-mono uppercase">Email</label>
+            <label className="block text-[10px] uppercase tracking-wider text-white/40 font-mono mb-1.5">Email</label>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full mt-1 px-3 py-3 rounded-md bg-surface2 text-primary border border-white/5 focus:border-accent outline-none"
+              className="w-full h-10 appearance-none px-3 rounded-[6px] bg-white/[0.03] text-white text-[13px] border border-white/[0.08] focus:border-orange-500/40 outline-none transition [-webkit-appearance:none]"
               placeholder="seu@email.com"
             />
           </div>
           <div>
-            <label className="text-xs text-muted font-mono uppercase">Senha</label>
+            <label className="block text-[10px] uppercase tracking-wider text-white/40 font-mono mb-1.5">Senha</label>
             <input
               type="password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full mt-1 px-3 py-3 rounded-md bg-surface2 text-primary border border-white/5 focus:border-accent outline-none"
+              className="w-full h-10 appearance-none px-3 rounded-[6px] bg-white/[0.03] text-white text-[13px] border border-white/[0.08] focus:border-orange-500/40 outline-none transition [-webkit-appearance:none]"
               placeholder="••••••••"
             />
           </div>
 
-          {error ? <p className="text-sm text-danger">{error}</p> : null}
+          {error ? (
+            <div className="rounded-md bg-red-500/10 border border-red-500/30 px-3 py-2 text-[12px] text-red-300">
+              {error}
+            </div>
+          ) : null}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 rounded-md bg-income text-bg font-display font-bold hover:opacity-90 disabled:opacity-50 transition"
+            className="w-full h-10 rounded-[6px] bg-orange-500 hover:bg-orange-600 text-black font-semibold text-[13px] disabled:opacity-50 transition"
           >
             {loading ? 'Entrando...' : 'Entrar'}
           </button>
         </form>
-
-        <div className="mt-6 text-center text-sm text-secondary">
-          Não tem conta?{' '}
-          <Link href="/assinar" className="text-income hover:underline">
-            Assinar agora
-          </Link>
-        </div>
       </div>
     </main>
   );

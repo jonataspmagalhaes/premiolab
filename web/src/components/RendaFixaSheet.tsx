@@ -9,7 +9,9 @@ import { Input } from '@/components/ui/input';
 import { MoneyInput, parseMoneyValue } from '@/components/MoneyInput';
 import { Button } from '@/components/ui/button';
 import { getSupabaseBrowser } from '@/lib/supabase';
-import { useAppStore } from '@/store';
+import { InstituicaoPicker } from '@/components/InstituicaoPicker';
+import { ChipGroup } from '@/components/ChipGroup';
+import { canonicalName, isKnownInstituicao } from '@/lib/instituicoes';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { projetarRF } from '@/lib/rendaFixaCalc';
@@ -57,12 +59,9 @@ interface Props {
 }
 
 export function RendaFixaSheet({ userId, initial, open: openProp, onOpenChange }: Props) {
-  var saldos = useAppStore(function (s) { return s.saldos; });
   var qc = useQueryClient();
   var macro = useMacroIndices();
   var idx = { cdi: macro.data ? macro.data.cdi : 14.65, ipca: macro.data ? macro.data.ipca_12m : 4.14 };
-
-  var contasBRL = saldos.filter(function (s) { return (s.moeda || 'BRL') === 'BRL'; });
 
   var isEdit = !!initial;
   var _openUncontrolled = useState(false);
@@ -140,7 +139,12 @@ export function RendaFixaSheet({ userId, initial, open: openProp, onOpenChange }
     if (!userId) { setErr('Sessão inválida'); return; }
     if (modo === 'td' && !tdNome) { setErr('Selecione um título do Tesouro'); return; }
     if (modo === 'privada' && !emissor.trim()) { setErr('Emissor obrigatório'); return; }
-    if (!corretora) { setErr('Selecione a corretora'); return; }
+    var corrCanon = canonicalName(corretora);
+    if (!corrCanon) { setErr('Selecione a corretora'); return; }
+    if (!isKnownInstituicao(corrCanon)) {
+      setErr('Corretora não reconhecida. Selecione da lista ou fale com o suporte pra incluir.');
+      return;
+    }
 
     var valorN = parseMoneyValue(valor);
     if (valorN === null || valorN <= 0) { setErr('Valor aplicado inválido'); return; }
@@ -158,7 +162,7 @@ export function RendaFixaSheet({ userId, initial, open: openProp, onOpenChange }
         indexador: currentIndexador(),
         valor_aplicado: valorN,
         vencimento: vencimento,
-        corretora: corretora,
+        corretora: corrCanon,
       };
 
       var result;
@@ -232,25 +236,14 @@ export function RendaFixaSheet({ userId, initial, open: openProp, onOpenChange }
 
         <div className="px-4 py-5 space-y-4">
           <Field label="Modo">
-            <div className="flex gap-1.5">
-              {([
-                { v: 'td', l: 'Tesouro Direto' },
-                { v: 'privada', l: 'RF Privada' },
-              ] as Array<{ v: 'td' | 'privada'; l: string }>).map(function (m) {
-                var active = modo === m.v;
-                return (
-                  <button
-                    key={m.v}
-                    type="button"
-                    onClick={function () { setModo(m.v); }}
-                    className={'flex-1 px-2.5 py-1.5 rounded-md text-[12px] font-medium transition ' +
-                      (active ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
-                  >
-                    {m.l}
-                  </button>
-                );
-              })}
-            </div>
+            <ChipGroup<'td' | 'privada'>
+              value={modo}
+              onChange={setModo}
+              options={[
+                { value: 'td', label: 'Tesouro Direto' },
+                { value: 'privada', label: 'RF Privada' },
+              ]}
+            />
           </Field>
 
           {modo === 'td' ? (
@@ -265,7 +258,7 @@ export function RendaFixaSheet({ userId, initial, open: openProp, onOpenChange }
                 <select
                   value={tdNome}
                   onChange={function (e) { setTdNome(e.target.value); setTaxa(''); setVencimento(''); }}
-                  className="w-full bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
+                  className="w-full bg-white/[0.03] border border-white/[0.08] rounded-[6px] px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
                 >
                   <option value="">— selecione —</option>
                   {titulos.map(function (t) {
@@ -281,7 +274,7 @@ export function RendaFixaSheet({ userId, initial, open: openProp, onOpenChange }
                   <select
                     value={tipoPriv}
                     onChange={function (e) { setTipoPriv(e.target.value as TipoRF); }}
-                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
+                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-[6px] px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
                   >
                     <optgroup label="Bancário">
                       <option value="cdb">CDB</option>
@@ -305,7 +298,7 @@ export function RendaFixaSheet({ userId, initial, open: openProp, onOpenChange }
                   <select
                     value={indexadorPriv}
                     onChange={function (e) { setIndexadorPriv(e.target.value as Indexador); }}
-                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
+                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-[6px] px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
                   >
                     <option value="pre">Pré-fixado</option>
                     <option value="cdi">% do CDI</option>
@@ -325,9 +318,9 @@ export function RendaFixaSheet({ userId, initial, open: openProp, onOpenChange }
 
           <div className="grid grid-cols-2 gap-3">
             <Field label={
-              currentIndexador() === 'cdi' ? 'Taxa (% do CDI)' :
-              currentIndexador() === 'ipca' ? 'Juros real (% acima do IPCA)' :
-              currentIndexador() === 'selic' ? 'Spread sobre Selic (% a.a.)' :
+              currentIndexador() === 'cdi' ? 'Taxa (% CDI)' :
+              currentIndexador() === 'ipca' ? 'Juros real (IPCA +)' :
+              currentIndexador() === 'selic' ? 'Spread Selic (%)' :
               'Taxa (% a.a.)'
             }>
               <Input
@@ -356,22 +349,12 @@ export function RendaFixaSheet({ userId, initial, open: openProp, onOpenChange }
           </Field>
 
           <Field label="Corretora">
-            {contasBRL.length === 0 ? (
-              <div className="rounded-md bg-orange-500/10 border border-orange-500/30 px-3 py-2 text-[11px] text-orange-300">
-                Nenhuma conta BRL. Cadastre em Caixa primeiro.
-              </div>
-            ) : (
-              <select
-                value={corretora}
-                onChange={function (e) { setCorretora(e.target.value); }}
-                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
-              >
-                <option value="">— selecione —</option>
-                {contasBRL.map(function (s) {
-                  return <option key={s.id || s.name} value={s.name}>{s.name}</option>;
-                })}
-              </select>
-            )}
+            <InstituicaoPicker
+              value={corretora}
+              onChange={setCorretora}
+              placeholder="Busque a corretora…"
+              filterTipo={['corretora', 'banco']}
+            />
           </Field>
 
           {/* Projeção */}

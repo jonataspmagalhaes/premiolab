@@ -123,6 +123,26 @@ export interface ProjecaoRF {
   rentabLiquidaPct: number;
 }
 
+// Valor marcado a mercado (MTM) hoje — composicao de juros desde a aplicacao.
+// Se dataAplicacao eh hoje/futura, retorna o valor aplicado original.
+export function valorAtualRF(opts: {
+  tipo: TipoRF;
+  taxaDigitada: number;
+  valorAplicado: number;
+  dataAplicacaoISO: string;
+  idx?: MacroIdx;
+  indexador?: Indexador;
+}): number {
+  var pv = opts.valorAplicado;
+  if (!pv || pv <= 0) return 0;
+  var hojeISO = new Date().toISOString().slice(0, 10);
+  var anos = anosEntre(opts.dataAplicacaoISO, hojeISO);
+  if (anos <= 0) return pv;
+  var teff = taxaEfetivaAA(opts.tipo, opts.taxaDigitada, opts.idx, opts.indexador);
+  var r = teff / 100;
+  return pv * Math.pow(1 + r, anos);
+}
+
 export function projetarRF(opts: {
   tipo: TipoRF;
   taxaDigitada: number;      // % a.a.

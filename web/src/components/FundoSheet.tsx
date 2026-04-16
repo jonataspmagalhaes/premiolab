@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button';
 import { FundoSearch, type FundoHit } from '@/components/FundoSearch';
 import { getSupabaseBrowser } from '@/lib/supabase';
 import { useAppStore } from '@/store';
+import { InstituicaoPicker } from '@/components/InstituicaoPicker';
+import { canonicalName, isKnownInstituicao } from '@/lib/instituicoes';
 import { useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 
@@ -52,11 +54,9 @@ interface Props {
 }
 
 export function FundoSheet({ userId, initial, open: openProp, onOpenChange }: Props) {
-  var saldos = useAppStore(function (s) { return s.saldos; });
   var portfolios = useAppStore(function (s) { return s.portfolios; });
   var selectedPortfolio = useAppStore(function (s) { return s.selectedPortfolio; });
   var qc = useQueryClient();
-  var contasBRL = saldos.filter(function (s) { return (s.moeda || 'BRL') === 'BRL'; });
 
   var isEdit = !!initial;
   var _openUncontrolled = useState(false);
@@ -91,7 +91,12 @@ export function FundoSheet({ userId, initial, open: openProp, onOpenChange }: Pr
     var v = parseMoneyValue(valor);
     if (v == null || v <= 0) { setErr('Valor aplicado inválido'); return; }
     if (!data) { setErr('Data obrigatória'); return; }
-    if (!corretora) { setErr('Selecione a corretora'); return; }
+    var corrCanon = canonicalName(corretora);
+    if (!corrCanon) { setErr('Selecione a corretora'); return; }
+    if (!isKnownInstituicao(corrCanon)) {
+      setErr('Corretora não reconhecida. Selecione da lista ou fale com o suporte pra incluir.');
+      return;
+    }
 
     var qC = qtdCotas ? parseFloat(qtdCotas.replace(',', '.')) : null;
     var vC = valorCota ? parseMoneyValue(valorCota) : null;
@@ -108,7 +113,7 @@ export function FundoSheet({ userId, initial, open: openProp, onOpenChange }: Pr
         qtde_cotas: qC,
         valor_cota_compra: vC,
         data_aplicacao: data,
-        corretora: corretora,
+        corretora: corrCanon,
         taxa_admin: tAdm,
         portfolio_id: pf === '__null__' ? null : pf,
       };
@@ -182,7 +187,7 @@ export function FundoSheet({ userId, initial, open: openProp, onOpenChange }: Pr
             <select
               value={classe}
               onChange={function (e) { setClasse(e.target.value as ClasseFundo); }}
-              className="w-full bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
+              className="w-full bg-white/[0.03] border border-white/[0.08] rounded-[6px] px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
             >
               <option value="renda_fixa">Renda Fixa</option>
               <option value="multimercado">Multimercado</option>
@@ -227,22 +232,12 @@ export function FundoSheet({ userId, initial, open: openProp, onOpenChange }: Pr
           </Field>
 
           <Field label="Corretora">
-            {contasBRL.length === 0 ? (
-              <div className="rounded-md bg-orange-500/10 border border-orange-500/30 px-3 py-2 text-[11px] text-orange-300">
-                Nenhuma conta BRL. Cadastre em Caixa primeiro.
-              </div>
-            ) : (
-              <select
-                value={corretora}
-                onChange={function (e) { setCorretora(e.target.value); }}
-                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
-              >
-                <option value="">— selecione —</option>
-                {contasBRL.map(function (s) {
-                  return <option key={s.id || s.name} value={s.name}>{s.name}</option>;
-                })}
-              </select>
-            )}
+            <InstituicaoPicker
+              value={corretora}
+              onChange={setCorretora}
+              placeholder="Busque a corretora…"
+              filterTipo={['corretora', 'banco']}
+            />
           </Field>
 
           {portfolios.length > 0 ? (
@@ -250,7 +245,7 @@ export function FundoSheet({ userId, initial, open: openProp, onOpenChange }: Pr
               <select
                 value={pf}
                 onChange={function (e) { setPf(e.target.value); }}
-                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
+                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-[6px] px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
               >
                 <option value="__null__">Padrão</option>
                 {portfolios.map(function (p) {

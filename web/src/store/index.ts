@@ -75,6 +75,7 @@ export interface RendaFixa {
   corretora?: string | null;
   created_at?: string;       // proxy de data de aplicacao p/ MTM
   portfolio_id?: string | null;
+  valor_mtm?: number;        // marcacao a mercado (composicao de juros ate hoje)
 }
 
 export interface Fundo {
@@ -91,6 +92,8 @@ export interface Fundo {
   taxa_perf?: number | null;
   portfolio_id?: string | null;
   created_at?: string;
+  valor_mtm?: number;        // qtde_cotas × cota atual via DadosDeMercado
+  cota_atual?: number;
 }
 
 export interface Saldo {
@@ -99,6 +102,16 @@ export interface Saldo {
   saldo: number;
   tipo?: string;
   moeda?: string;
+}
+
+export interface Caixa {
+  id: string;
+  corretora: string;
+  moeda: 'BRL' | 'USD';
+  valor: number;           // pode ser negativo (saida)
+  data: string;            // ISO date
+  descricao?: string | null;
+  created_at?: string;
 }
 
 export interface Profile {
@@ -143,7 +156,9 @@ interface AppState {
   opcoes: Opcao[];
   rf: RendaFixa[];
   fundos: Fundo[];
-  saldos: Saldo[];
+  saldos: Saldo[];         // legado — nao usado em patrimonio; mantido ate mobile sair
+  caixa: Caixa[];
+  usdBrl: number;          // cotacao USD→BRL do ultimo fetch de precos (0 se nao fetchou)
   profile: Profile | null;
   portfolios: Portfolio[];
 
@@ -159,6 +174,8 @@ interface AppState {
   setRf: (r: RendaFixa[]) => void;
   setFundos: (f: Fundo[]) => void;
   setSaldos: (s: Saldo[]) => void;
+  setCaixa: (c: Caixa[]) => void;
+  setUsdBrl: (rate: number) => void;
   setProfile: (p: Profile) => void;
   setPortfolios: (p: Portfolio[]) => void;
 
@@ -195,7 +212,7 @@ function persistSelectedPortfolio(p: string | null) {
   }
 }
 
-function computePatrimonio(positions: Position[], rf: RendaFixa[], saldos: Saldo[], fundos: Fundo[]): PatrimonioSlice {
+function computePatrimonio(positions: Position[], rf: RendaFixa[], caixa: Caixa[], fundos: Fundo[], usdBrl: number): PatrimonioSlice {
   const porClasse = {
     fii: 0, acao: 0, etf: 0, stock_int: 0,
     bdr: 0, adr: 0, reit: 0, cripto: 0,
@@ -213,16 +230,24 @@ function computePatrimonio(positions: Position[], rf: RendaFixa[], saldos: Saldo
     }
   }
 
+  // RF: prefere MTM (juros acumulados ate hoje) se disponivel
   for (const r of rf) {
-    porClasse.rf += r.valor_aplicado || 0;
+    porClasse.rf += (r.valor_mtm != null ? r.valor_mtm : r.valor_aplicado) || 0;
   }
 
+  // Fundos: prefere MTM (qtde_cotas × cota atual) se disponivel
   for (const f of fundos) {
-    porClasse.fundo += f.valor_aplicado || 0;
+    porClasse.fundo += (f.valor_mtm != null ? f.valor_mtm : f.valor_aplicado) || 0;
   }
 
-  for (const s of saldos) {
-    porClasse.caixa += s.saldo || 0;
+  // Caixa: soma entradas +/- por moeda, converte USD via usdBrl (0 = sem cotacao ainda)
+  for (const c of caixa) {
+    const v = Number(c.valor) || 0;
+    if (c.moeda === 'USD') {
+      porClasse.caixa += usdBrl > 0 ? v * usdBrl : 0;
+    } else {
+      porClasse.caixa += v;
+    }
   }
 
   const total = Object.values(porClasse).reduce((a, b) => a + b, 0);
@@ -275,6 +300,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   rf: [],
   fundos: [],
   saldos: [],
+  caixa: [],
+  usdBrl: 0,
   profile: null,
   portfolios: [],
 
@@ -293,7 +320,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setPositions: (p) => {
     set({ positions: p });
     const state = get();
-    set({ patrimonio: computePatrimonio(p, state.rf, state.saldos, state.fundos) });
+    set({ patrimonio: computePatrimonio(p, state.rf, state.caixa, state.fundos, state.usdBrl) });
   },
 
   setProventos: (p) => {
@@ -306,19 +333,30 @@ export const useAppStore = create<AppState>((set, get) => ({
   setRf: (r) => {
     set({ rf: r });
     const state = get();
-    set({ patrimonio: computePatrimonio(state.positions, r, state.saldos, state.fundos) });
+    set({ patrimonio: computePatrimonio(state.positions, r, state.caixa, state.fundos, state.usdBrl) });
   },
 
   setFundos: (f) => {
     set({ fundos: f });
     const state = get();
-    set({ patrimonio: computePatrimonio(state.positions, state.rf, state.saldos, f) });
+    set({ patrimonio: computePatrimonio(state.positions, state.rf, state.caixa, f, state.usdBrl) });
   },
 
   setSaldos: (s) => {
+    // legado — nao recomputa patrimonio
     set({ saldos: s });
+  },
+
+  setCaixa: (c) => {
+    set({ caixa: c });
     const state = get();
-    set({ patrimonio: computePatrimonio(state.positions, state.rf, s, state.fundos) });
+    set({ patrimonio: computePatrimonio(state.positions, state.rf, c, state.fundos, state.usdBrl) });
+  },
+
+  setUsdBrl: (rate) => {
+    set({ usdBrl: rate });
+    const state = get();
+    set({ patrimonio: computePatrimonio(state.positions, state.rf, state.caixa, state.fundos, rate) });
   },
 
   setProfile: (p) => set({ profile: p }),

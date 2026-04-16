@@ -10,6 +10,9 @@ import { getSupabaseBrowser } from '@/lib/supabase';
 
 const supabase = getSupabaseBrowser();
 import { useAppStore } from '@/store';
+import { InstituicaoPicker } from '@/components/InstituicaoPicker';
+import { ChipGroup } from '@/components/ChipGroup';
+import { canonicalName, isKnownInstituicao } from '@/lib/instituicoes';
 import { useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 
@@ -36,11 +39,7 @@ interface Props {
 export function AddProventoSheet({ userId, initial, open: openProp, onOpenChange }: Props) {
   var portfolios = useAppStore(function (s) { return s.portfolios; });
   var selectedPortfolio = useAppStore(function (s) { return s.selectedPortfolio; });
-  var saldos = useAppStore(function (s) { return s.saldos; });
   var qc = useQueryClient();
-
-  // Contas BRL (proventos BR sempre BRL)
-  var contasBRL = saldos.filter(function (s) { return (s.moeda || 'BRL') === 'BRL'; });
 
   var isEdit = !!initial;
   var _openUncontrolled = useState(false);
@@ -83,6 +82,12 @@ export function AddProventoSheet({ userId, initial, open: openProp, onOpenChange
     if (dataDate > umAnoFuturo) { setErr('Data muito no futuro (> 1 ano). Confira.'); return; }
     if (dataDate < cincoAnosPassado) { setErr('Data muito antiga (> 5 anos). Confira.'); return; }
 
+    var corrCanon = corretora ? canonicalName(corretora) : '';
+    if (corrCanon && !isKnownInstituicao(corrCanon)) {
+      setErr('Corretora não reconhecida. Selecione da lista ou fale com o suporte pra incluir.');
+      return;
+    }
+
     setSubmitting(true); setErr(null);
     try {
       var payload: Record<string, unknown> = {
@@ -93,7 +98,7 @@ export function AddProventoSheet({ userId, initial, open: openProp, onOpenChange
         quantidade: q,
         data_pagamento: data,
         data_com: data,
-        corretora: corretora || null,
+        corretora: corrCanon || null,
         portfolio_id: pf === '__null__' ? null : pf,
         fonte: 'manual',
       };
@@ -176,22 +181,15 @@ export function AddProventoSheet({ userId, initial, open: openProp, onOpenChange
           </Field>
 
           <Field label="Tipo">
-            <div className="flex gap-1.5">
-              {(['dividendo', 'jcp', 'rendimento'] as Tipo[]).map(function (t) {
-                var active = tipo === t;
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={function () { setTipo(t); }}
-                    className={'flex-1 px-2.5 py-1.5 rounded-md text-[12px] font-medium transition capitalize ' +
-                      (active ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
-                  >
-                    {t}
-                  </button>
-                );
-              })}
-            </div>
+            <ChipGroup<Tipo>
+              value={tipo}
+              onChange={setTipo}
+              options={[
+                { value: 'dividendo', label: 'Dividendo', color: 'green' },
+                { value: 'jcp', label: 'JCP', color: 'cyan' },
+                { value: 'rendimento', label: 'Rendimento', color: 'orange' },
+              ]}
+            />
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
@@ -237,23 +235,13 @@ export function AddProventoSheet({ userId, initial, open: openProp, onOpenChange
             />
           </Field>
 
-          <Field label="Corretora">
-            {contasBRL.length === 0 ? (
-              <div className="rounded-md bg-orange-500/10 border border-orange-500/30 px-3 py-2 text-[11px] text-orange-300">
-                Nenhuma conta BRL cadastrada. Vá em <span className="font-mono">Caixa → Nova conta</span> primeiro.
-              </div>
-            ) : (
-              <select
-                value={corretora}
-                onChange={function (e) { setCorretora(e.target.value); }}
-                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
-              >
-                <option value="">— sem corretora —</option>
-                {contasBRL.map(function (s) {
-                  return <option key={s.id || s.name} value={s.name}>{s.name}</option>;
-                })}
-              </select>
-            )}
+          <Field label="Corretora (opcional)">
+            <InstituicaoPicker
+              value={corretora}
+              onChange={setCorretora}
+              placeholder="Busque a corretora…"
+              filterTipo={['corretora', 'banco']}
+            />
           </Field>
 
           {portfolios.length > 0 ? (
@@ -261,7 +249,7 @@ export function AddProventoSheet({ userId, initial, open: openProp, onOpenChange
               <select
                 value={pf}
                 onChange={function (e) { setPf(e.target.value); }}
-                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
+                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-[6px] px-3 py-2 text-[13px] text-white focus:outline-none focus:border-orange-500/40"
               >
                 <option value="__null__">Padrao</option>
                 {portfolios.map(function (p) {

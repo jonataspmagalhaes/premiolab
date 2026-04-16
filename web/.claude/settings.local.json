@@ -10,7 +10,25 @@
       "Bash(tasklist)",
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__evaluate_script",
       "WebFetch(domain:www.tradingcomdados.com.br)",
-      "WebFetch(domain:fabiomt.medium.com)"
+      "WebFetch(domain:fabiomt.medium.com)",
+      "Bash(vercel --version)",
+      "Bash(vercel inspect:*)",
+      "Bash(vercel ls:*)",
+      "Bash(vercel --prod --yes)",
+      "Bash(vercel alias:*)",
+      "Bash(vercel domains:*)",
+      "Bash(vercel project:*)",
+      "Bash(vercel git:*)",
+      "Bash(nslookup premiolab.com.br)",
+      "Bash(nslookup www.premiolab.com.br 8.8.8.8)",
+      "Bash(nslookup www.premiolab.com.br)",
+      "Bash(nslookup premiolab.com.br 1.1.1.1)",
+      "Bash(npx kill-port *)",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(SUPABASE_ACCESS_TOKEN=sbp_ee67dde925063f5d4261f632590b2f5d896d3f7b npx supabase functions deploy update-rankings --no-verify-jwt --project-ref zephynezarjsxzselozi)",
+      "WebFetch(domain:api.dadosdemercado.com.br)",
+      "Bash(wait)",
+      "Bash(SUPABASE_ACCESS_TOKEN=sbp_ee67dde925063f5d4261f632590b2f5d896d3f7b npx supabase functions deploy detect-corporate-events --no-verify-jwt --project-ref zephynezarjsxzselozi)"
     ]
   }
 }
