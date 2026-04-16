@@ -8,6 +8,15 @@ import { TickerLogo } from '@/components/TickerLogo';
 import { RendaFixaList } from '@/components/RendaFixaList';
 import { FundoList } from '@/components/FundoList';
 import { useMacroIndices } from '@/lib/useMacroIndices';
+import { useUser } from '@/lib/queries';
+import { MetasCard } from '@/components/carteira/rebalance/MetasCard';
+import { SimuladorCard } from '@/components/carteira/rebalance/SimuladorCard';
+import { RebalanceDrawer } from '@/components/carteira/rebalance/RebalanceDrawer';
+import { useDrift } from '@/hooks/useDrift';
+import { ConcentracaoCard } from '@/components/carteira/analytics/ConcentracaoCard';
+import { PerformanceCard } from '@/components/carteira/analytics/PerformanceCard';
+import { AporteVsPatrimonioCard } from '@/components/carteira/analytics/AporteVsPatrimonioCard';
+import { AlertasBanner } from '@/components/carteira/analytics/AlertasBanner';
 
 // ═══════ SVG Icon ═══════
 
@@ -909,6 +918,34 @@ function AtivosTab() {
   var macro = useMacroIndices();
   var rfIdx = { cdi: macro.data ? macro.data.cdi : 14.65, ipca: macro.data ? macro.data.ipca_12m : 4.14 };
 
+  // Rebalance: user + drawer state + drift map para badges nas posicoes
+  var _user = useUser();
+  var userId = _user.data ? _user.data.id : undefined;
+  var _drawer = useState(false);
+  var drawerOpen = _drawer[0];
+  var setDrawerOpen = _drawer[1];
+  var drift = useDrift(userId);
+  var tickerMetaMap = useMemo(function () {
+    var m: Record<string, { metaPct: number; gapPct: number; status: string }> = {};
+    for (var i = 0; i < drift.tickerDrift.length; i++) {
+      var r = drift.tickerDrift[i];
+      if (r.status !== 'nometa') {
+        m[r.key] = { metaPct: r.metaPct, gapPct: r.gapPct, status: r.status };
+      }
+    }
+    return m;
+  }, [drift.tickerDrift]);
+  var classMetaMap = useMemo(function () {
+    var m: Record<string, { metaPct: number; gapPct: number; status: string }> = {};
+    for (var i = 0; i < drift.classDrift.length; i++) {
+      var r = drift.classDrift[i];
+      if (r.status !== 'nometa') {
+        m[r.key] = { metaPct: r.metaPct, gapPct: r.gapPct, status: r.status };
+      }
+    }
+    return m;
+  }, [drift.classDrift]);
+
   var _filter = useState('todos');
   var filter = _filter[0];
   var setFilter = _filter[1];
@@ -1137,7 +1174,10 @@ function AtivosTab() {
   }
 
   return (
-    <div className="grid grid-cols-12 gap-4 items-stretch">
+    <div className="space-y-0">
+    {/* Alertas inteligentes — banner no topo */}
+    <AlertasBanner onOpenMetas={function () { setDrawerOpen(true); }} />
+    <div className="grid grid-cols-12 gap-4 items-start">
       {/* Tile detail modal */}
       {selectedTile && (
         <TileDetailModal
@@ -1179,9 +1219,9 @@ function AtivosTab() {
         </div>
       )}
 
-      {/* Treemap 8 cols */}
-      <div className="col-span-12 lg:col-span-8">
-        <Card title="Heatmap" icon="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" className="d1 h-full">
+      {/* Coluna esquerda 8 cols: Heatmap + Evolucao empilhados */}
+      <div className="col-span-12 lg:col-span-8 flex flex-col gap-4">
+        <Card title="Heatmap" icon="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" className="d1">
           <TreemapHeatmap
             items={heatmapItems}
             proventos={proventos}
@@ -1197,52 +1237,18 @@ function AtivosTab() {
             onTileClick={setSelectedTile}
           />
         </Card>
+        {/* Aporte vs Patrimonio: separa "cresci por aporte" de "cresci por retorno" */}
+        <AporteVsPatrimonioCard />
+        {/* Concentracao + Performance preenchem a coluna esquerda */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-stretch">
+          <ConcentracaoCard />
+          <PerformanceCard />
+        </div>
       </div>
 
-      {/* Filtros + Resumo por classe 4 cols — em mobile inverte ordem (Por Classe primeiro) */}
-      <div className="col-span-12 lg:col-span-4 flex flex-col-reverse lg:flex-col gap-4">
-        <Card title="Filtros" icon="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" className="d2">
-          <input
-            type="text"
-            placeholder="Buscar ticker..."
-            value={search}
-            onChange={function (e) { setSearch(e.target.value); }}
-            className="w-full mb-3 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] text-[12px] text-white/80 placeholder:text-white/25 focus:outline-none focus:border-orange-500/30 transition"
-          />
-          <div className="flex gap-1.5 flex-wrap mb-3">
-            {FILTER_TABS.map(function (f) {
-              var active = filter === f.key;
-              return (
-                <button
-                  key={f.key}
-                  onClick={function () { setFilter(f.key); }}
-                  className={'px-3 py-1.5 rounded-lg text-[11px] font-medium transition ' +
-                    (active ? 'bg-orange-500/15 text-orange-400 border border-orange-500/20' : 'bg-white/[0.03] text-white/40 hover:text-white/60')}
-                >
-                  {f.label}
-                </button>
-              );
-            })}
-          </div>
-          <div className="h-px bg-white/[0.04] mb-3" />
-          <div className="flex gap-1.5 flex-wrap">
-            {SORT_OPTIONS.map(function (s) {
-              var active = sort === s.key;
-              return (
-                <button
-                  key={s.key}
-                  onClick={function () { setSort(s.key); }}
-                  className={'px-3 py-1.5 rounded-lg text-[11px] font-medium transition ' +
-                    (active ? 'bg-orange-500/15 text-orange-400 border border-orange-500/20' : 'bg-white/[0.03] text-white/40 hover:text-white/60')}
-                >
-                  {s.label}
-                </button>
-              );
-            })}
-          </div>
-        </Card>
-
-        <Card title="Por Classe" icon="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75" className="d3 flex-1">
+      {/* Right column 4 cols — Por Classe + Metas + Simulador */}
+      <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
+        <Card title="Por Classe" icon="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75" className="d3">
           {/* Mini KPIs: Total / Investido / Caixa */}
           <div className="grid grid-cols-3 gap-2 mb-3 pb-3 border-b border-white/[0.05]">
             <div>
@@ -1264,16 +1270,29 @@ function AtivosTab() {
               // denominador = soma de todas as classes (inclui caixa/rf/fundo)
               var totalClasses = classSummary.reduce(function (s, it) { return s + it.valor; }, 0);
               var pct = totalClasses > 0 ? (c.valor / totalClasses) * 100 : 0;
+              var meta = classMetaMap[c.cat];
               return (
                 <div key={c.cat} className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-white/[0.02]">
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     <AssetClassIcon classe={c.cat} size="sm" title={label} />
-                    <span className="text-[11px] font-semibold text-white/80">{label}</span>
-                    <span className="text-[10px] text-white/30 font-mono">{c.count}</span>
+                    <span className="text-[11px] font-semibold text-white/80 truncate">{label}</span>
+                    <span className="text-[10px] text-white/30 font-mono shrink-0">{c.count}</span>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right shrink-0">
                     <p className="text-[11px] font-semibold font-mono">R$ {fmtMoney(c.valor)}</p>
-                    <p className="text-[9px] text-white/30 font-mono">{pct.toFixed(1)}%</p>
+                    <div className="flex items-center justify-end gap-1.5 text-[9px] font-mono">
+                      <span className="text-white/30">{pct.toFixed(1)}%</span>
+                      {meta && (
+                        <span className={
+                          'px-1 rounded ' +
+                          (meta.status === 'ok' ? 'bg-emerald-500/10 text-emerald-300'
+                            : Math.abs(meta.gapPct) < 5 ? 'bg-amber-500/10 text-amber-300'
+                            : 'bg-rose-500/10 text-rose-300')
+                        } title={'Meta: ' + meta.metaPct.toFixed(1) + '% · ' + (meta.gapPct > 0 ? '+' : '') + meta.gapPct.toFixed(1) + 'pp'}>
+                          alvo {meta.metaPct.toFixed(0)}%
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -1281,6 +1300,59 @@ function AtivosTab() {
             {classSummary.length === 0 && (
               <p className="text-[11px] text-white/30 italic">Sem dados</p>
             )}
+          </div>
+        </Card>
+
+        {/* Card de Metas (rebalanceamento) — abre drawer pra editar */}
+        <MetasCard userId={userId} onEdit={function () { setDrawerOpen(true); }} />
+
+        {/* Simulador de aporte — sempre visivel */}
+        <SimuladorCard userId={userId} onEditMetas={function () { setDrawerOpen(true); }} />
+      </div>
+
+
+      {/* Filtros — full width, logo acima da tabela de Posicoes */}
+      <div className="col-span-12">
+        <Card title="Filtros" icon="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" className="d2">
+          <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
+            <input
+              type="text"
+              placeholder="Buscar ticker..."
+              value={search}
+              onChange={function (e) { setSearch(e.target.value); }}
+              className="lg:w-64 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] text-[12px] text-white/80 placeholder:text-white/25 focus:outline-none focus:border-orange-500/30 transition"
+            />
+            <div className="flex gap-1.5 flex-wrap flex-1">
+              {FILTER_TABS.map(function (f) {
+                var active = filter === f.key;
+                return (
+                  <button
+                    key={f.key}
+                    onClick={function () { setFilter(f.key); }}
+                    className={'px-3 py-1.5 rounded-lg text-[11px] font-medium transition ' +
+                      (active ? 'bg-orange-500/15 text-orange-400 border border-orange-500/20' : 'bg-white/[0.03] text-white/40 hover:text-white/60')}
+                  >
+                    {f.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono shrink-0">Ordenar</span>
+              {SORT_OPTIONS.map(function (s) {
+                var active = sort === s.key;
+                return (
+                  <button
+                    key={s.key}
+                    onClick={function () { setSort(s.key); }}
+                    className={'px-2.5 py-1 rounded-md text-[11px] font-medium transition ' +
+                      (active ? 'bg-orange-500/15 text-orange-400 border border-orange-500/20' : 'bg-white/[0.03] text-white/40 hover:text-white/60')}
+                  >
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </Card>
       </div>
@@ -1426,11 +1498,31 @@ function AtivosTab() {
                             : <span className="text-white/20">-</span>}
                         </td>
                         <td className="py-3 px-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <div className="w-10 h-1 bg-white/[0.04] rounded-full overflow-hidden">
-                              <div className="h-full rounded-full bg-orange-500" style={{ width: Math.min(100, Math.max(0, peso)) + '%' }} />
+                          <div className="flex flex-col items-end gap-1">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <div className="w-10 h-1 bg-white/[0.04] rounded-full overflow-hidden">
+                                <div className="h-full rounded-full bg-orange-500" style={{ width: Math.min(100, Math.max(0, peso)) + '%' }} />
+                              </div>
+                              <span className="text-[10px] font-mono text-white/40">{peso.toFixed(1)}%</span>
                             </div>
-                            <span className="text-[10px] font-mono text-white/40">{peso.toFixed(1)}%</span>
+                            {(function () {
+                              var t = (p.ticker || '').toUpperCase();
+                              var meta = tickerMetaMap[t];
+                              if (!meta) return null;
+                              var clr = meta.status === 'ok' ? 'bg-emerald-500/10 text-emerald-300'
+                                : Math.abs(meta.gapPct) < 5 ? 'bg-amber-500/10 text-amber-300'
+                                : 'bg-rose-500/10 text-rose-300';
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={function () { setDrawerOpen(true); }}
+                                  className={'px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold ' + clr + ' hover:opacity-80 transition'}
+                                  title={'Meta: ' + meta.metaPct.toFixed(1) + '% · drift ' + (meta.gapPct > 0 ? '+' : '') + meta.gapPct.toFixed(1) + 'pp · clique para editar'}
+                                >
+                                  meta {meta.metaPct.toFixed(0)}%
+                                </button>
+                              );
+                            })()}
                           </div>
                         </td>
                       </tr>
@@ -1529,6 +1621,10 @@ function AtivosTab() {
         </Card>
       </div>
       ) : null}
+
+      {/* Drawer de rebalanceamento (Sheet portal) */}
+      <RebalanceDrawer open={drawerOpen} onOpenChange={setDrawerOpen} userId={userId} />
+    </div>
     </div>
   );
 }

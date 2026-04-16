@@ -1,10 +1,11 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseBrowser } from './supabase';
 import { useAppStore } from '@/store';
 import { useEffect } from 'react';
 import type { Position, PorCorretora, Provento, Opcao, RendaFixa, Fundo, Saldo, Caixa, Profile, Portfolio } from '@/store';
+import type { RebalanceTargets } from './rebalance';
 import { fetchPrices } from './priceService';
 import { valorAtualRF, type TipoRF, type Indexador } from './rendaFixaCalc';
 import { useMacroIndices } from './useMacroIndices';
@@ -1027,6 +1028,179 @@ export function useFundos(userId: string | undefined) {
   }, [query.data, setFundos]);
 
   return query;
+}
+
+// ══════════ Rebalance Targets ══════════
+// Tabela rebalance_targets: 1 row por user_id (PK), JSONB flat.
+// Targets sao GLOBAIS user-wide (nao por portfolio).
+
+const EMPTY_TARGETS: RebalanceTargets = {
+  class_targets: {},
+  sector_targets: {},
+  ticker_targets: {},
+};
+
+export function useRebalanceTargets(userId: string | undefined) {
+  return useQuery({
+    queryKey: ['rebalance_targets', userId],
+    queryFn: async (): Promise<RebalanceTargets> => {
+      if (!userId) return EMPTY_TARGETS;
+      const { data } = await supabase
+        .from('rebalance_targets')
+        .select('class_targets, sector_targets, ticker_targets, updated_at')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (!data) return EMPTY_TARGETS;
+      return {
+        class_targets: (data.class_targets as Record<string, number>) || {},
+        sector_targets: (data.sector_targets as Record<string, number>) || {},
+        ticker_targets: (data.ticker_targets as { _flat?: Record<string, number> }) || {},
+        updated_at: data.updated_at as string | null,
+      };
+    },
+    enabled: !!userId,
+    // Usa default global (60s) + refetchOnWindowFocus.
+    // Trocar de device → voltar pra tab → refetch automatico.
+  });
+}
+
+export function useUpdateRebalanceTargets() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ userId, patch }: { userId: string; patch: Partial<RebalanceTargets> }) => {
+      // Le valor atual pra fazer merge (upsert sobrescreve a row inteira)
+      const current = (qc.getQueryData(['rebalance_targets', userId]) as RebalanceTargets | undefined) || EMPTY_TARGETS;
+      const merged: RebalanceTargets = {
+        class_targets: patch.class_targets ?? current.class_targets,
+        sector_targets: patch.sector_targets ?? current.sector_targets,
+        ticker_targets: patch.ticker_targets ?? current.ticker_targets,
+      };
+      const { data, error } = await supabase
+        .from('rebalance_targets')
+        .upsert(
+          {
+            user_id: userId,
+            class_targets: merged.class_targets,
+            sector_targets: merged.sector_targets,
+            ticker_targets: merged.ticker_targets,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' },
+        )
+        .select('class_targets, sector_targets, ticker_targets, updated_at')
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onMutate: async ({ userId, patch }) => {
+      await qc.cancelQueries({ queryKey: ['rebalance_targets', userId] });
+      const prev = qc.getQueryData(['rebalance_targets', userId]) as RebalanceTargets | undefined;
+      const base = prev || EMPTY_TARGETS;
+      const optimistic: RebalanceTargets = {
+        class_targets: patch.class_targets ?? base.class_targets,
+        sector_targets: patch.sector_targets ?? base.sector_targets,
+        ticker_targets: patch.ticker_targets ?? base.ticker_targets,
+      };
+      qc.setQueryData(['rebalance_targets', userId], optimistic);
+      return { prev };
+    },
+    onError: (_err, vars, ctx) => {
+      if (ctx?.prev !== undefined) {
+        qc.setQueryData(['rebalance_targets', vars.userId], ctx.prev);
+      }
+    },
+    onSettled: (_data, _err, vars) => {
+      qc.invalidateQueries({ queryKey: ['rebalance_targets', vars.userId] });
+    },
+  });
+}
+
+// ══════════ Aporte events ══════════
+// Eventos cronologicos de "dinheiro entrando ou saindo" no portfolio.
+// Usado pelo chart Aporte vs Patrimonio.
+
+export interface AporteEvent {
+  date: string;           // ISO date
+  valor: number;          // R$ — positivo = entrada (aporte), negativo = saida (resgate)
+  fonte: 'operacao' | 'rf' | 'fundo' | 'caixa';
+}
+
+export function useAporteEvents(userId: string | undefined) {
+  const selectedPortfolio = useAppStore((s) => s.selectedPortfolio);
+
+  return useQuery({
+    queryKey: ['aporte-events', userId, selectedPortfolio],
+    queryFn: async (): Promise<AporteEvent[]> => {
+      if (!userId) return [];
+      const events: AporteEvent[] = [];
+
+      // 1) Operacoes (compra = +, venda = −)
+      let qOp = supabase
+        .from('operacoes')
+        .select('tipo, quantidade, preco, custos, data, portfolio_id')
+        .eq('user_id', userId);
+      if (selectedPortfolio === '__null__') qOp = qOp.is('portfolio_id', null);
+      else if (selectedPortfolio !== null) qOp = qOp.eq('portfolio_id', selectedPortfolio);
+      const opRes = await qOp;
+      for (const r of opRes.data || []) {
+        const qty = Number(r.quantidade) || 0;
+        const preco = Number(r.preco) || 0;
+        const custos = Number(r.custos) || 0;
+        const tipo = String(r.tipo || '').toLowerCase();
+        if (qty <= 0 || preco <= 0 || !r.data) continue;
+        const valorBruto = qty * preco;
+        const valor = tipo === 'venda' ? -(valorBruto - custos) : valorBruto + custos;
+        events.push({ date: r.data, valor, fonte: 'operacao' });
+      }
+
+      // 2) RF — aplicacao na criacao (sem rastrear resgates)
+      let qRf = supabase
+        .from('renda_fixa')
+        .select('valor_aplicado, created_at, portfolio_id')
+        .eq('user_id', userId);
+      if (selectedPortfolio === '__null__') qRf = qRf.is('portfolio_id', null);
+      else if (selectedPortfolio !== null) qRf = qRf.eq('portfolio_id', selectedPortfolio);
+      const rfRes = await qRf;
+      for (const r of rfRes.data || []) {
+        const v = Number(r.valor_aplicado) || 0;
+        if (v <= 0 || !r.created_at) continue;
+        events.push({ date: String(r.created_at).slice(0, 10), valor: v, fonte: 'rf' });
+      }
+
+      // 3) Fundos — aplicacao na data_aplicacao
+      let qFun = supabase
+        .from('fundos')
+        .select('valor_aplicado, data_aplicacao, portfolio_id')
+        .eq('user_id', userId);
+      if (selectedPortfolio === '__null__') qFun = qFun.is('portfolio_id', null);
+      else if (selectedPortfolio !== null) qFun = qFun.eq('portfolio_id', selectedPortfolio);
+      const funRes = await qFun;
+      for (const r of funRes.data || []) {
+        const v = Number(r.valor_aplicado) || 0;
+        if (v <= 0 || !r.data_aplicacao) continue;
+        events.push({ date: String(r.data_aplicacao).slice(0, 10), valor: v, fonte: 'fundo' });
+      }
+
+      // 4) Caixa (deposito/saque/transferencia) — positivo = entrada
+      // Caixa eh global por user (sem portfolio_id). Mantemos sempre.
+      const caixaRes = await supabase
+        .from('caixa')
+        .select('valor, moeda, data')
+        .eq('user_id', userId);
+      for (const r of caixaRes.data || []) {
+        const v = Number(r.valor) || 0;
+        if (v === 0 || !r.data) continue;
+        // Conversao USD-BRL: aproximacao usando 5 (cotacao histórica nao trackeada).
+        // Pra precisao real precisariamos de cambio diario; por ora usamos 5x pra USD.
+        const brlValor = r.moeda === 'USD' ? v * 5 : v;
+        events.push({ date: String(r.data).slice(0, 10), valor: brlValor, fonte: 'caixa' });
+      }
+
+      events.sort((a, b) => a.date.localeCompare(b.date));
+      return events;
+    },
+    enabled: !!userId,
+  });
 }
 
 // ══════════ Combined loader ══════════
