@@ -334,6 +334,17 @@ export default function TransacoesPage() {
   async function handleDelete(t: Transacao) {
     var what = t.categoria_display + ' · ' + t.descricao + ' · ' + fmtDataBR(t.data);
     if (!confirm('Remover "' + what + '"?')) return;
+
+    // Se for split/bonus auto-detectado, registrar como dismissido para nao recriar no proximo cron
+    if (t.source_table === 'operacoes' && (t.categoria_display === 'Split' || t.categoria_display === 'Bonus') && t.fonte === 'auto' && userId) {
+      await supabase.from('corporate_events_dismissed').upsert({
+        user_id: userId,
+        ticker: t.descricao,
+        tipo: t.categoria_display === 'Split' ? 'desdobramento' : 'bonificacao',
+        data: t.data,
+      }, { onConflict: 'user_id,ticker,tipo,data' });
+    }
+
     await supabase.from(t.source_table).delete().eq('id', t.source_id);
     // Invalida tudo que pode ter mudado
     await qc.invalidateQueries({ queryKey: ['transacoes'] });

@@ -173,6 +173,18 @@ Deno.serve(async function (_req) {
 
         if (existing && existing.length > 0) continue; // ja registrado
 
+        // Verificar se usuario rejeitou este evento (deletou manualmente)
+        var { data: dismissed } = await supabase
+          .from("corporate_events_dismissed")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("ticker", evt.ticker)
+          .eq("tipo", evt.tipo)
+          .eq("data", evt.data)
+          .limit(1);
+
+        if (dismissed && dismissed.length > 0) continue; // usuario rejeitou
+
         // Calcular quantidade para bonificacao
         var qty = 0;
         if (evt.tipo === "bonificacao") {
