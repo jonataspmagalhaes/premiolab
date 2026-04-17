@@ -6,7 +6,7 @@
 
 import { useState, useMemo } from 'react';
 import { Input } from '@/components/ui/input';
-import { searchInstituicoes, paisLabel, tipoLabel, type Instituicao, type InstituicaoPais, type InstituicaoTipo } from '@/lib/instituicoes';
+import { searchInstituicoes, paisLabel, tiposLabel, matchesTipoFilter, type Instituicao, type InstituicaoPais, type InstituicaoTipo } from '@/lib/instituicoes';
 
 interface Props {
   value: string;
@@ -31,7 +31,7 @@ export function InstituicaoPicker(props: Props) {
       list = list.filter(function (i) { return props.filterPais!.indexOf(i.pais) >= 0; });
     }
     if (props.filterTipo) {
-      list = list.filter(function (i) { return props.filterTipo!.indexOf(i.tipo) >= 0; });
+      list = list.filter(function (i) { return matchesTipoFilter(i, props.filterTipo!); });
     }
     return list.slice(0, 10);
   }, [props.value, props.filterPais, props.filterTipo, showSug]);
@@ -62,7 +62,7 @@ export function InstituicaoPicker(props: Props) {
                   <span className="text-sm">{paisLabel(inst.pais)}</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] text-white truncate">{inst.nome}</p>
-                    <p className="text-[10px] text-white/40 font-mono">{tipoLabel(inst.tipo)}</p>
+                    <p className="text-[10px] text-white/40 font-mono">{tiposLabel(inst)}</p>
                   </div>
                 </button>
               );

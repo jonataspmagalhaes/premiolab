@@ -3,13 +3,17 @@
 // se a instituicao nao estiver na lista.
 //
 // Para match case-insensitive no trigger SQL, normalizamos para nome canonico.
+//
+// Algumas instituicoes sao multi-tipo (Revolut = corretora + banco + cripto).
+// Quando `tipos[]` esta presente, ela prevalece no filtro; senao cai em `tipo`.
 
 export type InstituicaoTipo = 'corretora' | 'banco' | 'cripto';
 export type InstituicaoPais = 'BR' | 'US' | 'INT';
 
 export interface Instituicao {
   nome: string;
-  tipo: InstituicaoTipo;
+  tipo: InstituicaoTipo;          // tipo primario (fallback/label)
+  tipos?: InstituicaoTipo[];      // opcional: todos os tipos suportados
   pais: InstituicaoPais;
   aliases?: string[]; // variantes comuns para match
 }
@@ -39,19 +43,19 @@ export var INSTITUICOES: Instituicao[] = [
   { nome: 'Safra', tipo: 'corretora', pais: 'BR' },
   { nome: 'Santander Corretora', tipo: 'corretora', pais: 'BR' },
 
-  // ───── Bancos BR ─────
-  { nome: 'Nubank', tipo: 'banco', pais: 'BR', aliases: ['Nu'] },
+  // ───── Bancos BR (alguns tambem oferecem cripto) ─────
+  { nome: 'Nubank', tipo: 'banco', tipos: ['banco', 'cripto'], pais: 'BR', aliases: ['Nu', 'Nubank Cripto'] },
   { nome: 'Itaú', tipo: 'banco', pais: 'BR', aliases: ['Itau'] },
   { nome: 'Bradesco', tipo: 'banco', pais: 'BR' },
   { nome: 'Santander', tipo: 'banco', pais: 'BR' },
   { nome: 'Banco do Brasil', tipo: 'banco', pais: 'BR', aliases: ['BB'] },
   { nome: 'Caixa Econômica', tipo: 'banco', pais: 'BR', aliases: ['Caixa'] },
-  { nome: 'Inter', tipo: 'banco', pais: 'BR', aliases: ['Banco Inter'] },
-  { nome: 'C6 Bank', tipo: 'banco', pais: 'BR', aliases: ['C6'] },
+  { nome: 'Inter', tipo: 'banco', tipos: ['banco', 'cripto'], pais: 'BR', aliases: ['Banco Inter'] },
+  { nome: 'C6 Bank', tipo: 'banco', tipos: ['banco', 'cripto'], pais: 'BR', aliases: ['C6'] },
   { nome: 'BTG+', tipo: 'banco', pais: 'BR', aliases: ['BTG Plus'] },
   { nome: 'Next', tipo: 'banco', pais: 'BR' },
-  { nome: 'PicPay', tipo: 'banco', pais: 'BR' },
-  { nome: 'Mercado Pago', tipo: 'banco', pais: 'BR' },
+  { nome: 'PicPay', tipo: 'banco', tipos: ['banco', 'cripto'], pais: 'BR' },
+  { nome: 'Mercado Pago', tipo: 'banco', tipos: ['banco', 'cripto'], pais: 'BR' },
   { nome: 'Will Bank', tipo: 'banco', pais: 'BR', aliases: ['Will'] },
   { nome: 'Neon', tipo: 'banco', pais: 'BR' },
   { nome: 'Banco Original', tipo: 'banco', pais: 'BR', aliases: ['Original'] },
@@ -70,21 +74,21 @@ export var INSTITUICOES: Instituicao[] = [
   { nome: 'Interactive Brokers', tipo: 'corretora', pais: 'US', aliases: ['IBKR', 'IB'] },
   { nome: 'Charles Schwab', tipo: 'corretora', pais: 'US', aliases: ['Schwab'] },
   { nome: 'Fidelity', tipo: 'corretora', pais: 'US' },
-  { nome: 'Robinhood', tipo: 'corretora', pais: 'US' },
+  { nome: 'Robinhood', tipo: 'corretora', tipos: ['corretora', 'cripto'], pais: 'US' },
   { nome: 'TD Ameritrade', tipo: 'corretora', pais: 'US', aliases: ['TDA'] },
   { nome: 'E*TRADE', tipo: 'corretora', pais: 'US', aliases: ['ETrade', 'E-Trade'] },
   { nome: 'Vanguard', tipo: 'corretora', pais: 'US' },
   { nome: 'Merrill Edge', tipo: 'corretora', pais: 'US', aliases: ['Merrill'] },
-  { nome: 'Webull', tipo: 'corretora', pais: 'US' },
+  { nome: 'Webull', tipo: 'corretora', tipos: ['corretora', 'cripto'], pais: 'US' },
   { nome: 'SoFi Invest', tipo: 'corretora', pais: 'US', aliases: ['SoFi'] },
   { nome: 'Passfolio', tipo: 'corretora', pais: 'INT' },
   { nome: 'Stake', tipo: 'corretora', pais: 'INT' },
-  { nome: 'eToro', tipo: 'corretora', pais: 'INT' },
+  { nome: 'eToro', tipo: 'corretora', tipos: ['corretora', 'cripto'], pais: 'INT' },
   { nome: 'Saxo Bank', tipo: 'corretora', pais: 'INT', aliases: ['Saxo'] },
   { nome: 'Degiro', tipo: 'corretora', pais: 'INT' },
   { nome: 'Trading 212', tipo: 'corretora', pais: 'INT' },
-  { nome: 'Revolut', tipo: 'banco', pais: 'INT' },
-  { nome: 'Wise', tipo: 'banco', pais: 'INT', aliases: ['TransferWise'] },
+  { nome: 'Revolut', tipo: 'corretora', tipos: ['corretora', 'banco', 'cripto'], pais: 'INT' },
+  { nome: 'Wise', tipo: 'banco', tipos: ['banco', 'corretora'], pais: 'INT', aliases: ['TransferWise'] },
   { nome: 'HSBC Expat', tipo: 'banco', pais: 'INT', aliases: ['HSBC'] },
 
   // ───── Bancos US ─────
@@ -107,6 +111,21 @@ export var INSTITUICOES: Instituicao[] = [
   { nome: 'KuCoin', tipo: 'cripto', pais: 'INT' },
   { nome: 'Crypto.com', tipo: 'cripto', pais: 'INT' },
 ];
+
+// Retorna todos os tipos suportados pela instituicao (tipos[] se presente, senao [tipo]).
+export function instituicaoTipos(inst: Instituicao): InstituicaoTipo[] {
+  if (inst.tipos && inst.tipos.length > 0) return inst.tipos;
+  return [inst.tipo];
+}
+
+// True se a instituicao suporta qualquer um dos tipos do filtro.
+export function matchesTipoFilter(inst: Instituicao, filter: InstituicaoTipo[]): boolean {
+  var tipos = instituicaoTipos(inst);
+  for (var i = 0; i < filter.length; i++) {
+    if (tipos.indexOf(filter[i]) >= 0) return true;
+  }
+  return false;
+}
 
 // Normaliza pra comparacao: lowercase, sem acento, trim, collapse spaces.
 function normalize(s: string): string {
@@ -186,6 +205,12 @@ export function tipoLabel(t: InstituicaoTipo): string {
   if (t === 'corretora') return 'Corretora';
   if (t === 'banco') return 'Banco';
   return 'Cripto';
+}
+
+// Label combinado pra multi-tipo: "Corretora · Banco · Cripto"
+export function tiposLabel(inst: Instituicao): string {
+  var tipos = instituicaoTipos(inst);
+  return tipos.map(tipoLabel).join(' · ');
 }
 
 export function paisLabel(p: InstituicaoPais): string {
