@@ -377,15 +377,30 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
   var tipoFilter = _tipoFilter[0];
   var setTipoFilter = _tipoFilter[1];
 
+  var _fonteFilter = useState<'all' | 'manual' | 'sync'>('all');
+  var fonteFilter = _fonteFilter[0];
+  var setFonteFilter = _fonteFilter[1];
+
   var _consolidar = useState(false);
   var consolidar = _consolidar[0];
   var setConsolidar = _consolidar[1];
 
+  var _search = useState('');
+  var search = _search[0];
+  var setSearch = _search[1];
+
   var rng = useMemo(function () { return periodoRange(periodo); }, [periodo]);
 
   var filteredRaw = useMemo(function () {
+    var q = search.trim().toUpperCase();
     return enriched.filter(function (pv) {
       if (pv.ts < rng.start || pv.ts >= rng.end) return false;
+      if (q.length > 0 && pv.ticker.indexOf(q) < 0) return false;
+      if (fonteFilter === 'manual') {
+        if (pv.fonte != null && pv.fonte !== 'manual') return false;
+      } else if (fonteFilter === 'sync') {
+        if (pv.fonte == null || pv.fonte === 'manual') return false;
+      }
       if (tipoFilter === 'all') return true;
       var tl = tipoLabel(pv.tipo_provento).toLowerCase();
       if (tipoFilter === 'jcp') return tl === 'jcp';
@@ -393,7 +408,7 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
       if (tipoFilter === 'dividendo') return tl === 'dividendo' || tl === 'bonificacao' || tl === 'amortizacao';
       return true;
     });
-  }, [enriched, rng, tipoFilter]);
+  }, [enriched, rng, tipoFilter, fonteFilter, search]);
 
   // Se consolidar, agrupa irmaos (mesmo ticker+data_pagamento) somando valor
   var filtered = useMemo(function () {
@@ -417,6 +432,32 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
     }
     return t;
   }, [filtered]);
+
+  function handleExportCsv() {
+    var header = 'Data,Ticker,Tipo,Fonte,Corretora,Bruto,Liquido,IR\n';
+    var rows = filtered.map(function (r) {
+      var bruto = r.valor_total || 0;
+      var liq = valorLiquido(bruto, r.tipo_provento, r.ticker);
+      var ir = bruto - liq;
+      return [
+        r.data_pagamento,
+        r.ticker,
+        tipoLabel(r.tipo_provento),
+        r.fonte || 'manual',
+        (r.corretora || '—').replace(/,/g, ';'),
+        bruto.toFixed(2),
+        liq.toFixed(2),
+        ir.toFixed(2),
+      ].join(',');
+    }).join('\n');
+    var blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'proventos_' + periodo + '_' + new Date().toISOString().substring(0, 10) + '.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="space-y-4">
@@ -442,6 +483,25 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
         </div>
       </div>
 
+      {/* Search + export */}
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          value={search}
+          onChange={function (e) { setSearch(e.target.value); }}
+          placeholder="Buscar ticker (ex: PETR4, HGLG)"
+          className="flex-1 min-w-[200px] bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-1.5 text-[12px] text-white placeholder-white/30 focus:outline-none focus:border-orange-500/40"
+        />
+        <button
+          type="button"
+          onClick={handleExportCsv}
+          disabled={filtered.length === 0}
+          className="px-3 py-1.5 rounded-md text-[11px] font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition"
+        >
+          Exportar CSV ({filtered.length})
+        </button>
+      </div>
+
       {/* Total */}
       <div className="linear-card rounded-xl p-5 flex items-center justify-between">
         <div>
@@ -454,7 +514,7 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
         </div>
       </div>
 
-      {/* Filtro tipo */}
+      {/* Filtro tipo + fonte */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono">Tipo</span>
         {([
@@ -469,6 +529,24 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
               key={opt.k}
               type="button"
               onClick={function () { setTipoFilter(opt.k); }}
+              className={'px-2.5 py-1 rounded-md text-[11px] font-medium transition ' + (active ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+        <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono ml-3">Fonte</span>
+        {([
+          { k: 'all' as const, label: 'Todas' },
+          { k: 'manual' as const, label: 'Manual' },
+          { k: 'sync' as const, label: 'Sincronizado' },
+        ]).map(function (opt) {
+          var active = fonteFilter === opt.k;
+          return (
+            <button
+              key={opt.k}
+              type="button"
+              onClick={function () { setFonteFilter(opt.k); }}
               className={'px-2.5 py-1 rounded-md text-[11px] font-medium transition ' + (active ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
             >
               {opt.label}
