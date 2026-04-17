@@ -6,7 +6,7 @@
 // - Mini donut por tipo (Div/JCP/Rend/INT)
 
 import { useMemo } from 'react';
-import { ResponsiveContainer, BarChart, Bar, Tooltip as RTooltip, PieChart, Pie, Cell } from 'recharts';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip, PieChart, Pie, Cell, CartesianGrid } from 'recharts';
 import { valorLiquido, tipoLabel, isIntTicker } from '@/lib/proventosUtils';
 import { fmtBRL, fmtK, fmtMonthYear } from '@/lib/fmt';
 
@@ -132,7 +132,7 @@ export function ProventosInsights(props: Props) {
         ) : null}
       </div>
 
-      {/* Sparkline mensal — SEMPRE 12m corridos, destaca meses do filtro */}
+      {/* BarChart mensal — 12m corridos com eixos e destaque do periodo filtrado */}
       <div className="col-span-12 sm:col-span-5">
         <div className="flex items-center justify-between mb-1">
           <p className="text-[10px] uppercase tracking-wider text-white/40 font-mono">Historico 12 meses</p>
@@ -141,32 +141,43 @@ export function ProventosInsights(props: Props) {
             periodo selecionado
           </p>
         </div>
-        <div style={{ width: '100%', height: 72 }}>
+        <div style={{ width: '100%', height: 120 }}>
           <ResponsiveContainer>
-            <BarChart data={mensal} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+            <BarChart data={mensal} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+              <XAxis
+                dataKey="label"
+                tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }}
+                axisLine={false}
+                tickLine={false}
+                interval={0}
+              />
+              <YAxis
+                tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={function (v) { return 'R$ ' + fmtK(v); }}
+                width={48}
+              />
               <RTooltip
                 cursor={{ fill: 'rgba(249,115,22,0.06)' }}
                 contentStyle={{ background: '#0a0d14', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, fontSize: 11 }}
+                labelFormatter={function (label: unknown) { return String(label); }}
                 formatter={function (v: unknown) { return ['R$ ' + fmtBRL(Number(v) || 0), 'Recebido']; }}
-                labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
               />
               <Bar
                 dataKey="valor"
-                radius={[2, 2, 0, 0]}
-                maxBarSize={22}
+                radius={[3, 3, 0, 0]}
+                maxBarSize={28}
                 shape={function (p: unknown) {
                   var anyP = p as { x?: number; y?: number; width?: number; height?: number; payload?: { dentroFiltro?: boolean } };
                   var dentro = anyP.payload?.dentroFiltro;
                   var x = anyP.x ?? 0, y = anyP.y ?? 0, w = anyP.width ?? 0, h = anyP.height ?? 0;
-                  return <rect x={x} y={y} width={w} height={h} fill={dentro ? '#F97316' : 'rgba(255,255,255,0.12)'} rx={2} ry={2} />;
+                  return <rect x={x} y={y} width={w} height={h} fill={dentro ? '#F97316' : 'rgba(255,255,255,0.14)'} rx={3} ry={3} />;
                 }}
               />
             </BarChart>
           </ResponsiveContainer>
-        </div>
-        <div className="flex justify-between text-[9px] font-mono text-white/30 mt-0.5">
-          <span>{mensal[0]?.label}</span>
-          <span>{mensal[mensal.length - 1]?.label}</span>
         </div>
       </div>
 
