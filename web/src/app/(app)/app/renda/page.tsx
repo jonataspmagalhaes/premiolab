@@ -645,7 +645,7 @@ function ProventosList({ rows, grupo }: { rows: Enriched[]; grupo: 'data' | 'tic
                           <span className="text-[12px] font-semibold">{r.ticker}</span>
                           <span className={'text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ' + tipoColor(r.tipo_provento)}>{tipoLabel(r.tipo_provento)}</span>
                           {r.ts > Date.now() ? (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/30">previsto</span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">confirmado</span>
                           ) : null}
                         </div>
                         <p className="text-[10px] text-white/40 leading-tight truncate">{r.corretora} · {fmtDate(r.date)}</p>
