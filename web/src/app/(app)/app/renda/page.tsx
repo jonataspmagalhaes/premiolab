@@ -194,7 +194,7 @@ export default function RendaPage() {
             );
           })}
           <Link
-            href="/app/renda/ir"
+            href="/app/ir"
             className="px-3 py-1.5 rounded-md text-[12px] font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20 transition flex items-center gap-1.5"
           >
             📄 Relatório IR
