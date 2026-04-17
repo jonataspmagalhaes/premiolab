@@ -49,11 +49,11 @@ export default function IRResumoPage() {
         </div>
         <div className="flex items-center gap-2">
           <Link
-            href="/app/renda/ir"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.08] text-[11px] text-white/60 hover:text-white transition"
+            href="/app/ir/rendimentos"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-300 hover:bg-emerald-500/20 transition"
           >
             <FileText className="w-3.5 h-3.5" />
-            Classificacao legado
+            Rendimentos detalhados
           </Link>
         </div>
       </div>
