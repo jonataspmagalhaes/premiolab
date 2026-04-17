@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS rankings_cache (
 
 -- Sem RLS — qualquer usuario autenticado pode ler
 ALTER TABLE rankings_cache ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "rankings_cache_read" ON rankings_cache;
 CREATE POLICY "rankings_cache_read" ON rankings_cache FOR SELECT USING (true);
 
 -- Indice nao necessario (6 rows max), mas garantir performance
