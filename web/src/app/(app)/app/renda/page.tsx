@@ -121,6 +121,17 @@ function tipoColor(t: string): string {
   return 'text-orange-300 bg-orange-500/15';
 }
 
+// Cor sutil de borda esquerda por classe do ativo (espelha paleta do app)
+function corBorderCategoria(cat: string): string {
+  var c = (cat || '').toLowerCase();
+  if (c === 'fii') return 'rgba(16,185,129,0.45)';        // emerald
+  if (c === 'etf') return 'rgba(245,158,11,0.45)';         // amber
+  if (c === 'stock_int') return 'rgba(232,121,249,0.45)';  // roxo-rosa
+  if (c === 'rf') return 'rgba(6,182,212,0.45)';           // ciano
+  if (c === 'bdr' || c === 'adr' || c === 'reit') return 'rgba(139,92,246,0.45)';  // roxo
+  return 'rgba(59,130,246,0.45)';                           // azul (acao)
+}
+
 // ─── Page ──────────────────────────────────────────────────
 
 export default function RendaPage() {
@@ -509,7 +520,19 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
   }, [filtered]);
 
   function handleExportCsv() {
-    var header = 'Data,Ticker,Tipo,Fonte,Corretora,Bruto,Liquido,IR\n';
+    // CSV formato brasileiro: BOM UTF-8 + separador ; + virgula decimal.
+    // Excel em pt-BR abre direto, sem precisar de Importar → Delimitadores.
+    function esc(s: string): string {
+      // Escape de aspas duplas dentro do campo (CSV padrao)
+      if (s.indexOf(';') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }
+    function num(v: number): string {
+      return v.toFixed(2).replace('.', ',');
+    }
+    var header = 'Data;Ticker;Tipo;Fonte;Corretora;Bruto;Liquido;IR;Categoria\n';
     var rows = filtered.map(function (r) {
       var bruto = r.valor_total || 0;
       var liq = valorLiquido(bruto, r.tipo_provento, r.ticker);
@@ -519,13 +542,16 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
         r.ticker,
         tipoLabel(r.tipo_provento),
         r.fonte || 'manual',
-        (r.corretora || '—').replace(/,/g, ';'),
-        bruto.toFixed(2),
-        liq.toFixed(2),
-        ir.toFixed(2),
-      ].join(',');
+        esc(r.corretora || '—'),
+        num(bruto),
+        num(liq),
+        num(ir),
+        r.categoria || 'acao',
+      ].join(';');
     }).join('\n');
-    var blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8' });
+    // BOM UTF-8 garante acentuacao correta no Excel
+    var bom = '\uFEFF';
+    var blob = new Blob([bom + header + rows], { type: 'text/csv;charset=utf-8' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
@@ -820,8 +846,13 @@ function ProventosList({ rows, grupo, showYoC, onClickTicker }: {
             </div>
             <div className="space-y-1">
               {g.rows.map(function (r, idx) {
+                var catBorder = corBorderCategoria(r.categoria || (isIntTicker(r.ticker) ? 'stock_int' : 'acao'));
                 return (
-                  <div key={(r.id || r.ticker) + '-' + idx} className="group flex items-center justify-between py-1.5 hover:bg-white/[0.02] rounded px-2 transition">
+                  <div
+                    key={(r.id || r.ticker) + '-' + idx}
+                    className="group flex items-center justify-between py-1.5 hover:bg-white/[0.02] rounded pl-2 pr-2 transition border-l-2"
+                    style={{ borderLeftColor: catBorder }}
+                  >
                     <div className="flex items-center gap-2.5 flex-1 min-w-0">
                       {grupo !== 'ticker' && (
                         <TickerLogo
