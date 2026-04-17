@@ -10,6 +10,7 @@ import { useUser, useOperacoesRaw, type OperacaoRaw } from '@/lib/queries';
 import { AddProventoSheet } from '@/components/AddProventoSheet';
 import { SyncProventosButton } from '@/components/SyncProventosButton';
 import { RendaMensalChart } from '@/components/renda/RendaMensalChart';
+import { ProximosPagamentosCard } from '@/components/renda/ProximosPagamentosCard';
 import { tipoLabel, isIntTicker, valorLiquido } from '@/lib/proventosUtils';
 import { fmtBRL, fmtK, fmtMonthYear, fmtDate } from '@/lib/fmt';
 import { projetarMensal, proximos30dias, type ProjecaoMes } from '@/lib/rendaForecast';
@@ -257,24 +258,6 @@ function ResumoView({ enriched, positions, patrimonioTotal }: { enriched: Enrich
     return { total12m: total12m, media: media, dyMedio: dyMedio, proximos30: proximos30 };
   }, [mensal, projecao, patrimonioTotal]);
 
-  // Top 5 estimados proximos pagamentos: tickers que pagaram este mes em algum ano
-  var proximos = useMemo(function () {
-    var thisMonth = new Date().getMonth();
-    var byTicker: Record<string, { ticker: string; valorMedio: number; ultimaData?: Date; categoria: string }> = {};
-    enriched.forEach(function (pv) {
-      if (pv.date.getMonth() !== thisMonth) return;
-      if (!byTicker[pv.ticker]) {
-        var pos = positions.find(function (p) { return p.ticker === pv.ticker; });
-        byTicker[pv.ticker] = { ticker: pv.ticker, valorMedio: 0, categoria: pos ? pos.categoria : 'acao' };
-      }
-      byTicker[pv.ticker].valorMedio += valorLiquido(pv.valor_total, pv.tipo_provento, pv.ticker);
-    });
-    return Object.values(byTicker)
-      .filter(function (x) { return positions.some(function (p) { return p.ticker === x.ticker && p.quantidade > 0; }); })
-      .sort(function (a, b) { return b.valorMedio - a.valorMedio; })
-      .slice(0, 5);
-  }, [enriched, positions]);
-
   return (
     <div className="grid grid-cols-12 gap-4">
       {/* Hero: barras 12m */}
@@ -300,30 +283,8 @@ function ResumoView({ enriched, positions, patrimonioTotal }: { enriched: Enrich
         <Kpi label="DY medio carteira" value={totals.dyMedio > 0 ? totals.dyMedio.toFixed(2) + '% a.a.' : '—'} accent="text-warning" />
       </div>
 
-      {/* Proximos pagamentos */}
-      <div className="col-span-12 lg:col-span-6 linear-card rounded-xl p-5">
-        <p className="text-xs uppercase tracking-wider text-white/40 font-mono mb-3">Proximos pagamentos · {proximos.length} ativos</p>
-        {proximos.length === 0 ? (
-          <p className="text-[12px] text-white/30 italic">Sem historico no mes.</p>
-        ) : (
-          <div className="space-y-2">
-            {proximos.map(function (x) {
-              return (
-                <div key={x.ticker} className="flex items-center justify-between py-1.5 border-b border-white/[0.03] last:border-0">
-                  <div className="flex items-center gap-2.5">
-                    <TickerLogo ticker={x.ticker} categoria={x.categoria} size={28} />
-                    <div>
-                      <p className="text-[12px] font-semibold leading-tight">{x.ticker}</p>
-                      <p className="text-[10px] text-white/40 leading-tight">Estimado</p>
-                    </div>
-                  </div>
-                  <p className="text-[12px] font-mono font-semibold text-income">R$ {fmtBRL(x.valorMedio)}</p>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      {/* Proximos pagamentos hibrido — confirmados (oficiais) + estimados (calendario) */}
+      <ProximosPagamentosCard />
 
       {/* Projecao 12m com sazonalidade + overlay confirmados */}
       <div className="col-span-12 lg:col-span-6 linear-card rounded-xl p-5">

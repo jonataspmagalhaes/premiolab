@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseBrowser } from './supabase';
 import { useAppStore } from '@/store';
 import { useEffect } from 'react';
-import type { Position, PorCorretora, Provento, Opcao, RendaFixa, Fundo, Saldo, Caixa, Profile, Portfolio } from '@/store';
+import type { Position, PorCorretora, Provento, Opcao, RendaFixa, Fundo, Saldo, Caixa, Profile, Portfolio, ProventoEstimado } from '@/store';
 import type { RebalanceTargets } from './rebalance';
 import { fetchPrices } from './priceService';
 import { valorAtualRF, type TipoRF, type Indexador } from './rendaFixaCalc';
@@ -1222,3 +1222,41 @@ export function useLoadAllData(userId: string | undefined) {
 
   return { isLoading };
 }
+
+// ══════════ Proventos Calendar (hibrido: banco + DM/StatusInvest) ══════════
+// Carrega eventos FUTUROS anunciados (data_pagamento >= hoje) para os tickers
+// em carteira, consumindo /api/proventos/calendar. O endpoint usa cache em
+// proventos_agenda e dispara refresh via edge function se > 6h.
+//
+// Retorna ProventoEstimado[]; hidrata store.renda.proventosEstimados pra
+// consumo em componentes sem prop drilling.
+
+export function useProventosCalendar(tickers: string[], horizonteDias: number = 60) {
+  const setEstimados = useAppStore((s) => s.setProventosEstimados);
+  const normalized = [...tickers]
+    .map((t) => (t || '').toUpperCase().trim())
+    .filter((t) => t.length > 0)
+    .sort();
+  const key = normalized.join(',');
+
+  const query = useQuery({
+    queryKey: ['proventos-calendar', key, horizonteDias],
+    queryFn: async (): Promise<ProventoEstimado[]> => {
+      if (normalized.length === 0) return [];
+      const url = `/api/proventos/calendar?tickers=${encodeURIComponent(key)}&horizonte=${horizonteDias}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) return [];
+      const json = await res.json() as { items?: ProventoEstimado[] };
+      return json.items || [];
+    },
+    enabled: normalized.length > 0,
+    staleTime: 30 * 60 * 1000, // 30min no cliente
+  });
+
+  useEffect(() => {
+    if (query.data) setEstimados(query.data);
+  }, [query.data, setEstimados]);
+
+  return query;
+}
+
