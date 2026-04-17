@@ -92,12 +92,16 @@ export function ProventosInsights(props: Props) {
         agg.Dividendo += liq;
       }
     });
+    var totalTmp = agg.Dividendo + agg.JCP + agg.Rendimento + agg.Exterior;
+    var minValor = totalTmp * 0.01; // filtra fatias < 1% pra evitar "0%" visual feio
     return [
       { name: 'Dividendos BR', value: agg.Dividendo, color: '#F97316' },
       { name: 'JCP', value: agg.JCP, color: '#3B82F6' },
       { name: 'Rendimento FII', value: agg.Rendimento, color: '#22C55E' },
       { name: 'Dividendos EUA', value: agg.Exterior, color: '#E879F9' },
-    ].filter(function (e) { return e.value > 0; });
+    ]
+      .filter(function (e) { return e.value > minValor; })
+      .sort(function (a, b) { return b.value - a.value; });
   }, [props.filtered]);
 
   var yoyDisponivel = totalAnoPassado > 0.01;
@@ -131,12 +135,10 @@ export function ProventosInsights(props: Props) {
       {/* Sparkline mensal — SEMPRE 12m corridos, destaca meses do filtro */}
       <div className="col-span-12 sm:col-span-5">
         <div className="flex items-center justify-between mb-1">
-          <p className="text-[10px] uppercase tracking-wider text-white/40 font-mono">Ultimos 12 meses</p>
-          <p className="text-[9px] text-white/30">
+          <p className="text-[10px] uppercase tracking-wider text-white/40 font-mono">Historico 12 meses</p>
+          <p className="text-[9px] text-white/40">
             <span className="inline-block w-2 h-2 rounded-sm bg-orange-500 mr-1 align-middle" />
-            no filtro
-            <span className="inline-block w-2 h-2 rounded-sm bg-white/[0.12] ml-2 mr-1 align-middle" />
-            fora
+            periodo selecionado
           </p>
         </div>
         <div style={{ width: '100%', height: 72 }}>
