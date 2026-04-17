@@ -23,6 +23,7 @@ interface Props {
   allEnriched: EnrichedLite[];  // dataset completo (pra calcular YoY)
   periodoStart: number;
   periodoEnd: number;
+  onSelecionarMes?: (mesStart: Date, mesEnd: Date) => void;
 }
 
 function sumLiquido(rows: EnrichedLite[]): number {
@@ -169,6 +170,15 @@ export function ProventosInsights(props: Props) {
                 dataKey="valor"
                 radius={[3, 3, 0, 0]}
                 maxBarSize={28}
+                cursor={props.onSelecionarMes ? 'pointer' : undefined}
+                onClick={function (data: { payload?: { ts?: number } }) {
+                  if (!props.onSelecionarMes || !data || !data.payload || !data.payload.ts) return;
+                  var ts = data.payload.ts;
+                  var d = new Date(ts);
+                  var inicio = new Date(d.getFullYear(), d.getMonth(), 1);
+                  var fim = new Date(d.getFullYear(), d.getMonth() + 1, 0); // ultimo dia do mes
+                  props.onSelecionarMes(inicio, fim);
+                }}
                 shape={function (p: unknown) {
                   var anyP = p as { x?: number; y?: number; width?: number; height?: number; payload?: { dentroFiltro?: boolean } };
                   var dentro = anyP.payload?.dentroFiltro;

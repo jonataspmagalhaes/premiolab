@@ -649,6 +649,12 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
         allEnriched={enriched}
         periodoStart={rng.start}
         periodoEnd={rng.end}
+        onSelecionarMes={function (inicio, fim) {
+          setPeriodo('custom');
+          setDateFrom(inicio.toISOString().substring(0, 10));
+          setDateTo(fim.toISOString().substring(0, 10));
+          setVisibleCount(100);
+        }}
       />
 
       {/* Toggle "Mais filtros" em mobile. Desktop (sm+) sempre visivel. */}
