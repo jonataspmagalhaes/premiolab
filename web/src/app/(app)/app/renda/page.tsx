@@ -5,10 +5,11 @@ import Link from 'next/link';
 import { useAppStore, type Position } from '@/store';
 import { TickerLogo } from '@/components/TickerLogo';
 import { ProventoActions } from '@/components/ProventoActions';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine } from 'recharts';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { useUser, useOperacoesRaw, type OperacaoRaw } from '@/lib/queries';
 import { AddProventoSheet } from '@/components/AddProventoSheet';
 import { SyncProventosButton } from '@/components/SyncProventosButton';
+import { RendaMensalChart } from '@/components/renda/RendaMensalChart';
 import { tipoLabel, isIntTicker, valorLiquido } from '@/lib/proventosUtils';
 import { fmtBRL, fmtK, fmtMonthYear, fmtDate } from '@/lib/fmt';
 import { projetarMensal, proximos30dias, type ProjecaoMes } from '@/lib/rendaForecast';
@@ -131,6 +132,13 @@ export default function RendaPage() {
   var timelines = useMemo(function () { return buildTimelinesByTicker(ops); }, [ops]);
   var fallback = useMemo(function () { return fallbackCorretoraAtual(positions); }, [positions]);
 
+  // Map ticker -> categoria pra enriquecer proventos (usado pelo RendaMensalChart)
+  var catByTicker = useMemo(function () {
+    var m: Record<string, string> = {};
+    positions.forEach(function (p) { m[p.ticker] = p.categoria; });
+    return m;
+  }, [positions]);
+
   // Enrich proventos com corretora inferida historicamente
   var enriched = useMemo(function () {
     return proventos.map(function (pv) {
@@ -150,9 +158,10 @@ export default function RendaPage() {
         date: d,
         ts: ts,
         corretora: corr,
+        categoria: catByTicker[tk] || (isIntTicker(tk) ? 'stock_int' : 'acao'),
       };
     }).sort(function (a, b) { return b.ts - a.ts; });
-  }, [proventos, timelines, fallback]);
+  }, [proventos, timelines, fallback, catByTicker]);
 
   return (
     <div className="space-y-5">
@@ -211,6 +220,7 @@ type Enriched = {
   date: Date;
   ts: number;
   corretora: string;
+  categoria?: string;
 };
 
 function ResumoView({ enriched, positions, patrimonioTotal }: { enriched: Enriched[]; positions: Position[]; patrimonioTotal: number }) {
@@ -279,23 +289,7 @@ function ResumoView({ enriched, positions, patrimonioTotal }: { enriched: Enrich
             <p className="text-lg font-bold font-mono text-income">R$ {fmtBRL(totals.media)}</p>
           </div>
         </div>
-        <div style={{ width: '100%', height: 220 }}>
-          <ResponsiveContainer>
-            <BarChart data={mensal} margin={{ top: 10, right: 8, left: -10, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-              <XAxis dataKey="label" tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} tickFormatter={function (v) { return 'R$ ' + fmtK(v); }} />
-              <Tooltip
-                cursor={{ fill: 'rgba(249,115,22,0.06)' }}
-                contentStyle={{ background: '#0a0d14', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, fontSize: 12 }}
-                labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
-                formatter={function (v: unknown) { return ['R$ ' + fmtBRL(Number(v) || 0), 'Recebido']; }}
-              />
-              <ReferenceLine y={totals.media} stroke="rgba(34,197,94,0.5)" strokeDasharray="4 4" />
-              <Bar dataKey="valor" fill="#F97316" radius={[4, 4, 0, 0]} maxBarSize={36} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <RendaMensalChart enriched={enriched} mediaRef={totals.media} heightPx={220} />
       </div>
 
       {/* KPI vertical */}
