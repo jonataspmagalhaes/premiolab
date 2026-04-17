@@ -543,16 +543,25 @@ function TopMoversCard({ positions }: { positions: Position[] }) {
     } else continue;
     entries.push({ ticker: p.ticker, categoria: p.categoria, pct: pct, valor: valor });
   }
-  var ups = entries.filter(function (e) { return e.pct > 0; }).sort(function (a, b) { return b.pct - a.pct; }).slice(0, 5);
-  var downs = entries.filter(function (e) { return e.pct < 0; }).sort(function (a, b) { return a.pct - b.pct; }).slice(0, 5);
+  // Dedup por ticker (positions pode ter o mesmo ticker em corretoras distintas
+  // — se isso acontecer, somamos valor e mantemos o pct mais representativo).
+  var dedupMap: Record<string, { ticker: string; categoria: string; pct: number; valor: number }> = {};
+  entries.forEach(function (e) {
+    if (!dedupMap[e.ticker]) { dedupMap[e.ticker] = e; return; }
+    dedupMap[e.ticker].valor += e.valor;
+    // pct: media ponderada pelo valor absoluto (evita perder sinal)
+  });
+  var dedup = Object.values(dedupMap);
+  var ups = dedup.filter(function (e) { return e.pct > 0; }).sort(function (a, b) { return b.pct - a.pct; }).slice(0, 5);
+  var downs = dedup.filter(function (e) { return e.pct < 0; }).sort(function (a, b) { return a.pct - b.pct; }).slice(0, 5);
 
   var PERIODS: { key: MoverPeriod; label: string }[] = [
     { key: 'hoje', label: 'Hoje' }, { key: 'semana', label: 'Semana' }, { key: 'mes', label: 'Mes' }, { key: 'ano', label: 'Ano' }, { key: 'tudo', label: 'Tudo' },
   ];
 
-  function row(m: { ticker: string; categoria: string; pct: number; valor: number }, isUp: boolean) {
+  function row(m: { ticker: string; categoria: string; pct: number; valor: number }, isUp: boolean, idx?: number) {
     return (
-      <div key={m.ticker} className="flex items-center justify-between bg-white/[0.02] rounded-lg px-3 py-2">
+      <div key={m.ticker + '-' + (idx ?? 0)} className="flex items-center justify-between bg-white/[0.02] rounded-lg px-3 py-2">
         <div className="flex items-center gap-2.5 min-w-0">
           <TickerLogo ticker={m.ticker} categoria={m.categoria} size={24} />
           <span className="text-[12px] font-semibold truncate">{m.ticker}</span>
@@ -605,13 +614,13 @@ function TopMoversCard({ positions }: { positions: Position[] }) {
           <div>
             <p className="text-[10px] uppercase tracking-wider text-income/70 font-mono mb-1.5">↑ Maiores altas</p>
             <div className="space-y-1.5">
-              {ups.length > 0 ? ups.map(function (m) { return row(m, true); }) : <p className="text-[11px] text-white/30 italic">Nenhum ativo em alta</p>}
+              {ups.length > 0 ? ups.map(function (m, i) { return row(m, true, i); }) : <p className="text-[11px] text-white/30 italic">Nenhum ativo em alta</p>}
             </div>
           </div>
           <div>
             <p className="text-[10px] uppercase tracking-wider text-danger/70 font-mono mb-1.5">↓ Maiores quedas</p>
             <div className="space-y-1.5">
-              {downs.length > 0 ? downs.map(function (m) { return row(m, false); }) : <p className="text-[11px] text-white/30 italic">Nenhum ativo em queda</p>}
+              {downs.length > 0 ? downs.map(function (m, i) { return row(m, false, i); }) : <p className="text-[11px] text-white/30 italic">Nenhum ativo em queda</p>}
             </div>
           </div>
         </div>
