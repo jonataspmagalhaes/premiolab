@@ -33,8 +33,11 @@ export function parseMoneyValue(s: string): number | null {
   return n;
 }
 
-export function formatMoneyValue(n: number, moeda: 'BRL' | 'USD' = 'BRL'): string {
-  return n.toLocaleString(moeda === 'USD' ? 'en-US' : 'pt-BR', {
+export type MoneyMoeda = 'BRL' | 'USD' | 'EUR';
+
+export function formatMoneyValue(n: number, moeda: MoneyMoeda = 'BRL'): string {
+  var locale = moeda === 'BRL' ? 'pt-BR' : 'en-US';
+  return n.toLocaleString(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -43,7 +46,7 @@ export function formatMoneyValue(n: number, moeda: 'BRL' | 'USD' = 'BRL'): strin
 interface Props {
   value: string;
   onChange: (v: string) => void;
-  moeda?: 'BRL' | 'USD';
+  moeda?: MoneyMoeda;
   placeholder?: string;
   autoFocus?: boolean;
   className?: string;
@@ -72,7 +75,7 @@ export function MoneyInput({ value, onChange, moeda = 'BRL', placeholder, autoFo
           if (n !== null) onChange(formatMoneyValue(n, moeda));
         }
       }}
-      placeholder={placeholder || (moeda === 'USD' ? '0.00' : '0,00')}
+      placeholder={placeholder || (moeda === 'BRL' ? '0,00' : '0.00')}
       inputMode="decimal"
       autoFocus={autoFocus}
       className={className}
