@@ -4,11 +4,10 @@
 // Create: passar `trigger` custom. Edit: passar `initial` + `onClose` (sem trigger).
 // Corretora eh select obrigatorio de `saldos_corretora` pre-cadastrado.
 //
-// Cripto suporta 3 moedas de cotacao (USD/EUR/BRL) + 2 modos de entrada:
-//   - Unitario: quantidade + preco unitario (padrao)
-//   - Total: total gasto + total recebido (estilo Revolut/Binance)
-// Multi-quote: salva moeda_quote + taxa_cambio no payload pra o trigger de saldo
-// debitar a moeda correta (USD de conta Revolut USD, BRL de conta BR, etc).
+// Cripto: ChipGroup de moeda (USD/EUR/BRL) + botao inverter pra trocar par
+// (BTC-USD <-> USD-BTC, BTC-BRL <-> BRL-BTC, etc). Ticker armazenado
+// literalmente como o user digitou/inverteu — para fetch de preco no Yahoo
+// usamos helper cryptoYahooTicker (normaliza pra CRIPTO-FIAT).
 
 import { useEffect, useState } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -22,13 +21,15 @@ import { InstituicaoPicker } from '@/components/InstituicaoPicker';
 import { ChipGroup } from '@/components/ChipGroup';
 import { canonicalName, isKnownInstituicao } from '@/lib/instituicoes';
 import { useQueryClient } from '@tanstack/react-query';
+import { ArrowLeftRight } from 'lucide-react';
 
 var supabase = getSupabaseBrowser();
 
 type TipoOp = 'compra' | 'venda';
 type Categoria = 'acao' | 'fii' | 'etf' | 'bdr' | 'stock_int' | 'adr' | 'reit' | 'cripto';
 type QuoteMoeda = 'USD' | 'EUR' | 'BRL';
-type ModoEntrada = 'unitario' | 'total';
+
+var MOEDAS_FIAT: QuoteMoeda[] = ['USD', 'EUR', 'BRL'];
 
 // Mercado derivado da categoria
 function mercadoDe(c: Categoria): 'BR' | 'INT' | 'CRIPTO' {
@@ -67,6 +68,29 @@ function filterTipoDe(c: Categoria): 'stock' | 'fii' | 'etf' | 'bdr' | 'stock_in
   return 'reit';
 }
 
+// Retorna se o par esta invertido (fiat primeiro, cripto depois). Ex: USD-BTC.
+function isInverted(tk: string): boolean {
+  var upper = tk.toUpperCase();
+  var parts = upper.split('-');
+  if (parts.length !== 2) return false;
+  return MOEDAS_FIAT.indexOf(parts[0] as QuoteMoeda) >= 0
+      && MOEDAS_FIAT.indexOf(parts[1] as QuoteMoeda) < 0;
+}
+
+// Inverte par A-B para B-A. Se nao tiver hifen, aplica quoteMoeda como fiat
+// e inverte (ex: BTC + USD -> USD-BTC).
+function invertPair(tk: string, quote: QuoteMoeda): string {
+  var upper = tk.trim().toUpperCase();
+  if (!upper) return upper;
+  if (upper.indexOf('-') < 0) {
+    // So symbol crypto — inverte pra FIAT-SYMBOL
+    return quote + '-' + upper;
+  }
+  var parts = upper.split('-');
+  if (parts.length !== 2) return upper;
+  return parts[1] + '-' + parts[0];
+}
+
 export interface OperacaoInitial {
   id: string;
   ticker: string;
@@ -91,27 +115,14 @@ interface Props {
   onOpenChange?: (open: boolean) => void;
 }
 
-var LS_MODO_CRIPTO = 'operacao-cripto-modo-entrada';
-
-function readModoCripto(): ModoEntrada {
-  if (typeof window === 'undefined') return 'unitario';
-  try {
-    var v = window.localStorage.getItem(LS_MODO_CRIPTO);
-    if (v === 'total') return 'total';
-  } catch {}
-  return 'unitario';
-}
-
-function writeModoCripto(v: ModoEntrada) {
-  if (typeof window === 'undefined') return;
-  try { window.localStorage.setItem(LS_MODO_CRIPTO, v); } catch {}
-}
-
-// Le sufixo do ticker (BTC-USD -> USD). Fallback 'USD'.
+// Le sufixo do ticker (BTC-USD -> USD, USD-BTC -> USD). Fallback 'USD'.
 function quoteFromTicker(tk: string): QuoteMoeda {
-  var s = tk.toUpperCase();
-  if (s.endsWith('-EUR')) return 'EUR';
-  if (s.endsWith('-BRL')) return 'BRL';
+  var upper = tk.toUpperCase();
+  var parts = upper.split('-');
+  for (var i = 0; i < parts.length; i++) {
+    var p = parts[i];
+    if (MOEDAS_FIAT.indexOf(p as QuoteMoeda) >= 0) return p as QuoteMoeda;
+  }
   return 'USD';
 }
 
@@ -140,7 +151,7 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
   var _submitting = useState(false); var submitting = _submitting[0]; var setSubmitting = _submitting[1];
   var _err = useState<string | null>(null); var err = _err[0]; var setErr = _err[1];
 
-  // Cripto-specific
+  // Cripto-specific: moeda quote e ticker invertido
   var _quoteMoeda = useState<QuoteMoeda>(function () {
     if (initial && initial.categoria === 'cripto') {
       var mq = initial.moeda_quote;
@@ -151,46 +162,30 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
   });
   var quoteMoeda = _quoteMoeda[0]; var setQuoteMoeda = _quoteMoeda[1];
 
-  var _modoEntrada = useState<ModoEntrada>('unitario');
-  var modoEntrada = _modoEntrada[0]; var setModoEntrada = _modoEntrada[1];
-
-  // Inputs do modo Total
-  var _totalGasto = useState(''); var totalGasto = _totalGasto[0]; var setTotalGasto = _totalGasto[1];
-  var _totalRecebido = useState(''); var totalRecebido = _totalRecebido[0]; var setTotalRecebido = _totalRecebido[1];
-
-  // Hidrata modo cripto de localStorage uma vez
-  useEffect(function () {
-    if (categoria === 'cripto' && !isEdit) setModoEntrada(readModoCripto());
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoria]);
-
   // Reseta quando abre em modo create
   useEffect(function () {
     if (!open) return;
     if (isEdit) return;
     setTipo('compra'); setCategoria('acao'); setTicker(''); setQty(''); setPreco(''); setCustos('');
     setCorretora(''); setData(today); setPf(selectedPortfolio || '__null__'); setErr(null);
-    setQuoteMoeda('USD'); setTotalGasto(''); setTotalRecebido('');
+    setQuoteMoeda('USD');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Mercado derivado
   var mercado: 'BR' | 'INT' | 'CRIPTO' = mercadoDe(categoria);
   var moedaPreco: QuoteMoeda = moedaDePreco(categoria, quoteMoeda);
+  var parInvertido = categoria === 'cripto' && isInverted(ticker);
 
-  function onChangeModo(v: ModoEntrada) {
-    setModoEntrada(v);
-    writeModoCripto(v);
-    // Limpa campos do outro modo ao alternar
-    if (v === 'total') { setQty(''); setPreco(''); }
-    else { setTotalGasto(''); setTotalRecebido(''); }
+  function handleInverter() {
+    setTicker(invertPair(ticker, quoteMoeda));
   }
 
   async function submit() {
     if (!userId) { setErr('Sessão inválida'); return; }
     var tk = ticker.trim().toUpperCase();
 
-    // Cripto: sufixo dinamico baseado em quoteMoeda
+    // Cripto: auto-append sufixo se user so digitou o symbol
     if (categoria === 'cripto' && tk.indexOf('-') < 0) {
       tk = tk + '-' + quoteMoeda;
     }
@@ -198,23 +193,11 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
     if (!tk) { setErr('Ticker obrigatório'); return; }
     if (!/^[A-Z0-9.\-]{1,15}$/.test(tk)) { setErr('Ticker inválido'); return; }
 
-    // Deriva qty e preco unitario de acordo com o modo
-    var q: number;
-    var p: number;
-    if (categoria === 'cripto' && modoEntrada === 'total') {
-      var gastoParsed = parseMoneyValue(totalGasto);
-      var recebido = parseFloat(totalRecebido.replace(',', '.'));
-      if (gastoParsed === null || gastoParsed <= 0) { setErr('Valor gasto inválido'); return; }
-      if (!recebido || recebido <= 0) { setErr('Quantidade recebida inválida'); return; }
-      q = recebido;
-      p = gastoParsed / recebido;
-    } else {
-      q = parseFloat(qty.replace(',', '.'));
-      var pParsed = parseMoneyValue(preco);
-      p = pParsed === null ? NaN : pParsed;
-      if (!q || q <= 0) { setErr('Quantidade inválida'); return; }
-      if (!p || p <= 0) { setErr('Preço inválido'); return; }
-    }
+    var q = parseFloat(qty.replace(',', '.'));
+    var pParsed = parseMoneyValue(preco);
+    var p = pParsed === null ? NaN : pParsed;
+    if (!q || q <= 0) { setErr('Quantidade inválida'); return; }
+    if (!p || p <= 0) { setErr('Preço inválido'); return; }
 
     var cParsed = custos ? parseMoneyValue(custos) : 0;
     var c = cParsed === null ? NaN : cParsed;
@@ -306,7 +289,6 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
   }
 
   var isCripto = categoria === 'cripto';
-  var usaModoTotal = isCripto && modoEntrada === 'total';
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -367,74 +349,67 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
           ) : null}
 
           <Field label="Ticker">
-            <TickerSearch
-              value={ticker}
-              onChange={setTicker}
-              mercado={mercado}
-              filterTipo={filterTipoDe(categoria)}
-              placeholder={
-                categoria === 'fii' ? 'VGIP11' :
-                categoria === 'etf' ? 'BOVA11' :
-                categoria === 'bdr' ? 'AAPL34' :
-                categoria === 'adr' ? 'PBR, VALE' :
-                categoria === 'reit' ? 'O, STAG' :
-                categoria === 'cripto' ? 'BTC, ETH, SOL' :
-                mercado === 'INT' ? 'AAPL' : 'PETR4'
-              }
-            />
+            {isCripto ? (
+              <div className="flex gap-2 items-stretch">
+                <div className="flex-1 min-w-0">
+                  <TickerSearch
+                    value={ticker}
+                    onChange={setTicker}
+                    mercado={mercado}
+                    filterTipo={filterTipoDe(categoria)}
+                    placeholder={parInvertido ? (quoteMoeda + '-BTC') : 'BTC, ETH, SOL'}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handleInverter}
+                  className="shrink-0 px-3 border border-white/10 hover:bg-white/5"
+                  title={parInvertido ? 'Voltar pra par normal (ex: BTC-USD)' : 'Inverter par (ex: USD-BTC)'}
+                >
+                  <ArrowLeftRight className="w-4 h-4" />
+                </Button>
+              </div>
+            ) : (
+              <TickerSearch
+                value={ticker}
+                onChange={setTicker}
+                mercado={mercado}
+                filterTipo={filterTipoDe(categoria)}
+                placeholder={
+                  categoria === 'fii' ? 'VGIP11' :
+                  categoria === 'etf' ? 'BOVA11' :
+                  categoria === 'bdr' ? 'AAPL34' :
+                  categoria === 'adr' ? 'PBR, VALE' :
+                  categoria === 'reit' ? 'O, STAG' :
+                  mercado === 'INT' ? 'AAPL' : 'PETR4'
+                }
+              />
+            )}
+            {isCripto && parInvertido ? (
+              <p className="mt-1 text-[10px] text-white/40">
+                Par invertido: {quoteMoeda} como base (ex: {quoteMoeda}-BTC).
+              </p>
+            ) : null}
           </Field>
 
-          {isCripto ? (
-            <Field label="Como deseja cadastrar?">
-              <ChipGroup<ModoEntrada>
-                value={modoEntrada}
-                onChange={onChangeModo}
-                cols={2}
-                options={[
-                  { value: 'unitario', label: 'Qtd + Preço', color: 'blue' },
-                  { value: 'total', label: 'Gastou/Recebeu', color: 'orange' },
-                ]}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Quantidade">
+              <Input
+                value={qty}
+                onChange={function (e) { setQty(e.target.value); }}
+                placeholder="100"
+                inputMode="decimal"
               />
             </Field>
-          ) : null}
-
-          {usaModoTotal ? (
-            <div className="grid grid-cols-2 gap-3">
-              <Field label={'Gastou (' + simboloMoeda(quoteMoeda) + ')'}>
-                <MoneyInput
-                  value={totalGasto}
-                  onChange={setTotalGasto}
-                  moeda={quoteMoeda}
-                />
-              </Field>
-              <Field label={'Recebeu (' + ((ticker.trim().toUpperCase().split('-')[0]) || 'cripto') + ')'}>
-                <Input
-                  value={totalRecebido}
-                  onChange={function (e) { setTotalRecebido(e.target.value); }}
-                  placeholder="0,00126301"
-                  inputMode="decimal"
-                />
-              </Field>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Quantidade">
-                <Input
-                  value={qty}
-                  onChange={function (e) { setQty(e.target.value); }}
-                  placeholder="100"
-                  inputMode="decimal"
-                />
-              </Field>
-              <Field label={'Preço (' + simboloMoeda(moedaPreco) + ')'}>
-                <MoneyInput
-                  value={preco}
-                  onChange={setPreco}
-                  moeda={moedaPreco}
-                />
-              </Field>
-            </div>
-          )}
+            <Field label={'Preço (' + simboloMoeda(moedaPreco) + ')'}>
+              <MoneyInput
+                value={preco}
+                onChange={setPreco}
+                moeda={moedaPreco}
+              />
+            </Field>
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Custos (opcional)">
@@ -455,19 +430,9 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
 
           {/* Preview do total */}
           {(function () {
-            var qp: number;
-            var pp: number | null;
-            if (usaModoTotal) {
-              var gasto = parseMoneyValue(totalGasto);
-              var recebido = parseFloat(totalRecebido.replace(',', '.'));
-              if (gasto === null || gasto <= 0 || isNaN(recebido) || recebido <= 0) return null;
-              qp = recebido;
-              pp = gasto / recebido;
-            } else {
-              qp = parseFloat(qty.replace(',', '.'));
-              pp = parseMoneyValue(preco);
-              if (pp === null || isNaN(qp) || pp <= 0 || qp <= 0) return null;
-            }
+            var qp = parseFloat(qty.replace(',', '.'));
+            var pp = parseMoneyValue(preco);
+            if (pp === null || isNaN(qp) || pp <= 0 || qp <= 0) return null;
             var cp = custos ? (parseMoneyValue(custos) || 0) : 0;
             var bruto = qp * pp;
             var total = tipo === 'compra' ? bruto + cp : bruto - cp;
@@ -478,12 +443,6 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
             var sinal = tipo === 'compra' ? '-' : '+';
             return (
               <div className={'rounded-md border px-3 py-2.5 space-y-1 ' + corCard}>
-                {usaModoTotal ? (
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-white/40">Preço unitário</span>
-                    <span className="text-[11px] font-mono text-white/60">{moedaSym} {pp.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                ) : null}
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-white/40">Bruto</span>
                   <span className="text-[11px] font-mono text-white/60">{moedaSym} {bruto.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
