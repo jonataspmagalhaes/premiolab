@@ -3,8 +3,10 @@
 // /app/ir — Resumo Anual do IR.
 // KPIs (devido, retido, pago, saldo) + grafico mensal + alertas + lista de
 // DARFs + CaixaContador inicial (resumo sobre DARF).
+//
+// Ano-base e gerenciado pelo IRYearContext (layout pai).
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useIR } from '@/lib/ir/useIR';
 import { CaixaContador } from '@/components/ir/CaixaContador';
 import { fmtBRL } from '@/lib/fmt';
@@ -12,13 +14,11 @@ import { mesLabel } from '@/lib/ir/cambio';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine } from 'recharts';
 import { AlertTriangle, CheckCircle2, FileText } from 'lucide-react';
 import Link from 'next/link';
+import { useIRYear } from './_yearContext';
 
 export default function IRResumoPage() {
-  var thisYear = new Date().getFullYear();
-  var _ano = useState<number>(thisYear - 1);
-  var ano = _ano[0];
-  var setAno = _ano[1];
-
+  var yCtx = useIRYear();
+  var ano = yCtx.year;
   var ir = useIR(ano);
 
   // Array mensal pra grafico (12 meses do ano, imposto devido por mes)
@@ -38,26 +38,16 @@ export default function IRResumoPage() {
     return arr;
   }, [ir.data, ano]);
 
-  var anos: number[] = [];
-  for (var y = thisYear; y >= thisYear - 5; y--) anos.push(y);
-
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">Imposto de Renda</h1>
+          <h1 className="text-xl font-bold tracking-tight">Resumo Anual — {ano}</h1>
           <p className="text-xs text-white/40 mt-1">
-            Resumo anual, DARFs, rendimentos classificados e ficha de bens.
+            DARFs, rendimentos classificados e ficha de bens consolidados.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <select
-            value={ano}
-            onChange={function (e) { setAno(parseInt(e.target.value, 10)); }}
-            className="bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-1.5 text-[12px] text-white focus:outline-none focus:border-orange-500/40"
-          >
-            {anos.map(function (y) { return <option key={y} value={y}>{y}</option>; })}
-          </select>
           <Link
             href="/app/renda/ir"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.08] text-[11px] text-white/60 hover:text-white transition"
