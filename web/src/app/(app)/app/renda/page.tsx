@@ -13,6 +13,7 @@ import { RendaMensalChart } from '@/components/renda/RendaMensalChart';
 import { ProximosPagamentosCard } from '@/components/renda/ProximosPagamentosCard';
 import { OpcoesResumoCard } from '@/components/renda/OpcoesResumoCard';
 import { PorFonteDonut } from '@/components/renda/PorFonteDonut';
+import { OpcoesView } from '@/components/renda/OpcoesView';
 import { tipoLabel, isIntTicker, valorLiquido } from '@/lib/proventosUtils';
 import { fmtBRL, fmtK, fmtMonthYear, fmtDate } from '@/lib/fmt';
 import { projetarMensal, proximos30dias, type ProjecaoMes } from '@/lib/rendaForecast';
@@ -128,7 +129,7 @@ export default function RendaPage() {
   var opsQuery = useOperacoesRaw(user.data?.id);
   var ops = opsQuery.data || [];
 
-  var _tab = useState<'resumo' | 'proventos'>('resumo');
+  var _tab = useState<'resumo' | 'proventos' | 'opcoes'>('resumo');
   var subtab = _tab[0];
   var setSubtab = _tab[1];
 
@@ -178,6 +179,7 @@ export default function RendaPage() {
           {([
             { k: 'resumo' as const, label: 'Resumo' },
             { k: 'proventos' as const, label: 'Proventos' },
+            { k: 'opcoes' as const, label: 'Opcoes' },
           ]).map(function (opt) {
             var active = subtab === opt.k;
             return (
@@ -201,9 +203,16 @@ export default function RendaPage() {
       </div>
 
       {subtab === 'resumo' ? (
-        <ResumoView enriched={enriched} positions={positions} patrimonioTotal={patrimonio.total} />
-      ) : (
+        <ResumoView
+          enriched={enriched}
+          positions={positions}
+          patrimonioTotal={patrimonio.total}
+          onVerOpcoes={function () { setSubtab('opcoes'); }}
+        />
+      ) : subtab === 'proventos' ? (
         <ProventosView enriched={enriched} userId={user.data?.id} />
+      ) : (
+        <OpcoesView />
       )}
     </div>
   );
@@ -226,7 +235,7 @@ type Enriched = {
   categoria?: string;
 };
 
-function ResumoView({ enriched, positions, patrimonioTotal }: { enriched: Enriched[]; positions: Position[]; patrimonioTotal: number }) {
+function ResumoView({ enriched, positions, patrimonioTotal, onVerOpcoes }: { enriched: Enriched[]; positions: Position[]; patrimonioTotal: number; onVerOpcoes?: () => void }) {
   // Renda mensal nos ultimos 12 meses
   var mensal = useMemo(function () {
     var now = new Date();
@@ -335,7 +344,7 @@ function ResumoView({ enriched, positions, patrimonioTotal }: { enriched: Enrich
       </div>
 
       {/* Renda de opcoes 12m — card + mini-spark */}
-      <OpcoesResumoCard />
+      <OpcoesResumoCard onDetalhar={onVerOpcoes} />
 
       {/* Donut de renda por fonte (12m liquido) */}
       <PorFonteDonut />
