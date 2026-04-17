@@ -1,93 +1,212 @@
 'use client';
 
-// Placeholder do menu IR. O conteudo completo (modo Contador) vem no
-// Bloco B do plano — ver C:\Users\Admin\.claude\plans\...
-// Esta tela serve hoje como "destino" pros bookmarks antigos (redirect
-// de /app/renda/ir) e pro item "IR" do AppTopNav.
+// /app/ir — Resumo Anual do IR.
+// KPIs (devido, retido, pago, saldo) + grafico mensal + alertas + lista de
+// DARFs + CaixaContador inicial (resumo sobre DARF).
 
+import { useMemo, useState } from 'react';
+import { useIR } from '@/lib/ir/useIR';
+import { CaixaContador } from '@/components/ir/CaixaContador';
+import { fmtBRL } from '@/lib/fmt';
+import { mesLabel } from '@/lib/ir/cambio';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine } from 'recharts';
+import { AlertTriangle, CheckCircle2, FileText } from 'lucide-react';
 import Link from 'next/link';
-import { FileText, ShieldCheck, Scale, Landmark, Bitcoin, Banknote, TrendingUp, Receipt } from 'lucide-react';
 
-var SECOES = [
-  { label: 'Renda Variavel', descricao: 'Swing trade BR (acoes, FIIs, ETFs, BDR/ADR/REIT) e stocks internacionais', icone: 'tv' },
-  { label: 'Opcoes', descricao: 'P&L mensal, swing 15%, daytrade 20%, compensacao silo-separada', icone: 'sc' },
-  { label: 'Renda Fixa', descricao: 'Tabela regressiva, LCI/LCA isenta, debentures incentivadas', icone: 'bk' },
-  { label: 'Cripto', descricao: 'Isencao R$35k/mes em vendas, daytrade 22,5%', icone: 'bt' },
-  { label: 'Rendimentos', descricao: 'Isentos (dividendos BR, rendimentos FII), JCP 15%, dividendos EUA 30%', icone: 'rc' },
-  { label: 'Bens e Direitos', descricao: 'Posicao 31/12 por ativo, custo medio BRL, codigos IRPF pre-preenchidos', icone: 'sh' },
-  { label: 'DARF Central', descricao: 'Gerador de DARF mensal, codigo 6015/4600, alerta de vencidos', icone: 'ft' },
-  { label: 'Modo Contador', descricao: 'Regras IR brasileiras, passo a passo IRPF, FAQ, exemplos de preenchimento', icone: 'sl' },
-];
+export default function IRResumoPage() {
+  var thisYear = new Date().getFullYear();
+  var _ano = useState<number>(thisYear - 1);
+  var ano = _ano[0];
+  var setAno = _ano[1];
 
-function IconFor(props: { nome: string }) {
-  var size = 'w-5 h-5';
-  var nome = props.nome;
-  if (nome === 'tv') return <TrendingUp className={size} />;
-  if (nome === 'sc') return <Scale className={size} />;
-  if (nome === 'bk') return <Landmark className={size} />;
-  if (nome === 'bt') return <Bitcoin className={size} />;
-  if (nome === 'rc') return <Banknote className={size} />;
-  if (nome === 'sh') return <ShieldCheck className={size} />;
-  if (nome === 'ft') return <Receipt className={size} />;
-  return <FileText className={size} />;
+  var ir = useIR(ano);
+
+  // Array mensal pra grafico (12 meses do ano, imposto devido por mes)
+  var mensal = useMemo(function () {
+    var nomes = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    var arr: Array<{ label: string; mes: string; imposto: number }> = [];
+    for (var m = 0; m < 12; m++) {
+      var key = ano + '-' + String(m + 1).padStart(2, '0');
+      arr.push({ label: nomes[m], mes: key, imposto: 0 });
+    }
+    if (ir.data) {
+      ir.data.darfs.forEach(function (d) {
+        var idx = arr.findIndex(function (x) { return x.mes === d.mes; });
+        if (idx >= 0) arr[idx].imposto += d.valorTotal;
+      });
+    }
+    return arr;
+  }, [ir.data, ano]);
+
+  var anos: number[] = [];
+  for (var y = thisYear; y >= thisYear - 5; y--) anos.push(y);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">Imposto de Renda</h1>
+          <p className="text-xs text-white/40 mt-1">
+            Resumo anual, DARFs, rendimentos classificados e ficha de bens.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={ano}
+            onChange={function (e) { setAno(parseInt(e.target.value, 10)); }}
+            className="bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-1.5 text-[12px] text-white focus:outline-none focus:border-orange-500/40"
+          >
+            {anos.map(function (y) { return <option key={y} value={y}>{y}</option>; })}
+          </select>
+          <Link
+            href="/app/renda/ir"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.08] text-[11px] text-white/60 hover:text-white transition"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            Classificacao legado
+          </Link>
+        </div>
+      </div>
+
+      {ir.isLoading ? (
+        <div className="linear-card rounded-xl p-8 text-center">
+          <p className="text-[13px] text-white/50">Calculando IR do ano {ano}...</p>
+        </div>
+      ) : null}
+
+      {ir.data ? (
+        <>
+          {/* KPIs principais */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <KpiIR
+              label="IR devido"
+              value={ir.data.totais.irDevido}
+              accent="text-red-300"
+              sub={ir.data.darfs.length + ' DARF' + (ir.data.darfs.length === 1 ? '' : 's')}
+            />
+            <KpiIR
+              label="IR retido fonte"
+              value={ir.data.totais.irRetido}
+              accent="text-amber-300"
+              sub="JCP + Dividendos EUA"
+            />
+            <KpiIR
+              label="Rendimentos isentos"
+              value={ir.data.totais.rendimentosIsentos}
+              accent="text-income"
+              sub="Dividendos BR + FII"
+            />
+            <KpiIR
+              label="Rendimentos tributados"
+              value={ir.data.totais.rendimentosTributados}
+              accent="text-info"
+              sub="JCP + EUA (bruto)"
+            />
+          </div>
+
+          {/* Grafico mensal */}
+          <div className="linear-card rounded-xl p-5">
+            <p className="text-xs uppercase tracking-wider text-white/40 font-mono mb-3">IR devido por mes · {ano}</p>
+            <div style={{ width: '100%', height: 220 }}>
+              <ResponsiveContainer>
+                <BarChart data={mensal} margin={{ top: 10, right: 8, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} tickFormatter={function (v) { return 'R$ ' + v; }} />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(239,68,68,0.06)' }}
+                    contentStyle={{ background: '#0a0d14', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
+                    formatter={function (v: unknown) { return ['R$ ' + fmtBRL(Number(v) || 0), 'IR devido']; }}
+                  />
+                  <ReferenceLine y={0} stroke="rgba(255,255,255,0.2)" />
+                  <Bar dataKey="imposto" fill="#EF4444" fillOpacity={0.8} radius={[4, 4, 0, 0]} maxBarSize={36} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Alertas */}
+          {ir.data.alertas.length > 0 ? (
+            <div className="linear-card rounded-xl p-5 border border-amber-500/20 bg-amber-500/[0.03]">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400" />
+                <p className="text-[12px] font-semibold text-amber-300">
+                  Atencao — {ir.data.alertas.length} alerta{ir.data.alertas.length === 1 ? '' : 's'}
+                </p>
+              </div>
+              <ul className="space-y-1">
+                {ir.data.alertas.slice(0, 10).map(function (a, i) {
+                  return <li key={i} className="text-[11px] text-white/70 leading-relaxed">• {a}</li>;
+                })}
+              </ul>
+              {ir.data.alertas.length > 10 ? (
+                <p className="text-[10px] text-white/40 mt-2">+ {ir.data.alertas.length - 10} alertas</p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="linear-card rounded-xl p-4 border border-emerald-500/20 bg-emerald-500/[0.03] flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <p className="text-[12px] text-emerald-300">Sem alertas — tudo em ordem para o ano {ano}.</p>
+            </div>
+          )}
+
+          {/* Lista de DARFs */}
+          <div className="linear-card rounded-xl p-5">
+            <p className="text-xs uppercase tracking-wider text-white/40 font-mono mb-3">
+              DARFs do ano · {ir.data.darfs.length} emissoes
+            </p>
+            {ir.data.darfs.length === 0 ? (
+              <p className="text-[12px] text-white/30 italic py-4">Nenhum imposto devido em {ano} (consideradas isencoes aplicadas).</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-[11px]">
+                  <thead>
+                    <tr className="text-left text-white/40 border-b border-white/[0.06]">
+                      <th className="py-2 pr-3 font-medium uppercase tracking-wider text-[9px]">Mes apuracao</th>
+                      <th className="py-2 pr-3 font-medium uppercase tracking-wider text-[9px]">Codigo</th>
+                      <th className="py-2 pr-3 font-medium uppercase tracking-wider text-[9px]">Vencimento</th>
+                      <th className="py-2 pr-3 font-medium uppercase tracking-wider text-[9px] text-right">Valor</th>
+                      <th className="py-2 font-medium uppercase tracking-wider text-[9px]">Detalhe</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ir.data.darfs.map(function (d, i) {
+                      return (
+                        <tr key={d.mes + '-' + d.codigo + '-' + i} className="border-b border-white/[0.03]">
+                          <td className="py-2 pr-3 font-mono text-white/80">{mesLabel(d.mes)}</td>
+                          <td className="py-2 pr-3 font-mono text-orange-300">{d.codigo}</td>
+                          <td className="py-2 pr-3 font-mono text-white/60">{d.vencimento}</td>
+                          <td className="py-2 pr-3 font-mono text-right font-semibold text-red-300">R$ {fmtBRL(d.valorTotal)}</td>
+                          <td className="py-2 text-[10px] text-white/50">
+                            {d.porCategoria
+                              .filter(function (c) { return c.imposto > 0; })
+                              .map(function (c) { return c.categoria + ' ' + 'R$' + c.imposto.toFixed(0); })
+                              .join(', ')}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* CaixaContador — educa sobre DARF */}
+          <CaixaContador secao="darf" defaultOpen={ir.data.darfs.length > 0} />
+        </>
+      ) : null}
+    </div>
+  );
 }
 
-export default function IRPage() {
+function KpiIR(props: { label: string; value: number; accent: string; sub?: string }) {
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight">Imposto de Renda</h1>
-        <p className="text-xs text-white/40 mt-1">
-          Ferramenta completa pra declarar IR: regras, calculos, DARF e Ficha de Bens.
-        </p>
-      </div>
-
-      <div className="linear-card rounded-xl p-5 border border-amber-500/30 bg-amber-500/[0.04]">
-        <div className="flex items-start gap-3">
-          <span className="text-2xl leading-none">🚧</span>
-          <div className="flex-1">
-            <p className="text-[13px] font-semibold text-amber-200">Em construcao</p>
-            <p className="text-[11px] text-white/60 mt-1.5 leading-relaxed">
-              O menu IR completo (modo Contador) esta sendo implementado em um proximo bloco
-              de commits. Cobrira todas as classes de ativos (acoes, FIIs, ETFs, opcoes,
-              RF, cripto, stocks internacionais), com orientacao fiscal detalhada, geracao
-              de DARF e textos prontos para colar no programa IRPF.
-            </p>
-            <p className="text-[11px] text-white/60 mt-2 leading-relaxed">
-              Por enquanto, a classificacao basica de proventos (isentos, JCP 15%, dividendos
-              EUA 30%) continua disponivel na tela antiga:
-            </p>
-            <Link
-              href="/app/renda/ir"
-              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 text-[11px] font-medium hover:bg-emerald-500/25 transition"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              Abrir classificacao de proventos (legado)
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <p className="text-[11px] uppercase tracking-wider text-white/40 font-mono mb-3">Secoes planejadas</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {SECOES.map(function (s) {
-            return (
-              <div
-                key={s.label}
-                className="linear-card rounded-xl p-4 opacity-70 hover:opacity-100 transition"
-                title="Em construcao"
-              >
-                <div className="flex items-center gap-2 mb-2 text-orange-300">
-                  <IconFor nome={s.icone} />
-                  <span className="text-[13px] font-semibold">{s.label}</span>
-                </div>
-                <p className="text-[11px] text-white/50 leading-relaxed">{s.descricao}</p>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+    <div className="linear-card rounded-xl p-4">
+      <p className="text-[10px] uppercase tracking-wider text-white/40 font-mono">{props.label}</p>
+      <p className={'text-xl font-bold font-mono mt-1 ' + props.accent}>R$ {fmtBRL(props.value || 0)}</p>
+      {props.sub ? <p className="text-[10px] text-white/30 mt-0.5">{props.sub}</p> : null}
     </div>
   );
 }
