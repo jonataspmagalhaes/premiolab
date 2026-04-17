@@ -49,23 +49,32 @@ export function ProventosInsights(props: Props) {
   var yoyPct = totalAnoPassado > 0 ? ((totalAtual / totalAnoPassado) - 1) * 100 : 0;
   var yoyAbs = totalAtual - totalAnoPassado;
 
-  // Sparkline mensal (dentro do periodo)
+  // Sparkline SEMPRE mostra os ultimos 12 meses corridos (independente do
+  // filtro de periodo). Da contexto historico mesmo quando o user filtrou
+  // so o mes atual. Usa allEnriched, nao filtered.
   var mensal = useMemo(function () {
-    if (props.filtered.length === 0) return [];
-    var mapa: Record<string, { label: string; ts: number; valor: number }> = {};
-    props.filtered.forEach(function (r) {
-      var k = r.date.getFullYear() + '-' + r.date.getMonth();
-      if (!mapa[k]) {
-        mapa[k] = {
-          label: fmtMonthYear(r.date),
-          ts: new Date(r.date.getFullYear(), r.date.getMonth(), 1).getTime(),
-          valor: 0,
-        };
-      }
-      mapa[k].valor += valorLiquido(r.valor_total, r.tipo_provento, r.ticker);
+    var now = new Date();
+    var base: Array<{ label: string; ts: number; valor: number; dentroFiltro: boolean }> = [];
+    for (var i = 11; i >= 0; i--) {
+      var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      base.push({
+        label: fmtMonthYear(d),
+        ts: d.getTime(),
+        valor: 0,
+        dentroFiltro: d.getTime() >= props.periodoStart && d.getTime() < props.periodoEnd,
+      });
+    }
+    var idx: Record<string, number> = {};
+    base.forEach(function (m, i) { idx[String(m.ts)] = i; });
+    props.allEnriched.forEach(function (r) {
+      var mStart = new Date(r.date.getFullYear(), r.date.getMonth(), 1).getTime();
+      var i2 = idx[String(mStart)];
+      if (i2 == null) return;
+      if (r.ts > Date.now()) return; // so passado
+      base[i2].valor += valorLiquido(r.valor_total, r.tipo_provento, r.ticker);
     });
-    return Object.values(mapa).sort(function (a, b) { return a.ts - b.ts; });
-  }, [props.filtered]);
+    return base;
+  }, [props.allEnriched, props.periodoStart, props.periodoEnd]);
 
   // Breakdown por tipo
   var porTipo = useMemo(function () {
@@ -119,65 +128,93 @@ export function ProventosInsights(props: Props) {
         ) : null}
       </div>
 
-      {/* Sparkline mensal */}
+      {/* Sparkline mensal — SEMPRE 12m corridos, destaca meses do filtro */}
       <div className="col-span-12 sm:col-span-5">
-        {mensal.length === 0 ? (
-          <p className="text-[11px] text-white/30 italic">Sem dados pra grafico</p>
-        ) : (
-          <>
-            <p className="text-[10px] uppercase tracking-wider text-white/40 font-mono mb-1">Mensal</p>
-            <div style={{ width: '100%', height: 56 }}>
-              <ResponsiveContainer>
-                <BarChart data={mensal} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
-                  <RTooltip
-                    cursor={{ fill: 'rgba(249,115,22,0.06)' }}
-                    contentStyle={{ background: '#0a0d14', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, fontSize: 11 }}
-                    formatter={function (v: unknown) { return ['R$ ' + fmtBRL(Number(v) || 0), 'Recebido']; }}
-                    labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
-                  />
-                  <Bar dataKey="valor" fill="#F97316" radius={[2, 2, 0, 0]} maxBarSize={22} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="flex justify-between text-[9px] font-mono text-white/40 mt-0.5">
-              <span>{mensal[0]?.label}</span>
-              {mensal.length > 1 ? <span>{mensal[mensal.length - 1].label}</span> : null}
-            </div>
-          </>
-        )}
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-[10px] uppercase tracking-wider text-white/40 font-mono">Ultimos 12 meses</p>
+          <p className="text-[9px] text-white/30">
+            <span className="inline-block w-2 h-2 rounded-sm bg-orange-500 mr-1 align-middle" />
+            no filtro
+            <span className="inline-block w-2 h-2 rounded-sm bg-white/[0.12] ml-2 mr-1 align-middle" />
+            fora
+          </p>
+        </div>
+        <div style={{ width: '100%', height: 72 }}>
+          <ResponsiveContainer>
+            <BarChart data={mensal} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+              <RTooltip
+                cursor={{ fill: 'rgba(249,115,22,0.06)' }}
+                contentStyle={{ background: '#0a0d14', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, fontSize: 11 }}
+                formatter={function (v: unknown) { return ['R$ ' + fmtBRL(Number(v) || 0), 'Recebido']; }}
+                labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
+              />
+              <Bar
+                dataKey="valor"
+                radius={[2, 2, 0, 0]}
+                maxBarSize={22}
+                shape={function (p: unknown) {
+                  var anyP = p as { x?: number; y?: number; width?: number; height?: number; payload?: { dentroFiltro?: boolean } };
+                  var dentro = anyP.payload?.dentroFiltro;
+                  var x = anyP.x ?? 0, y = anyP.y ?? 0, w = anyP.width ?? 0, h = anyP.height ?? 0;
+                  return <rect x={x} y={y} width={w} height={h} fill={dentro ? '#F97316' : 'rgba(255,255,255,0.12)'} rx={2} ry={2} />;
+                }}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="flex justify-between text-[9px] font-mono text-white/30 mt-0.5">
+          <span>{mensal[0]?.label}</span>
+          <span>{mensal[mensal.length - 1]?.label}</span>
+        </div>
       </div>
 
-      {/* Donut por tipo */}
+      {/* Donut por tipo — maior e mais legivel */}
       <div className="col-span-12 sm:col-span-3">
-        {porTipo.length === 0 ? null : (
+        {porTipo.length === 0 ? (
+          <p className="text-[11px] text-white/30 italic">Sem dados</p>
+        ) : (
           <div className="flex items-center gap-3">
-            <div style={{ width: 70, height: 70, position: 'relative' }}>
+            <div style={{ width: 96, height: 96, position: 'relative' }}>
               <ResponsiveContainer>
                 <PieChart>
                   <Pie
                     data={porTipo}
                     dataKey="value"
                     nameKey="name"
-                    innerRadius={22}
-                    outerRadius={33}
-                    paddingAngle={2}
+                    innerRadius={32}
+                    outerRadius={46}
+                    paddingAngle={porTipo.length > 1 ? 2 : 0}
                     strokeWidth={0}
                   >
                     {porTipo.map(function (d, i) { return <Cell key={i} fill={d.color} />; })}
                   </Pie>
+                  <RTooltip
+                    contentStyle={{ background: '#0a0d14', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, fontSize: 11 }}
+                    formatter={function (v: unknown) { return ['R$ ' + fmtBRL(Number(v) || 0), '']; }}
+                  />
                 </PieChart>
               </ResponsiveContainer>
+              {/* Label no centro — maior categoria */}
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                <div className="text-center">
+                  <p className="text-[13px] font-semibold font-mono" style={{ color: porTipo[0].color }}>
+                    {totalAtual > 0 ? ((porTipo[0].value / totalAtual) * 100).toFixed(0) + '%' : '0%'}
+                  </p>
+                  <p className="text-[8px] text-white/40 leading-none mt-0.5">{porTipo[0].name.split(' ')[0]}</p>
+                </div>
+              </div>
             </div>
-            <div className="space-y-0.5 flex-1 min-w-0">
-              {porTipo.slice(0, 4).map(function (t) {
-                var pct = (t.value / totalAtual) * 100;
+            <div className="space-y-1 flex-1 min-w-0">
+              {porTipo.map(function (t) {
+                var pct = totalAtual > 0 ? (t.value / totalAtual) * 100 : 0;
+                if (pct < 0.5) return null; // filtra fatias irrisorias
                 return (
                   <div key={t.name} className="flex items-center justify-between gap-2 text-[10px]">
-                    <span className="flex items-center gap-1 min-w-0 truncate">
-                      <span className="inline-block w-1.5 h-1.5 rounded-sm shrink-0" style={{ background: t.color }} />
-                      <span className="text-white/60 truncate">{t.name}</span>
+                    <span className="flex items-center gap-1.5 min-w-0 truncate">
+                      <span className="inline-block w-2 h-2 rounded-sm shrink-0" style={{ background: t.color }} />
+                      <span className="text-white/70 truncate">{t.name}</span>
                     </span>
-                    <span className="font-mono text-white/70 shrink-0">{pct.toFixed(0)}%</span>
+                    <span className="font-mono font-semibold text-white/80 shrink-0">{pct.toFixed(0)}%</span>
                   </div>
                 );
               })}
