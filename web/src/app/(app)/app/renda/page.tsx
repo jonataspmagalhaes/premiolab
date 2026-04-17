@@ -10,23 +10,7 @@ import { useUser, useOperacoesRaw, type OperacaoRaw } from '@/lib/queries';
 import { AddProventoSheet } from '@/components/AddProventoSheet';
 import { SyncProventosButton } from '@/components/SyncProventosButton';
 import { tipoLabel, isIntTicker, valorLiquido } from '@/lib/proventosUtils';
-
-// ─── Utils ─────────────────────────────────────────────────
-
-function fmtBRL(v: number): string {
-  return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-function fmtK(v: number): string {
-  if (v >= 1000) return (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k';
-  return Math.round(v).toString();
-}
-function fmtMonthYear(d: Date): string {
-  var m = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-  return m[d.getMonth()] + '/' + String(d.getFullYear()).slice(-2);
-}
-function fmtDate(d: Date): string {
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
-}
+import { fmtBRL, fmtK, fmtMonthYear, fmtDate } from '@/lib/fmt';
 
 // ─── Provento corretora inference ──────────────────────────
 // Inferencia HISTORICA: retorna a corretora que detinha mais qty do ticker

@@ -4,11 +4,8 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAppStore } from '@/store';
 import { tipoLabel, isIntTicker, valorLiquido } from '@/lib/proventosUtils';
+import { fmtBRL } from '@/lib/fmt';
 import { Download, ArrowLeft } from 'lucide-react';
-
-function fmtBRL(v: number): string {
-  return (v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
 
 // Classifica provento pra declaracao IR
 // Isento: dividendos BR, rendimentos FII
