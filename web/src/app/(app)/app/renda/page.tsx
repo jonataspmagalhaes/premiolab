@@ -235,6 +235,15 @@ type Enriched = {
   categoria?: string;
 };
 
+type OrderKey = 'data-desc' | 'data-asc' | 'valor-desc' | 'valor-asc' | 'ticker-asc';
+var ORDER_OPTIONS: { k: OrderKey; label: string }[] = [
+  { k: 'data-desc', label: 'Data (+ recente)' },
+  { k: 'data-asc', label: 'Data (+ antiga)' },
+  { k: 'valor-desc', label: 'Valor (maior)' },
+  { k: 'valor-asc', label: 'Valor (menor)' },
+  { k: 'ticker-asc', label: 'Ticker A-Z' },
+];
+
 function ResumoView({ enriched, positions, patrimonioTotal, onVerOpcoes }: { enriched: Enriched[]; positions: Position[]; patrimonioTotal: number; onVerOpcoes?: () => void }) {
   // Renda mensal nos ultimos 12 meses
   var mensal = useMemo(function () {
@@ -373,6 +382,14 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
   var grp = _grp[0];
   var setGrp = _grp[1];
 
+  var _order = useState<OrderKey>('data-desc');
+  var order = _order[0];
+  var setOrder = _order[1];
+
+  var _showFilters = useState(false);
+  var showFilters = _showFilters[0];
+  var setShowFilters = _showFilters[1];
+
   var _tipoFilter = useState<'all' | 'dividendo' | 'jcp' | 'rendimento'>('all');
   var tipoFilter = _tipoFilter[0];
   var setTipoFilter = _tipoFilter[1];
@@ -411,7 +428,7 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
   }, [enriched, rng, tipoFilter, fonteFilter, search]);
 
   // Se consolidar, agrupa irmaos (mesmo ticker+data_pagamento) somando valor
-  var filtered = useMemo(function () {
+  var filteredConsolidated = useMemo(function () {
     if (!consolidar) return filteredRaw;
     var map: Record<string, Enriched> = {};
     filteredRaw.forEach(function (r) {
@@ -422,8 +439,33 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
         map[k].valor_total += r.valor_total;
       }
     });
-    return Object.values(map).sort(function (a, b) { return b.ts - a.ts; });
+    return Object.values(map);
   }, [filteredRaw, consolidar]);
+
+  // Ordenacao unificada — aplicada depois da consolidacao
+  var filtered = useMemo(function () {
+    var arr = filteredConsolidated.slice();
+    if (order === 'data-desc') {
+      arr.sort(function (a, b) { return b.ts - a.ts; });
+    } else if (order === 'data-asc') {
+      arr.sort(function (a, b) { return a.ts - b.ts; });
+    } else if (order === 'valor-desc') {
+      arr.sort(function (a, b) {
+        var va = valorLiquido(a.valor_total, a.tipo_provento, a.ticker);
+        var vb = valorLiquido(b.valor_total, b.tipo_provento, b.ticker);
+        return vb - va;
+      });
+    } else if (order === 'valor-asc') {
+      arr.sort(function (a, b) {
+        var va = valorLiquido(a.valor_total, a.tipo_provento, a.ticker);
+        var vb = valorLiquido(b.valor_total, b.tipo_provento, b.ticker);
+        return va - vb;
+      });
+    } else if (order === 'ticker-asc') {
+      arr.sort(function (a, b) { return a.ticker.localeCompare(b.ticker); });
+    }
+    return arr;
+  }, [filteredConsolidated, order]);
 
   var total = useMemo(function () {
     var t = 0;
@@ -514,76 +556,108 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
         </div>
       </div>
 
-      {/* Filtro tipo + fonte */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono">Tipo</span>
-        {([
-          { k: 'all' as const, label: 'Todos' },
-          { k: 'dividendo' as const, label: 'Dividendos' },
-          { k: 'jcp' as const, label: 'JCP' },
-          { k: 'rendimento' as const, label: 'Rendimentos' },
-        ]).map(function (opt) {
-          var active = tipoFilter === opt.k;
-          return (
-            <button
-              key={opt.k}
-              type="button"
-              onClick={function () { setTipoFilter(opt.k); }}
-              className={'px-2.5 py-1 rounded-md text-[11px] font-medium transition ' + (active ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
-            >
-              {opt.label}
-            </button>
-          );
-        })}
-        <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono ml-3">Fonte</span>
-        {([
-          { k: 'all' as const, label: 'Todas' },
-          { k: 'manual' as const, label: 'Manual' },
-          { k: 'sync' as const, label: 'Sincronizado' },
-        ]).map(function (opt) {
-          var active = fonteFilter === opt.k;
-          return (
-            <button
-              key={opt.k}
-              type="button"
-              onClick={function () { setFonteFilter(opt.k); }}
-              className={'px-2.5 py-1 rounded-md text-[11px] font-medium transition ' + (active ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
-            >
-              {opt.label}
-            </button>
-          );
-        })}
-        <label className="ml-auto flex items-center gap-1.5 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={consolidar}
-            onChange={function (e) { setConsolidar(e.target.checked); }}
-            className="accent-orange-500 w-3.5 h-3.5"
-          />
-          <span className="text-[11px] text-white/60">Consolidar mesmo dia</span>
-        </label>
+      {/* Toggle "Mais filtros" em mobile. Desktop (sm+) sempre visivel. */}
+      <div className="flex items-center justify-between sm:hidden">
+        <button
+          type="button"
+          onClick={function () { setShowFilters(!showFilters); }}
+          className="text-[11px] text-orange-300 flex items-center gap-1"
+        >
+          {showFilters ? '▲ Esconder filtros' : '▼ Mais filtros'}
+        </button>
+        <select
+          value={order}
+          onChange={function (e) { setOrder(e.target.value as OrderKey); }}
+          className="bg-white/[0.03] border border-white/[0.08] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none"
+        >
+          {ORDER_OPTIONS.map(function (o) { return <option key={o.k} value={o.k}>{o.label}</option>; })}
+        </select>
       </div>
 
-      {/* Toggle agrupamento */}
-      <div className="flex items-center gap-2">
-        <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono">Agrupar</span>
-        {([
-          { k: 'data' as const, label: 'Por data' },
-          { k: 'ticker' as const, label: 'Por ticker' },
-          { k: 'corretora' as const, label: 'Por corretora' },
-        ]).map(function (opt) {
-          var active = grp === opt.k;
-          return (
-            <button
-              key={opt.k}
-              type="button"
-              onClick={function () { setGrp(opt.k); }}
-              className={'px-2.5 py-1 rounded-md text-[11px] font-medium transition ' + (active ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
-            >
-              {opt.label}
-            </button>
-          );
-        })}
+      <div className={(showFilters ? 'block ' : 'hidden sm:block ') + 'space-y-3'}>
+        {/* Filtro tipo + fonte + ordenacao */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono">Tipo</span>
+          {([
+            { k: 'all' as const, label: 'Todos' },
+            { k: 'dividendo' as const, label: 'Dividendos' },
+            { k: 'jcp' as const, label: 'JCP' },
+            { k: 'rendimento' as const, label: 'Rendimentos' },
+          ]).map(function (opt) {
+            var active = tipoFilter === opt.k;
+            return (
+              <button
+                key={opt.k}
+                type="button"
+                onClick={function () { setTipoFilter(opt.k); }}
+                className={'px-2.5 py-1 rounded-md text-[11px] font-medium transition ' + (active ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+          <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono ml-3">Fonte</span>
+          {([
+            { k: 'all' as const, label: 'Todas' },
+            { k: 'manual' as const, label: 'Manual' },
+            { k: 'sync' as const, label: 'Sincronizado' },
+          ]).map(function (opt) {
+            var active = fonteFilter === opt.k;
+            return (
+              <button
+                key={opt.k}
+                type="button"
+                onClick={function () { setFonteFilter(opt.k); }}
+                className={'px-2.5 py-1 rounded-md text-[11px] font-medium transition ' + (active ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+          <label
+            className="ml-auto flex items-center gap-1.5 cursor-pointer select-none"
+            title="Alguns proventos aparecem em duas linhas quando a corretora separa IR retido do valor liquido. Marque pra somar automaticamente."
+          >
+            <input
+              type="checkbox"
+              checked={consolidar}
+              onChange={function (e) { setConsolidar(e.target.checked); }}
+              className="accent-orange-500 w-3.5 h-3.5"
+            />
+            <span className="text-[11px] text-white/60">Juntar pagamentos do mesmo dia</span>
+          </label>
+        </div>
+
+        {/* Agrupamento + ordenacao */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono">Agrupar</span>
+          {([
+            { k: 'data' as const, label: 'Por data' },
+            { k: 'ticker' as const, label: 'Por ticker' },
+            { k: 'corretora' as const, label: 'Por corretora' },
+          ]).map(function (opt) {
+            var active = grp === opt.k;
+            return (
+              <button
+                key={opt.k}
+                type="button"
+                onClick={function () { setGrp(opt.k); }}
+                className={'px-2.5 py-1 rounded-md text-[11px] font-medium transition ' + (active ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40' : 'bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]')}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+
+          <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono ml-3 hidden sm:inline">Ordenar</span>
+          <select
+            value={order}
+            onChange={function (e) { setOrder(e.target.value as OrderKey); }}
+            className="hidden sm:inline-block bg-white/[0.03] border border-white/[0.08] rounded-md px-2.5 py-1 text-[11px] text-white focus:outline-none focus:border-orange-500/40"
+          >
+            {ORDER_OPTIONS.map(function (o) { return <option key={o.k} value={o.k}>{o.label}</option>; })}
+          </select>
+        </div>
       </div>
 
       {/* Lista */}
@@ -628,7 +702,13 @@ function ProventosList({ rows, grupo }: { rows: Enriched[]; grupo: 'data' | 'tic
           <div key={g.label}>
             <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-white/[0.06]">
               <div className="flex items-center gap-2">
-                {grupo === 'ticker' && g.rows[0] && <TickerLogo ticker={g.rows[0].ticker} categoria="acao" size={24} />}
+                {grupo === 'ticker' && g.rows[0] && (
+                  <TickerLogo
+                    ticker={g.rows[0].ticker}
+                    categoria={g.rows[0].categoria || (isIntTicker(g.rows[0].ticker) ? 'stock_int' : 'acao')}
+                    size={24}
+                  />
+                )}
                 <span className="text-[12px] font-bold text-white/85">{g.label}</span>
                 <span className="text-[10px] text-white/30 font-mono">{g.rows.length}</span>
               </div>
@@ -639,7 +719,13 @@ function ProventosList({ rows, grupo }: { rows: Enriched[]; grupo: 'data' | 'tic
                 return (
                   <div key={(r.id || r.ticker) + '-' + idx} className="group flex items-center justify-between py-1.5 hover:bg-white/[0.02] rounded px-2 transition">
                     <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                      {grupo !== 'ticker' && <TickerLogo ticker={r.ticker} categoria="acao" size={24} />}
+                      {grupo !== 'ticker' && (
+                        <TickerLogo
+                          ticker={r.ticker}
+                          categoria={r.categoria || (isIntTicker(r.ticker) ? 'stock_int' : 'acao')}
+                          size={24}
+                        />
+                      )}
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-[12px] font-semibold">{r.ticker}</span>
