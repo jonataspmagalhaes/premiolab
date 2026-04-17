@@ -14,6 +14,7 @@ import { ProximosPagamentosCard } from '@/components/renda/ProximosPagamentosCar
 import { OpcoesResumoCard } from '@/components/renda/OpcoesResumoCard';
 import { PorFonteDonut } from '@/components/renda/PorFonteDonut';
 import { OpcoesView } from '@/components/renda/OpcoesView';
+import { ProventosInsights, calcularYoC, fmtYoC } from '@/components/renda/ProventosInsights';
 import { tipoLabel, isIntTicker, valorLiquido } from '@/lib/proventosUtils';
 import { fmtBRL, fmtK, fmtMonthYear, fmtDate } from '@/lib/fmt';
 import { projetarMensal, proximos30dias, type ProjecaoMes } from '@/lib/rendaForecast';
@@ -390,6 +391,10 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
   var showFilters = _showFilters[0];
   var setShowFilters = _showFilters[1];
 
+  var _showYoC = useState(false);
+  var showYoC = _showYoC[0];
+  var setShowYoC = _showYoC[1];
+
   var _tipoFilter = useState<'all' | 'dividendo' | 'jcp' | 'rendimento'>('all');
   var tipoFilter = _tipoFilter[0];
   var setTipoFilter = _tipoFilter[1];
@@ -525,7 +530,7 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
         </div>
       </div>
 
-      {/* Search + export */}
+      {/* Search + YoC toggle + export */}
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="text"
@@ -534,6 +539,18 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
           placeholder="Buscar ticker (ex: PETR4, HGLG)"
           className="flex-1 min-w-[200px] bg-white/[0.03] border border-white/[0.08] rounded-md px-3 py-1.5 text-[12px] text-white placeholder-white/30 focus:outline-none focus:border-orange-500/40"
         />
+        <label
+          className="flex items-center gap-1.5 cursor-pointer select-none px-2.5 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.08]"
+          title="Yield on Cost — rendimento por cota dividido pelo seu preco medio de compra. Indica a rentabilidade real daquela posicao."
+        >
+          <input
+            type="checkbox"
+            checked={showYoC}
+            onChange={function (e) { setShowYoC(e.target.checked); }}
+            className="accent-orange-500 w-3.5 h-3.5"
+          />
+          <span className="text-[11px] text-white/60">YoC</span>
+        </label>
         <button
           type="button"
           onClick={handleExportCsv}
@@ -544,17 +561,13 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
         </button>
       </div>
 
-      {/* Total */}
-      <div className="linear-card rounded-xl p-5 flex items-center justify-between">
-        <div>
-          <p className="text-[10px] uppercase tracking-wider text-white/40 font-mono">Total no periodo</p>
-          <p className="text-2xl font-bold font-mono mt-1 text-income">R$ {fmtBRL(total)}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] uppercase tracking-wider text-white/40 font-mono">Proventos</p>
-          <p className="text-2xl font-bold font-mono mt-1">{filtered.length}</p>
-        </div>
-      </div>
+      {/* Insights: Total + YoY + sparkline + donut por tipo */}
+      <ProventosInsights
+        filtered={filtered}
+        allEnriched={enriched}
+        periodoStart={rng.start}
+        periodoEnd={rng.end}
+      />
 
       {/* Toggle "Mais filtros" em mobile. Desktop (sm+) sempre visivel. */}
       <div className="flex items-center justify-between sm:hidden">
@@ -665,14 +678,20 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
         {filtered.length === 0 ? (
           <p className="text-[12px] text-white/40 italic text-center py-8">Sem proventos no periodo.</p>
         ) : (
-          <ProventosList rows={filtered} grupo={grp} />
+          <ProventosList rows={filtered} grupo={grp} showYoC={showYoC} />
         )}
       </div>
     </div>
   );
 }
 
-function ProventosList({ rows, grupo }: { rows: Enriched[]; grupo: 'data' | 'ticker' | 'corretora' }) {
+function ProventosList({ rows, grupo, showYoC }: { rows: Enriched[]; grupo: 'data' | 'ticker' | 'corretora'; showYoC?: boolean }) {
+  var positions = useAppStore(function (s) { return s.positions; });
+  var pmByTicker = useMemo(function () {
+    var m: Record<string, number> = {};
+    positions.forEach(function (p) { m[p.ticker] = p.pm; });
+    return m;
+  }, [positions]);
   var grouped = useMemo(function () {
     if (grupo === 'data') {
       // Agrupa por mes
@@ -734,7 +753,16 @@ function ProventosList({ rows, grupo }: { rows: Enriched[]; grupo: 'data' | 'tic
                             <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">confirmado</span>
                           ) : null}
                         </div>
-                        <p className="text-[10px] text-white/40 leading-tight truncate">{r.corretora} · {fmtDate(r.date)}</p>
+                        <p className="text-[10px] text-white/40 leading-tight truncate">
+                          {r.corretora} · {fmtDate(r.date)}
+                          {showYoC ? (function () {
+                            var yoc = calcularYoC(r.valor_por_cota, pmByTicker[r.ticker]);
+                            if (yoc == null) return null;
+                            return (
+                              <span className="ml-1 text-emerald-300/70 font-mono"> · YoC {fmtYoC(yoc)}</span>
+                            );
+                          })() : null}
+                        </p>
                       </div>
                     </div>
                     <div className="text-right shrink-0">
