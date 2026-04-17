@@ -11,6 +11,8 @@ import { AddProventoSheet } from '@/components/AddProventoSheet';
 import { SyncProventosButton } from '@/components/SyncProventosButton';
 import { RendaMensalChart } from '@/components/renda/RendaMensalChart';
 import { ProximosPagamentosCard } from '@/components/renda/ProximosPagamentosCard';
+import { OpcoesResumoCard } from '@/components/renda/OpcoesResumoCard';
+import { PorFonteDonut } from '@/components/renda/PorFonteDonut';
 import { tipoLabel, isIntTicker, valorLiquido } from '@/lib/proventosUtils';
 import { fmtBRL, fmtK, fmtMonthYear, fmtDate } from '@/lib/fmt';
 import { projetarMensal, proximos30dias, type ProjecaoMes } from '@/lib/rendaForecast';
@@ -331,6 +333,12 @@ function ResumoView({ enriched, positions, patrimonioTotal }: { enriched: Enrich
           Total projetado 12m: <span className="font-mono text-white/50">R$ {fmtBRL(projecao.reduce(function (a, m) { return a + m.total; }, 0))}</span>
         </p>
       </div>
+
+      {/* Renda de opcoes 12m — card + mini-spark */}
+      <OpcoesResumoCard />
+
+      {/* Donut de renda por fonte (12m liquido) */}
+      <PorFonteDonut />
     </div>
   );
 }
