@@ -193,11 +193,22 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
     if (!tk) { setErr('Ticker obrigatório'); return; }
     if (!/^[A-Z0-9.\-]{1,15}$/.test(tk)) { setErr('Ticker inválido'); return; }
 
-    var q = parseFloat(qty.replace(',', '.'));
+    var qParsed = parseFloat(qty.replace(',', '.'));
     var pParsed = parseMoneyValue(preco);
-    var p = pParsed === null ? NaN : pParsed;
-    if (!q || q <= 0) { setErr('Quantidade inválida'); return; }
-    if (!p || p <= 0) { setErr('Preço inválido'); return; }
+    var q: number;
+    var p: number;
+    if (parInvertido) {
+      // USD-BTC (inverted): qty = cripto recebido, preco-input = total gasto em fiat
+      if (!qParsed || qParsed <= 0) { setErr('Quantidade recebida inválida'); return; }
+      if (pParsed === null || pParsed <= 0) { setErr('Valor gasto inválido'); return; }
+      q = qParsed;
+      p = pParsed / qParsed;
+    } else {
+      if (!qParsed || qParsed <= 0) { setErr('Quantidade inválida'); return; }
+      if (pParsed === null || pParsed <= 0) { setErr('Preço inválido'); return; }
+      q = qParsed;
+      p = pParsed;
+    }
 
     var cParsed = custos ? parseMoneyValue(custos) : 0;
     var c = cParsed === null ? NaN : cParsed;
@@ -393,23 +404,43 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
             ) : null}
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Quantidade">
-              <Input
-                value={qty}
-                onChange={function (e) { setQty(e.target.value); }}
-                placeholder="100"
-                inputMode="decimal"
-              />
-            </Field>
-            <Field label={'Preço (' + simboloMoeda(moedaPreco) + ')'}>
-              <MoneyInput
-                value={preco}
-                onChange={setPreco}
-                moeda={moedaPreco}
-              />
-            </Field>
-          </div>
+          {parInvertido ? (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={'Gastou (' + simboloMoeda(moedaPreco) + ')'}>
+                <MoneyInput
+                  value={preco}
+                  onChange={setPreco}
+                  moeda={moedaPreco}
+                />
+              </Field>
+              <Field label={'Recebeu (' + ((ticker.trim().toUpperCase().split('-')[1]) || 'cripto') + ')'}>
+                <Input
+                  value={qty}
+                  onChange={function (e) { setQty(e.target.value); }}
+                  placeholder="0,00126301"
+                  inputMode="decimal"
+                />
+              </Field>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Quantidade">
+                <Input
+                  value={qty}
+                  onChange={function (e) { setQty(e.target.value); }}
+                  placeholder="100"
+                  inputMode="decimal"
+                />
+              </Field>
+              <Field label={'Preço (' + simboloMoeda(moedaPreco) + ')'}>
+                <MoneyInput
+                  value={preco}
+                  onChange={setPreco}
+                  moeda={moedaPreco}
+                />
+              </Field>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Custos (opcional)">
@@ -434,8 +465,12 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
             var pp = parseMoneyValue(preco);
             if (pp === null || isNaN(qp) || pp <= 0 || qp <= 0) return null;
             var cp = custos ? (parseMoneyValue(custos) || 0) : 0;
-            var bruto = qp * pp;
+            // Par invertido: pp eh o total gasto em fiat, qp eh o cripto recebido.
+            // Par normal: pp eh preco unitario, qp eh quantidade (bruto = qp*pp).
+            var bruto = parInvertido ? pp : (qp * pp);
             var total = tipo === 'compra' ? bruto + cp : bruto - cp;
+            var taxaImplicita = parInvertido ? (pp / qp) : pp;
+            var baseSym = (ticker.trim().toUpperCase().split('-')[parInvertido ? 1 : 0]) || 'cripto';
             var moedaSym = simboloMoeda(moedaPreco);
             var locale = localeMoeda(moedaPreco);
             var corCard = tipo === 'compra' ? 'border-danger/20 bg-danger/5' : 'border-income/20 bg-income/5';
@@ -443,6 +478,12 @@ export function OperacaoSheet({ userId, trigger, initial, open: openProp, onOpen
             var sinal = tipo === 'compra' ? '-' : '+';
             return (
               <div className={'rounded-md border px-3 py-2.5 space-y-1 ' + corCard}>
+                {parInvertido && isCripto ? (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-white/40">Taxa implícita</span>
+                    <span className="text-[11px] font-mono text-white/60">1 {baseSym} = {moedaSym} {taxaImplicita.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                ) : null}
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-white/40">Bruto</span>
                   <span className="text-[11px] font-mono text-white/60">{moedaSym} {bruto.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
