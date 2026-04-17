@@ -12,14 +12,46 @@ import { CaixaContador } from '@/components/ir/CaixaContador';
 import { fmtBRL } from '@/lib/fmt';
 import { mesLabel } from '@/lib/ir/cambio';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine } from 'recharts';
-import { AlertTriangle, CheckCircle2, FileText } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, FileText, Info } from 'lucide-react';
 import Link from 'next/link';
 import { useIRYear } from './_yearContext';
+import { useAppStore } from '@/store';
+import { tipoLabel, isIntTicker } from '@/lib/proventosUtils';
 
 export default function IRResumoPage() {
   var yCtx = useIRYear();
   var ano = yCtx.year;
   var ir = useIR(ano);
+  var proventos = useAppStore(function (s) { return s.proventos; });
+
+  // Preview IN 2.299/2025: dividendos BR brutos por CNPJ-pagador e mes.
+  // A partir de 2026 ha retencao de 10% sobre excedente a R$ 50.000/mes
+  // por empresa. So alertamos quem ESTA PROXIMO ou ULTRAPASSA o limite.
+  var maxDivMensal = useMemo(function () {
+    var byMesTicker: Record<string, number> = {};  // "ticker|YYYY-MM" → soma
+    proventos.forEach(function (p) {
+      if (!p.data_pagamento) return;
+      if (p.data_pagamento.substring(0, 4) !== String(ano)) return;
+      var tl = tipoLabel(p.tipo_provento);
+      if (tl !== 'Dividendo') return;             // so dividendos comuns (JCP ja tem 15%)
+      if (isIntTicker(p.ticker)) return;          // so BR
+      var k = p.ticker + '|' + p.data_pagamento.substring(0, 7);
+      byMesTicker[k] = (byMesTicker[k] || 0) + (p.valor_total || 0);
+    });
+    var maximo = 0;
+    var maximoTicker = '';
+    var maximoMes = '';
+    Object.keys(byMesTicker).forEach(function (k) {
+      var v = byMesTicker[k];
+      if (v > maximo) {
+        maximo = v;
+        var parts = k.split('|');
+        maximoTicker = parts[0];
+        maximoMes = parts[1];
+      }
+    });
+    return { maximo: maximo, ticker: maximoTicker, mes: maximoMes };
+  }, [proventos, ano]);
 
   // Array mensal pra grafico (12 meses do ano, imposto devido por mes)
   var mensal = useMemo(function () {
@@ -183,7 +215,33 @@ export default function IRResumoPage() {
             )}
           </div>
 
-          {/* CaixaContador — educa sobre DARF */}
+          {/* Alerta IN 2.299/2025 — dividendos > R$ 50k/mes */}
+          {maxDivMensal.maximo > 40000 ? (
+            <div className="linear-card rounded-xl p-4 border border-info/30 bg-info/[0.04]">
+              <div className="flex items-start gap-2">
+                <Info className="w-4 h-4 text-info mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-[12px] font-semibold text-info">
+                    Preview IN 2.299/2025 — Retencao sobre dividendos altos
+                  </p>
+                  <p className="text-[11px] text-white/70 mt-1 leading-relaxed">
+                    Seu maior mes de dividendos em {ano} foi <span className="font-mono font-semibold text-white/90">{maxDivMensal.ticker}</span> com{' '}
+                    <span className="font-mono font-semibold text-white/90">R$ {fmtBRL(maxDivMensal.maximo)}</span> em {maxDivMensal.mes}.
+                    {maxDivMensal.maximo > 50000
+                      ? ' Acima de R$ 50.000 — a partir do ano-base 2026 (IRPF 2027), o excedente tem 10% retido na fonte automaticamente.'
+                      : ' Proximo do limite de R$ 50.000/mes — a partir de 2026, esse excedente tem 10% retido.'}
+                  </p>
+                  <p className="text-[10px] text-white/50 mt-2 leading-relaxed">
+                    Para ANO-BASE 2025 (IRPF 2026) o valor continua 100% isento.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Caixas Contador — orientacao pedagogica */}
+          <CaixaContador secao="primeiros_passos" defaultOpen={false} />
+          <CaixaContador secao="pre_preenchida" defaultOpen={false} />
           <CaixaContador secao="darf" defaultOpen={ir.data.darfs.length > 0} />
         </>
       ) : null}

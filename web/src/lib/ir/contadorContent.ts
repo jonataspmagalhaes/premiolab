@@ -395,35 +395,58 @@ export var CONTADOR_CONTENT: Record<string, ContadorContent> = {
     titulo: 'Dividendos BR',
     regra: {
       resumo:
-        'Dividendos distribuidos por empresas brasileiras sao ISENTOS de IR para pessoa fisica. Lanca-se apenas como informacao em Rendimentos Isentos.',
+        'Dividendos distribuidos por empresas brasileiras sao ISENTOS de IR para pessoa fisica no ano-base 2025 (IRPF 2026). A IN RFB 2.299/2025 instituiu retencao de 10% na fonte sobre dividendos que EXCEDEREM R$ 50.000/mes por empresa pagadora — essa retencao comeca a vigorar a partir do ANO-BASE 2026 (IRPF 2027). Para a declaracao atual (ano-base 2025), dividendos continuam totalmente isentos.',
       pontos: [
-        'Isento para pessoa fisica (lei vigente 2026).',
-        'So declara como informacao.',
+        'IRPF 2026 (ano-base 2025): ISENTO — so declara como informacao na Ficha 09.',
+        'IRPF 2027 (ano-base 2026 em diante): NOVO — 10% retido na fonte sobre o que passar de R$ 50.000/mes por CNPJ pagador.',
+        'A nova retencao nao altera o ano atual; o primeiro IRPF com efeito sera o entregue em 2027.',
+        'Alto pagador (> R$ 50k/mes): empresa retem 10% automaticamente e o valor aparece como "imposto retido" no informe — voce ainda declara o bruto na Ficha 10 (Tributacao Exclusiva) no proximo ano.',
       ],
-      fundamentoLegal: 'Lei 9.249/1995 art. 10 — em discussao tributacao futura, mas em 2026 segue isento.',
+      fundamentoLegal: 'Lei 9.249/1995 art. 10 (isencao base); IN RFB 2.299/2025 (retencao de 10% a partir de 2026).',
     },
     comoPreencher: {
       programa: 'IRPF',
       ficha: 'Rendimentos Isentos — Ficha 09',
       codigo: '09',
       steps: [
-        { titulo: 'Ficha 09 codigo 09', descricao: 'Lance o total recebido no ano por CNPJ pagador.' },
+        { titulo: 'Ficha 09 codigo 09', descricao: 'Lance o total recebido no ano por CNPJ pagador — continua 100% isento em 2026.' },
+        { titulo: 'Informe de rendimentos', descricao: 'Use o Informe de Rendimentos anual da empresa (disponivel no RI, no banco custodiante ou na B3 Investidor) pra confirmar os valores e CNPJs.', dica: 'Com a declaracao PRE-PREENCHIDA no e-CAC a maioria dos dividendos ja vem automatica — so confira.' },
       ],
     },
     exemplos: [
       {
-        titulo: 'PETR4',
+        titulo: 'PETR4 (ano-base 2025)',
         cenario: 'Recebeu R$ 1.500 em dividendos PETR4 em 2025.',
         calculo: 'Isento.',
-        resultado: 'Ficha 09 codigo 09, R$ 1.500, CNPJ da Petrobras.',
+        resultado: 'Ficha 09 codigo 09, R$ 1.500, CNPJ 33.000.167/0001-01 (Petrobras).',
+      },
+      {
+        titulo: 'Alto dividendo (preview 2027)',
+        cenario: 'Em 2026, receber R$ 120.000 de dividendos num mes de uma so empresa.',
+        calculo: 'Excedente: 120.000 - 50.000 = R$ 70.000 → IR fonte 10% = R$ 7.000 retido automaticamente.',
+        resultado: 'No IRPF 2027 (ano-base 2026): Ficha 10 codigo novo (Tributacao Exclusiva) com bruto R$ 70.000 e IR R$ 7.000.',
       },
     ],
-    prazos: 'N/A',
-    multa: 'N/A',
+    prazos: 'IRPF 2026: entrega de 23/03 a 29/05/2026.',
+    multa: 'Atraso IRPF: 1% ao mes sobre IR devido (min R$ 165,74, max 20% do IR).',
     faq: [
-      { pergunta: 'Pode haver tributacao no futuro?', resposta: 'Ha projetos em discussao. Atualize-se a cada ano-base; hoje segue isento.' },
+      {
+        pergunta: 'Quando a retencao de 10% comeca a valer pra mim?',
+        resposta: 'A partir de 01/01/2026. Se voce recebeu > R$ 50k em um mes qualquer DESTE ano, o proximo IRPF (entregue em abril/2027) ja refletira a retencao.',
+      },
+      {
+        pergunta: 'A isencao do ano passado continua?',
+        resposta: 'SIM pra 2025 (ano-base deste IRPF). Mudanca so vale para anos-base 2026+.',
+      },
+      {
+        pergunta: 'Vale tambem pra JCP?',
+        resposta: 'Nao, JCP ja tem seu proprio 15% retido ha anos. A nova regra de 10% e so pra dividendos comuns.',
+      },
     ],
-    avisos: ['Se omitir, a Receita cruza com o informe da empresa — melhor declarar mesmo isento.'],
+    avisos: [
+      'Se omitir no IRPF 2026, a Receita cruza com o informe da empresa — melhor declarar mesmo isento.',
+      'A partir de 2026, monitore mes a mes dividendos > R$ 50k por empresa — o app avisa automaticamente quando voce se aproxima.',
+    ],
   },
 
   jcp: {
@@ -574,13 +597,143 @@ export var CONTADOR_CONTENT: Record<string, ContadorContent> = {
         resultado: 'Sicalc, codigo 6015, R$ 450 principal, vencimento 30/04/2026.',
       },
     ],
-    prazos: 'Ultimo dia util mes seguinte.',
-    multa: 'Atraso: 0,33% ao dia ate 20% + juros Selic acumulada.',
+    prazos: 'Ultimo dia util mes seguinte. IRPF 2026: envio de 23/03/2026 a 29/05/2026.',
+    multa: 'Atraso DARF: 0,33% ao dia ate 20% + Selic. Atraso IRPF: 1% ao mes sobre IR devido (min R$ 165,74).',
     faq: [
       { pergunta: 'Posso pagar DARF vencida?', resposta: 'SIM. Sicalc calcula multa + juros automaticamente. Melhor tarde que nunca.' },
       { pergunta: 'Tem valor minimo para emitir DARF?', resposta: 'SIM. R$ 10. Abaixo disso, acumule para o mes seguinte.' },
+      { pergunta: 'E o IRPF 2026, quando vence?', resposta: 'Prazo oficial: 23 de marco a 29 de maio de 2026 ate 23h59. Apos isso, incide multa por atraso.' },
     ],
-    avisos: ['Nao pague DARF sem ter certeza do valor — erro aqui exige retificar no ano seguinte.'],
+    avisos: [
+      'Nao pague DARF sem ter certeza do valor — erro aqui exige retificar no ano seguinte.',
+      'IRPF 2026 tem 4 lotes de restituicao: maio, junho, julho e agosto/2026. Declarar com pre-preenchida da prioridade no recebimento.',
+    ],
+  },
+
+  primeiros_passos: {
+    secao: 'primeiros_passos',
+    titulo: 'Primeiros Passos — IRPF 2026',
+    regra: {
+      resumo:
+        'A declaracao do IR 2026 (ano-base 2025) pode ser feita de 3 formas: (1) Programa IRPF 2026 instalado no computador (Windows/Mac/Linux), (2) portal "Meu Imposto de Renda" no e-CAC (online), ou (3) app mobile. Todas aceitam a pre-preenchida via conta Gov.br nivel Prata ou Ouro. Voce precisa declarar se, em 2025, teve rendimentos tributaveis > R$ 35.584 OU ganhos em renda variavel em qualquer valor OU posse de bens > R$ 800.000 em 31/12.',
+      pontos: [
+        'Prazo: 23/03/2026 ate 23h59 de 29/05/2026.',
+        'Programa IRPF: download gratuito em gov.br/receitafederal → "Meu Imposto de Renda" → "Baixar o Programa".',
+        'Obrigatoriedade: rendimentos tributaveis > R$ 35.584 em 2025; OU qualquer ganho em renda variavel; OU R$ 800k em bens em 31/12; OU atividade rural > R$ 177.920.',
+        'Gov.br Prata/Ouro: necessario pra usar pre-preenchida e assinar digital.',
+        'Quem declara pre-preenchida OU em debito automatico ganha prioridade nos lotes de restituicao.',
+      ],
+      fundamentoLegal: 'IN RFB 2.312/2026 (publicada 13/03/2026) — regras operacionais do IRPF 2026.',
+    },
+    comoPreencher: {
+      programa: 'IRPF',
+      ficha: 'Programa Gerador de Declaracao (PGD)',
+      steps: [
+        { titulo: 'Instalar conta Gov.br Prata ou Ouro', descricao: 'Acesse gov.br e eleve o nivel da sua conta — use biometria facial no app Meu Gov.br (Prata) ou validacao via banco credenciado (Ouro). Sem isso voce nao usa pre-preenchida.', dica: 'O nivel Ouro e gratuito se seu banco esta credenciado (Caixa, Banco do Brasil, Itau, Bradesco, Santander, etc).' },
+        { titulo: 'Baixar o programa IRPF 2026', descricao: 'Acesse gov.br/receitafederal → "Meu Imposto de Renda" → "Baixar o Programa". Escolha Windows / macOS / Linux. Instalacao leva 2-5 min.', dica: 'A versao online pelo e-CAC ou app mobile tambem funciona; escolha a que preferir.' },
+        { titulo: 'Iniciar nova declaracao a partir da Pre-Preenchida', descricao: 'Na primeira tela do programa, escolha "Iniciar a Declaracao a partir da pre-preenchida". O sistema importa CPF dependentes, salarios, aluguel (DIMOB), informes bancarios (e-Financeira), dividendos e ate dados de cripto.' },
+        { titulo: 'Revisar e completar', descricao: 'O PremioLab cobre o que a pre-preenchida NAO traz ou traz errado: ganhos em venda de acoes, P&L de opcoes, ficha de Bens e Direitos completa (PM + custos), renda fixa com alicotas regressivas, cripto com isencao 35k. Use o menu IR do app como checklist ao lado.' },
+        { titulo: 'Validar e enviar', descricao: 'Antes de enviar, use "Verificar pendencias" no menu do programa. Se houver erros, o sistema bloqueia o envio ate corrigir. Apos verde, "Entregar declaracao" com assinatura Gov.br.', dica: 'Guarde o recibo de entrega em PDF — ele e o comprovante oficial.' },
+        { titulo: 'Emitir DARFs se devidos', descricao: 'Se teve lucro em renda variavel em algum mes de 2025, emita DARFs mensais no Sicalc (codigo 6015 ou 4600 cripto) DISTINTAS da propria declaracao anual. A declaracao anual e uma prestacao de contas; a DARF e o pagamento mensal.' },
+      ],
+    },
+    exemplos: [
+      {
+        titulo: 'Investidor com dividendos e FII',
+        cenario: 'Em 2025 recebeu R$ 12k em dividendos BR + R$ 8k em rendimentos FII. Nao vendeu nada.',
+        calculo: 'Obrigado a declarar porque tem renda variavel (mesmo isenta). Dividendos e FII vao na Ficha 09 codigos 09 e 26. Bens e Direitos: lista cada ticker com PM × qty em 31/12/2025.',
+        resultado: 'Declaracao simples, tudo isento, sem DARF.',
+      },
+      {
+        titulo: 'Swing trader com lucro em marco',
+        cenario: 'Vendeu R$ 28k em acoes em marco/2025 com lucro de R$ 3.000.',
+        calculo: 'Acima da isencao R$ 20k → tributa 15%. IR mensal: 3.000 × 15% = R$ 450. DARF 6015 ja devia ter sido paga ate 30/04/2025.',
+        resultado: 'No IRPF 2026: Ficha Renda Variavel marco com venda 28k, ganho 3.000, IR 450. Se pagou DARF, lanca em "DARF paga". Se nao pagou, paga agora com multa/Selic via Sicalc.',
+      },
+    ],
+    prazos: 'IRPF 2026: 23/03 a 29/05/2026. Restituicao em 4 lotes (mai/jun/jul/ago).',
+    multa: 'Multa por atraso: 1% ao mes + juros Selic. Min R$ 165,74, max 20% do IR devido.',
+    faq: [
+      {
+        pergunta: 'Preciso declarar se so tenho posicoes (comprei e nao vendi)?',
+        resposta: 'Se voce tinha mais de R$ 800k em bens em 31/12, SIM. Se tinha menos e nao recebeu nada tributavel, nao e obrigado — mas a Receita cruza dados e pode pedir justificativa.',
+      },
+      {
+        pergunta: 'Se nao tive lucro em RV nem vendeu, precisa declarar?',
+        resposta: 'Se recebeu QUALQUER valor de proventos (isentos ou nao) e tinha posicao em bolsa, e obrigatorio declarar.',
+      },
+      {
+        pergunta: 'Qual ficha usar pra dividendos?',
+        resposta: 'Ficha 09 ("Rendimentos Isentos e Nao Tributaveis"), codigo 09. Cada CNPJ pagador em uma linha.',
+      },
+      {
+        pergunta: 'A pre-preenchida traz meus ganhos em RV?',
+        resposta: 'NAO traz o ganho calculado (PM, venda, lucro). A Receita nao tem como saber seu PM — so voce sabe. Traz alguns dados auxiliares (corretagem, IRRF retido 1% daytrade). Voce tem que informar os ganhos.',
+      },
+    ],
+    avisos: [
+      'Guardar informes de rendimentos anuais por 5 anos (prazo de fiscalizacao).',
+      'Se usou o PremioLab o ano inteiro, a pasta do menu IR tem todos os numeros organizados pra colar em cada ficha.',
+      'NUNCA baixe programa IRPF de sites nao-oficiais — e crime e pode ter virus/backdoor.',
+    ],
+  },
+
+  pre_preenchida: {
+    secao: 'pre_preenchida',
+    titulo: 'Declaracao Pre-Preenchida',
+    regra: {
+      resumo:
+        'A Receita oferece declaracao ja PRE-PREENCHIDA com dados que ela recebe de outras fontes: empresas (DIRF), imoveis (DIMOB, DOI), planos de saude (DMED), bancos (e-Financeira), exchanges de cripto (IN 1888/2019). Basta ter conta Gov.br Prata ou Ouro. Alem de acelerar, quem usa pre-preenchida tem PRIORIDADE no recebimento da restituicao.',
+      pontos: [
+        'Vem pre-preenchido: salarios, aluguel, plano de saude, saldos bancarios em 31/12, alguns dividendos, cripto (se exchange reportou DIMP).',
+        'NAO vem pre-preenchido: ganhos/perdas de RV (PM vs venda), P&L de opcoes, discriminacao detalhada de Bens e Direitos (so saldos), operacoes em corretoras nao brasileiras.',
+        'Conta Gov.br Prata: biometria facial via app Meu Gov.br.',
+        'Conta Gov.br Ouro: validacao presencial ou via banco credenciado.',
+        'Prioridade nos lotes de restituicao: a Receita libera primeiro quem usou pre-preenchida + nao tem pendencias.',
+      ],
+      fundamentoLegal: 'IN RFB 2.299/2025; IN RFB 2.312/2026.',
+    },
+    comoPreencher: {
+      programa: 'eCAC',
+      ficha: 'Meu Imposto de Renda — Pre-Preenchida',
+      steps: [
+        { titulo: 'Logar no e-CAC ou no programa IRPF', descricao: 'Use CPF + senha Gov.br (Prata/Ouro). Se Gov.br pedir 2FA, aprove no celular.' },
+        { titulo: 'Escolher "Iniciar a partir da Pre-Preenchida"', descricao: 'Na tela inicial, em vez de "Declaracao em branco", escolha "Pre-Preenchida". O sistema importa dados em 5-10s.' },
+        { titulo: 'Conferir Rendimentos Tributaveis PJ', descricao: 'Confira se o salario da sua empresa veio correto com o Informe de Rendimentos que voce recebeu em fevereiro. CPF, CNPJ, valores.' },
+        { titulo: 'Conferir Rendimentos Isentos (Ficha 09)', descricao: 'Dividendos BR e rendimentos FII PODEM ja vir preenchidos. Se seu banco enviou pela e-Financeira, confira os valores. Se faltar, adicione manualmente.' },
+        { titulo: 'Preencher Renda Variavel do zero', descricao: 'Essa ficha NAO e pre-preenchida. Abra "Renda Variavel" e preencha mes a mes com os numeros do menu IR → Renda Variavel do PremioLab.', dica: 'O PremioLab tem uma tabela pronta mes × categoria que bate 1:1 com a ficha do IRPF.' },
+        { titulo: 'Revisar Bens e Direitos', descricao: 'Os saldos podem vir auto da e-Financeira, mas a DISCRIMINACAO (qtd cotas, PM, corretora) nao. Use o menu IR → Bens e Direitos do PremioLab pra copiar a discriminacao exata.' },
+        { titulo: 'Verificar pendencias', descricao: 'Menu "Verificar Pendencias" no programa — se aparecer vermelho, corrija. Verde = pronto pra enviar.' },
+      ],
+    },
+    exemplos: [
+      {
+        titulo: 'O que a Receita SABE vs o que VOCE precisa informar',
+        cenario: 'Voce trabalha, tem R$ 100k em CDB no Itau, recebe dividendos de PETR4 via Rico, faz swing trade em XP e tem 0,5 BTC na Binance.',
+        calculo: 'Pre-preenchida traz: salario (DIRF), saldo CDB Itau (e-Financeira), dividendos PETR4 (DIRF Petrobras), saldo conta XP (e-Financeira), BTC na Binance (DIMP).',
+        resultado: 'VOCE precisa COMPLETAR: ganho mensal em swing trade (PM vs venda), discriminacao de cada acao na Ficha Bens (cotas + PM + corretora).',
+      },
+    ],
+    prazos: '23/03 a 29/05/2026.',
+    multa: 'Erro em pre-preenchida NAO exime — voce e responsavel pela declaracao final.',
+    faq: [
+      {
+        pergunta: 'E se a pre-preenchida vier com erro?',
+        resposta: 'Voce tem que corrigir antes de enviar. A Receita erra as vezes (ex: informe duplicado de CNPJ). Sempre confira contra o Informe de Rendimentos oficial.',
+      },
+      {
+        pergunta: 'Preciso de conta Ouro, Prata serve?',
+        resposta: 'Prata basta. Ouro so e necessario em poucas situacoes especiais (ex: CNH-e de dependente).',
+      },
+      {
+        pergunta: 'A Binance / Mercado Bitcoin / outras exchanges enviaram meus dados?',
+        resposta: 'Exchanges brasileiras devem enviar pela DIMP (IN 1888/2019). Exchanges estrangeiras NAO — voce mesmo declara seus saldos e ganhos.',
+      },
+    ],
+    avisos: [
+      'Pre-preenchida ACELERA mas nao substitui sua revisao. Dados errados podem cair na malha.',
+      'Sempre imprima/baixe o PDF do informe de rendimentos — se der divergencia, e seu comprovante.',
+    ],
   },
 };
 

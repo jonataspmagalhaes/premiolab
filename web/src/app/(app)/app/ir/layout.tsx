@@ -41,12 +41,20 @@ export default function IRLayout(props: { children: React.ReactNode }) {
 
 function DisclaimerBanner() {
   return (
-    <div className="rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2 flex items-start gap-2">
-      <FileText className="w-3.5 h-3.5 text-white/40 mt-0.5 shrink-0" />
-      <p className="text-[10px] text-white/50 leading-relaxed">
-        Informacao orientativa baseada em normas vigentes ate abril/2026. Sempre confira com
-        contador e a Receita Federal em casos complexos ou apos mudancas legislativas.
-      </p>
+    <div className="rounded-md border border-emerald-500/20 bg-emerald-500/[0.03] px-3 py-2.5 flex items-start gap-2">
+      <FileText className="w-3.5 h-3.5 text-emerald-300 mt-0.5 shrink-0" />
+      <div className="text-[11px] text-white/70 leading-relaxed space-y-1">
+        <p>
+          <span className="font-semibold text-emerald-300">IRPF 2026</span> (ano-base 2025): entrega
+          entre <span className="font-mono">23/03/2026</span> e <span className="font-mono">29/05/2026</span>.
+          Restituicao em 4 lotes (maio, junho, julho, agosto/2026). Regulamentado pelas
+          Instrucoes Normativas RFB <a className="underline decoration-dotted hover:text-emerald-300" href="https://normasinternet2.receita.fazenda.gov.br" target="_blank" rel="noreferrer">2.299/2025</a>
+          {' '}e <a className="underline decoration-dotted hover:text-emerald-300" href="https://normasinternet2.receita.fazenda.gov.br" target="_blank" rel="noreferrer">2.312/2026</a>.
+        </p>
+        <p className="text-white/40">
+          Informacao orientativa. Sempre confira com contador em casos complexos.
+        </p>
+      </div>
     </div>
   );
 }
