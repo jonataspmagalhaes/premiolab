@@ -15,6 +15,7 @@ import { OpcoesResumoCard } from '@/components/renda/OpcoesResumoCard';
 import { PorFonteDonut } from '@/components/renda/PorFonteDonut';
 import { OpcoesView } from '@/components/renda/OpcoesView';
 import { ProventosInsights, calcularYoC, fmtYoC } from '@/components/renda/ProventosInsights';
+import { TickerHistoricoSheet } from '@/components/renda/TickerHistoricoSheet';
 import { tipoLabel, isIntTicker, valorLiquido } from '@/lib/proventosUtils';
 import { fmtBRL, fmtK, fmtMonthYear, fmtDate } from '@/lib/fmt';
 import { projetarMensal, proximos30dias, type ProjecaoMes } from '@/lib/rendaForecast';
@@ -76,7 +77,7 @@ function fallbackCorretoraAtual(positions: Position[]): Record<string, string> {
 
 // ─── Periodo helpers ───────────────────────────────────────
 
-type PeriodoKey = 'mes' | 'anterior' | '3m' | '12m' | 'ano' | 'tudo';
+type PeriodoKey = 'mes' | 'anterior' | '3m' | '12m' | 'ano' | 'tudo' | 'custom';
 var PERIODOS: { k: PeriodoKey; label: string }[] = [
   { k: 'mes', label: 'Mes atual' },
   { k: 'anterior', label: 'Anterior' },
@@ -84,6 +85,7 @@ var PERIODOS: { k: PeriodoKey; label: string }[] = [
   { k: '12m', label: '12m' },
   { k: 'ano', label: 'Ano' },
   { k: 'tudo', label: 'Tudo' },
+  { k: 'custom', label: 'Custom' },
 ];
 
 function periodoRange(k: PeriodoKey): { start: number; end: number } {
@@ -395,6 +397,23 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
   var showYoC = _showYoC[0];
   var setShowYoC = _showYoC[1];
 
+  var _selectedTicker = useState<string | null>(null);
+  var selectedTicker = _selectedTicker[0];
+  var setSelectedTicker = _selectedTicker[1];
+
+  // Range customizado de datas (opcional, quando periodo === 'custom')
+  var _dateFrom = useState<string>('');
+  var dateFrom = _dateFrom[0];
+  var setDateFrom = _dateFrom[1];
+  var _dateTo = useState<string>('');
+  var dateTo = _dateTo[0];
+  var setDateTo = _dateTo[1];
+
+  // Paginacao: numero de rows visiveis
+  var _visibleCount = useState<number>(100);
+  var visibleCount = _visibleCount[0];
+  var setVisibleCount = _visibleCount[1];
+
   var _tipoFilter = useState<'all' | 'dividendo' | 'jcp' | 'rendimento'>('all');
   var tipoFilter = _tipoFilter[0];
   var setTipoFilter = _tipoFilter[1];
@@ -411,7 +430,16 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
   var search = _search[0];
   var setSearch = _search[1];
 
-  var rng = useMemo(function () { return periodoRange(periodo); }, [periodo]);
+  var rng = useMemo(function () {
+    if (periodo === 'custom') {
+      var start = dateFrom ? new Date(dateFrom + 'T00:00:00').getTime() : 0;
+      var end = dateTo ? new Date(dateTo + 'T23:59:59').getTime() : Date.now() + 365 * 86400000;
+      // Se user so preencheu um dos dois, usa defaults razoaveis
+      if (!dateFrom && !dateTo) return periodoRange('12m');
+      return { start: start, end: end };
+    }
+    return periodoRange(periodo);
+  }, [periodo, dateFrom, dateTo]);
 
   var filteredRaw = useMemo(function () {
     var q = search.trim().toUpperCase();
@@ -529,6 +557,34 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
           <AddProventoSheet userId={userId} />
         </div>
       </div>
+
+      {periodo === 'custom' ? (
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono">De</span>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={function (e) { setDateFrom(e.target.value); }}
+            className="bg-white/[0.03] border border-white/[0.08] rounded-md px-2.5 py-1 text-[11px] text-white focus:outline-none focus:border-orange-500/40 [color-scheme:dark]"
+          />
+          <span className="text-[10px] uppercase tracking-wider text-white/30 font-mono">Ate</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={function (e) { setDateTo(e.target.value); }}
+            className="bg-white/[0.03] border border-white/[0.08] rounded-md px-2.5 py-1 text-[11px] text-white focus:outline-none focus:border-orange-500/40 [color-scheme:dark]"
+          />
+          {(dateFrom || dateTo) ? (
+            <button
+              type="button"
+              onClick={function () { setDateFrom(''); setDateTo(''); }}
+              className="text-[10px] text-white/50 hover:text-white underline decoration-dotted"
+            >
+              Limpar
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Search + YoC toggle + export */}
       <div className="flex flex-wrap items-center gap-2">
@@ -673,19 +729,48 @@ function ProventosView({ enriched, userId }: { enriched: Enriched[]; userId: str
         </div>
       </div>
 
-      {/* Lista */}
+      {/* Lista com paginacao */}
       <div className="linear-card rounded-xl p-5">
         {filtered.length === 0 ? (
           <p className="text-[12px] text-white/40 italic text-center py-8">Sem proventos no periodo.</p>
         ) : (
-          <ProventosList rows={filtered} grupo={grp} showYoC={showYoC} />
+          <>
+            <ProventosList
+              rows={filtered.slice(0, visibleCount)}
+              grupo={grp}
+              showYoC={showYoC}
+              onClickTicker={setSelectedTicker}
+            />
+            {filtered.length > visibleCount ? (
+              <div className="mt-4 pt-3 border-t border-white/[0.06] flex items-center justify-between">
+                <span className="text-[11px] text-white/40">
+                  Mostrando {visibleCount} de {filtered.length} proventos
+                </span>
+                <button
+                  type="button"
+                  onClick={function () { setVisibleCount(visibleCount + 100); }}
+                  className="px-3 py-1 rounded-md bg-orange-500/15 border border-orange-500/30 text-[11px] text-orange-300 hover:bg-orange-500/25 transition"
+                >
+                  Mostrar mais ({Math.min(100, filtered.length - visibleCount)})
+                </button>
+              </div>
+            ) : null}
+          </>
         )}
       </div>
+
+      {/* Drawer de historico do ticker */}
+      <TickerHistoricoSheet ticker={selectedTicker} onClose={function () { setSelectedTicker(null); }} />
     </div>
   );
 }
 
-function ProventosList({ rows, grupo, showYoC }: { rows: Enriched[]; grupo: 'data' | 'ticker' | 'corretora'; showYoC?: boolean }) {
+function ProventosList({ rows, grupo, showYoC, onClickTicker }: {
+  rows: Enriched[];
+  grupo: 'data' | 'ticker' | 'corretora';
+  showYoC?: boolean;
+  onClickTicker?: (t: string) => void;
+}) {
   var positions = useAppStore(function (s) { return s.positions; });
   var pmByTicker = useMemo(function () {
     var m: Record<string, number> = {};
@@ -747,7 +832,18 @@ function ProventosList({ rows, grupo, showYoC }: { rows: Enriched[]; grupo: 'dat
                       )}
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[12px] font-semibold">{r.ticker}</span>
+                          {onClickTicker ? (
+                            <button
+                              type="button"
+                              onClick={function () { onClickTicker(r.ticker); }}
+                              className="text-[12px] font-semibold hover:text-orange-300 transition cursor-pointer"
+                              title="Ver historico completo deste ticker"
+                            >
+                              {r.ticker}
+                            </button>
+                          ) : (
+                            <span className="text-[12px] font-semibold">{r.ticker}</span>
+                          )}
                           <span className={'text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ' + tipoColor(r.tipo_provento)}>{tipoLabel(r.tipo_provento)}</span>
                           {r.ts > Date.now() ? (
                             <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">confirmado</span>
