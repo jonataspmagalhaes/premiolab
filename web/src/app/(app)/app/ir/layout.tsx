@@ -8,7 +8,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { IRYearProvider, useIRYear } from './_yearContext';
-import { FileText, Banknote, Scale, Landmark, Bitcoin, ShieldCheck, Receipt, TrendingUp, LayoutGrid } from 'lucide-react';
+import { FileText, Banknote, Scale, Landmark, Bitcoin, ShieldCheck, Receipt, TrendingUp, LayoutGrid, ClipboardList } from 'lucide-react';
 
 interface NavTab {
   href: string;
@@ -18,6 +18,7 @@ interface NavTab {
 
 var TABS: NavTab[] = [
   { href: '/app/ir', label: 'Resumo', icon: <LayoutGrid className="w-3.5 h-3.5" /> },
+  { href: '/app/ir/declaracao', label: 'Declaracao', icon: <ClipboardList className="w-3.5 h-3.5" /> },
   { href: '/app/ir/renda-variavel', label: 'Renda Variavel', icon: <TrendingUp className="w-3.5 h-3.5" /> },
   { href: '/app/ir/opcoes', label: 'Opcoes', icon: <Scale className="w-3.5 h-3.5" /> },
   { href: '/app/ir/renda-fixa', label: 'Renda Fixa', icon: <Landmark className="w-3.5 h-3.5" /> },
