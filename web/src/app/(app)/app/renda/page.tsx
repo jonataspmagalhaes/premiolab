@@ -11,6 +11,7 @@ import { AddProventoSheet } from '@/components/AddProventoSheet';
 import { SyncProventosButton } from '@/components/SyncProventosButton';
 import { tipoLabel, isIntTicker, valorLiquido } from '@/lib/proventosUtils';
 import { fmtBRL, fmtK, fmtMonthYear, fmtDate } from '@/lib/fmt';
+import { projetarMensal, proximos30dias, type ProjecaoMes } from '@/lib/rendaForecast';
 
 // ─── Provento corretora inference ──────────────────────────
 // Inferencia HISTORICA: retorna a corretora que detinha mais qty do ticker
@@ -231,41 +232,20 @@ function ResumoView({ enriched, positions, patrimonioTotal }: { enriched: Enrich
     return months;
   }, [enriched]);
 
+  // Projecao mensal 12m com sazonalidade por ticker e overlay de confirmados
+  var projecao = useMemo<ProjecaoMes[]>(function () {
+    return projetarMensal(enriched, positions, 12, 24);
+  }, [enriched, positions]);
+
   var totals = useMemo(function () {
     var total12m = 0;
     for (var i = 0; i < mensal.length; i++) total12m += mensal[i].valor;
     var media = total12m / 12;
     var dyMedio = patrimonioTotal > 0 ? (total12m / patrimonioTotal) * 100 : 0;
-    // Proximos 30d: estima detectando frequencia real do ticker
-    // Se paga mensal: usa media mensal
-    // Se trimestral: usa ultimo / 3
-    // Se anual (ou so 1 pagamento): usa total / 12
-    var proximos30 = 0;
-    var posByTicker: Record<string, number> = {};
-    positions.forEach(function (p) { posByTicker[p.ticker] = p.quantidade; });
-    var tickerData: Record<string, { valor_total: number; count: number; datas: number[] }> = {};
-    enriched.forEach(function (pv) {
-      if (Number.isNaN(pv.ts) || pv.ts < Date.now() - 365 * 86400000) return;
-      if (pv.ts > Date.now()) return; // ignora futuros pra nao superestimar
-      var s = tickerData[pv.ticker] || { valor_total: 0, count: 0, datas: [] };
-      s.valor_total += valorLiquido(pv.valor_total, pv.tipo_provento, pv.ticker);
-      s.count += 1;
-      s.datas.push(pv.ts);
-      tickerData[pv.ticker] = s;
-    });
-    Object.keys(tickerData).forEach(function (tk) {
-      if (!(posByTicker[tk] > 0)) return;
-      var d = tickerData[tk];
-      var mediaPorEvento = d.valor_total / d.count;
-      // Detecta frequencia: count >= 10 = mensal, 3-9 = trimestral, 1-2 = anual
-      var eventosPorMes: number;
-      if (d.count >= 10) eventosPorMes = 1;
-      else if (d.count >= 3) eventosPorMes = 1 / 3;
-      else eventosPorMes = 1 / 12;
-      proximos30 += mediaPorEvento * eventosPorMes;
-    });
+    // Proximos 30d: primeiro mes da projecao (ja considera sazonalidade + confirmados)
+    var proximos30 = proximos30dias(projecao);
     return { total12m: total12m, media: media, dyMedio: dyMedio, proximos30: proximos30 };
-  }, [mensal, enriched, positions, patrimonioTotal]);
+  }, [mensal, projecao, patrimonioTotal]);
 
   // Top 5 estimados proximos pagamentos: tickers que pagaram este mes em algum ano
   var proximos = useMemo(function () {
@@ -351,24 +331,26 @@ function ResumoView({ enriched, positions, patrimonioTotal }: { enriched: Enrich
         )}
       </div>
 
-      {/* Projecao 12m */}
+      {/* Projecao 12m com sazonalidade + overlay confirmados */}
       <div className="col-span-12 lg:col-span-6 linear-card rounded-xl p-5">
-        <p className="text-xs uppercase tracking-wider text-white/40 font-mono mb-3">Projecao 12m</p>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs uppercase tracking-wider text-white/40 font-mono">Projecao 12m</p>
+          <div className="flex items-center gap-3 text-[10px]">
+            <span className="flex items-center gap-1 text-white/50">
+              <span className="inline-block w-2 h-2 rounded-sm bg-orange-500/60" /> Estimado
+            </span>
+            <span className="flex items-center gap-1 text-emerald-300">
+              <span className="inline-block w-2 h-2 rounded-sm bg-emerald-500" /> Confirmado
+            </span>
+          </div>
+        </div>
         <p className="text-[12px] text-white/50 mb-3">
-          Baseado na media historica × posicao atual.
+          Sazonalidade historica por ativo × posicao atual. Proventos ja anunciados viram barra verde.
         </p>
-        <div style={{ width: '100%', height: 160 }}>
+        <div style={{ width: '100%', height: 180 }}>
           <ResponsiveContainer>
             <BarChart
-              data={(function () {
-                var now = new Date();
-                var arr: { label: string; valor: number }[] = [];
-                for (var i = 1; i <= 12; i++) {
-                  var d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-                  arr.push({ label: fmtMonthYear(d), valor: totals.proximos30 });
-                }
-                return arr;
-              })()}
+              data={projecao}
               margin={{ top: 6, right: 4, left: -12, bottom: 0 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
@@ -377,12 +359,22 @@ function ResumoView({ enriched, positions, patrimonioTotal }: { enriched: Enrich
               <Tooltip
                 cursor={{ fill: 'rgba(249,115,22,0.06)' }}
                 contentStyle={{ background: '#0a0d14', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, fontSize: 12 }}
-                formatter={function (v: unknown) { return ['R$ ' + fmtBRL(Number(v) || 0), 'Estimativa']; }}
+                labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
+                formatter={function (v: unknown, name: unknown) {
+                  var num = Number(v) || 0;
+                  var label = String(name) === 'confirmado' ? 'Confirmado' : 'Estimado';
+                  if (num === 0) return ['—', label];
+                  return ['R$ ' + fmtBRL(num), label];
+                }}
               />
-              <Bar dataKey="valor" fill="#F97316" fillOpacity={0.35} radius={[4, 4, 0, 0]} maxBarSize={28} />
+              <Bar dataKey="estimado" stackId="p" fill="#F97316" fillOpacity={0.45} radius={[0, 0, 0, 0]} maxBarSize={28} />
+              <Bar dataKey="confirmado" stackId="p" fill="#22C55E" fillOpacity={0.9} radius={[4, 4, 0, 0]} maxBarSize={28} />
             </BarChart>
           </ResponsiveContainer>
         </div>
+        <p className="text-[10px] text-white/30 mt-2">
+          Total projetado 12m: <span className="font-mono text-white/50">R$ {fmtBRL(projecao.reduce(function (a, m) { return a + m.total; }, 0))}</span>
+        </p>
       </div>
     </div>
   );
