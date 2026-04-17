@@ -107,7 +107,7 @@ Deep links: `premiolab://tab/{name}`, `premiolab://gasto-rapido/{id}`, `premiola
 |--------|-------------|
 | `profiles` | nome, meta_mensal, selic, last_dividend_sync, trial_pro/premium_used/start, referral_code, opcoes_favorites/watchlist (JSONB), gastos_rapidos (JSONB), ai_credits_extra, ai_summary_frequency, pais, cidade, data_nascimento, sexo |
 | `portfolios` | nome, cor, icone, ordem, operacoes_contas (bool) |
-| `operacoes` | ticker, tipo(compra/venda), categoria(acao/fii/etf/stock_int), qty, preco, custos, corretora, data, mercado(BR/INT), taxa_cambio, portfolio_id |
+| `operacoes` | ticker, tipo(compra/venda), categoria(acao/fii/etf/stock_int/bdr/adr/reit/cripto), qty, preco, custo_corretagem, custo_emolumentos, custo_impostos, corretora, data, mercado(BR/INT/CRIPTO), moeda_quote(USD/EUR/BRL), taxa_cambio, portfolio_id |
 | `opcoes` | ativo_base, ticker_opcao, tipo(call/put), direcao(venda/compra/lancamento), strike, premio, qty, vencimento, data_abertura, status, corretora, premio_fechamento, data_fechamento, alerta_pl, portfolio_id |
 | `proventos` | ticker, tipo_provento, valor_por_cota, qty, valor_total, data_pagamento, portfolio_id |
 | `renda_fixa` | tipo, emissor, taxa, indexador, valor_aplicado, vencimento, portfolio_id |
