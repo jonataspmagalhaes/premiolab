@@ -1,13 +1,15 @@
 'use client';
 
 // Card "Proximos Pagamentos" hibrido:
+// - PAGO (badge cinza-verde): provento com data_pagamento nos ultimos 14
+//   dias, vindo da tabela `proventos` (ja recebido na conta).
 // - CONFIRMADO (badge verde): provento ja anunciado oficialmente com
 //   data_pagamento futura, vindo da tabela `proventos` (sincronizada).
 // - ESTIMADO (badge amarelo): inferencia via calendario externo
 //   (DM/StatusInvest) na tabela `proventos_agenda`, exposto pelo hook
 //   useProventosCalendar.
 //
-// Ordenacao: data_pagamento crescente. Top 10 + "Ver todos" quando > 10.
+// Ordenacao: data_pagamento crescente. Top 10 + contagem do restante.
 
 import { useMemo } from 'react';
 import { useAppStore, type Provento, type ProventoEstimado } from '@/store';
@@ -16,15 +18,19 @@ import { useProventosCalendar } from '@/lib/queries';
 import { tipoLabel, valorLiquido, isIntTicker } from '@/lib/proventosUtils';
 import { fmtBRL } from '@/lib/fmt';
 
+type ProximosStatus = 'pago' | 'confirmado' | 'estimado';
+
 interface ProximosItem {
   ticker: string;
   categoria: string;
   data_pagamento: string;    // YYYY-MM-DD
   valor_liquido: number;     // ja com IR descontado (JCP 15%, INT 30%)
   tipo: string;              // tipo_provento normalizado
-  confirmado: boolean;
+  status: ProximosStatus;
   fonte?: string;            // 'manual' | 'dm' | 'statusinvest' | 'cache' | 'sync'
 }
+
+var JANELA_PAGO_DIAS = 14;   // quantos dias pra tras consideramos "pago"
 
 function parseIsoDate(s: string): Date {
   // Aceita YYYY-MM-DD ou ISO completo
@@ -42,10 +48,9 @@ function diasAte(dpIso: string): string {
   var d = parseIsoDate(dpIso);
   var ms = d.getTime() - Date.now();
   var dias = Math.ceil(ms / 86400000);
-  if (dias < 0) return 'hoje';
-  if (dias === 0) return 'hoje';
+  if (dias < -1) return 'ha ' + Math.abs(dias) + 'd';
+  if (dias === -1 || dias === 0) return 'hoje';
   if (dias === 1) return 'amanha';
-  if (dias <= 7) return 'em ' + dias + 'd';
   if (dias <= 30) return 'em ' + dias + 'd';
   return 'em ' + Math.round(dias / 30) + 'm';
 }
@@ -75,30 +80,32 @@ export function ProximosPagamentosCard() {
     return m;
   }, [positions]);
 
-  // Monta lista unificada
+  // Monta lista unificada (pagos recentes + confirmados futuros + estimados)
   var lista: ProximosItem[] = useMemo(function () {
     var out: ProximosItem[] = [];
     var now = Date.now();
-    var limiteFuturo = now + 60 * 86400000;
+    var limitePassado = now - JANELA_PAGO_DIAS * 86400000;  // 14 dias atras
+    var limiteFuturo = now + 60 * 86400000;                  // 60 dias a frente
 
-    // 1) Confirmados: proventos com data_pagamento > hoje (oficial, anunciado)
+    // 1) Proventos da tabela: classifica como "pago" (recente) ou "confirmado" (futuro)
     proventos.forEach(function (p: Provento) {
       var dp = parseIsoDate(p.data_pagamento).getTime();
-      if (dp < now) return;
+      if (dp < limitePassado) return;
       if (dp > limiteFuturo) return;
+      var status: ProximosStatus = dp <= now ? 'pago' : 'confirmado';
       out.push({
         ticker: p.ticker,
         categoria: catByTicker[p.ticker] || (isIntTicker(p.ticker) ? 'stock_int' : 'acao'),
         data_pagamento: p.data_pagamento,
         valor_liquido: valorLiquido(p.valor_total || 0, p.tipo_provento, p.ticker),
         tipo: p.tipo_provento,
-        confirmado: true,
+        status: status,
         fonte: p.fonte || 'manual',
       });
     });
 
-    // 2) Estimados: do calendario externo. Projetam valor por cota × qty atual.
-    // Dedup: se ja existe confirmado com mesmo ticker+data_pagamento+tipo, pula.
+    // 2) Estimados: somente futuros (nao faz sentido estimar o passado).
+    // Dedup: se ja existe confirmado/pago com mesmo ticker+data_pagamento+tipo, pula.
     var confKey: Record<string, boolean> = {};
     out.forEach(function (it) { confKey[it.ticker + '|' + it.data_pagamento + '|' + tipoLabel(it.tipo)] = true; });
 
@@ -117,25 +124,41 @@ export function ProximosPagamentosCard() {
         data_pagamento: e.data_pagamento,
         valor_liquido: valorLiquido(bruto, e.tipo, e.ticker),
         tipo: e.tipo,
-        confirmado: false,
+        status: 'estimado',
         fonte: e.fonte || 'dm',
       });
     });
 
-    out.sort(function (a, b) { return a.data_pagamento.localeCompare(b.data_pagamento); });
+    // Ordena: pagos mais recentes primeiro, depois confirmados por data crescente, depois estimados
+    out.sort(function (a, b) {
+      if (a.status === 'pago' && b.status !== 'pago') return -1;
+      if (b.status === 'pago' && a.status !== 'pago') return 1;
+      if (a.status === 'pago' && b.status === 'pago') {
+        // pago mais recente primeiro
+        return b.data_pagamento.localeCompare(a.data_pagamento);
+      }
+      return a.data_pagamento.localeCompare(b.data_pagamento);
+    });
     return out;
   }, [proventos, estimadosStore, catByTicker, qtyByTicker]);
 
   var top10 = lista.slice(0, 10);
   var totalMostrado = top10.reduce(function (acc, x) { return acc + x.valor_liquido; }, 0);
-  var qtdConfirmados = lista.filter(function (x) { return x.confirmado; }).length;
-  var qtdEstimados = lista.length - qtdConfirmados;
+  var qtdPagos = lista.filter(function (x) { return x.status === 'pago'; }).length;
+  var qtdConfirmados = lista.filter(function (x) { return x.status === 'confirmado'; }).length;
+  var qtdEstimados = lista.filter(function (x) { return x.status === 'estimado'; }).length;
 
   return (
     <div className="col-span-12 lg:col-span-6 linear-card rounded-xl p-5">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-xs uppercase tracking-wider text-white/40 font-mono">Proximos pagamentos · 60 dias</p>
-        <div className="flex items-center gap-2 text-[10px]">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <p className="text-xs uppercase tracking-wider text-white/40 font-mono">Pagamentos · 14d + 60d</p>
+        <div className="flex items-center gap-2 text-[10px] flex-wrap">
+          {qtdPagos > 0 ? (
+            <span className="flex items-center gap-1 text-white/60">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-white/60" />
+              {qtdPagos} pago{qtdPagos === 1 ? '' : 's'}
+            </span>
+          ) : null}
           <span className="flex items-center gap-1 text-emerald-300">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
             {qtdConfirmados} confirmado{qtdConfirmados === 1 ? '' : 's'}
@@ -171,18 +194,11 @@ export function ProximosPagamentosCard() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span
-                      className={
-                        'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ' +
-                        (x.confirmado
-                          ? 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/30'
-                          : 'text-amber-300 bg-amber-500/10 border border-amber-500/25')
-                      }
-                      title={x.confirmado ? 'Anunciado oficialmente' : 'Estimado via historico + calendario externo'}
-                    >
-                      {x.confirmado ? 'Confirmado' : 'Estimado'}
-                    </span>
-                    <p className="text-[12px] font-mono font-semibold text-income">
+                    <StatusBadge status={x.status} />
+                    <p className={
+                      'text-[12px] font-mono font-semibold ' +
+                      (x.status === 'pago' ? 'text-white/60 line-through decoration-white/30' : 'text-income')
+                    }>
                       R$ {fmtBRL(x.valor_liquido)}
                     </p>
                   </div>
@@ -204,5 +220,39 @@ export function ProximosPagamentosCard() {
         </>
       )}
     </div>
+  );
+}
+
+function StatusBadge(props: { status: ProximosStatus }) {
+  if (props.status === 'pago') {
+    return (
+      <span
+        className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded text-white/70 bg-white/[0.06] border border-white/[0.1] flex items-center gap-1"
+        title="Ja pago — apareceu na sua conta nos ultimos 14 dias"
+      >
+        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+          <path d="M5 12l5 5L20 7" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        Pago
+      </span>
+    );
+  }
+  if (props.status === 'confirmado') {
+    return (
+      <span
+        className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded text-emerald-300 bg-emerald-500/15 border border-emerald-500/30"
+        title="Anunciado oficialmente"
+      >
+        Confirmado
+      </span>
+    );
+  }
+  return (
+    <span
+      className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded text-amber-300 bg-amber-500/10 border border-amber-500/25"
+      title="Estimado via historico + calendario externo"
+    >
+      Estimado
+    </span>
   );
 }

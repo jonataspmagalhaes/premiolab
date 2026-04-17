@@ -210,3 +210,27 @@ body::after {
 .row-hover:hover {
   background: rgba(255,255,255,0.02);
 }
+
+/* ═══════ Recharts — remover outline azul ao clicar em barras e
+   elementos SVG. Por padrao navegadores desenham um focus ring em
+   elementos interativos SVG, que no dark mode aparece como retangulo
+   azul feio em volta de barras clicaveis. ═══════ */
+.recharts-wrapper,
+.recharts-wrapper *,
+.recharts-surface,
+.recharts-surface *,
+.recharts-bar-rectangle,
+.recharts-rectangle,
+.recharts-layer,
+.recharts-tooltip-cursor,
+svg g.recharts-bar-rectangles path,
+svg g.recharts-bar path {
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+.recharts-bar-rectangle:focus,
+.recharts-bar-rectangle:focus-visible,
+.recharts-rectangle:focus,
+.recharts-rectangle:focus-visible {
+  outline: none !important;
+}

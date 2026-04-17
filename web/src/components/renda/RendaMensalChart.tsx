@@ -189,6 +189,7 @@ export function RendaMensalChart(props: Props) {
             <Tooltip
               cursor={{ fill: 'rgba(249,115,22,0.06)' }}
               content={<CustomTooltip />}
+              wrapperStyle={selected ? { display: 'none' } : undefined}
             />
             {props.mediaRef > 0 ? (
               <ReferenceLine y={props.mediaRef} stroke="rgba(34,197,94,0.5)" strokeDasharray="4 4" />
