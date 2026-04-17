@@ -380,7 +380,7 @@ export function useOpcoes(userId: string | undefined) {
       if (!userId) return [];
       let q = supabase
         .from('opcoes')
-        .select('id, ativo_base, ticker_opcao, tipo, direcao, strike, premio, qty, vencimento, status, portfolio_id')
+        .select('id, ativo_base, ticker_opcao, tipo, direcao, strike, premio, qty, vencimento, status, portfolio_id, premio_fechamento, data_abertura, data_fechamento, corretora')
         .eq('user_id', userId);
 
       if (selectedPortfolio === '__null__') {

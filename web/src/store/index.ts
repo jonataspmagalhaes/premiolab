@@ -62,6 +62,23 @@ export interface Opcao {
   qty: number;
   vencimento: string;
   status: string;
+  // Campos expandidos pra calculo de P&L e IR
+  premio_fechamento?: number | null;
+  data_abertura?: string;
+  data_fechamento?: string | null;
+  portfolio_id?: string | null;
+  corretora?: string | null;
+}
+
+// Provento estimado (nao-anunciado, vem de calendario externo)
+// Hidratado por hook useProventosCalendar a partir de /api/proventos/calendar
+export interface ProventoEstimado {
+  ticker: string;
+  data_com: string;
+  data_pagamento: string;
+  valor_por_cota: number;
+  tipo: string;
+  fonte: 'dm' | 'statusinvest' | 'cache';
 }
 
 export interface RendaFixa {
@@ -135,9 +152,18 @@ export interface PatrimonioSlice {
 }
 
 export interface RendaSlice {
-  atual: number;
-  porFonte: { fii: number; acao: number; opcao: number; rf: number };
-  dyReal: number;
+  atual: number;                       // media 12m liquida
+  porFonte: {
+    fii: number;
+    acao: number;
+    etf: number;
+    stock_int: number;
+    opcao: number;
+    rf: number;
+  };
+  dyReal: number;                      // (liquido 12m / patrimonio) * 100
+  rendaOpcoes12m: number;              // soma liquida 12m de ganhos realizados em opcoes
+  proventosEstimados: ProventoEstimado[];  // hidratado por hook useProventosCalendar
 }
 
 export interface GapSlice {
@@ -178,6 +204,7 @@ interface AppState {
   setUsdBrl: (rate: number) => void;
   setProfile: (p: Profile) => void;
   setPortfolios: (p: Portfolio[]) => void;
+  setProventosEstimados: (e: ProventoEstimado[]) => void;
 
   // Derived (computed on set)
   patrimonio: PatrimonioSlice;
@@ -256,32 +283,90 @@ function computePatrimonio(positions: Position[], rf: RendaFixa[], caixa: Caixa[
   return { total, porClasse, investido };
 }
 
-function computeRenda(proventos: Provento[]): RendaSlice {
-  // Media ultimos 3 meses completos
-  const now = new Date();
-  const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const monthlyMap: Record<string, number> = {};
+// Helpers de IR para calculo liquido dentro do store (sem criar dep cruzada com proventosUtils.ts)
+function isIntTickerStore(t: string): boolean {
+  if (!t) return false;
+  return !/\d$/.test(t.toUpperCase());
+}
+function tipoLabelStore(t: string): string {
+  const x = (t || '').toLowerCase();
+  if (x.indexOf('jcp') >= 0 || x.indexOf('juros') >= 0) return 'JCP';
+  if (x.indexOf('rend') >= 0) return 'Rendimento';
+  return 'Dividendo';
+}
+function valorLiquidoStore(bruto: number, tipo: string, ticker: string): number {
+  if (tipoLabelStore(tipo) === 'JCP') return bruto * 0.85;
+  if (isIntTickerStore(ticker)) return bruto * 0.70;
+  return bruto;
+}
+
+function computeRenda(
+  proventos: Provento[],
+  positions: Position[],
+  opcoes: Opcao[],
+  patrimonioTotal: number,
+  estimados: ProventoEstimado[] = [],
+): RendaSlice {
+  // Mapa ticker -> categoria a partir de positions (evita lookup repetido)
+  const catByTicker: Record<string, string> = {};
+  for (const pos of positions) catByTicker[pos.ticker] = pos.categoria;
+
+  const now = Date.now();
+  const limite12m = now - 365 * 86400000;
+
+  // 1) Totais 12m liquidos + breakdown por fonte
+  const porFonte = { fii: 0, acao: 0, etf: 0, stock_int: 0, opcao: 0, rf: 0 };
+  let total12m = 0;
+  let total12mBruto = 0;
 
   for (const p of proventos) {
-    const d = new Date(p.data_pagamento);
-    if (isNaN(d.getTime())) continue;
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    monthlyMap[key] = (monthlyMap[key] || 0) + (p.valor_total || 0);
+    const d = new Date(p.data_pagamento).getTime();
+    if (isNaN(d)) continue;
+    if (d > now) continue;            // ignora futuros na soma historica
+    if (d < limite12m) continue;
+    const liquido = valorLiquidoStore(p.valor_total || 0, p.tipo_provento, p.ticker);
+    total12m += liquido;
+    total12mBruto += p.valor_total || 0;
+    const cat = catByTicker[p.ticker] || 'acao';
+    if (cat === 'fii') porFonte.fii += liquido;
+    else if (cat === 'etf') porFonte.etf += liquido;
+    else if (cat === 'stock_int') porFonte.stock_int += liquido;
+    else porFonte.acao += liquido;   // acao, bdr, adr, reit, etc
   }
 
-  const months = Object.keys(monthlyMap)
-    .filter(k => k !== currentKey)
-    .sort()
-    .slice(-3);
+  // 2) Renda de opcoes nos ultimos 12m (apenas operacoes ja realizadas)
+  let rendaOpcoes12m = 0;
+  for (const o of opcoes) {
+    const status = (o.status || '').toLowerCase();
+    const realizada = status === 'exercida' || status === 'expirada' || status === 'fechada' || status === 'expirou_po';
+    if (!realizada) continue;
+    const dataRef = o.data_fechamento || o.vencimento || o.data_abertura;
+    if (!dataRef) continue;
+    const ts = new Date(dataRef).getTime();
+    if (isNaN(ts) || ts < limite12m || ts > now) continue;
+    const qty = o.qty || 0;
+    const premioAbert = (o.premio || 0) * qty;
+    const premioFech = (o.premio_fechamento || 0) * qty;
+    const isVenda = (o.direcao || 'venda') === 'venda' || (o.direcao || '').toLowerCase() === 'lancamento';
+    // Venda: recebe premio na abertura; paga premio_fechamento se recomprou; se expirou, premio_fechamento = 0 (lucro cheio)
+    // Compra: paga premio na abertura; recebe premio_fechamento se vendeu; se expirou, perde tudo
+    const ganho = isVenda ? (premioAbert - premioFech) : (premioFech - premioAbert);
+    rendaOpcoes12m += ganho;
+  }
+  porFonte.opcao = rendaOpcoes12m;
 
-  let sum = 0;
-  for (const m of months) sum += monthlyMap[m] || 0;
-  const atual = months.length > 0 ? sum / months.length : 0;
+  // 3) atual = media mensal liquida 12m (proventos + opcoes)
+  const atual = (total12m + rendaOpcoes12m) / 12;
+
+  // 4) DY real liquido = (total liquido 12m incluindo opcoes) / patrimonio
+  const dyReal = patrimonioTotal > 0 ? ((total12m + rendaOpcoes12m) / patrimonioTotal) * 100 : 0;
 
   return {
     atual,
-    porFonte: { fii: 0, acao: 0, opcao: 0, rf: 0 },
-    dyReal: 0,
+    porFonte,
+    dyReal,
+    rendaOpcoes12m,
+    proventosEstimados: estimados,
   };
 }
 
@@ -290,7 +375,13 @@ const emptyPatrimonio: PatrimonioSlice = {
   porClasse: { fii: 0, acao: 0, etf: 0, stock_int: 0, bdr: 0, adr: 0, reit: 0, cripto: 0, fundo: 0, rf: 0, caixa: 0 },
   investido: 0,
 };
-const emptyRenda: RendaSlice = { atual: 0, porFonte: { fii: 0, acao: 0, opcao: 0, rf: 0 }, dyReal: 0 };
+const emptyRenda: RendaSlice = {
+  atual: 0,
+  porFonte: { fii: 0, acao: 0, etf: 0, stock_int: 0, opcao: 0, rf: 0 },
+  dyReal: 0,
+  rendaOpcoes12m: 0,
+  proventosEstimados: [],
+};
 const emptyGaps: GapSlice = { fiiDeficit: 0, acaoDeficit: 0, caixaOciosa: 0, mesesFracos: [] };
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -320,26 +411,43 @@ export const useAppStore = create<AppState>((set, get) => ({
   setPositions: (p) => {
     set({ positions: p });
     const state = get();
-    set({ patrimonio: computePatrimonio(p, state.rf, state.caixa, state.fundos, state.usdBrl) });
+    const patrimonio = computePatrimonio(p, state.rf, state.caixa, state.fundos, state.usdBrl);
+    set({
+      patrimonio,
+      renda: computeRenda(state.proventos, p, state.opcoes, patrimonio.total, state.renda.proventosEstimados),
+    });
   },
 
   setProventos: (p) => {
     set({ proventos: p });
-    set({ renda: computeRenda(p) });
+    const state = get();
+    set({ renda: computeRenda(p, state.positions, state.opcoes, state.patrimonio.total, state.renda.proventosEstimados) });
   },
 
-  setOpcoes: (o) => set({ opcoes: o }),
+  setOpcoes: (o) => {
+    set({ opcoes: o });
+    const state = get();
+    set({ renda: computeRenda(state.proventos, state.positions, o, state.patrimonio.total, state.renda.proventosEstimados) });
+  },
 
   setRf: (r) => {
     set({ rf: r });
     const state = get();
-    set({ patrimonio: computePatrimonio(state.positions, r, state.caixa, state.fundos, state.usdBrl) });
+    const patrimonio = computePatrimonio(state.positions, r, state.caixa, state.fundos, state.usdBrl);
+    set({
+      patrimonio,
+      renda: computeRenda(state.proventos, state.positions, state.opcoes, patrimonio.total, state.renda.proventosEstimados),
+    });
   },
 
   setFundos: (f) => {
     set({ fundos: f });
     const state = get();
-    set({ patrimonio: computePatrimonio(state.positions, state.rf, state.caixa, f, state.usdBrl) });
+    const patrimonio = computePatrimonio(state.positions, state.rf, state.caixa, f, state.usdBrl);
+    set({
+      patrimonio,
+      renda: computeRenda(state.proventos, state.positions, state.opcoes, patrimonio.total, state.renda.proventosEstimados),
+    });
   },
 
   setSaldos: (s) => {
@@ -350,15 +458,28 @@ export const useAppStore = create<AppState>((set, get) => ({
   setCaixa: (c) => {
     set({ caixa: c });
     const state = get();
-    set({ patrimonio: computePatrimonio(state.positions, state.rf, c, state.fundos, state.usdBrl) });
+    const patrimonio = computePatrimonio(state.positions, state.rf, c, state.fundos, state.usdBrl);
+    set({
+      patrimonio,
+      renda: computeRenda(state.proventos, state.positions, state.opcoes, patrimonio.total, state.renda.proventosEstimados),
+    });
   },
 
   setUsdBrl: (rate) => {
     set({ usdBrl: rate });
     const state = get();
-    set({ patrimonio: computePatrimonio(state.positions, state.rf, state.caixa, state.fundos, rate) });
+    const patrimonio = computePatrimonio(state.positions, state.rf, state.caixa, state.fundos, rate);
+    set({
+      patrimonio,
+      renda: computeRenda(state.proventos, state.positions, state.opcoes, patrimonio.total, state.renda.proventosEstimados),
+    });
   },
 
   setProfile: (p) => set({ profile: p }),
   setPortfolios: (p) => set({ portfolios: p }),
+
+  setProventosEstimados: (e) => {
+    const state = get();
+    set({ renda: { ...state.renda, proventosEstimados: e } });
+  },
 }));
